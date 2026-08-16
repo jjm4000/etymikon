@@ -39,6 +39,13 @@ privacy-policy update ("stores your display preferences locally"):
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
 - Omnibox lookup (`hj 국민` from the address bar)
 - 급수 proficiency-level badges (blocked on a cleanly licensed source)
+- General dictionary mode: include native Korean words, not just Sino-Korean
+  (the full Wiktionary Korean extract is already downloaded and parsed at
+  build time — this is a filter change plus roughly double words.json, and a
+  product-identity decision more than a technical one)
+- Sidebar lookup: a typeable dictionary panel via Chrome's sidePanel API,
+  complementing selection lookup — pairs naturally with general dictionary
+  mode and the omnibox idea
 - List views auto-growing taller than card views
 - Korean-language store listing
 
