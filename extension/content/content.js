@@ -1770,12 +1770,14 @@
     return null;
   }
 
-  function findViewByKey(key) {
-    if (!key) return -1;
-    for (var i = 0; i < viewStack.length; i++) {
-      if (viewStack[i].key === key) return i;
-    }
-    return -1;
+  // Only the CURRENT view is protected from duplication. Arriving at a place
+  // that is further back in the trail is still forward travel — 學生 › 學校 ›
+  // 學生 is a legitimate descent, the same way browser history records a
+  // revisit — so an ancestor match pushes normally rather than collapsing.
+  function isCurrentView(key) {
+    if (!key) return false;
+    var top = viewStack[viewStack.length - 1];
+    return !!top && top.key === key;
   }
 
   // Already-on-screen target: no push. Scroll back to the top and flash the
@@ -1790,12 +1792,10 @@
       card.querySelector(".reading-title") || card);
   }
 
-  // Re-enter a level already in the trail: the current one just orients,
-  // an ancestor behaves exactly like clicking its crumb.
-  function enterExistingView(index) {
-    if (index < 0) return false;
-    if (index === viewStack.length - 1) orientCurrentView();
-    else goToDepth(index);
+  // Already here: orient instead of stacking a copy of this very view.
+  function reenterCurrentView(key) {
+    if (!isCurrentView(key)) return false;
+    orientCurrentView();
     return true;
   }
 
@@ -1957,7 +1957,7 @@
   // Descend one level. Every drill-down goes through here, so the breadcrumb,
   // the saved scroll offset and the fade-in stay consistent.
   function pushView(view) {
-    if (enterExistingView(findViewByKey(view.key))) return;
+    if (reenterCurrentView(view.key)) return;
     saveCurrentViewState();
     viewStack.push({
       key: view.key || null, label: view.label, matches: view.matches,
@@ -1973,11 +1973,10 @@
     var target = nonEmptyString(text);
     if (!target) return;
 
-    // Rows navigate by canonical spelling, so the key is usually knowable
-    // before asking the worker anything. Re-entering costs zero lookups.
-    var known = findViewByKey("word:" + target);
-    if (known < 0) known = findViewByKey("char:" + target);
-    if (enterExistingView(known)) return;
+    // Rows navigate by canonical spelling, so "am I already here?" is usually
+    // answerable before asking the worker anything.
+    if (reenterCurrentView("word:" + target) ||
+        reenterCurrentView("char:" + target)) return;
 
     var seq = requestSeq;
     fetchLookup(target).then(function (response) {
@@ -1988,7 +1987,7 @@
       // Authoritative check: a variant surface (学生) only resolves to its
       // canonical key once the worker has answered.
       var key = viewKey(list);
-      if (enterExistingView(findViewByKey(key))) return;
+      if (reenterCurrentView(key)) return;
       pushView({ key: key, label: viewLabel(list, target), matches: list });
     });
   }

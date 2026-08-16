@@ -2549,28 +2549,48 @@
       api.viewDepth() === 1 && fake.__calls === selfCalls,
       "depth=" + api.viewDepth() + " calls=" + fake.__calls);
 
-    // --- target is an ANCESTOR: behaves like clicking that crumb ----------
+    // --- target is an ANCESTOR: forward navigation still goes FORWARD -----
+    // Revisiting a place further back in the trail is not a "back" gesture;
+    // 學生 › 大學 › 學生 is a legitimate descent, like browser history.
     api.showAt(anchor, fake.__lookup("학생").matches);
-    api.scrollTop(90);
-    var ancestorScroll = api.scrollTop();
-    check("test setup: the root view is scrolled", ancestorScroll > 50,
-      "scrollTop=" + ancestorScroll);
     compoundRowFor("大學").click();           // 學生 › 大學
     await wait(120);
     check("test setup: descended to 學生 › 大學",
       api.viewDepth() === 2 && api.viewKeys().join(",") === "word:學生,word:大學",
       "keys=" + api.viewKeys().join(","));
-    var ancestorCalls = fake.__calls;
     compoundRowFor("學生").click();          // 학생 again, from one level down
     await wait(120);
-    check("navigating to an ancestor jumps back instead of pushing",
-      api.viewDepth() === 1 && api.viewKeys().join(",") === "word:學生",
+    check("navigating to an ancestor pushes forward, it does NOT jump back",
+      api.viewDepth() === 3 &&
+      api.viewKeys().join(",") === "word:學生,word:大學,word:學生",
       "depth=" + api.viewDepth() + " keys=" + api.viewKeys().join(","));
-    check("the ancestor jump re-queries nothing", fake.__calls === ancestorCalls,
-      "calls " + ancestorCalls + " → " + fake.__calls);
-    check("the ancestor jump restores that level's scroll offset",
-      Math.abs(api.scrollTop() - ancestorScroll) <= 2,
-      "want " + ancestorScroll + " got " + Math.round(api.scrollTop()));
+    check("the revisited view gets its own crumb",
+      api.crumbLabels().join(" › ") === "學生 › 大學 › 學生",
+      api.crumbLabels().join(" › "));
+    check("the earlier crumb still jumps back to the first 學生",
+      (function () {
+        api.queryAll(".crumb")[0].click();
+        return api.viewDepth() === 1;
+      })(), "depth=" + api.viewDepth());
+
+    // A target already in lookupCache costs nothing to revisit.
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    compoundRowFor("大學").click();           // caches the 大學 lookup
+    await wait(120);
+    compoundRowFor("學生").click();           // caches the 學生 lookup
+    await wait(120);
+    check("test setup: three deep with both targets cached",
+      api.viewDepth() === 3, "depth=" + api.viewDepth());
+    var revisitCalls = fake.__calls;
+    compoundRowFor("大學").click();           // 大學 again, already cached
+    await wait(120);
+    check("re-visiting a cached ancestor pushes a fresh view",
+      api.viewDepth() === 4 &&
+      api.viewKeys().join(",") ===
+        "word:學生,word:大學,word:學生,word:大學",
+      "keys=" + api.viewKeys().join(","));
+    check("...and costs ZERO new lookups", fake.__calls === revisitCalls,
+      "calls " + revisitCalls + " → " + fake.__calls);
 
     // --- a genuinely different target still pushes -----------------------
     api.showAt(anchor, fake.__lookup("학생").matches);
