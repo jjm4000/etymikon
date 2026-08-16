@@ -384,6 +384,12 @@ Service worker behavior:
   "← back" restores, results cached per part. `type:"char"` parts get no row
   (they're already in the component-hanja section). Homograph chip swaps swap
   the parts section along with the rest of the card body.
+- Edu badge (ADDENDUM — 급 levels phase 1): char cards whose match carries
+  `edu: true`, and reading-list rows whose candidate does, render a small
+  quiet badge (suggested label "기초", title/aria "MOE basic education hanja
+  (1,800)") near the eumhun — informative, not loud; muted colors in both
+  themes. Nested component cards inherit it at their smaller scale. No badge
+  anywhere when the flag is absent.
 - Clickable eumhun chips (ADDENDUM): the per-character eumhun chips on word
   cards are click targets. Primary behavior: smooth-scroll the popup to that
   character's nested COMPONENT HANJA card and flash-highlight it briefly
