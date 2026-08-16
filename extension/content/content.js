@@ -51,6 +51,7 @@
     };
     function respond(msg) {
       if (msg && msg.type === "compounds") return { ok: true, compounds: [] };
+      if (msg && msg.type === "usedIn") return { ok: true, words: [] };
       var text = (msg && msg.text) || "";
       var out = [];
       var seen = Object.create(null);
@@ -253,21 +254,22 @@
     // The negative side margins let a row's hover background bleed into the
     // card padding, so the compound text still lines up with the label above.
     ".compounds { margin-top: 2px; margin-left: -6px; margin-right: -6px; }",
-    ".compound-row {",
+    // .entry-row is shared by compound rows and the used-in list rows.
+    ".entry-row {",
     "  display: flex; align-items: baseline; gap: 6px;",
     "  padding: 2px 6px; border-radius: 6px;",
     "}",
-    ".compound-row > .clampwrap { flex: 1 1 auto; min-width: 0; }",
+    ".entry-row > .clampwrap { flex: 1 1 auto; min-width: 0; }",
     // Hangul-only compounds have nothing to look up: no pointer, no chevron.
-    ".compound-row.nav { cursor: pointer; }",
+    ".entry-row.nav { cursor: pointer; }",
     ".compound { overflow-wrap: anywhere; }",
     ".cpd-hangul { font-weight: 600; color: var(--fg); }",
     ".cpd-hanja { color: var(--muted); }",
     ".cpd-gloss { color: var(--fg-soft); }",
     // Same muted treatment a rare homograph chip gets.
-    ".compound-row.rare .cpd-hangul,",
-    ".compound-row.rare .cpd-hanja,",
-    ".compound-row.rare .cpd-gloss { color: var(--hedge-fg); }",
+    ".entry-row.rare .cpd-hangul,",
+    ".entry-row.rare .cpd-hanja,",
+    ".entry-row.rare .cpd-gloss { color: var(--hedge-fg); }",
     ".cpd-rare {",
     "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
     "  text-transform: uppercase; margin-left: 4px; vertical-align: super;",
@@ -284,6 +286,18 @@
     ".cpd-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
     // A step smaller inside a nested component card, like its Wiktionary link.
     ".card.component .cpd-more { font-size: 11px; padding: 2px 8px; }",
+    /* ---- used-in: one collapsed disclosure row, then a dedicated view ---- */
+    // Design option C: word cards stay lean, so the count is a single line at
+    // the end of the word body rather than an inline list.
+    ".usedin-row {",
+    "  margin: 9px -6px 0; padding: 4px 6px;",
+    "  color: var(--muted); font-size: 12px;",
+    "}",
+    ".usedin-row b { font-weight: 600; color: var(--fg-soft); }",
+    ".card.component .usedin-row { font-size: 11px; }",
+    ".view > .card.usedin { padding: 0; }",
+    ".usedin-list { padding: 3px 0 5px; }",
+    ".usedin-item { padding: 4px 12px; border-radius: 0; }",
     /* ---- nested sections: component words + component hanja ---- */
     // Sections are built only when populated; an empty one must take no space.
     ".parts:empty, .components:empty, .hedge:empty, .top-chars:empty { display: none; }",
@@ -357,20 +371,20 @@
     ".r-eumhun { font-weight: 600; color: var(--accent); }",
     ".r-gloss { color: var(--muted); }",
     /* ---- shared affordance for navigable rows ---- */
-    ".reading-row:hover, .part-row:hover, .compound-row.nav:hover {",
+    ".reading-row:hover, .part-row:hover, .entry-row.nav:hover {",
     "  background: var(--hover);",
     "}",
     ".reading-row:focus-visible, .part-row:focus-visible,",
-    ".compound-row.nav:focus-visible {",
+    ".entry-row.nav:focus-visible {",
     "  outline: 2px solid var(--accent); outline-offset: -2px;",
     "}",
-    ".reading-row::after, .part-row::after, .compound-row.nav::after {",
+    ".reading-row::after, .part-row::after, .entry-row.nav::after {",
     "  content: '\\203A'; margin-left: auto; padding-left: 8px;",
     "  align-self: center; color: var(--faint); font-size: 15px; line-height: 1;",
     "  flex: 0 0 auto;",
     "}",
     ".reading-row:hover::after, .part-row:hover::after,",
-    ".compound-row.nav:hover::after { color: var(--accent); }",
+    ".entry-row.nav:hover::after { color: var(--accent); }",
     /* ---- breadcrumb trail (one nav bar for every drill-down) ---- */
     ".crumbs {",
     "  position: sticky; top: 0; z-index: 2;",
@@ -391,7 +405,17 @@
     ".crumb.current {",
     "  color: var(--fg); cursor: default; background: transparent;",
     "}",
-    ".crumb-sep, .crumb-gap { color: var(--faint); flex: 0 0 auto; padding: 0 1px; }",
+    ".crumb-sep { color: var(--faint); flex: 0 0 auto; padding: 0 1px; }",
+    // The elision is a control, not decoration: pressing it reveals every
+    // level, so an intermediate view is never unreachable.
+    ".crumb-gap {",
+    "  font: inherit; font-size: 12px; line-height: 1.3; flex: 0 0 auto;",
+    "  margin: 0; padding: 2px 4px; border: 0; border-radius: 5px;",
+    "  background: transparent; color: var(--faint); cursor: pointer;",
+    "}",
+    ".crumb-gap:hover { background: var(--hover); color: var(--fg-soft); }",
+    ".crumb-gap:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }",
+    ".crumbs.expanded { flex-wrap: wrap; row-gap: 1px; }",
     /* ---- scrollbar ---- */
     ".panel::-webkit-scrollbar { width: 10px; }",
     ".panel::-webkit-scrollbar-thumb {",
@@ -446,6 +470,9 @@
   var lookupCache = null;     // lookup text -> response, so nav never re-queries
   var compoundsCache = null;  // char -> full joined compound list (one request)
   var compoundsPending = null;// char -> in-flight promise, so two cards share it
+  var usedInCache = null;     // word -> larger words containing it
+  var usedInPending = null;   // word -> in-flight promise
+  var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
   var charDataIndex = null;   // char -> char match data (accumulates)
   var viewStack = [];         // the descent; last entry is the current view
   var wordStates = [];        // one per word surface in the current view
@@ -500,6 +527,9 @@
     lookupCache = Object.create(null);
     compoundsCache = Object.create(null);
     compoundsPending = Object.create(null);
+    usedInCache = Object.create(null);
+    usedInPending = Object.create(null);
+    crumbsExpanded = false;
     charDataIndex = Object.create(null);
     viewStack = [];
     wordStates = [];
@@ -715,7 +745,9 @@
     return link;
   }
 
-  // Wires a div as a keyboard-accessible navigation row.
+  // Wires a div as a keyboard-accessible navigation row. `target` is either the
+  // text of a follow-up lookup or a function that performs the navigation
+  // itself (the used-in disclosure needs its own request).
   function makeNavRow(row, target) {
     row.setAttribute("role", "button");
     row.setAttribute("tabindex", "0");
@@ -723,7 +755,8 @@
       ev.preventDefault();
       ev.stopPropagation();
       if (hasShadowSelection()) return;
-      navigateTo(target);
+      if (typeof target === "function") target();
+      else navigateTo(target);
     }
     row.addEventListener("click", function (ev) {
       // The "more" expander stops propagation itself; this is belt and braces.
@@ -788,6 +821,71 @@
       chipCount++;
     }
     if (chipCount) body.appendChild(chips);
+
+    appendUsedInRow(body, m);
+  }
+
+  // Used-in disclosure (design option C): ONE collapsed line at the end of the
+  // word body, never an inline list — the card stays about this word and its
+  // components. Rebuilt with the body, so a homograph chip swap re-points it at
+  // the newly selected spelling (and drops it when that spelling has no count).
+  function appendUsedInRow(body, m) {
+    var count = (typeof m.usedInCount === "number" && isFinite(m.usedInCount) &&
+      m.usedInCount > 0) ? Math.floor(m.usedInCount) : 0;
+    var word = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
+    if (!count || !word) return;
+
+    var row = el("div", "entry-row usedin-row nav");
+    var text = el("span", "usedin-text");
+    text.appendChild(document.createTextNode("Used in "));
+    text.appendChild(el("b", null, String(count)));
+    text.appendChild(document.createTextNode(
+      count === 1 ? " larger word" : " larger words"));
+    row.appendChild(text);
+
+    var busy = false;
+    makeNavRow(row, function () {
+      if (busy) return;
+      busy = true;
+      row.setAttribute("aria-busy", "true");
+      var seq = requestSeq;
+      fetchUsedIn(word).then(function (words) {
+        if (seq !== requestSeq) return;
+        busy = false;
+        row.removeAttribute("aria-busy");
+        // Failure (or an empty list): stay on the card, keep the row pressable.
+        if (!words || !words.length) return;
+        pushView({
+          label: "Used in",
+          matches: [{ kind: "usedin", word: word, rows: words }]
+        });
+      });
+    });
+    body.appendChild(row);
+  }
+
+  // The used-in list: same shape as the homophone browser, one nav row per
+  // larger word.
+  function buildUsedInCard(m) {
+    var rows = asArray(m.rows).filter(function (w) {
+      return w && typeof w === "object" && (nonEmptyString(w.hanja) || nonEmptyString(w.hangul));
+    });
+    if (!rows.length) return null;
+
+    var card = el("div", "card usedin");
+    var title = el("div", "reading-title");
+    title.appendChild(document.createTextNode(
+      rows.length + (rows.length === 1 ? " word contains " : " words contain ")));
+    title.appendChild(el("b", null, nonEmptyString(m.word)));
+    card.appendChild(title);
+
+    var list = el("div", "usedin-list");
+    rows.forEach(function (w) {
+      var row = buildEntryRow(w, "usedin-item");
+      if (row) list.appendChild(row);
+    });
+    card.appendChild(list);
+    return card;
   }
 
   // COMPONENT WORDS: the word's interior re-segmented into sub-words. Each row
@@ -976,17 +1074,18 @@
     return card;
   }
 
-  // One compound line: "국민 (國民): the people of a nation". A row with a
-  // hanja spelling is a nav row exactly like a component-word row; hangul-only
-  // entries (they exist in the data) have nothing to look up, so they get no
+  // One dictionary line: "국민 (國民): the people of a nation". Shared by the
+  // compound rows on char cards and the used-in list view. A row with a hanja
+  // spelling is a nav row exactly like a component-word row; entries with no
+  // spelling to look up (hangul-only compounds exist in the data) get no
   // chevron and no click target.
-  function buildCompoundRow(c) {
+  function buildEntryRow(c, className) {
     if (!c || typeof c !== "object") return null;
     var hangul = nonEmptyString(c.hangul);
     var hanja = nonEmptyString(c.hanja);
     if (!hangul && !hanja) return null;
 
-    var row = el("div", "compound-row");
+    var row = el("div", "entry-row " + className);
     var text = el("span", "compound");
     text.appendChild(el("span", "cpd-hangul", hangul || hanja));
     if (hanja && hangul) text.appendChild(el("span", "cpd-hanja", " (" + hanja + ")"));
@@ -1003,6 +1102,10 @@
       makeNavRow(row, hanja);
     }
     return row;
+  }
+
+  function buildCompoundRow(c) {
+    return buildEntryRow(c, "compound-row");
   }
 
   // Scrolls `node` back into the panel's visible band after the card grew,
@@ -1206,10 +1309,12 @@
     topCharsBox = null;
 
     var readings = [];
+    var usedIns = [];
     var words = [];
     var responseChars = [];
     for (var i = 0; i < list.length; i++) {
       if (list[i].kind === "reading") readings.push(list[i]);
+      else if (list[i].kind === "usedin") usedIns.push(list[i]);
       else if (list[i].kind === "word") words.push(list[i]);
       else if (list[i].kind === "char") {
         var ck = spellingKey(list[i]);
@@ -1231,6 +1336,13 @@
     }
 
     var count = 0;
+    for (var u = 0; u < usedIns.length; u++) {
+      var usedInCard = buildUsedInCard(usedIns[u]);
+      if (usedInCard) {
+        viewRoot.appendChild(usedInCard);
+        count++;
+      }
+    }
     for (var r = 0; r < readings.length; r++) {
       var readingCard = buildReadingCard(readings[r]);
       if (readingCard) {
@@ -1295,20 +1407,35 @@
   }
 
   // Crumbs: every level except the last jumps straight to that cached view.
-  // Long trails keep the first and the last two, eliding the middle.
+  // Long trails keep the first and the last two, eliding the middle — but the
+  // elision is a button that expands the trail in place, so no intermediate
+  // level is ever unreachable. The expansion lasts until the next navigation.
   function buildCrumbs() {
     var bar = el("div", "crumbs");
     var last = viewStack.length - 1;
     var indices = [];
-    if (viewStack.length <= MAX_CRUMBS) {
-      for (var i = 0; i < viewStack.length; i++) indices.push(i);
+    var i;
+    if (viewStack.length <= MAX_CRUMBS || crumbsExpanded) {
+      for (i = 0; i < viewStack.length; i++) indices.push(i);
+      if (crumbsExpanded) bar.classList.add("expanded");
     } else {
       indices = [0, -1, last - 1, last];
     }
     indices.forEach(function (idx, pos) {
       if (pos > 0) bar.appendChild(el("span", "crumb-sep", "›"));
       if (idx === -1) {
-        bar.appendChild(el("span", "crumb-gap", "…"));
+        var gap = el("button", "crumb-gap", "…");
+        gap.type = "button";
+        gap.setAttribute("aria-label",
+          "Show all " + viewStack.length + " steps of the trail");
+        gap.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          crumbsExpanded = true;
+          refreshCrumbs();
+          refreshLayout();
+        });
+        bar.appendChild(gap);
         return;
       }
       var view = viewStack[idx];
@@ -1331,12 +1458,23 @@
     return bar;
   }
 
+  // Swaps just the nav bar, so expanding the trail keeps the cards below
+  // (and their revealed compounds) exactly as they are.
+  function refreshCrumbs() {
+    if (!viewRoot) return;
+    var current = viewRoot.querySelector(".crumbs");
+    if (!current) return;
+    viewRoot.replaceChild(buildCrumbs(), current);
+  }
+
   // Renders whatever is at the top of the stack.
   function renderCurrentView() {
     ensureHost();
     var view = viewStack[viewStack.length - 1];
     if (!view) return 0;
 
+    // Any navigation re-collapses an expanded trail.
+    crumbsExpanded = false;
     clearNode(panel);
     panel.scrollTop = 0;
     viewRoot = el("div", "view");
@@ -1388,6 +1526,17 @@
     });
   }
 
+  // Descend one level. Every drill-down goes through here, so the breadcrumb,
+  // the saved scroll offset and the fade-in stay consistent.
+  function pushView(view) {
+    saveCurrentViewState();
+    viewStack.push({
+      label: view.label, matches: view.matches, scrollTop: 0, selection: null
+    });
+    renderCurrentView();
+    refreshLayout();
+  }
+
   function navigateTo(text) {
     var seq = requestSeq;
     fetchLookup(text).then(function (response) {
@@ -1395,12 +1544,7 @@
       if (!response || response.ok !== true) return;  // keep the current view
       var list = usableMatches(response.matches);
       if (!list.length) return;
-      saveCurrentViewState();
-      viewStack.push({
-        label: viewLabel(list, text), matches: list, scrollTop: 0, selection: null
-      });
-      renderCurrentView();
-      refreshLayout();
+      pushView({ label: viewLabel(list, text), matches: list });
     });
   }
 
@@ -1608,6 +1752,27 @@
       return list;
     });
     if (compoundsPending) compoundsPending[char] = promise;
+    return promise;
+  }
+
+  // The larger words containing this one. Same caching contract as the
+  // compound index: one request per word per popup session, failures resolve
+  // to null and are not cached so the disclosure row can simply be re-pressed.
+  function fetchUsedIn(word) {
+    if (usedInCache && Object.prototype.hasOwnProperty.call(usedInCache, word)) {
+      return Promise.resolve(usedInCache[word]);
+    }
+    if (usedInPending && usedInPending[word]) return usedInPending[word];
+    var promise = sendToWorker({ type: "usedIn", word: word }).then(function (response) {
+      if (usedInPending) delete usedInPending[word];
+      if (!response || response.ok !== true || !Array.isArray(response.words)) return null;
+      var list = response.words.filter(function (w) {
+        return w && typeof w === "object";
+      });
+      if (usedInCache) usedInCache[word] = list;
+      return list;
+    });
+    if (usedInPending) usedInPending[word] = promise;
     return promise;
   }
 

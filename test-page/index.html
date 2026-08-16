@@ -344,7 +344,13 @@
     "留學": [{ hangul: "유학", glosses: ["studying abroad"] }],
     "入學": [{ hangul: "입학", glosses: ["entering a school"] }],
     // The one rare entry in the index: revealed rows must render it muted.
-    "晩學": [{ hangul: "만학", glosses: ["taking up study late in life"], rare: true }]
+    "晩學": [{ hangul: "만학", glosses: ["taking up study late in life"], rare: true }],
+    // --- larger words containing 學生, for the used-in disclosure ---------
+    "中學生": [{ hangul: "중학생", glosses: ["middle school student"] }],
+    "女學生": [{ hangul: "여학생", glosses: ["female student"] }],
+    "留學生": [{ hangul: "유학생", glosses: ["an exchange student"] }],
+    "小學生": [{ hangul: "소학생", glosses: ["elementary school pupil"] }],
+    "苦學生": [{ hangul: "고학생", glosses: ["a working student"], rare: true }]
   };
 
   // ADDENDUM `cw`: EVERY words.json spelling containing the char, ranked, as a
@@ -357,6 +363,38 @@
       "學者", "學問", "學院", "學術", "留學", "入學", "大學生", "晩學"
     ]
   };
+
+  // ADDENDUM used-in: the words.json spellings that STRICTLY contain a word
+  // (self excluded), ranked. The worker derives these from the first char's cw
+  // index; the fixture pins an explicit ranked list for 學生 and falls back to
+  // a scan over `words` for everything else, which is the same contract.
+  var USED_IN = {
+    "學生": ["大學生", "中學生", "女學生", "留學生", "小學生", "苦學生"]
+  };
+
+  function usedInSpellings(word) {
+    if (typeof word !== "string" || word.length < 2) return [];
+    if (USED_IN[word]) {
+      return USED_IN[word].filter(function (sp) { return !!WORDS[sp]; });
+    }
+    return Object.keys(WORDS).filter(function (sp) {
+      return sp !== word && sp.indexOf(word) >= 0;
+    });
+  }
+
+  function buildUsedIn(word) {
+    return usedInSpellings(canonicalize(String(word || "").normalize("NFC")))
+      .map(function (spelling) {
+        var sense = (WORDS[spelling] || [])[0] || {};
+        var entry = {
+          hanja: spelling,
+          hangul: sense.hangul || "",
+          gloss: (sense.glosses || [])[0] || ""
+        };
+        if (sense.rare === true) entry.rare = true;
+        return entry;
+      });
+  }
 
   // The service worker's `buildFullCompounds`: join each cw spelling against
   // `words` (first sense: hangul, first gloss or "", rare only when true),
@@ -464,6 +502,10 @@
       chars: hanja.split("")
     };
     if (isRare(hanja)) m.rare = true;   // flag omitted when false
+    // ADDENDUM used-in: how many larger words contain this spelling. Omitted
+    // when 0, so the UI knows to render no disclosure row at all.
+    var usedIn = usedInSpellings(hanja).length;
+    if (usedIn > 0) m.usedInCount = usedIn;
     var parts = computeParts(hanja);
     if (parts) m.parts = parts;
     return m;
@@ -577,6 +619,9 @@
     __compoundCalls: 0,  // {type:"compounds"} only
     __lastChar: null,
     __failCompounds: false,  // flip on to exercise the retry path
+    __usedInCalls: 0,    // {type:"usedIn"} only
+    __lastWord: null,
+    __failUsedIn: false,
     sendMessage: function (msg, cb) {
       this.__calls++;
       var resp;
@@ -590,6 +635,12 @@
           resp = this.__failCompounds
             ? { ok: false, error: "simulated failure" }
             : { ok: true, compounds: fullCompounds(msg.char) };
+        } else if (msg && msg.type === "usedIn") {
+          this.__usedInCalls++;
+          this.__lastWord = msg.word;
+          resp = this.__failUsedIn
+            ? { ok: false, error: "simulated failure" }
+            : { ok: true, words: buildUsedIn(msg.word) };
         } else {
           resp = { ok: false, error: "unknown message type" };
         }
@@ -600,7 +651,8 @@
       return Promise.resolve(resp);
     },
     __lookup: lookup,
-    __fullCompounds: fullCompounds
+    __fullCompounds: fullCompounds,
+    __usedIn: buildUsedIn
   };
 })();
 </script>
@@ -1791,6 +1843,243 @@
     check("chars without a cw index render no control",
       !api.query(".cpd-more") && api.queryAll(".compounds > .compound-row").length === 5,
       "rows=" + api.queryAll(".compounds > .compound-row").length);
+
+    // --- ADDENDUM: used-in disclosure (design option C) ------------------
+    function usedInRows() { return api.queryAll(".usedin-list > .usedin-item"); }
+    function follows(a, b) {   // true when b comes after a in document order
+      return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }
+
+    var stu = fake.__lookup("학생").matches.filter(function (m) { return m.kind === "word"; })[0];
+    check("fixture: 學生 carries usedInCount 6",
+      stu.usedInCount === 6, "usedInCount=" + stu.usedInCount);
+    check("fixture: a word nothing contains has NO usedInCount",
+      fake.__lookup("국민").matches[0].usedInCount === undefined,
+      String(fake.__lookup("국민").matches[0].usedInCount));
+    check("fixture: the canned list is 6 entries with one rare",
+      fake.__usedIn("學生").length === 6 &&
+      fake.__usedIn("學生").filter(function (w) { return w.rare; }).length === 1,
+      fake.__usedIn("學生").map(function (w) { return w.hanja; }).join(","));
+
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    check("word card renders ONE collapsed used-in row",
+      api.queryAll(".usedin-row").length === 1 &&
+      api.query(".usedin-row").textContent === "Used in 6 larger words",
+      JSON.stringify(api.query(".usedin-row").textContent));
+    check("no inline used-in rows on the card itself",
+      api.queryAll(".usedin-item").length === 0);
+    check("used-in row is a nav row with the standard chevron",
+      api.query(".usedin-row").classList.contains("nav") &&
+      api.query(".usedin-row").getAttribute("role") === "button" &&
+      getComputedStyle(api.query(".usedin-row"), "::after").content.indexOf("›") >= 0,
+      getComputedStyle(api.query(".usedin-row"), "::after").content);
+    check("used-in row sits at the END of the word body, after the chips",
+      api.query(".usedin-row").parentNode.classList.contains("word-body") &&
+      api.query(".word-body").lastChild === api.query(".usedin-row") &&
+      follows(api.query(".word-body .chips"), api.query(".usedin-row")));
+    check("char cards get NO used-in row",
+      api.queryAll(".component-list > .card.component .usedin-row").length === 0);
+
+    // A card that has BOTH: the row must precede the COMPONENT WORDS section.
+    api.showAt(anchor, fake.__lookup("大學生").matches);
+    check("大學生 has parts AND a used-in count",
+      !!api.query(".part-list") && !!api.query(".usedin-row"),
+      "parts=" + !!api.query(".part-list") + " row=" + !!api.query(".usedin-row"));
+    check("used-in row comes BEFORE the COMPONENT WORDS section",
+      follows(api.query(".usedin-row"), api.query(".part-list")) &&
+      follows(api.query(".usedin-row"), api.query(".component-list")));
+
+    // --- opening the list view -------------------------------------------
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    var usedCallsBefore = fake.__usedInCalls;
+    var depthBeforeUsed = api.viewDepth();
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("disclosure click opens a dedicated list view",
+      api.viewDepth() === depthBeforeUsed + 1 && !!api.query(".card.usedin"),
+      "depth=" + api.viewDepth());
+    check("it issues exactly one usedIn request",
+      fake.__usedInCalls === usedCallsBefore + 1 && fake.__lastWord === "學生",
+      "calls=" + fake.__usedInCalls + " word=" + fake.__lastWord);
+    check("list view is titled '6 words contain 學生'",
+      api.query(".card.usedin .reading-title").textContent === "6 words contain 學生",
+      JSON.stringify(api.query(".card.usedin .reading-title").textContent));
+    check("every entry renders as a nav row",
+      usedInRows().length === 6 &&
+      usedInRows().every(function (r) {
+        return r.classList.contains("nav") && r.getAttribute("role") === "button";
+      }), "rows=" + usedInRows().length);
+    check("rows read 'hangul (hanja): gloss'",
+      /^대학생 \(大學生\): /.test(usedInRows()[0].textContent),
+      JSON.stringify(usedInRows()[0].textContent));
+    check("the list view is the only card", api.cardCount() === 1,
+      "cards=" + api.cardCount());
+    check("breadcrumb reads 학생 › Used in",
+      api.crumbLabels().join(" › ") === "학생 › Used in", api.crumbLabels().join(" › "));
+
+    var rareUsed = usedInRows().filter(function (r) { return r.classList.contains("rare"); });
+    check("the rare entry is muted and marked",
+      rareUsed.length === 1 && /고학생/.test(rareUsed[0].textContent) &&
+      !!rareUsed[0].querySelector(".cpd-rare") &&
+      getComputedStyle(rareUsed[0].querySelector(".cpd-hangul")).color !==
+        getComputedStyle(usedInRows()[0].querySelector(".cpd-hangul")).color,
+      rareUsed.length + " " + (rareUsed[0] ? rareUsed[0].textContent : ""));
+
+    // --- drilling from the list, and back --------------------------------
+    var callsBeforeUsedNav = fake.__calls;
+    usedInRows()[0].click();                   // 大學生
+    await wait(90);
+    check("a list row drills into that word's card",
+      api.viewDepth() === 3 && api.query(".word-body .surface").textContent === "大學生",
+      "depth=" + api.viewDepth());
+    check("the drill-down issued one lookup",
+      fake.__calls === callsBeforeUsedNav + 1 && fake.__lastText === "大學生",
+      "calls=" + fake.__calls + " text=" + fake.__lastText);
+    check("trail is 학생 › Used in › 大學生",
+      api.crumbLabels().join(" › ") === "학생 › Used in › 大學生",
+      api.crumbLabels().join(" › "));
+    var callsBeforeUsedBack = fake.__calls;
+    api.queryAll(".crumb")[1].click();          // back to the list
+    await wait(90);
+    check("breadcrumb back restores the list view",
+      api.viewDepth() === 2 && usedInRows().length === 6,
+      "depth=" + api.viewDepth() + " rows=" + usedInRows().length);
+    check("going back does NOT re-query", fake.__calls === callsBeforeUsedBack,
+      "calls " + callsBeforeUsedBack + " → " + fake.__calls);
+
+    // --- reopening the same list is free ---------------------------------
+    api.queryAll(".crumb")[0].click();          // back to the word card
+    await wait(90);
+    var usedCallsBeforeReopen = fake.__usedInCalls;
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("reopening the same list makes NO new usedIn request",
+      api.viewDepth() === 2 && usedInRows().length === 6 &&
+      fake.__usedInCalls === usedCallsBeforeReopen,
+      "calls " + usedCallsBeforeReopen + " → " + fake.__usedInCalls);
+
+    // --- homograph chip swaps update / hide the row ----------------------
+    api.showAt(anchor, fake.__lookup("사기").matches);
+    check("fixture: only 士氣 of the 사기 spellings has a used-in count",
+      fake.__lookup("사기").matches.filter(function (m) { return m.kind === "word"; })
+        .map(function (m) { return m.canonical + ":" + (m.usedInCount || 0); }).join(",") ===
+        "詐欺:0,士氣:1,沙器:0",
+      fake.__lookup("사기").matches.filter(function (m) { return m.kind === "word"; })
+        .map(function (m) { return m.canonical + ":" + (m.usedInCount || 0); }).join(","));
+    check("a spelling without a count renders no row",
+      api.queryAll(".usedin-row").length === 0);
+    api.queryAll(".spell-chip")[1].click();     // → 士氣
+    await wait(90);
+    check("chip swap reveals the row for the new spelling",
+      api.queryAll(".usedin-row").length === 1 &&
+      api.query(".usedin-row").textContent === "Used in 1 larger word",
+      JSON.stringify(api.query(".usedin-row").textContent));
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("the row targets the newly selected spelling",
+      fake.__lastWord === "士氣" && api.viewDepth() === 2 &&
+      usedInRows().length === 1 && /사기충천/.test(usedInRows()[0].textContent),
+      "word=" + fake.__lastWord + " rows=" + usedInRows().length);
+    api.queryAll(".crumb")[0].click();
+    await wait(90);
+    api.queryAll(".spell-chip")[2].click();     // → 沙器, no count
+    await wait(90);
+    check("swapping to a spelling without a count hides the row",
+      api.queryAll(".usedin-row").length === 0 &&
+      api.query(".word-body .surface").textContent === "沙器");
+
+    // --- failure path -----------------------------------------------------
+    api.showAt(anchor, fake.__lookup("학생").matches);   // fresh session
+    fake.__failUsedIn = true;
+    var usedCallsBeforeFail = fake.__usedInCalls;
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("a failed usedIn request leaves us on the card",
+      api.viewDepth() === 1 && !api.query(".card.usedin"),
+      "depth=" + api.viewDepth());
+    check("the failed request went out once",
+      fake.__usedInCalls === usedCallsBeforeFail + 1,
+      "calls " + usedCallsBeforeFail + " → " + fake.__usedInCalls);
+    check("the row survives the failure and stays pressable",
+      !!api.query(".usedin-row") && !api.query(".usedin-row").hasAttribute("aria-busy"));
+    fake.__failUsedIn = false;
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("retry after a failure opens the list",
+      api.viewDepth() === 2 && usedInRows().length === 6,
+      "depth=" + api.viewDepth());
+    check("the failure was not cached (a second request went out)",
+      fake.__usedInCalls === usedCallsBeforeFail + 2,
+      "calls=" + fake.__usedInCalls);
+
+    // --- the disclosure works in drill-down views too --------------------
+    api.showAt(anchor, fake.__lookup("자본주의").matches);
+    check("root 資本主義 has no used-in count", api.queryAll(".usedin-row").length === 0);
+    api.queryAll(".part-row")[0].click();       // → 資本
+    await wait(90);
+    check("a drill-down word card carries its own disclosure row",
+      api.viewDepth() === 2 &&
+      api.query(".usedin-row").textContent === "Used in 1 larger word",
+      JSON.stringify(api.query(".usedin-row") && api.query(".usedin-row").textContent));
+    api.query(".usedin-row").click();
+    await wait(90);
+    check("it opens the list from depth 2",
+      api.viewDepth() === 3 && fake.__lastWord === "資本" &&
+      usedInRows().length === 1 && /자본주의/.test(usedInRows()[0].textContent),
+      "depth=" + api.viewDepth() + " word=" + fake.__lastWord);
+
+    // --- ADDENDUM: the breadcrumb ellipsis is a control -------------------
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    api.queryAll(".part-row")[1].click();       // → 大學生活
+    await wait(90);
+    api.queryAll(".part-row")[0].click();       // → 大學生
+    await wait(90);
+    api.queryAll(".part-row")[0].click();       // → 大學
+    await wait(90);
+    check("four levels deep, trail is truncated", api.viewDepth() === 4 &&
+      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › "));
+    var gap = api.query(".crumb-gap");
+    check("the … is a real BUTTON, not decoration",
+      !!gap && gap.tagName === "BUTTON" && gap.type === "button" &&
+      /show all/i.test(gap.getAttribute("aria-label") || ""),
+      gap ? gap.tagName + " " + gap.getAttribute("aria-label") : "none");
+    var depthBeforeExpand = api.viewDepth();
+    var callsBeforeExpand2 = fake.__calls;
+    gap.click();
+    await wait(60);
+    check("pressing … expands the trail in place to every level",
+      api.crumbLabels().join(" › ") === "해외대학생활 › 大學生活 › 大學生 › 大學" &&
+      !api.query(".crumb-gap"), api.crumbLabels().join(" › "));
+    check("expanding navigates nowhere and queries nothing",
+      api.viewDepth() === depthBeforeExpand && fake.__calls === callsBeforeExpand2,
+      "depth " + depthBeforeExpand + " → " + api.viewDepth());
+    check("the expanded trail is allowed to wrap onto extra lines",
+      getComputedStyle(api.query(".crumbs")).flexWrap === "wrap",
+      getComputedStyle(api.query(".crumbs")).flexWrap);
+    check("every earlier level is now a clickable button",
+      api.queryAll(".crumb").slice(0, 3).every(function (c) {
+        return c.tagName === "BUTTON";
+      }) && api.queryAll(".crumb").pop().classList.contains("current"));
+
+    var callsBeforeMiddle = fake.__calls;
+    api.queryAll(".crumb")[1].click();          // the formerly hidden level
+    await wait(90);
+    check("a formerly hidden middle crumb jumps to its level",
+      api.viewDepth() === 2 &&
+      api.query(".word-body .surface").textContent === "大學生活",
+      "depth=" + api.viewDepth());
+    check("that jump re-queries nothing", fake.__calls === callsBeforeMiddle,
+      "calls " + callsBeforeMiddle + " → " + fake.__calls);
+
+    api.queryAll(".part-row")[0].click();       // → 大學生
+    await wait(90);
+    api.queryAll(".part-row")[0].click();       // → 大學, depth 4 again
+    await wait(90);
+    check("the trail re-collapses after the next navigation",
+      api.viewDepth() === 4 && !!api.query(".crumb-gap") &&
+      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › "));
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");
