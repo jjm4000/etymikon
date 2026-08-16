@@ -300,6 +300,13 @@
   ["國", "學", "民", "局", "菊"].forEach(function (c) {
     if (CHARS[c]) CHARS[c].edu = true;
   });
+  // MOE tier (phase 2), emitted only where the tier is known: 學 is a
+  // middle-school character, 局 a high-school one; 國/民/菊 stand in for the
+  // variant-gap set that has membership but no tier. eduT never without edu.
+  var EDU_TIER = { "學": "m", "局": "h" };
+  Object.keys(EDU_TIER).forEach(function (c) {
+    if (CHARS[c] && CHARS[c].edu === true) CHARS[c].eduT = EDU_TIER[c];
+  });
 
   var WORDS = {
     // Deliberately listed BEFORE 詐欺 so the non-rare-first ordering has to
@@ -531,6 +538,7 @@
     if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
     // MOE basic-education membership; omitted when false.
     if (d.edu === true) m.edu = true;
+    if (d.eduT) m.eduT = d.eduT;           // tier, only when known
     return m;
   }
 
@@ -547,6 +555,7 @@
           gloss: (d.glosses && d.glosses[0]) || ""
         };
         if (d.edu === true) cand.edu = true;   // propagated onto candidates
+        if (d.eduT) cand.eduT = d.eduT;        // …and the tier with it
         return cand;
       })
     };
@@ -2801,6 +2810,200 @@
       api.query(".canonical").textContent === "国 → 國" &&
       !api.query(".canonical .edu-badge"),
       api.query(".canonical").textContent);
+
+    // --- ADDENDUM: variant-note scope (the note belongs to the VIEW) -----
+    // Selecting 学生 explains 学 → 學 on the root view; drilling into another
+    // word must not drag that note along on the cached 學 card.
+    api.hide();
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("学生").matches, "学生");
+    function noteTexts() {
+      return api.queryAll(".canonical").map(function (n) { return n.textContent; });
+    }
+    check("root view of a 学生 selection notes the word's variant spelling",
+      noteTexts().indexOf("学生 → 學生") !== -1, noteTexts().join(" | "));
+    check("root view notes the variant on the 學 component card",
+      noteTexts().indexOf("学 → 學") !== -1, noteTexts().join(" | "));
+
+    compoundRowFor("大學").click();
+    await wait();
+    check("drilled into 大學 from the 学生 view", api.viewDepth() === 2,
+      api.viewKeys().join(","));
+    check("the drilled view's 學 card drops the stale 学 note",
+      noteTexts().indexOf("学 → 學") === -1, noteTexts().join(" | ") || "(none)");
+    check("the drilled 學 card still shows the canonical glyph",
+      !!cardFor("學") && cardFor("學").querySelector(".surface").textContent === "學",
+      cardFor("學") ? cardFor("學").querySelector(".surface").textContent : "no card");
+    check("no note leaked onto any card of the drilled view",
+      noteTexts().length === 0, noteTexts().join(" | "));
+
+    api.queryAll(".crumb")[0].click();
+    await wait();
+    check("going back restores the root view's variant notes",
+      api.viewDepth() === 1 && noteTexts().indexOf("学 → 學") !== -1 &&
+      noteTexts().indexOf("学生 → 學生") !== -1,
+      noteTexts().join(" | ") || "(none)");
+
+    // A view whose OWN text carries the variant keeps the note, even mid-trail.
+    compoundRowFor("大學").click();
+    await wait();
+    api.showAt(anchor, [variantChar]);
+    check("a fresh view whose source text is the variant still notes it",
+      noteTexts().indexOf("国 → 國") !== -1, noteTexts().join(" | ") || "(none)");
+
+    // Threaded text wins even when the response's own surfaces are canonical.
+    api.showAt(anchor, fake.__lookup("學").matches, "學");
+    check("a canonical-only view has nothing to note",
+      noteTexts().length === 0, noteTexts().join(" | "));
+
+    // --- ADDENDUM: MOE tier badge, via the badge registry ----------------
+    var TIER_M = "MOE tier: middle school (중학교용)";
+    var TIER_H = "MOE tier: high school (고등학교용)";
+    function badgesIn(root) {
+      var scope = root || null;
+      var list = scope ? Array.prototype.slice.call(scope.querySelectorAll(".edu-badge"))
+        : api.queryAll(".edu-badge");
+      return list;
+    }
+    function badgeLabels(root) {
+      return badgesIn(root).map(function (b) { return b.textContent; });
+    }
+    function readingRowFor(glyph) {
+      return api.queryAll(".reading-row").filter(function (r) {
+        var g = r.querySelector(".r-glyph");
+        return g && g.textContent === glyph;
+      })[0];
+    }
+
+    check("fixture: 學 is tiered m, 局 tiered h, 民 edu with no tier",
+      fake.__lookup("學").matches[0].eduT === "m" &&
+      fake.__lookup("局").matches[0].eduT === "h" &&
+      fake.__lookup("民").matches[0].edu === true &&
+      fake.__lookup("民").matches[0].eduT === undefined,
+      "學=" + fake.__lookup("學").matches[0].eduT +
+      " 局=" + fake.__lookup("局").matches[0].eduT +
+      " 民=" + fake.__lookup("民").matches[0].eduT);
+    check("fixture: eduT never rides without edu",
+      Object.keys(fake.__lookup("國").matches[0]).indexOf("eduT") === -1 &&
+      fake.__lookup("麴").matches[0].eduT === undefined);
+
+    api.hide();
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("學").matches, "學");
+    var tierBadge = api.query(".edu-badge");
+    check("a middle-school char shows the tier badge",
+      badgeLabels().indexOf("Middle school") !== -1,
+      badgeLabels().join(" | ") || "(none)");
+    check("the tier badge carries its key modifier class",
+      tierBadge.classList.contains("edu-badge") &&
+      tierBadge.classList.contains("edu-badge--moeTier"),
+      tierBadge.className);
+    check("the tier badge is described for assistive tech, in Korean",
+      tierBadge.title === TIER_M && tierBadge.getAttribute("aria-label") === TIER_M,
+      tierBadge.title);
+    // Mutual exclusion is between the two EDU-FAMILY entries only — the
+    // registry stays multi-badge (see the probe checks below).
+    check("the tier badge REPLACES Basic-1800: the two never co-render",
+      api.queryAll(".edu-badge--basic1800").length === 0 &&
+      api.queryAll(".edu-badge--moeTier").length === 1,
+      "basic=" + api.queryAll(".edu-badge--basic1800").length +
+      " tier=" + api.queryAll(".edu-badge--moeTier").length);
+    check("the tier badge sits on the eumhun line",
+      tierBadge.parentNode.classList.contains("eumhun"),
+      tierBadge.parentNode.className);
+    var tierFontSize = parseFloat(getComputedStyle(tierBadge).fontSize);
+    var tierColor = getComputedStyle(tierBadge).color;
+
+    api.showAt(anchor, fake.__lookup("局").matches, "局");
+    check("a high-school char shows the high-school label",
+      badgeLabels().join("") === "High school", badgeLabels().join(" | "));
+    check("the high-school tooltip names the Korean tier",
+      api.query(".edu-badge").title === TIER_H, api.query(".edu-badge").title);
+
+    api.showAt(anchor, fake.__lookup("民").matches, "民");
+    var basicBadge = api.query(".edu-badge");
+    check("an edu char with no known tier keeps the Basic-1800 badge alone",
+      badgeLabels().join(",") === "Basic-1800 (기초)" &&
+      api.queryAll(".edu-badge--moeTier").length === 0 &&
+      basicBadge.classList.contains("edu-badge--basic1800"),
+      badgeLabels().join(" | ") + " " + basicBadge.className);
+    check("both registry badges share the .edu-badge look",
+      parseFloat(getComputedStyle(basicBadge).fontSize) === tierFontSize &&
+      getComputedStyle(basicBadge).color === tierColor &&
+      getComputedStyle(basicBadge).borderTopWidth ===
+        getComputedStyle(basicBadge).borderTopWidth,
+      getComputedStyle(basicBadge).fontSize + " vs " + tierFontSize);
+    check("badge text stays legible against the card, not invisible",
+      getComputedStyle(basicBadge).color !==
+        getComputedStyle(basicBadge).backgroundColor,
+      getComputedStyle(basicBadge).color + " on " +
+        getComputedStyle(basicBadge).backgroundColor);
+
+    api.showAt(anchor, fake.__lookup("麴").matches, "麴");
+    check("a char with neither flag renders no badge at all",
+      badgeLabels().length === 0, badgeLabels().join(" | "));
+
+    // Site 2: nested component cards, at their smaller scale.
+    api.showAt(anchor, fake.__lookup("학생").matches, "학생");
+    var nestedTier = cardFor("學") && cardFor("學").querySelector(".edu-badge");
+    check("nested component cards render the tier badge too",
+      !!nestedTier && nestedTier.textContent === "Middle school" &&
+      nestedTier.classList.contains("edu-badge--moeTier"),
+      nestedTier ? nestedTier.textContent : "none");
+    check("the nested tier badge is a step smaller than a top-level one",
+      parseFloat(getComputedStyle(nestedTier).fontSize) < tierFontSize,
+      getComputedStyle(nestedTier).fontSize + " < " + tierFontSize + "px");
+
+    // Site 3: reading-list rows.
+    api.showAt(anchor, fake.__lookup("국").matches, "국");
+    check("a tiered reading candidate shows its tier, not Basic-1800",
+      badgeLabels(readingRowFor("局")).join("") === "High school",
+      badgeLabels(readingRowFor("局")).join(" | ") || "(none)");
+    check("an untiered reading candidate still shows Basic-1800",
+      badgeLabels(readingRowFor("國")).join("") === "Basic-1800 (기초)",
+      badgeLabels(readingRowFor("國")).join(" | ") || "(none)");
+    check("unflagged reading candidates stay bare",
+      badgeLabels(readingRowFor("鞠")).length === 0);
+    api.showAt(anchor, fake.__lookup("학").matches, "학");
+    check("the middle-school tier reaches reading rows as well",
+      badgeLabels(readingRowFor("學")).join("") === "Middle school",
+      badgeLabels(readingRowFor("學")).join(" | ") || "(none)");
+
+    // The registry itself: a third badge must cost ONE entry and nothing else.
+    check("the registry is the declarative badge definition, in render order",
+      Array.isArray(api.badgeRegistry) &&
+      api.badgeRegistry.map(function (b) { return b.key; }).join(",") ===
+        "basic1800,moeTier",
+      (api.badgeRegistry || []).map(function (b) { return b.key; }).join(","));
+
+    api.badgeRegistry.push({
+      key: "dummyProbe",
+      when: function (m) {
+        return m.edu === true && { label: "Probe", title: "Probe badge" };
+      }
+    });
+    api.showAt(anchor, fake.__lookup("民").matches, "民");
+    check("a newly registered badge appears on card heads with no other change",
+      badgeLabels().join(",") === "Basic-1800 (기초),Probe", badgeLabels().join(","));
+    check("the probe badge gets its own modifier class",
+      !!api.query(".edu-badge--dummyProbe"));
+    api.showAt(anchor, fake.__lookup("學").matches, "學");
+    check("a third badge co-renders next to the tier badge, in registry order",
+      badgeLabels().join(",") === "Middle school,Probe", badgeLabels().join(","));
+    api.showAt(anchor, fake.__lookup("학생").matches, "학생");
+    check("the new badge reaches nested component cards for free",
+      badgeLabels(cardFor("學")).join(",") === "Middle school,Probe",
+      badgeLabels(cardFor("學")).join(","));
+    api.showAt(anchor, fake.__lookup("국").matches, "국");
+    check("the new badge reaches reading rows for free",
+      badgeLabels(readingRowFor("國")).join(",") === "Basic-1800 (기초),Probe",
+      badgeLabels(readingRowFor("國")).join(","));
+    api.badgeRegistry.pop();
+    api.showAt(anchor, fake.__lookup("民").matches, "民");
+    check("removing the entry removes the badge everywhere",
+      badgeLabels().join(",") === "Basic-1800 (기초)" &&
+      api.queryAll(".edu-badge--dummyProbe").length === 0,
+      badgeLabels().join(","));
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");

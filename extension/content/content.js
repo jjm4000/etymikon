@@ -117,6 +117,13 @@
   var FLASH_MS = 600;        // eumhun chip → component card orientation flash
   var EDU_LABEL = "Basic-1800 (기초)";
   var EDU_TITLE = "MOE basic education hanja (1,800)";
+  // MOE tier (phase 2): a second, separate badge — Naver-style, one badge per
+  // classification. Plain-English label; the Korean lives in the tooltip.
+  var TIER_LABEL = { m: "Middle school", h: "High school" };
+  var TIER_TITLE = {
+    m: "MOE tier: middle school (중학교용)",
+    h: "MOE tier: high school (고등학교용)"
+  };
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
 
   var CSS = [
@@ -392,6 +399,8 @@
     "  border: 1px solid var(--chip-edge);",
     "}",
     ".card.component .edu-badge { font-size: 8px; margin-left: 5px; }",
+    // Registry badges sit side by side when more than one applies.
+    ".edu-badge + .edu-badge { margin-left: 4px; }",
     ".chip-rare {",
     "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
     "  text-transform: uppercase; margin-left: 3px; vertical-align: super;",
@@ -544,6 +553,7 @@
   var charDataIndex = null;   // char -> char match data (accumulates)
   var charCardIndex = null;   // char -> the card element showing it, this view
   var viewStack = [];         // the descent; last entry is the current view
+  var currentSrcText = "";    // source text of the view being rendered (see noteApplies)
   var wordStates = [];        // one per word surface in the current view
   var independentChars = [];  // current view's chars that are nobody's component
   var independentCardEls = null;
@@ -1019,8 +1029,9 @@
     var meta = el("div", "headmeta");
     if (hangul) meta.appendChild(el("div", "hangul", hangul));
     // Note the highlighted form only when it is neither the big text nor the
-    // hangul already shown (e.g. a simplified/variant spelling was selected).
-    if (surface && surface !== big && surface !== hangul) {
+    // hangul already shown (e.g. a simplified/variant spelling was selected),
+    // and only in a view whose own source text actually contains it.
+    if (surface && surface !== big && surface !== hangul && noteApplies(surface)) {
       meta.appendChild(el("div", "canonical", surface + " → " + big));
     }
     head.appendChild(meta);
@@ -1325,7 +1336,7 @@
       var eum = nonEmptyString(c.eum) || syllable;
       var label = hun && eum ? hun + " " + eum : (eum || hun);
       if (label) text.appendChild(el("span", "r-eumhun", label));
-      if (c.edu === true) text.appendChild(makeEduBadge());
+      appendBadges(text, c);
       var gloss = nonEmptyString(c.gloss);
       if (gloss) text.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
       row.appendChild(text);
@@ -1337,13 +1348,56 @@
     return card;
   }
 
-  // Membership in the MOE basic-education list, phase 1: no tier, just a
-  // quiet "this one is school curriculum" cue.
-  function makeEduBadge() {
-    var badge = el("span", "edu-badge", EDU_LABEL);
-    badge.title = EDU_TITLE;
-    badge.setAttribute("aria-label", EDU_TITLE);
-    return badge;
+  // Classification badges are DECLARATIVE: this array is the whole definition.
+  // Each entry answers, for one match or reading candidate, "do I apply, and
+  // with what wording?" — `when` returns false or { label, title }. Adding a
+  // badge is one more entry here and nothing else: the renderer below is the
+  // only badge-drawing code and every site calls it. (Inline semantic markers
+  // like RARE are a different animal and stay where they are.)
+  var BADGES = [
+    {
+      key: "basic1800",
+      when: function (m) {
+        // A known tier already implies membership, so the tier badge REPLACES
+        // this one; Basic-1800 is left for edu chars whose tier is unknown.
+        // (Keyed off a tier we can actually render, so an unrecognised eduT
+        // value can never leave the char with no badge at all.)
+        return m.edu === true && !TIER_LABEL[m.eduT] &&
+          { label: EDU_LABEL, title: EDU_TITLE };
+      }
+    },
+    {
+      key: "moeTier",
+      when: function (m) {
+        var t = m.eduT;
+        return !!TIER_LABEL[t] && { label: TIER_LABEL[t], title: TIER_TITLE[t] };
+      }
+    }
+  ];
+
+  // The one badge renderer, in registry order. `m` is a char match or a
+  // reading-list candidate — anything carrying the classification flags.
+  function appendBadges(container, m) {
+    if (!container || !m || typeof m !== "object") return 0;
+    var count = 0;
+    BADGES.forEach(function (spec) {
+      var info;
+      try {
+        info = spec.when(m);
+      } catch (e) {
+        info = false;
+      }
+      if (!info || !nonEmptyString(info.label)) return;
+      // Shared styling, plus a per-key modifier so one badge can be tuned
+      // later without touching this code.
+      var badge = el("span", "edu-badge edu-badge--" + spec.key, info.label);
+      var title = nonEmptyString(info.title) || info.label;
+      badge.title = title;
+      badge.setAttribute("aria-label", title);
+      container.appendChild(badge);
+      count++;
+    });
+    return count;
   }
 
   function buildCharCard(m) {
@@ -1371,13 +1425,12 @@
         meta.appendChild(readingLine);
       }
     }
-    // School-curriculum marker, tucked onto the end of the reading line.
-    if (m.edu === true) {
-      var badge = makeEduBadge();
-      if (readingLine) readingLine.appendChild(badge);
-      else meta.appendChild(badge);
-    }
-    if (surface && surface !== big) {
+    // Classification badges, tucked onto the end of the reading line.
+    appendBadges(readingLine || meta, m);
+    // The variant note belongs to the view, not to the cached match: it says
+    // "you highlighted 学, this entry is 學", which is only true where 学 was
+    // actually in the looked-up text (see noteApplies).
+    if (surface && surface !== big && noteApplies(surface)) {
       meta.appendChild(el("div", "canonical", surface + " → " + big));
     }
     head.appendChild(meta);
@@ -1543,6 +1596,35 @@
   /* ------------------------------------------------------------------ *
    * View rendering
    * ------------------------------------------------------------------ */
+
+  // The text a view was looked up FROM. Every view has one: the root view's is
+  // the selection, a drill-down's is the row's target spelling. When no text is
+  // threaded (test hooks, synthetic views) the view's own matches supply it —
+  // a fresh response's surfaces are by definition parts of the text it answered,
+  // and unlike charDataIndex entries they are never borrowed from another view.
+  function viewSourceText(matches, text) {
+    var parts = [];
+    var explicit = nonEmptyString(text);
+    if (explicit) parts.push(explicit);
+    asArray(matches).forEach(function (m) {
+      if (!m || typeof m !== "object") return;
+      var s = nonEmptyString(m.surface);
+      if (s) parts.push(s);
+    });
+    return parts.join("\n");
+  }
+
+  // "surface → canonical" is a statement about the CURRENT view: it explains a
+  // glyph the reader actually highlighted here. char matches are cached per
+  // popup session and reused in later views (charDataIndex), so the surface on
+  // a cached match may belong to some earlier lookup — selecting 学生 and then
+  // drilling into 文學 must not caption that view's 學 card with "学 → 學".
+  // Rendering-time check, so nothing is mutated and going back restores the note.
+  function noteApplies(surface) {
+    if (!surface) return false;
+    if (!currentSrcText) return true;   // unknown provenance: keep the note
+    return currentSrcText.indexOf(surface) !== -1;
+  }
 
   function adoptCharData(matches) {
     asArray(matches).forEach(function (m) {
@@ -1903,6 +1985,8 @@
 
     // Any navigation re-collapses an expanded trail.
     crumbsExpanded = false;
+    // Scope for the variant notes drawn while this view renders.
+    currentSrcText = view.srcText || "";
     clearNode(panel);
     panel.scrollTop = 0;
     viewRoot = el("div", "view");
@@ -1961,6 +2045,7 @@
     saveCurrentViewState();
     viewStack.push({
       key: view.key || null, label: view.label, matches: view.matches,
+      srcText: viewSourceText(view.matches, view.srcText),
       scrollTop: 0, selection: null
     });
     renderCurrentView();
@@ -1988,7 +2073,10 @@
       // canonical key once the worker has answered.
       var key = viewKey(list);
       if (reenterCurrentView(key)) return;
-      pushView({ key: key, label: viewLabel(list, target), matches: list });
+      pushView({
+        key: key, label: viewLabel(list, target), matches: list,
+        srcText: target                 // this view was looked up from the row
+      });
     });
   }
 
@@ -2067,12 +2155,15 @@
     positionAt(anchorRect);
   }
 
-  function showAt(rect, matches) {
+  function showAt(rect, matches, srcText) {
     ensureHost();
     var list = usableMatches(matches);
     resetSession();
     viewStack = [{
       key: viewKey(list), label: viewLabel(list, ""), matches: list,
+      // The selection itself: the root view is the one place a highlighted
+      // variant glyph is guaranteed to belong.
+      srcText: viewSourceText(list, srcText),
       scrollTop: 0, selection: null
     }];
     var count = renderCurrentView();
@@ -2236,7 +2327,8 @@
       }
       // Re-read the rect: layout may have shifted while awaiting the response.
       var fresh = readSelection();
-      showAt(fresh && fresh.text === sel.text ? fresh.rect : sel.rect, response.matches);
+      showAt(fresh && fresh.text === sel.text ? fresh.rect : sel.rect,
+        response.matches, sel.text);
       // Seed the cache so drilling back into the original text is free.
       if (lookupCache) lookupCache[sel.text] = response;
     });
@@ -2296,7 +2388,13 @@
   if (IS_STUB) {
     var testDragOrigin = { x: 0, y: 0 };
     globalThis.__hanjaHover = {
-      showAt: function (rect, matches) { ensureHost(); return showAt(rect, matches); },
+      showAt: function (rect, matches, srcText) {
+        ensureHost();
+        return showAt(rect, matches, srcText);
+      },
+      // The badge registry itself, so a check can prove a NEW badge needs
+      // nothing but an entry (the harness registers a dummy and removes it).
+      badgeRegistry: BADGES,
       hide: hide,
       handleSelection: handleSelection,
       readSelection: readSelection,
