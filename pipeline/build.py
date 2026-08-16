@@ -159,7 +159,14 @@ def download(url: str, dest: str, force: bool = False) -> str:
 RE_WS = re.compile(r"\s+")
 RE_HANJA_FORM_OF = re.compile(r"^hanja form of\s+\S+\s*", re.I)
 RE_ALT_FORM_OF = re.compile(r"^alternative form of\s+\S+\s*", re.I)
-RE_LEAD_LABEL = re.compile(r"^\([^()]{0,40}\)\s*")
+# A leading parenthetical is a register label ("(chiefly South Korea)") ONLY
+# when it contains no quotation marks: '(“jade”) See there...' carries the
+# actual gloss in the quotes, and eating it leaves the boilerplate behind.
+RE_LEAD_LABEL = re.compile(r"^\([^()\"“”]{0,40}\)\s*")
+# Wiktionary cross-reference boilerplate that sometimes rides along in the
+# form-of "extra" text; it is navigation, not meaning.
+RE_XREF_TAIL = re.compile(
+    r"\s*\bsee (there|its entry)\b[^.]*(\.|$)", re.I)
 RE_SKIP_GLOSS = re.compile(
     r"^(romanization|romanisation|alternative form|alternative spelling|"
     r"synonym|obsolete form|archaic form|misspelling) of\b", re.I)
@@ -169,6 +176,7 @@ RE_PARENED = re.compile(r"^([^()]+)\((.+)\)$")
 def clean_char_gloss(text) -> str:
     """Unwrap wiktextract 'hanja form of X ("gloss")' into just the gloss."""
     s = RE_WS.sub(" ", str(text or "")).strip().rstrip(".")
+    s = RE_XREF_TAIL.sub("", s).strip()
     for _ in range(6):
         t = s
         t = RE_HANJA_FORM_OF.sub("", t)
@@ -211,6 +219,7 @@ RE_CARET_TAG = re.compile(r"\^(?=\()")
 
 def clean_gloss(text) -> str:
     s = RE_WS.sub(" ", str(text or "")).strip()
+    s = RE_XREF_TAIL.sub("", s).strip()
     s = RE_LEAD_LABEL.sub("", s)           # drop "(chiefly South Korea)" etc.
     s = RE_CARET_TAG.sub(" ", s)           # 'stock^(US)' -> 'stock (US)'
     s = RE_SUP_RUN.sub(lambda m: " (" + m.group(1).translate(SUP_LETTERS) + ")", s)
@@ -1034,6 +1043,13 @@ def verify(hanja_obj, words_obj, variants_obj):
 
     # SPEC eumhun normalization addendum
     han_eumhun = [(x["hun"], x["eum"]) for x in (chars_out.get("韓") or {}).get("eumhun", [])]
+    ok_glosses = (chars_out.get("玉") or {}).get("glosses", [])
+    xref = [g for e in chars_out.values() for g in e["glosses"]
+            if "see there for further compounds" in g.lower()]
+    add("玉 gloss recovered; no cross-ref boilerplate anywhere",
+        any("jade" in g.lower() for g in ok_glosses) and not xref,
+        "玉=%s | %d boilerplate glosses" % (
+            json.dumps(ok_glosses, ensure_ascii=False), len(xref)))
     add("韓 eumhun normalized + deduped",
         han_eumhun == [("한국(韓國)", "한"), ("나라 이름", "한")],
         json.dumps(han_eumhun, ensure_ascii=False))
