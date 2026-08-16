@@ -152,6 +152,21 @@ ADDENDUM — `kind:"char"` matches carry `"cwCount": N` (total entries in the
 char's `cw` index; omitted when 0), so the UI can render "Show 5 more (N)"
 before ever requesting the full list.
 
+ADDENDUM — used-in (larger words containing a word): `kind:"word"` matches
+carry `"usedInCount": N` — the number of words.json spellings that strictly
+contain the match's canonical spelling (self excluded; omitted when 0).
+Derived from the first character's `cw` index (already ranked), falling back
+to a wordTable scan if that char has no entry. A new request returns the full
+ranked list:
+```json
+{ "type": "usedIn", "word": "學生" }
+```
+Response: `{ "ok": true, "words": [ { "hanja": "大學生", "hangul": "대학생",
+"gloss": "university student", "rare": true? } ] }` — same row shape and join
+rules as the compounds response. Unknown word or empty result →
+`{ ok: true, words: [] }`. Pure logic in lookup.js (`buildUsedIn`), glue in
+background.js.
+
 ADDENDUM — full compound list request (powers the "show more" compounds UI):
 ```json
 { "type": "compounds", "char": "學" }
@@ -354,6 +369,22 @@ Service worker behavior:
   "← back" restores, results cached per part. `type:"char"` parts get no row
   (they're already in the component-hanja section). Homograph chip swaps swap
   the parts section along with the rest of the card body.
+- Used-in disclosure (ADDENDUM — design option C, user-chosen): word cards
+  whose match carries `usedInCount` render ONE collapsed nav row at the end of
+  the word body (after chips, before COMPONENT WORDS): "Used in N larger
+  words" with the standard chevron. Clicking navigates to a dedicated list
+  view (same pattern as the homophone browser): title row, then every entry
+  of the `{type:"usedIn"}` response as nav rows (hangul, hanja, gloss; rare
+  entries muted) drilling into their word cards; breadcrumb back; response
+  cached per word per popup session. No inline rows on the card itself — the
+  single line keeps word cards focused on components, per the user's intent.
+  Applies to word cards everywhere (top-level, drill-down views); homograph
+  chip swaps update the row's count and target word.
+- Breadcrumb ellipsis (ADDENDUM — fix): the "…" in a middle-truncated trail
+  must be a BUTTON, not decoration. Pressing it expands the trail in place to
+  show every crumb (wrapping to extra lines as needed), each clickable as
+  usual; the trail re-collapses to the truncated form after the next
+  navigation. Intermediate levels must never be unreachable.
 - Drill-down navigation polish (ADDENDUM): all click-through navigation
   (reading-list rows, component-word rows, any future drill-down) shares ONE
   sticky nav bar rendered as a clickable breadcrumb trail of the descent, e.g.

@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import {
   buildFullCompounds,
   buildMatches,
+  buildUsedIn,
   buildReadingIndex,
   buildWordParts,
   lookup,
@@ -59,6 +60,9 @@ const hanja = {
       readings: ["학"],
       glosses: ["to learn; to study", "school; learning"],
       compounds: [{ hangul: "학생", hanja: "學生", gloss: "student" }],
+      // ranked index for the used-in tests: 學生 is contained by 學生會 and
+      // 民主主義國家 is not; 不明 isn't a words key and must be skipped.
+      cw: ["學生", "學生會", "不明學生"],
     },
     生: {
       eumhun: [{ hun: "날", eum: "생" }],
@@ -569,6 +573,30 @@ test("buildFullCompounds: rare only when every sense of a spelling is rare", () 
   const rows = buildFullCompounds("國", patched);
   assert.equal(rows[0].rare, true, "舍廊 is rare in the fixture");
   assert.equal("rare" in rows[1], false, "沙羅 is not");
+});
+
+test("usedInCount: present when larger words exist, absent otherwise", () => {
+  const student = wordsOf(lookup("學生", data).matches)[0];
+  assert.equal(student.usedInCount, 1, "學生會 contains 學生; 不明學生 not a word");
+  const hangulSourced = wordsOf(lookup("학생", data).matches)[0];
+  assert.equal(hangulSourced.usedInCount, 1, "hangul path carries it too");
+  const nation = wordsOf(lookup("民主主義國家", data).matches)[0];
+  assert.equal("usedInCount" in nation, false, "nothing contains the longest word");
+});
+
+test("buildUsedIn: ranked rows, self excluded, unknowns skipped", () => {
+  assert.deepEqual(buildUsedIn("學生", data), [
+    { hanja: "學生會", hangul: "학생회", gloss: "student council" },
+  ]);
+  assert.deepEqual(buildUsedIn("nope", data), []);
+  assert.deepEqual(buildUsedIn("", data), []);
+});
+
+test("buildUsedIn falls back to a wordTable scan when the char lacks cw", () => {
+  // 民 has no cw in the fixture; 民主 is contained by 民主主義 and 民主主義國家.
+  const rows = buildUsedIn("民主", data);
+  const spellings = rows.map((r) => r.hanja).sort();
+  assert.deepEqual(spellings, ["民主主義", "民主主義國家"]);
 });
 
 test("hp flag: propagates on both paths, any-wins, absent otherwise", () => {

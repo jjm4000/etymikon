@@ -270,7 +270,11 @@ export function buildWordParts(canonical, wordTable) {
   return sawWord ? parts : null;
 }
 
-function buildWordMatch({ surface, canonical, hangul, glosses, rare, hp }, wordTable) {
+function buildWordMatch(
+  { surface, canonical, hangul, glosses, rare, hp },
+  wordTable,
+  charTable
+) {
   const match = {
     kind: "word",
     surface,
@@ -284,6 +288,11 @@ function buildWordMatch({ surface, canonical, hangul, glosses, rare, hp }, wordT
   // Hanja-page flag addendum: the entry lives at the hanja-spelling title, so
   // the UI's Wiktionary link should target <canonical> instead of <hangul>.
   if (hp === true) match.hp = true;
+  // Used-in addendum: how many larger words contain this one (self excluded),
+  // so the UI can render the "Used in N larger words" disclosure without
+  // requesting the list. Omitted when 0.
+  const usedIn = usedInSpellings(canonical, charTable ?? {}, wordTable).length;
+  if (usedIn > 0) match.usedInCount = usedIn;
   const parts = buildWordParts(canonical, wordTable);
   if (parts) match.parts = parts;
   return match;
@@ -314,20 +323,10 @@ function buildCharMatch(item, entry) {
  * the SPEC response array (order = cw order); unknown char or missing index
  * yields [].
  */
-export function buildFullCompounds(char, data) {
-  if (typeof char !== "string" || char.length === 0) return [];
-  const variantMap = data?.variants?.map ?? {};
-  const charTable = data?.hanja?.chars ?? {};
-  const wordTable = data?.words?.words ?? {};
-  const normalized = char.normalize("NFC");
-  const canonical = hasOwn(variantMap, normalized)
-    ? variantMap[normalized]
-    : normalized;
-  if (!hasOwn(charTable, canonical)) return [];
-  const cw = charTable[canonical].cw;
-  if (!Array.isArray(cw)) return [];
+/** Join an ordered list of spellings against words.json into SPEC row shape. */
+function joinSpellings(spellings, wordTable) {
   const out = [];
-  for (const spelling of cw) {
+  for (const spelling of spellings) {
     if (typeof spelling !== "string" || !hasOwn(wordTable, spelling)) continue;
     const senses = wordTable[spelling];
     const first = Array.isArray(senses) ? senses[0] : senses;
@@ -349,6 +348,52 @@ export function buildFullCompounds(char, data) {
     out.push(row);
   }
   return out;
+}
+
+export function buildFullCompounds(char, data) {
+  if (typeof char !== "string" || char.length === 0) return [];
+  const variantMap = data?.variants?.map ?? {};
+  const charTable = data?.hanja?.chars ?? {};
+  const wordTable = data?.words?.words ?? {};
+  const normalized = char.normalize("NFC");
+  const canonical = hasOwn(variantMap, normalized)
+    ? variantMap[normalized]
+    : normalized;
+  if (!hasOwn(charTable, canonical)) return [];
+  const cw = charTable[canonical].cw;
+  if (!Array.isArray(cw)) return [];
+  return joinSpellings(cw, wordTable);
+}
+
+/**
+ * Used-in ADDENDUM: every words.json spelling that STRICTLY contains `word`
+ * (self excluded), in ranked order. Derived from the first char's `cw` index,
+ * which is already frequency-sorted; falls back to a wordTable scan when that
+ * char has no entry (order unranked there — acceptable for the rare case).
+ */
+function usedInSpellings(word, charTable, wordTable) {
+  if (typeof word !== "string" || word.length < 2) return [];
+  const first = [...word][0];
+  const cw = hasOwn(charTable, first) ? charTable[first].cw : null;
+  const pool = Array.isArray(cw) ? cw : Object.keys(wordTable ?? {});
+  return pool.filter(
+    (sp) =>
+      typeof sp === "string" &&
+      sp !== word &&
+      sp.includes(word) &&
+      hasOwn(wordTable, sp)
+  );
+}
+
+export function buildUsedIn(word, data) {
+  if (typeof word !== "string" || word.length === 0) return [];
+  const charTable = data?.hanja?.chars ?? {};
+  const wordTable = data?.words?.words ?? {};
+  const normalized = word.normalize("NFC");
+  return joinSpellings(
+    usedInSpellings(normalized, charTable, wordTable),
+    wordTable
+  );
 }
 
 /**
@@ -544,7 +589,8 @@ export function buildMatches(text, data) {
                   rare: entry.rare,
                   hp: entry.hp,
                 },
-                wordTable
+                wordTable,
+                charTable
               )
             );
           }
@@ -588,7 +634,8 @@ export function buildMatches(text, data) {
                 rare: sense.rare,
                 hp: sense.hp,
               },
-              wordTable
+              wordTable,
+              charTable
             )
           );
         }

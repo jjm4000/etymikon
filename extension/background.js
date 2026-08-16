@@ -9,6 +9,7 @@
 import {
   buildFullCompounds,
   buildReadingIndex,
+  buildUsedIn,
   lookup,
   toErrorMessage,
 } from "./lookup.js";
@@ -95,6 +96,20 @@ export async function handleCompounds(char) {
   }
 }
 
+/**
+ * Handle a {type:"usedIn", word} message (used-in ADDENDUM): every larger
+ * word containing this one, ranked, joined against words.json.
+ * @returns {Promise<{ok:true, words:object[]}|{ok:false, error:string}>}
+ */
+export async function handleUsedIn(word) {
+  try {
+    const data = await getData();
+    return { ok: true, words: buildUsedIn(word, data) };
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) };
+  }
+}
+
 // Guarded so this module can also be imported by Node (tests) without chrome.
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -103,7 +118,9 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
         ? handleLookup(message.text)
         : message && message.type === "compounds"
           ? handleCompounds(message.char)
-          : null;
+          : message && message.type === "usedIn"
+            ? handleUsedIn(message.word)
+            : null;
     if (handler === null) return false;
     handler.then(sendResponse, (err) => {
       sendResponse({ ok: false, error: toErrorMessage(err) });
