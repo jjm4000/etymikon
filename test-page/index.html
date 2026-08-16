@@ -2228,10 +2228,18 @@
         bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y
       }));
     }
+    // Every press gets a release: a dangling mousedown leaves the browser in a
+    // drag-select state, which later suppresses row/chip activation.
+    function releasePanel(x, y) {
+      panelEl().dispatchEvent(new MouseEvent("mouseup", {
+        bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y
+      }));
+    }
     pressPanel(corner.x, corner.y);
     check("pressing the resize handle does not dismiss the popup",
       api.isVisible(), "visible=" + api.isVisible());
     check("pressing the handle arms the drag guard", api.isResizing());
+    releasePanel(corner.x + 40, corner.y + 40);
     api.queryAll(".reading-row")[0].click();   // the click that ends the drag
     await wait(120);
     check("the click ending a drag does not trigger row navigation",
@@ -2251,6 +2259,7 @@
     pressPanel(mid.left + 20, mid.top + 20);
     check("a mousedown away from the corner does not arm the guard",
       !api.isResizing() && api.isVisible());
+    releasePanel(mid.left + 20, mid.top + 20);
 
     // Back to the stylesheet's footprint so later checks measure what they expect.
     api.resetPanelSize();
@@ -2258,6 +2267,152 @@
     check("releasing the size restores the default footprint",
       !api.isUserSized() && Math.abs(api.panelSize().width - 340) < 2,
       JSON.stringify(api.panelSize()));
+
+    // --- ADDENDUM: clickable eumhun chips --------------------------------
+    // Polls instead of guessing at smooth-scroll duration.
+    async function until(fn, ms) {
+      var deadline = Date.now() + (ms || 1500);
+      while (Date.now() < deadline) {
+        if (fn()) return true;
+        await wait(30);
+      }
+      return fn();
+    }
+    function cardFor(glyph) {
+      return api.queryAll(".card.component").filter(function (c) {
+        var s = c.querySelector(".surface");
+        return s && s.textContent === glyph;
+      })[0];
+    }
+    function cardInView(card) {
+      var p = api.hostRect();
+      var b = card.getBoundingClientRect();
+      return b.top >= p.top - 2 && b.top <= p.bottom;
+    }
+
+    api.hide();
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    var wordChips = api.queryAll(".word-body .chip");
+    check("word card renders one eumhun chip per character",
+      wordChips.length === 6 &&
+      wordChips.map(function (c) { return c.querySelector(".chip-glyph").textContent; })
+        .join("") === "海外大學生活",
+      wordChips.map(function (c) { return c.querySelector(".chip-glyph").textContent; }).join(""));
+    check("eumhun chips are keyboard-accessible click targets",
+      wordChips.every(function (c) {
+        return c.classList.contains("nav") && c.getAttribute("role") === "button" &&
+          c.getAttribute("tabindex") === "0";
+      }));
+    check("chips signal clickability with a pointer cursor",
+      getComputedStyle(wordChips[0]).cursor === "pointer",
+      getComputedStyle(wordChips[0]).cursor);
+    check("component cards render NO eumhun chips of their own",
+      api.queryAll(".card.component .chips").length === 0,
+      "chips=" + api.queryAll(".card.component .chips").length);
+
+    // --- primary behavior: scroll to the card and flash it ---------------
+    var targetCard = cardFor("活");            // last component, well below the fold
+    check("test setup: the 活 card starts out of view",
+      !!targetCard && !cardInView(targetCard),
+      targetCard ? "inView=" + cardInView(targetCard) : "no card");
+    var depthBeforeChip = api.viewDepth();
+    var callsBeforeChip = fake.__calls;
+    var scrollBeforeChip = api.scrollTop();
+    wordChips[5].click();                      // the 活 chip
+    check("chip click flashes the target card immediately",
+      targetCard.classList.contains("flash"));
+    check("chip click pushes NO view and queries nothing",
+      api.viewDepth() === depthBeforeChip && fake.__calls === callsBeforeChip &&
+      api.isVisible(),
+      "depth " + depthBeforeChip + " → " + api.viewDepth() +
+      ", calls " + callsBeforeChip + " → " + fake.__calls);
+    check("chip click scrolls the panel toward the card",
+      await until(function () { return api.scrollTop() > scrollBeforeChip; }, 2000),
+      scrollBeforeChip + " → " + api.scrollTop());
+    check("the target card ends up in view",
+      await until(function () { return cardInView(targetCard); }, 2000),
+      "top=" + Math.round(targetCard.getBoundingClientRect().top) +
+      " panel=" + Math.round(api.hostRect().top));
+    check("the flash class is removed again",
+      await until(function () { return !targetCard.classList.contains("flash"); }, 1500),
+      "flash=" + targetCard.classList.contains("flash"));
+
+    // Keyboard activation does the same thing. Values are captured as they
+    // happen so a failure says which half broke.
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    var kbTarget = cardFor("活");
+    var kbScrollBefore = api.scrollTop();
+    api.queryAll(".word-body .chip")[5].dispatchEvent(new KeyboardEvent("keydown",
+      { key: "Enter", bubbles: true, composed: true, cancelable: true }));
+    var kbFlashed = kbTarget.classList.contains("flash");
+    var kbDepth = api.viewDepth();
+    var kbInView = await until(function () { return cardInView(kbTarget); }, 2000);
+    check("Enter on a chip behaves like a click",
+      kbFlashed && kbInView && kbDepth === 1,
+      "flash=" + kbFlashed + " inView=" + kbInView + " depth=" + kbDepth +
+      " scroll=" + kbScrollBefore + "→" + Math.round(api.scrollTop()));
+
+    // --- reduced motion: jump, no flash ----------------------------------
+    var realMatchMedia = window.matchMedia;
+    window.matchMedia = function (q) {
+      if (/prefers-reduced-motion/.test(q)) return { matches: true, media: q };
+      return realMatchMedia.call(window, q);
+    };
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    var reducedTarget = cardFor("活");
+    var scrollBeforeReduced = api.scrollTop();
+    api.queryAll(".word-body .chip")[5].click();
+    check("reduced motion jumps immediately, without smooth scrolling",
+      api.scrollTop() > scrollBeforeReduced && cardInView(reducedTarget),
+      scrollBeforeReduced + " → " + api.scrollTop());
+    check("reduced motion applies NO flash",
+      !reducedTarget.classList.contains("flash") &&
+      api.queryAll(".card.flash").length === 0);
+    window.matchMedia = realMatchMedia;
+
+    // --- homograph chip swap re-points the eumhun chips ------------------
+    api.showAt(anchor, fake.__lookup("사기").matches);
+    check("chips start as the first spelling's characters",
+      api.queryAll(".word-body .chip-glyph")
+        .map(function (c) { return c.textContent; }).join("") === "詐欺");
+    api.queryAll(".spell-chip")[1].click();    // → 士氣
+    await wait(90);
+    check("after a spelling swap the chips are the new characters",
+      api.queryAll(".word-body .chip-glyph")
+        .map(function (c) { return c.textContent; }).join("") === "士氣");
+    var swapDepth = api.viewDepth();
+    var swapCalls = fake.__calls;
+    api.queryAll(".word-body .chip")[1].click();   // 氣
+    var swapTarget = cardFor("氣");
+    check("a chip after the swap targets the NEW spelling's card",
+      !!swapTarget && swapTarget.classList.contains("flash") &&
+      api.viewDepth() === swapDepth && fake.__calls === swapCalls,
+      "card=" + !!swapTarget + " depth=" + api.viewDepth());
+    check("no stale card from the old spelling is left flashing",
+      api.queryAll(".card.flash").length === 1 &&
+      api.query(".card.flash .surface").textContent === "氣",
+      api.query(".card.flash") ?
+        api.query(".card.flash .surface").textContent : "none");
+
+    // --- fallback: the target card is not on screen ----------------------
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    var doomed = cardFor("民");
+    check("test setup: the 民 component card exists", !!doomed);
+    doomed.remove();                            // simulate a chip with no card
+    var fbDepth = api.viewDepth();
+    var fbCalls = fake.__calls;
+    api.queryAll(".word-body .chip")[1].click();
+    await wait(120);
+    check("a chip whose card is absent falls back to a drill-down lookup",
+      api.viewDepth() === fbDepth + 1 && fake.__calls === fbCalls + 1 &&
+      fake.__lastText === "民",
+      "depth " + fbDepth + " → " + api.viewDepth() + " text=" + fake.__lastText);
+    check("the fallback drill-down shows that character's card",
+      api.query(".surface").textContent === "民",
+      api.query(".surface").textContent);
+    check("the fallback grows the breadcrumb like any drill-down",
+      api.crumbLabels().join(" › ") === "국민 › 民", api.crumbLabels().join(" › "));
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");

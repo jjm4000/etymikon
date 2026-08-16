@@ -114,6 +114,8 @@
   var MAX_PANEL_VH = 0.85;
   var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
   var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
+  var FLASH_MS = 600;        // eumhun chip → component card orientation flash
+  var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
 
   var CSS = [
     ":host { all: initial; }",
@@ -138,6 +140,7 @@
     "  --shadow: 0 8px 28px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12);",
     "  --scroll: rgba(0, 0, 0, 0.22);",
     "  --grip: rgba(0, 0, 0, 0.3);",
+    "  --flash: rgba(47, 87, 201, 0.16);",
     "  width: 340px;",
     "  max-height: 360px;",
     "  overflow-y: auto;",
@@ -186,6 +189,7 @@
     "    --shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);",
     "    --scroll: rgba(255, 255, 255, 0.24);",
     "    --grip: rgba(255, 255, 255, 0.34);",
+    "    --flash: rgba(150, 180, 255, 0.2);",
     "  }",
     "}",
     /* ---- view container: the unit that swaps on navigation ---- */
@@ -261,6 +265,17 @@
     "  font-size: 11px; color: var(--chip-fg); white-space: nowrap;",
     "}",
     ".chip-glyph { font-size: 13px; font-weight: 600; color: var(--fg); }",
+    // Clickable eumhun chips keep the pill look; hover and cursor carry the
+    // affordance, since a chevron would crowd a row of five or six of them.
+    ".chip.nav { cursor: pointer; }",
+    ".chip.nav:hover { background: var(--hover); border-color: var(--accent); }",
+    ".chip.nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    // Orientation flash on the card a chip points at: the card is already on
+    // screen, so this beats pushing a duplicate view.
+    "@keyframes hh-flash { from { background-color: var(--flash); }",
+    "  to { background-color: transparent; } }",
+    ".card.flash { animation: hh-flash " + FLASH_MS + "ms ease-out; border-radius: 7px; }",
+    "@media (prefers-reduced-motion: reduce) { .card.flash { animation: none; } }",
     ".label {",
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
@@ -501,6 +516,7 @@
   var resizeTimer = null;
   var lastPanelW = 0;         // last size the observer acted on (loop guard)
   var lastPanelH = 0;
+  var scrollSettleTimer = null; // smooth-scroll watchdog
 
   // --- per-popup session state (reset on every new selection) ---------
   var lookupCache = null;     // lookup text -> response, so nav never re-queries
@@ -510,6 +526,7 @@
   var usedInPending = null;   // word -> in-flight promise
   var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
   var charDataIndex = null;   // char -> char match data (accumulates)
+  var charCardIndex = null;   // char -> the card element showing it, this view
   var viewStack = [];         // the descent; last entry is the current view
   var wordStates = [];        // one per word surface in the current view
   var independentChars = [];  // current view's chars that are nobody's component
@@ -675,6 +692,7 @@
     usedInPending = Object.create(null);
     crumbsExpanded = false;
     charDataIndex = Object.create(null);
+    charCardIndex = Object.create(null);
     viewStack = [];
     wordStates = [];
     pendingScrollTop = null;
@@ -958,15 +976,79 @@
       var line = formatEumhun(info.eumhun) ||
         asArray(info.readings).map(nonEmptyString).filter(Boolean).join(", ");
       if (!line) continue;
-      var chip = el("span", "chip");
+      var chip = el("span", "chip nav");
       chip.appendChild(el("span", "chip-glyph", chars[i]));
       chip.appendChild(el("span", "chip-text", line));
+      chip.setAttribute("aria-label", chars[i] + " " + line);
+      makeNavRow(chip, (function (ch) {
+        return function () { revealCharCard(ch); };
+      })(chars[i]));
       chips.appendChild(chip);
       chipCount++;
     }
     if (chipCount) body.appendChild(chips);
 
     appendUsedInRow(body, m);
+  }
+
+  function prefersReducedMotion() {
+    try {
+      return !!(window.matchMedia &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Re-triggerable tint fade, so clicking the same chip twice flashes twice.
+  function flashCard(card) {
+    card.classList.remove("flash");
+    void card.offsetWidth;              // force a reflow to restart the animation
+    card.classList.add("flash");
+    if (card.hhFlashTimer) clearTimeout(card.hhFlashTimer);
+    card.hhFlashTimer = setTimeout(function () {
+      card.classList.remove("flash");
+      card.hhFlashTimer = null;
+    }, FLASH_MS);
+  }
+
+  // Clicking an eumhun chip. The character's full card is already on screen in
+  // COMPONENT HANJA, so pushing a view would just duplicate it: scroll to the
+  // card and flash it instead. Only when that card is genuinely absent do we
+  // fall back to an ordinary drill-down lookup.
+  function revealCharCard(ch) {
+    var card = charCardIndex && charCardIndex[ch];
+    if (!card || !card.isConnected) {
+      navigateTo(ch);
+      return false;
+    }
+    var reduced = prefersReducedMotion();
+    var panelBox = panel.getBoundingClientRect();
+    var cardBox = card.getBoundingClientRect();
+    var limit = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    var target = panel.scrollTop + (cardBox.top - panelBox.top) - 8;
+    target = Math.max(0, Math.min(limit, target));
+    if (reduced || typeof panel.scrollTo !== "function") {
+      panel.scrollTop = target;
+    } else {
+      var startTop = panel.scrollTop;
+      panel.scrollTo({ top: target, behavior: "smooth" });
+      // Smooth scrolling is driven by animation frames. A host that is not
+      // compositing (background tab, hidden pane) never ticks them and the
+      // request silently does nothing, which would strand the user. If the
+      // offset has not budged at all by the time a normal animation would
+      // have finished, land on the target outright. Any movement means the
+      // animation ran — or the user took over — so leave it alone.
+      if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+      scrollSettleTimer = setTimeout(function () {
+        scrollSettleTimer = null;
+        if (panel.scrollTop === startTop && startTop !== target) {
+          panel.scrollTop = target;
+        }
+      }, SCROLL_SETTLE_MS);
+    }
+    if (!reduced) flashCard(card);
+    return true;
   }
 
   // Used-in disclosure (design option C): ONE collapsed line at the end of the
@@ -1402,6 +1484,9 @@
 
     var rendered = Object.create(null);
     var count = 0;
+    // Rebuilt from scratch every time cards move (including chip swaps), so an
+    // eumhun chip always points at the card currently on screen.
+    charCardIndex = Object.create(null);
 
     wordStates.forEach(function (state) {
       uniqStrings(asArray(state.items[state.index].chars)).forEach(function (ch) {
@@ -1413,6 +1498,7 @@
         state.componentList.appendChild(cardEl);
         state.owned.push(ch);
         rendered[ch] = true;
+        charCardIndex[ch] = cardEl;
         count++;
       });
       if (state.componentList.firstChild) {
@@ -1436,6 +1522,7 @@
         }
         topCharsBox.appendChild(cardEl);
         rendered[ch] = true;
+        charCardIndex[ch] = cardEl;
         count++;
       });
     }
