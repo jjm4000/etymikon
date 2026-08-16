@@ -349,6 +349,16 @@ Service worker behavior:
   inside the popup must not dismiss it (allow text copy).
 - Max height ~360px with internal scroll; width ~340px. System font stack; support
   dark mode via `prefers-color-scheme`. z-index high (2147483646).
+- Resizable (ADDENDUM, stage 1 — no persistence): the panel is user-resizable
+  via a native drag handle (CSS `resize: both` on the panel or equivalent),
+  bounded to min ~280×220 and max ~90vw × ~85vh. A user-chosen size survives
+  for the lifetime of the page visit (the reused host element), across popup
+  dismiss/reopen and drill-down navigation; a page reload returns to the
+  default. Positioning/re-anchoring must RESPECT the current panel size
+  (clamp and flip with actual dimensions, never snap back to defaults
+  mid-session). Resizing must not dismiss the popup or trigger row clicks;
+  re-anchor after a resize ends. (Stage 2, persisting the size via
+  chrome.storage, is deferred to the options-page release.)
 - Multiple matches stack vertically in one popup, words first.
 - Component grouping (ADDENDUM): char cards that are components of a word match
   must be visually nested under that word's card rather than stacked as peers —
@@ -369,6 +379,15 @@ Service worker behavior:
   "← back" restores, results cached per part. `type:"char"` parts get no row
   (they're already in the component-hanja section). Homograph chip swaps swap
   the parts section along with the rest of the card body.
+- Clickable eumhun chips (ADDENDUM): the per-character eumhun chips on word
+  cards are click targets. Primary behavior: smooth-scroll the popup to that
+  character's nested COMPONENT HANJA card and flash-highlight it briefly
+  (~600ms tint fade) for orientation — no view push, since the full card is
+  already on screen. Fallback when the char's nested card is NOT rendered in
+  the current view: ordinary drill-down lookup of the character (new view,
+  breadcrumb). Chips get the standard hover affordance (they may keep their
+  pill look — hover + cursor signal clickability); keyboard accessible.
+  Respect prefers-reduced-motion (jump instead of smooth scroll, no flash).
 - Used-in disclosure (ADDENDUM — design option C, user-chosen): word cards
   whose match carries `usedInCount` render ONE collapsed nav row at the end of
   the word body (after chips, before COMPONENT WORDS): "Used in N larger
