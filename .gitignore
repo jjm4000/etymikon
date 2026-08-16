@@ -1,0 +1,9 @@
+# Downloaded source corpora (~412 MB, re-fetched by pipeline/build.py)
+pipeline/cache/
+
+# Store upload packages (rebuilt by pipeline/make_zip.ps1)
+okpyeon-*.zip
+
+# Local verification scratch files
+test-page/_*.local.html
+*.local.html

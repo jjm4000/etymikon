@@ -1,0 +1,96 @@
+<title>Okpyeon Privacy Policy</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1c1c1e; --soft: #55565b;
+    --rule: rgba(0,0,0,.12); --jade: #2E6B57;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17181b; --fg: #e8e8ea; --soft: #a6a7ac;
+      --rule: rgba(255,255,255,.16); --jade: #7fc0a6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17181b; --fg: #e8e8ea; --soft: #a6a7ac;
+    --rule: rgba(255,255,255,.16); --jade: #7fc0a6;
+  }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 48px 24px 80px;
+  }
+  main { max-width: 660px; margin: 0 auto; }
+  h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; letter-spacing: -.01em; }
+  .sub { color: var(--soft); margin: 0 0 32px; font-size: 15px; }
+  h2 { font-size: 17px; margin: 34px 0 10px; letter-spacing: -.005em; }
+  p, li { color: var(--fg); }
+  ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .lede {
+    border-left: 3px solid var(--jade); padding: 2px 0 2px 16px;
+    margin: 0 0 30px; font-size: 17px;
+  }
+  footer {
+    margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--rule);
+    color: var(--soft); font-size: 14px;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .92em; background: rgba(128,128,128,.13);
+    padding: 1px 5px; border-radius: 4px;
+  }
+</style>
+
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="sub">Okpyeon: Hanja Popup Dictionary</p>
+
+  <p class="lede">Okpyeon does not collect, store, transmit, or share any personal
+  information. It has no servers, no analytics, and no accounts.</p>
+
+  <h2>What the extension does with your data</h2>
+  <p>When you highlight text on a page, the selected text is passed to the
+  extension's own local lookup code, matched against a dictionary bundled inside
+  the extension, and rendered in a popup. The selection never leaves your
+  computer. It is not logged, saved, or sent anywhere.</p>
+
+  <h2>No network activity</h2>
+  <p>The entire dictionary ships inside the extension package. Okpyeon makes no
+  network requests of any kind and functions with no internet connection. The
+  only file reads it performs are of its own bundled data files, using
+  <code>chrome.runtime.getURL</code>.</p>
+
+  <h2>No permissions, no storage</h2>
+  <p>The extension declares no Chrome permissions and no host permissions. It
+  does not use <code>chrome.storage</code>, cookies, <code>localStorage</code>,
+  or any other persistence mechanism. Nothing is retained between sessions,
+  including your lookup history, which is never recorded in the first place.</p>
+
+  <h2>What is never collected</h2>
+  <ul>
+    <li>Personally identifiable information</li>
+    <li>Health, financial, or authentication information</li>
+    <li>Personal communications</li>
+    <li>Location data</li>
+    <li>Browsing history, page contents, or the text you select</li>
+    <li>User activity, clicks, or analytics of any kind</li>
+  </ul>
+
+  <h2>Third parties</h2>
+  <p>No data is sold or transferred to third parties, because no data is
+  collected. Okpyeon contains no third-party code, trackers, or advertising.</p>
+
+  <h2>Dictionary sources</h2>
+  <p>The bundled dictionary was compiled ahead of release from English Wiktionary
+  (via the kaikki.org machine-readable extracts) and the Unicode Unihan database.
+  This happened during development. The published extension does not contact
+  those sources, or any other, while running.</p>
+
+  <h2>Changes</h2>
+  <p>If a future version changes how data is handled, this policy will be updated
+  before that version is published.</p>
+
+  <footer>
+    Last updated 16 August 2026. Applies to Okpyeon version 1.0.0 and later.
+  </footer>
+</main>

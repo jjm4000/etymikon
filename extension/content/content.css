@@ -1,0 +1,13 @@
+/*
+ * Hanja Hover — content script stylesheet (intentionally empty).
+ *
+ * The popup lives inside a CLOSED shadow root created by content/content.js,
+ * so page-level CSS cannot reach it and rules written here would have no
+ * effect on it. All popup styling is inlined as a string in content.js and
+ * injected as a <style> element inside that shadow root (SPEC "UI behavior"
+ * explicitly permits this).
+ *
+ * This file is still registered in manifest.json as a content script style
+ * (Agent B owns the manifest). Do not add rules that target page elements —
+ * the extension must not restyle the host page.
+ */

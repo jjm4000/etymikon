@@ -1,0 +1,1503 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hanja Hover — content script test page</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 24px 20px 0; max-width: 760px;
+    font: 16px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    color: #16161a; background: #fbfbfd;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 28px 0 6px; text-transform: uppercase;
+       letter-spacing: .06em; color: #6b6b73; }
+  p { margin: 0 0 12px; }
+  .hint { color: #6b6b73; font-size: 14px; }
+  .panelbox { border: 1px solid #dcdce4; border-radius: 8px; padding: 12px 14px;
+              background: #fff; margin-bottom: 14px; }
+  .right { text-align: right; }
+  .scroller { height: 120px; overflow: auto; border: 1px dashed #c9c9d4;
+              border-radius: 8px; padding: 10px 12px; background: #fff; }
+  .filler { height: 900px; }
+  .bottomzone { padding-bottom: 8px; }
+  button { font: inherit; font-size: 14px; padding: 5px 11px; border-radius: 6px;
+           border: 1px solid #c3c3cf; background: #fff; cursor: pointer; }
+  pre#out { font-size: 13px; line-height: 1.5; background: #12121a; color: #d8d8e2;
+            padding: 12px; border-radius: 8px; overflow: auto; white-space: pre-wrap;
+            min-height: 40px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e7e7ec; background: #16161b; }
+    .panelbox, .scroller { background: #202027; border-color: #34343f; }
+    h2, .hint { color: #9a9aa6; }
+    button { background: #26262e; color: #e7e7ec; border-color: #3d3d49; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Hanja Hover — content script test page</h1>
+<p class="hint">
+  Select (highlight) any hanja, hangul word, or a <em>single</em> hangul syllable below.
+  This page installs a fake <code>chrome.runtime</code> that mimics the SPEC message
+  protocol (including <code>kind:"reading"</code> and homograph spellings), so no
+  extension is needed.
+</p>
+
+<h2>1 · Mixed Korean prose</h2>
+<div class="panelbox">
+  <p>大韓民國의 國民은 모두 法 앞에 평등하다. 여기서 國民이라는 말은 한 나라의 구성원을 뜻한다.</p>
+  <p>簡體字로 쓰면 国, 学, 漢字는 한자, 文字는 문자라고 읽는다. 學生과 学生은 같은 낱말이다.</p>
+  <p>한글만 선택해도 역방향 조회가 된다: 국민, 학생, 한국, 한자, 문자.</p>
+  <p>순우리말은 매칭이 없어 팝업이 뜨지 않는다: 하늘, 바다, 아름다움.</p>
+  <p class="hint">Single chars to try: 國 国 學 学 生 民 韓 漢 文 字 法</p>
+</div>
+
+<h2>2 · Homophone browse (single syllable → reading list)</h2>
+<div class="panelbox">
+  <p class="hint">Select exactly one syllable. The popup lists every hanja with that
+     reading; click a row to drill into it, then use “← back”.</p>
+  <p>국 · 사 · 한 · 자 · 생</p>
+</div>
+
+<h2>3 · Homograph spellings (one card, chip selector)</h2>
+<div class="panelbox">
+  <p class="hint">사기 has three hanja spellings — one card with a selector row.</p>
+  <p>그는 사기를 당했지만 사기를 잃지 않았다. 사기 그릇도 깨졌다.</p>
+  <p class="hint">Gloss-less data (reference-only word 무기 / reading-only char 朞)
+     must render without blank lines: 무기 · 朞</p>
+</div>
+
+<h2>4 · Component words + breadcrumb drill-down</h2>
+<div class="panelbox">
+  <p class="hint">4-character words carry <code>parts</code>. Select one, then click a
+     COMPONENT WORDS row to descend — the breadcrumb trail grows and every earlier
+     crumb jumps straight back.</p>
+  <p>資本主義와 民主主義, 그리고 자본주의 · 민주주의 · 사기충천.</p>
+  <p>깊은 중첩: 해외대학생활 → 大學生活 → 大學生 → 大學 (4단계 breadcrumb).</p>
+</div>
+
+<h2>5 · Rare hanja homographs (hedged)</h2>
+<div class="panelbox">
+  <p class="hint">순우리말 사랑 has only an obscure hanja spelling (舍廊) — the card is
+     hedged. Selecting the hanja 舍廊 directly renders normally. 사기 mixes a rare
+     spelling (沙器) with common ones, so only its chip is muted.</p>
+  <p>사랑 · 舍廊 · 사기</p>
+</div>
+
+<h2>6 · Horizontal clamping (right edge)</h2>
+<div class="panelbox right">
+  <p>오른쪽 끝에 붙은 한자를 선택해 보세요 → 大韓民國</p>
+</div>
+
+<h2>7 · Scroll dismissal (inner scroller)</h2>
+<div class="panelbox">
+  <p class="hint">Select 國民 inside the box, then scroll the box — the popup must close.
+     Scrolling <em>inside the popup itself</em> must not close it.</p>
+  <div class="scroller">
+    <p>國民 · 學生 · 韓國 · 漢字 · 文字</p>
+    <p>大韓民國의 國民은 모두 法 앞에 평등하다.</p>
+    <p>簡體字로 쓰면 国, 学 이다.</p>
+    <p>한글: 국민 · 학생 · 한국 · 한자 · 문자</p>
+    <p>끝.</p>
+  </div>
+</div>
+
+<h2>8 · Automated checks</h2>
+<div class="panelbox">
+  <p class="hint">Exercises rendering, positioning, navigation and the stub call count.</p>
+  <p><button id="run">Run self-checks</button></p>
+  <pre id="out">not run yet</pre>
+</div>
+
+<div class="filler"></div>
+
+<h2>9 · Viewport-bottom flip</h2>
+<div class="panelbox bottomzone">
+  <p>Scroll so this line sits near the bottom of the window, then select 大韓民國의 國民 —
+     the popup must flip <strong>above</strong> the selection.</p>
+</div>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Fake service worker: mimics the SPEC lookup, incl. hangul reverse,  -->
+<!-- single-syllable reading matches and homograph spellings.            -->
+<!-- Must be installed BEFORE content.js loads.                          -->
+<!-- ------------------------------------------------------------------ -->
+<script>
+(function () {
+  "use strict";
+
+  var VARIANTS = { "国": "國", "学": "學", "汉": "漢" };
+
+  // Compact constructor for the long tail of fixture characters.
+  function C(hun, eum, gloss, compounds) {
+    return {
+      eumhun: [{ hun: hun, eum: eum }],
+      readings: [eum],
+      glosses: gloss ? [gloss] : [],
+      compounds: compounds || []
+    };
+  }
+
+  var CHARS = {
+    "國": { eumhun: [{ hun: "나라", eum: "국" }], readings: ["국"],
+            glosses: ["country; state; nation"],
+            compounds: [
+              { hangul: "국민", hanja: "國民", gloss: "the people of a nation" },
+              { hangul: "한국", hanja: "韓國", gloss: "Korea" },
+              { hangul: "국가", hanja: "國家", gloss: "state; nation" },
+              { hangul: "외국", hanja: "外國", gloss: "foreign country" },
+              { hangul: "국어", hanja: "國語", gloss: "national language" },
+              { hangul: "국제", hanja: "國際", gloss: "international (bound form)" }
+            ] },
+    "民": { eumhun: [{ hun: "백성", eum: "민" }], readings: ["민"],
+            glosses: ["people; populace; subjects"],
+            compounds: [
+              { hangul: "국민", hanja: "國民", gloss: "the people of a nation" },
+              { hangul: "민족", hanja: "民族", gloss: "ethnic group; people" },
+              { hangul: "시민", hanja: "市民", gloss: "citizen" }
+            ] },
+    "學": { eumhun: [{ hun: "배울", eum: "학" }], readings: ["학"],
+            glosses: ["to learn; study", "school; learning"],
+            compounds: [
+              { hangul: "학생", hanja: "學生", gloss: "student" },
+              { hangul: "대학", hanja: "大學", gloss: "university" },
+              { hangul: "학교", hanja: "學校", gloss: "school" }
+            ] },
+    "生": { eumhun: [{ hun: "날", eum: "생" }], readings: ["생"],
+            glosses: ["to be born; to live", "raw; fresh"],
+            compounds: [
+              { hangul: "학생", hanja: "學生", gloss: "student" },
+              { hangul: "생일", hanja: "生日", gloss: "birthday" }
+            ] },
+    "韓": { eumhun: [{ hun: "나라", eum: "한" }], readings: ["한"],
+            glosses: ["Korea (bound form)"],
+            compounds: [{ hangul: "한국", hanja: "韓國", gloss: "Korea" }] },
+    "漢": { eumhun: [{ hun: "한수", eum: "한" }, { hun: "한나라", eum: "한" }],
+            readings: ["한"],
+            glosses: ["Han China; Chinese", "the Han river"],
+            compounds: [{ hangul: "한자", hanja: "漢字", gloss: "Chinese character" }] },
+    "字": { eumhun: [{ hun: "글자", eum: "자" }], readings: ["자"],
+            glosses: ["letter; character; graph"],
+            compounds: [
+              { hangul: "한자", hanja: "漢字", gloss: "Chinese character" },
+              { hangul: "문자", hanja: "文字", gloss: "writing system; character" }
+            ] },
+    "文": { eumhun: [{ hun: "글월", eum: "문" }], readings: ["문"],
+            glosses: ["writing; text; literature"],
+            compounds: [{ hangul: "문자", hanja: "文字", gloss: "writing system" }] },
+    "大": { eumhun: [{ hun: "큰", eum: "대" }], readings: ["대"],
+            glosses: ["big; great"],
+            compounds: [{ hangul: "대한", hanja: "大韓", gloss: "Great Han (Korea)" }] },
+    // eumhun deliberately missing → exercises the readings fallback path
+    "法": { eumhun: [], readings: ["법"], glosses: ["law; rule; method"], compounds: [] },
+
+    // --- homophones of 국 (ranked by compound count in the reading list) ---
+    "局": C("판", "국", "bureau; office; situation", [
+      { hangul: "결국", hanja: "結局", gloss: "in the end" },
+      { hangul: "약국", hanja: "藥局", gloss: "pharmacy" },
+      { hangul: "방송국", hanja: "放送局", gloss: "broadcasting station" }
+    ]),
+    "菊": C("국화", "국", "chrysanthemum", [
+      { hangul: "국화", hanja: "菊花", gloss: "chrysanthemum" }
+    ]),
+    "鞠": C("공", "국", "leather ball; to rear"),
+    "麴": C("누룩", "국", "yeast; malt"),
+
+    // --- homophones of 사 (long list → exercises list scrolling) ---
+    "事": C("일", "사", "affair; matter; work", [
+      { hangul: "사건", hanja: "事件", gloss: "incident; case" },
+      { hangul: "사업", hanja: "事業", gloss: "business; enterprise" },
+      { hangul: "식사", hanja: "食事", gloss: "a meal" }
+    ]),
+    "社": C("모일", "사", "society; company; shrine", [
+      { hangul: "회사", hanja: "會社", gloss: "company" },
+      { hangul: "사회", hanja: "社會", gloss: "society" }
+    ]),
+    "士": C("선비", "사", "scholar; gentleman; soldier", [
+      { hangul: "사기", hanja: "士氣", gloss: "morale" },
+      { hangul: "박사", hanja: "博士", gloss: "doctorate" }
+    ]),
+    "使": C("하여금", "사", "to use; envoy", [
+      { hangul: "사용", hanja: "使用", gloss: "use" }
+    ]),
+    "史": C("사기", "사", "history", [
+      { hangul: "역사", hanja: "歷史", gloss: "history" }
+    ]),
+    "死": C("죽을", "사", "to die; death", [
+      { hangul: "사망", hanja: "死亡", gloss: "death" }
+    ]),
+    "四": C("넉", "사", "four"),
+    "師": C("스승", "사", "teacher; master"),
+    "詐": C("속일", "사", "to deceive; fraud", [
+      { hangul: "사기", hanja: "詐欺", gloss: "fraud" }
+    ]),
+    "沙": C("모래", "사", "sand"),
+    "寺": C("절", "사", "Buddhist temple"),
+
+    // --- remaining components of the 사기 homographs ---
+    "欺": C("속일", "기", "to deceive; cheat", [
+      { hangul: "사기", hanja: "詐欺", gloss: "fraud" }
+    ]),
+    "氣": C("기운", "기", "energy; spirit; air", [
+      { hangul: "기분", hanja: "氣分", gloss: "mood" },
+      { hangul: "사기", hanja: "士氣", gloss: "morale" }
+    ]),
+    "器": C("그릇", "기", "vessel; instrument", [
+      { hangul: "무기", hanja: "武器", gloss: "weapon" }
+    ]),
+    "武": C("호반", "무", "military; martial"),
+    "資": C("재물", "자", "resources; capital", [
+      { hangul: "자본", hanja: "資本", gloss: "capital" }
+    ]),
+    "本": C("근본", "본", "root; origin; book", [
+      { hangul: "자본", hanja: "資本", gloss: "capital" },
+      { hangul: "본질", hanja: "本質", gloss: "essence" }
+    ]),
+    "主": C("주인", "주", "master; main; lord", [
+      { hangul: "주의", hanja: "主義", gloss: "-ism" },
+      { hangul: "주인", hanja: "主人", gloss: "owner" }
+    ]),
+    "義": C("옳을", "의", "righteousness; meaning", [
+      { hangul: "주의", hanja: "主義", gloss: "-ism" }
+    ]),
+    "衝": C("찌를", "충", "to rush; collide"),
+    "會": C("모일", "회", "to meet; assembly", [
+      { hangul: "사회", hanja: "社會", gloss: "society" }
+    ]),
+    "者": C("놈", "자", "person; one who"),
+    "海": C("바다", "해", "sea; ocean", [
+      { hangul: "해외", hanja: "海外", gloss: "overseas" }
+    ]),
+    "外": C("바깥", "외", "outside; external", [
+      { hangul: "외국", hanja: "外國", gloss: "foreign country" }
+    ]),
+    "活": C("살", "활", "to live; lively", [
+      { hangul: "생활", hanja: "生活", gloss: "life; living" }
+    ]),
+    "舍": C("집", "사", "house; lodging"),
+    "廊": C("행랑", "랑", "corridor; veranda"),
+    "天": C("하늘", "천", "sky; heaven", [
+      { hangul: "천지", hanja: "天地", gloss: "heaven and earth" }
+    ]),
+
+    // Reading-only character: hun is "" AND glosses is [] (Agent A reports
+    // these exist in the real data). Must render as just the eum, no blanks.
+    "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
+  };
+
+  var WORDS = {
+    // Deliberately listed BEFORE 詐欺 so the non-rare-first ordering has to
+    // actually reorder it (Agent B does this in the service worker).
+    "沙器": [{ hangul: "사기", glosses: ["porcelain; chinaware"], rare: true }],
+    // Highlighting the native word 사랑 ("love") turns up only this obscure
+    // spelling — the canonical hedging case.
+    "舍廊": [{ hangul: "사랑", glosses: ["a detached building; men's quarters"], rare: true }],
+    "國民": [{ hangul: "국민", glosses: ["the people; citizens of a nation"] }],
+    "學生": [{ hangul: "학생", glosses: ["student; pupil"] }],
+    "韓國": [{ hangul: "한국", glosses: ["Korea; South Korea"] }],
+    "漢字": [{ hangul: "한자", glosses: ["hanja; Chinese character"] }],
+    "文字": [{ hangul: "문자", glosses: ["character; letter", "text message"] }],
+    "大韓民國": [{ hangul: "대한민국", glosses: ["the Republic of Korea"] }],
+    "詐欺": [{ hangul: "사기", glosses: ["fraud; swindle; confidence trick"] }],
+    "士氣": [{ hangul: "사기", glosses: ["morale; fighting spirit"] }],
+    // Reference-only word: ~9,600 of the real 27,759 words have no glosses.
+    "武器": [{ hangul: "무기", glosses: [] }],
+    // ≥3 chars → gets a `parts` field (see the protocol addendum).
+    "資本": [{ hangul: "자본", glosses: ["capital; funds"] }],
+    "主義": [{ hangul: "주의", glosses: ["-ism; doctrine; principle"] }],
+    "資本主義": [{ hangul: "자본주의", glosses: ["capitalism"] }],
+    "民主主義": [{ hangul: "민주주의", glosses: ["democracy"] }],
+    "民主": [{ hangul: "민주", glosses: ["democracy; democratic"] }],
+    "士氣衝天": [{ hangul: "사기충천", glosses: ["morale running high"] }],
+    "社會": [{ hangul: "사회", glosses: ["society"] }],
+    "社會民主主義": [{ hangul: "사회민주주의", glosses: ["social democracy"] }],
+    // A nesting chain where each level is a greedy part of the one above, deep
+    // enough to exercise breadcrumb truncation (4 views):
+    // 해외대학생활 → 大學生活 → 大學生 → 大學
+    "海外": [{ hangul: "해외", glosses: ["overseas; abroad"] }],
+    "大學": [{ hangul: "대학", glosses: ["university; college"] }],
+    "大學生": [{ hangul: "대학생", glosses: ["a university student"] }],
+    "大學生活": [{ hangul: "대학생활", glosses: ["university life"] }],
+    "海外大學生活": [{ hangul: "해외대학생활", glosses: ["university life abroad"] }]
+  };
+
+  // byHangul: hangul spelling → every hanja spelling, no cap.
+  var BY_HANGUL = {};
+  Object.keys(WORDS).forEach(function (hanja) {
+    WORDS[hanja].forEach(function (sense) {
+      (BY_HANGUL[sense.hangul] = BY_HANGUL[sense.hangul] || []).push(hanja);
+    });
+  });
+
+  // eum → chars, derived at runtime from readings/eumhun, ranked by how many
+  // compounds the entry has (descending), exactly as the SPEC addendum says.
+  var BY_EUM = {};
+  Object.keys(CHARS).forEach(function (ch) {
+    var d = CHARS[ch];
+    var eums = {};
+    (d.readings || []).forEach(function (r) { if (r) eums[r] = true; });
+    (d.eumhun || []).forEach(function (e) { if (e && e.eum) eums[e.eum] = true; });
+    Object.keys(eums).forEach(function (eum) {
+      (BY_EUM[eum] = BY_EUM[eum] || []).push(ch);
+    });
+  });
+  Object.keys(BY_EUM).forEach(function (eum) {
+    BY_EUM[eum].sort(function (a, b) {
+      return (CHARS[b].compounds || []).length - (CHARS[a].compounds || []).length;
+    });
+  });
+
+  var HAN = /\p{Script=Han}/u;
+  var HANGUL = /[가-힣]/;
+  var MAX_WORD = 6;
+
+  function runs(text) {
+    var out = [], cur = null;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      var kind = HAN.test(ch) ? "han" : (HANGUL.test(ch) ? "hangul" : null);
+      if (!kind) { cur = null; continue; }
+      if (!cur || cur.kind !== kind) { cur = { kind: kind, s: "" }; out.push(cur); }
+      cur.s += ch;
+    }
+    return out;
+  }
+
+  function canonicalize(s) {
+    var out = "";
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      out += VARIANTS[ch] || ch;
+    }
+    return out;
+  }
+
+  // Protocol addendum: word matches ≥3 chars carry `parts` — the interior
+  // re-segmented against `words` (the full span excluded), covering it in order.
+  function computeParts(hanja) {
+    if (hanja.length < 3) return null;
+    var out = [], i = 0, sawWord = false;
+    while (i < hanja.length) {
+      var hit = null, hitLen = 0;
+      for (var len = Math.min(MAX_WORD, hanja.length - i); len >= 2; len--) {
+        if (len === hanja.length) continue;          // exclude the whole span
+        var cand = hanja.substr(i, len);
+        if (WORDS[cand]) { hit = cand; hitLen = len; break; }
+      }
+      if (hit) {
+        out.push({
+          type: "word", hanja: hit, hangul: WORDS[hit][0].hangul,
+          glosses: (WORDS[hit][0].glosses || []).slice(0, 2)
+        });
+        sawWord = true;
+        i += hitLen;
+      } else {
+        out.push({ type: "char", char: hanja.charAt(i) });
+        i += 1;
+      }
+    }
+    return sawWord ? out : null;
+  }
+
+  function isRare(hanja) {
+    return (WORDS[hanja] || [])[0] ? (WORDS[hanja][0].rare === true) : false;
+  }
+
+  function wordMatch(surface, hanja, hangul) {
+    var m = {
+      kind: "word", surface: surface, canonical: hanja, hangul: hangul,
+      glosses: (WORDS[hanja][0] || {}).glosses || [],
+      chars: hanja.split("")
+    };
+    if (isRare(hanja)) m.rare = true;   // flag omitted when false
+    var parts = computeParts(hanja);
+    if (parts) m.parts = parts;
+    return m;
+  }
+
+  function charMatch(canon, surface) {
+    var d = CHARS[canon];
+    if (!d) return null;
+    return {
+      kind: "char", surface: surface, canonical: canon,
+      eumhun: d.eumhun, readings: d.readings, glosses: d.glosses,
+      compounds: d.compounds
+    };
+  }
+
+  function readingMatch(syllable) {
+    var chars = BY_EUM[syllable] || [];
+    if (!chars.length) return null;
+    return {
+      kind: "reading", surface: syllable, eum: syllable,
+      candidates: chars.map(function (ch) {
+        var d = CHARS[ch];
+        var hun = (d.eumhun && d.eumhun[0] && d.eumhun[0].hun) || "";
+        return {
+          char: ch, hun: hun, eum: syllable,
+          gloss: (d.glosses && d.glosses[0]) || ""
+        };
+      })
+    };
+  }
+
+  function lookup(text) {
+    var words = [], chars = [], seenChar = {};
+    function pushChar(canon, surface) {
+      if (seenChar[canon]) return;
+      var m = charMatch(canon, surface);
+      if (!m) return;
+      seenChar[canon] = true;
+      chars.push(m);
+    }
+
+    var segments = runs(text.normalize("NFC"));
+
+    // 3c: the whole extracted selection is exactly one hangul syllable.
+    if (segments.length === 1 && segments[0].kind === "hangul" && segments[0].s.length === 1) {
+      var rm = readingMatch(segments[0].s);
+      return { ok: true, matches: rm ? [rm] : [] };
+    }
+
+    var hanTotal = 0;
+    segments.forEach(function (r) { if (r.kind === "han") hanTotal += r.s.length; });
+
+    segments.forEach(function (run) {
+      if (run.kind === "han") {
+        var canon = canonicalize(run.s);
+        var i = 0;
+        while (i < canon.length) {
+          var hit = null, hitLen = 0;
+          for (var len = Math.min(MAX_WORD, canon.length - i); len >= 2; len--) {
+            var cand = canon.substr(i, len);
+            if (WORDS[cand]) { hit = cand; hitLen = len; break; }
+          }
+          if (hit) {
+            words.push(wordMatch(run.s.substr(i, hitLen), hit, WORDS[hit][0].hangul));
+            // Han-char count only — hangul doesn't count toward the threshold.
+            if (hanTotal <= 4) {
+              for (var k = 0; k < hit.length; k++) pushChar(hit.charAt(k), run.s.charAt(i + k));
+            }
+            i += hitLen;
+          } else {
+            pushChar(canon.charAt(i), run.s.charAt(i));
+            i += 1;
+          }
+        }
+      } else {
+        var h = run.s, j = 0;
+        while (j < h.length) {
+          var found = null, foundLen = 0;
+          for (var l = Math.min(MAX_WORD, h.length - j); l >= 2; l--) {
+            var c = h.substr(j, l);
+            if (BY_HANGUL[c]) { found = c; foundLen = l; break; }
+          }
+          if (!found) { j += 1; continue; }
+          // ALL hanja spellings, no cap — the UI renders a selector. Non-rare
+          // spellings order first; the first of them contributes the char cards.
+          var spellings = BY_HANGUL[found].filter(function (h) { return !isRare(h); })
+            .concat(BY_HANGUL[found].filter(isRare));
+          spellings.forEach(function (hanja, idx) {
+            words.push(wordMatch(found, hanja, found));
+            // Hangul-sourced matches ALWAYS get component char cards (first only).
+            if (idx === 0) {
+              for (var k2 = 0; k2 < hanja.length; k2++) pushChar(hanja.charAt(k2), hanja.charAt(k2));
+            }
+          });
+          j += foundLen;
+        }
+      }
+    });
+
+    return { ok: true, matches: words.concat(chars) };
+  }
+
+  globalThis.__hanjaHoverTestRuntime = {
+    __isStub: true,
+    __calls: 0,          // every sendMessage — lets tests prove "back" doesn't re-query
+    __lastText: null,
+    sendMessage: function (msg, cb) {
+      this.__calls++;
+      this.__lastText = msg && msg.text;
+      var resp;
+      try {
+        resp = (msg && msg.type === "lookup")
+          ? lookup(String(msg.text || ""))
+          : { ok: false, error: "unknown message type" };
+      } catch (e) {
+        resp = { ok: false, error: String(e) };
+      }
+      if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
+      return Promise.resolve(resp);
+    },
+    __lookup: lookup
+  };
+})();
+</script>
+
+<script src="../extension/content/content.js"></script>
+
+<!-- Self-checks: rendering, positioning, navigation, homographs. -->
+<script>
+(function () {
+  "use strict";
+  var out = document.getElementById("out");
+
+  function rect(left, top, w, h) {
+    return { left: left, top: top, right: left + w, bottom: top + h, width: w, height: h };
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
+  // Independent re-implementation of the display-time capitalization rule.
+  function capitalizeFirst(s) {
+    for (var i = 0; i < s.length; i++) {
+      if (/\p{L}/u.test(s[i])) return s.slice(0, i) + s[i].toUpperCase() + s.slice(i + 1);
+    }
+    return s;
+  }
+
+  document.getElementById("run").addEventListener("click", async function () {
+    var api = globalThis.__hanjaHover;
+    if (!api) { out.textContent = "FAIL: __hanjaHover test hooks missing (is chrome.runtime present?)"; return; }
+    var lines = [], pass = 0, fail = 0;
+    function check(name, cond, detail) {
+      (cond ? pass++ : fail++);
+      lines.push((cond ? "PASS  " : "FAIL  ") + name + (detail ? "   [" + detail + "]" : ""));
+    }
+
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
+    var fake = globalThis.__hanjaHoverTestRuntime;
+    var anchor = rect(40, 100, 60, 20);
+
+    try {
+    // --- lookup shape -------------------------------------------------
+    var r1 = fake.__lookup("國民이라는");
+    check("hanja word 國民 → word match first",
+      r1.matches[0] && r1.matches[0].kind === "word" && r1.matches[0].canonical === "國民",
+      JSON.stringify(r1.matches.map(function (m) { return m.kind + ":" + m.canonical; })));
+    var r2 = fake.__lookup("국민");
+    check("hangul 국민 → word 國民 + char 國,民",
+      r2.matches[0] && r2.matches[0].surface === "국민" && r2.matches[0].canonical === "國民" &&
+      r2.matches.length === 3 && r2.matches[1].canonical === "國" && r2.matches[2].canonical === "民");
+    var r3 = fake.__lookup("国");
+    check("variant 国 → canonical 國", r3.matches[0] && r3.matches[0].canonical === "國" &&
+      r3.matches[0].surface === "国");
+    check("native word 하늘 → no matches", fake.__lookup("하늘").matches.length === 0);
+
+    // --- render -------------------------------------------------------
+    api.showAt(anchor, r2.matches);
+    check("renders 3 cards for 국민", api.cardCount() === 3, "cards=" + api.cardCount());
+
+    // --- ADDENDUM: component grouping ------------------------------------
+    var wordCard = api.queryAll(".card")[0];
+    check("國/民 are NESTED inside the 國民 word card",
+      wordCard.querySelectorAll(".component-list > .card.component").length === 2,
+      "nested=" + wordCard.querySelectorAll(".component-list > .card").length);
+    check("nested components are 國 then 民",
+      api.queryAll(".component-list > .card .surface")
+        .map(function (s) { return s.textContent; }).join("") === "國民");
+    check("component region carries the uppercase label",
+      api.query(".components .label").textContent.toUpperCase() === "COMPONENT HANJA" &&
+      getComputedStyle(api.query(".components .label")).textTransform === "uppercase",
+      JSON.stringify(api.query(".components .label").textContent));
+    check("component list has a left accent rail",
+      parseFloat(getComputedStyle(api.query(".component-list")).borderLeftWidth) >= 2 &&
+      getComputedStyle(api.query(".component-list")).borderLeftStyle === "solid",
+      getComputedStyle(api.query(".component-list")).borderLeftWidth + " " +
+      getComputedStyle(api.query(".component-list")).borderLeftColor);
+    check("component list is indented from the word card",
+      parseFloat(getComputedStyle(api.query(".component-list")).paddingLeft) >= 8);
+    check("component cards keep full content (eumhun + glosses + compounds)",
+      api.queryAll(".component-list > .card.component").every(function (c) {
+        return c.querySelector(".eumhun") && c.querySelector(".gloss") &&
+               c.querySelector(".compounds");
+      }));
+    check("no top-level char cards remain for 국민",
+      api.queryAll(".top-chars > .card").length === 0);
+
+    // A single char with no word match stays a plain top-level card.
+    api.showAt(anchor, fake.__lookup("法").matches);
+    check("independent char card stays top-level and unnested",
+      api.queryAll(".top-chars > .card").length === 1 &&
+      api.queryAll(".component-list > .card").length === 0 &&
+      api.queryAll(".components:not(:empty)").length === 0,
+      "top=" + api.queryAll(".top-chars > .card").length);
+
+    api.showAt(anchor, r2.matches); // restore the 국민 view for the checks below
+    check("big text is hanja 國民 (not the hangul surface)",
+      api.panelText().indexOf("國民") === 0, JSON.stringify(api.panelText().slice(0, 24)));
+    // --- the big glyph is ALWAYS the canonical character -------------------
+    // Regression: highlighting simplified 外国 used to head the component card
+    // with the surface 国 instead of the entry it actually describes, 國.
+    var variantChar = fake.__lookup("国").matches[0];
+    check("fixture: 国 lookup is surface 国 / canonical 國",
+      variantChar.surface === "国" && variantChar.canonical === "國",
+      variantChar.surface + "/" + variantChar.canonical);
+    api.showAt(anchor, [variantChar]);
+    check("char card big glyph is canonical 國, not the surface 国",
+      api.query(".surface").textContent === "國",
+      JSON.stringify(api.query(".surface").textContent));
+    check("variant surface shows only as the note 国 → 國",
+      !!api.query(".canonical") && api.query(".canonical").textContent === "国 → 國",
+      JSON.stringify(api.query(".canonical") && api.query(".canonical").textContent));
+
+    api.showAt(anchor, fake.__lookup("國").matches);
+    check("surface === canonical renders NO variant note",
+      api.query(".surface").textContent === "國" && !api.query(".canonical"),
+      JSON.stringify(api.query(".canonical") && api.query(".canonical").textContent));
+
+    // Same rule inside a word group: 学生 → 學生 with component cards 學 / 生.
+    api.showAt(anchor, fake.__lookup("学生").matches);
+    check("nested component cards head with canonical glyphs 學生",
+      api.queryAll(".component-list > .card.component .surface")
+        .map(function (s) { return s.textContent; }).join("") === "學生",
+      api.queryAll(".component-list > .card.component .surface")
+        .map(function (s) { return s.textContent; }).join(""));
+    check("only the variant component carries a note (学 → 學)",
+      api.queryAll(".component-list > .card.component .canonical")
+        .map(function (n) { return n.textContent; }).join("|") === "学 → 學",
+      api.queryAll(".component-list > .card.component .canonical")
+        .map(function (n) { return n.textContent; }).join("|"));
+    check("word card big text is canonical 學生 with the 学生 note",
+      api.query(".word-body .surface").textContent === "學生" &&
+      api.query(".word-body .canonical").textContent === "学生 → 學生",
+      api.query(".word-body .surface").textContent);
+
+    api.showAt(anchor, r2.matches); // restore the 국민 view
+    check("eumhun formatting 나라 국", api.formatEumhun([{ hun: "나라", eum: "국" }]) === "나라 국");
+    check("eumhun falls back to eum only", api.formatEumhun([{ hun: "", eum: "국" }]) === "국");
+
+    // --- size ---------------------------------------------------------
+    var box = api.hostRect();
+    check("width ≈ 340", Math.abs(box.width - 340) < 2, "w=" + Math.round(box.width));
+    check("height ≤ 360", box.height <= 360.5, "h=" + Math.round(box.height));
+
+    // --- position -------------------------------------------------------
+    api.showAt(anchor, r2.matches);
+    box = api.hostRect();
+    // In a short viewport there is no room below, and clamping is correct.
+    var fitsBelow = anchor.bottom + 8 + box.height <= vh - 8;
+    check(fitsBelow ? "opens below the selection" : "no room below → clamped inside viewport",
+      fitsBelow
+        ? (box.top >= anchor.bottom + 7.5 && box.top <= anchor.bottom + 8.5)
+        : (box.top >= 7.5 && box.bottom <= vh - 7.5),
+      "top=" + Math.round(box.top) + " vh=" + vh + " fitsBelow=" + fitsBelow);
+
+    api.showAt(rect(40, vh - 30, 60, 20), r2.matches);
+    box = api.hostRect();
+    check("flips above near viewport bottom", box.bottom <= vh - 30 + 0.5,
+      "bottom=" + Math.round(box.bottom) + " selTop=" + Math.round(vh - 30));
+    check("stays inside viewport when flipped", box.top >= 7.5 && box.bottom <= vh - 7.5,
+      "top=" + Math.round(box.top));
+
+    api.showAt(rect(vw - 40, 100, 30, 20), r2.matches);
+    box = api.hostRect();
+    check("clamps to right edge", box.right <= vw - 7.5, "right=" + Math.round(box.right) + " vw=" + vw);
+
+    api.showAt(rect(-200, 100, 30, 20), r2.matches);
+    box = api.hostRect();
+    check("clamps to left edge", box.left >= 7.5, "left=" + Math.round(box.left));
+
+    check("empty matches → hidden", api.showAt(anchor, []) === false && !api.isVisible());
+
+    // --- ADDENDUM: single-syllable trigger ------------------------------
+    var single = fake.__lookup("국");
+    check("single syllable 국 → reading match",
+      single.matches.length === 1 && single.matches[0].kind === "reading",
+      JSON.stringify(single.matches.map(function (m) { return m.kind; })));
+    check("candidates ranked by compound count (國 first)",
+      single.matches[0].candidates[0].char === "國",
+      single.matches[0].candidates.map(function (c) { return c.char; }).join(""));
+
+    // Real selection of ONE syllable must trigger a lookup (was ≥2 before).
+    var callsBeforeTrigger = fake.__calls;
+    (function selectOneSyllable() {
+      var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), n;
+      while ((n = w.nextNode())) {
+        var i = n.data.indexOf("국 · 사 · 한");
+        if (i >= 0) {
+          var r = document.createRange();
+          r.setStart(n, i); r.setEnd(n, i + 1);
+          var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+          window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+          return;
+        }
+      }
+    })();
+    await wait(60);
+    check("single-syllable selection fires a lookup", fake.__calls > callsBeforeTrigger,
+      "calls " + callsBeforeTrigger + " → " + fake.__calls);
+    check("single-syllable selection renders the reading list", api.isVisible() &&
+      !!api.query(".reading-title"), "visible=" + api.isVisible());
+
+    // --- ADDENDUM: reading list rendering -------------------------------
+    api.showAt(anchor, single.matches);
+    var title = api.query(".reading-title");
+    var rows = api.queryAll(".reading-row");
+    check("reading list has a title",
+      !!title && title.textContent ===
+        single.matches[0].candidates.length + " hanja read 국",
+      title ? JSON.stringify(title.textContent) : "none");
+    check("reading list renders one row per candidate",
+      rows.length === single.matches[0].candidates.length,
+      "rows=" + rows.length);
+    check("row shows glyph, eumhun and gloss",
+      rows[0].querySelector(".r-glyph").textContent === "國" &&
+      rows[0].querySelector(".r-eumhun").textContent === "나라 국" &&
+      /country/.test(rows[0].querySelector(".r-gloss").textContent),
+      JSON.stringify(rows[0].textContent.trim()));
+    check("reading card is the only card", api.cardCount() === 1, "cards=" + api.cardCount());
+
+    // --- ADDENDUM: drill into a row -------------------------------------
+    var callsBeforeDrill = fake.__calls;
+    rows[1].click();               // 局
+    await wait(60);
+    check("row click issues exactly one follow-up lookup",
+      fake.__calls === callsBeforeDrill + 1 && fake.__lastText === "局",
+      "calls=" + fake.__calls + " text=" + fake.__lastText);
+    check("drill-down shows the char card", !!api.query(".surface") &&
+      api.query(".surface").textContent === "局", api.panelText().slice(0, 18));
+    check("drill-down shows the breadcrumb trail 국 › 局",
+      api.crumbLabels().join(" › ") === "국 › 局", api.crumbLabels().join(" › "));
+    check("reading list is gone while drilled in", !api.query(".reading-row"));
+    check("drill-down card is unaffected by component grouping",
+      api.queryAll(".top-chars > .card").length === 1 &&
+      api.queryAll(".component-list > .card").length === 0 &&
+      api.queryAll(".components:not(:empty)").length === 0);
+
+    // --- ADDENDUM: back (previous crumb) restores the cached list -------
+    var callsBeforeBack = fake.__calls;
+    api.queryAll(".crumb")[0].click();
+    await wait(60);
+    check("previous crumb restores the reading list",
+      api.queryAll(".reading-row").length === single.matches[0].candidates.length &&
+      !!api.query(".reading-title"),
+      "rows=" + api.queryAll(".reading-row").length);
+    check("back does NOT re-query (cached)", fake.__calls === callsBeforeBack,
+      "calls " + callsBeforeBack + " → " + fake.__calls);
+    check("breadcrumb disappears at the root view",
+      !api.query(".crumbs") && api.viewDepth() === 1);
+
+    // --- ADDENDUM: homograph spelling selector --------------------------
+    var homo = fake.__lookup("사기");
+    var spellings = homo.matches.filter(function (m) { return m.kind === "word"; });
+    check("사기 → 3 word matches sharing one surface",
+      spellings.length === 3 && spellings.every(function (m) { return m.surface === "사기"; }),
+      spellings.map(function (m) { return m.canonical; }).join("/"));
+
+    api.showAt(anchor, homo.matches);
+    var chips = api.queryAll(".spell-chip");
+    check("homographs collapse into ONE word card",
+      api.queryAll(".card").length === 1 + homo.matches.filter(function (m) { return m.kind === "char"; }).length,
+      "cards=" + api.cardCount());
+    check("selector row has a chip per spelling", chips.length === 3,
+      chips.map(function (c) { return c.textContent; }).join("/"));
+    check("first spelling selected by default",
+      chips[0].classList.contains("sel") && !chips[1].classList.contains("sel") &&
+      chips[0].getAttribute("aria-pressed") === "true");
+    check("body shows the first spelling",
+      api.query(".word-body .surface").textContent === "詐欺",
+      api.query(".word-body .surface").textContent);
+
+    function cardSurfaces() {
+      return api.queryAll(".card").map(function (c) {
+        var s = c.querySelector(".surface");
+        return s ? s.textContent : "?";
+      });
+    }
+    function bodyChips() {
+      return api.queryAll(".word-body .chip-glyph").map(function (c) { return c.textContent; });
+    }
+
+    check("initial char cards are the FIRST spelling's components",
+      cardSurfaces().join(",") === "詐欺,詐,欺", cardSurfaces().join(","));
+    check("homograph components are nested too",
+      api.queryAll(".component-list > .card.component").length === 2 &&
+      api.queryAll(".top-chars > .card").length === 0);
+    check("initial chips are 詐/欺", bodyChips().join("") === "詐欺", bodyChips().join(""));
+
+    // --- ADDENDUM: chip swap refreshes the char cards below ---------------
+    var callsBeforeChip = fake.__calls;
+    chips[1].click();
+    await wait(80);
+    check("chip click swaps the card body",
+      api.query(".word-body .surface").textContent === "士氣" &&
+      /[Mm]orale/.test(api.query(".word-body").textContent),
+      api.query(".word-body .surface").textContent);
+    check("chip click moves the selected state",
+      chips[1].classList.contains("sel") && !chips[0].classList.contains("sel"));
+    check("swap issues exactly one lookup per char of the new spelling",
+      fake.__calls === callsBeforeChip + 2,
+      "calls " + callsBeforeChip + " → " + fake.__calls + " (expected +2)");
+    check("swap replaces the char cards with 士/氣",
+      cardSurfaces().join(",") === "士氣,士,氣", cardSurfaces().join(","));
+    check("swap replaced them INSIDE the group, not as peers",
+      api.queryAll(".component-list > .card.component")
+        .map(function (c) { return c.querySelector(".surface").textContent; }).join("") === "士氣" &&
+      api.queryAll(".top-chars > .card").length === 0);
+    check("swap rebuilds the word card chips to 士/氣",
+      bodyChips().join("") === "士氣", bodyChips().join(""));
+    check("still ONE word card after swapping", api.queryAll(".spellings").length === 1);
+
+    // --- back to the first spelling: served from cache, no new calls ------
+    var callsBeforeReturn = fake.__calls;
+    chips[0].click();
+    await wait(80);
+    check("switching back shows 詐/欺 again",
+      cardSurfaces().join(",") === "詐欺,詐,欺", cardSurfaces().join(","));
+    check("switching back restores the 詐/欺 chips",
+      bodyChips().join("") === "詐欺", bodyChips().join(""));
+    check("switching back makes NO new sendMessage calls",
+      fake.__calls === callsBeforeReturn,
+      "calls " + callsBeforeReturn + " → " + fake.__calls);
+
+    var callsBeforeRevisit = fake.__calls;
+    chips[1].click();
+    await wait(80);
+    check("revisiting 士氣 is cached too (no new calls)",
+      fake.__calls === callsBeforeRevisit && cardSurfaces().join(",") === "士氣,士,氣",
+      "calls " + callsBeforeRevisit + " → " + fake.__calls);
+
+    // --- unrelated char cards must survive a swap -------------------------
+    var mixedHomo = fake.__lookup("사기 國");
+    api.showAt(anchor, mixedHomo.matches);
+    check("mixed popup: homograph card + 詐/欺 + unrelated 國",
+      cardSurfaces().join(",") === "詐欺,詐,欺,國", cardSurfaces().join(","));
+    check("詐/欺 nested under the word, 國 stays top-level",
+      api.queryAll(".component-list > .card.component").length === 2 &&
+      api.queryAll(".top-chars > .card").length === 1 &&
+      api.query(".top-chars > .card .surface").textContent === "國");
+    var unrelated = api.queryAll(".card").filter(function (c) {
+      var s = c.querySelector(".surface");
+      return s && s.textContent === "國";
+    })[0];
+    check("unrelated 國 card located", !!unrelated);
+    api.queryAll(".spell-chip")[1].click();
+    await wait(80);
+    check("unrelated 國 card survives the swap (same DOM node)",
+      api.queryAll(".card").indexOf(unrelated) !== -1 &&
+      cardSurfaces().join(",") === "士氣,士,氣,國",
+      cardSurfaces().join(","));
+    check("swapped-in cards land in the group's original position",
+      cardSurfaces().indexOf("國") === cardSurfaces().length - 1);
+    check("國 is still top-level after the swap, 士/氣 nested",
+      api.queryAll(".top-chars > .card").length === 1 &&
+      api.query(".top-chars > .card .surface").textContent === "國" &&
+      api.queryAll(".component-list > .card.component").length === 2);
+
+    // --- ADDENDUM: component words --------------------------------------
+    function partRows() {
+      return api.queryAll(".part-list > .part-row").map(function (r) {
+        return r.querySelector(".p-hanja").textContent;
+      });
+    }
+    function nestedChars() {
+      return api.queryAll(".component-list > .card.component")
+        .map(function (c) { return c.querySelector(".surface").textContent; }).join("");
+    }
+
+    var cap = fake.__lookup("자본주의");
+    var capWord = cap.matches.filter(function (m) { return m.kind === "word"; })[0];
+    check("資本主義 carries parts 資本 + 主義",
+      capWord.parts && capWord.parts.map(function (p) { return p.hanja; }).join(",") === "資本,主義",
+      JSON.stringify((capWord.parts || []).map(function (p) { return p.type + ":" + (p.hanja || p.char); })));
+
+    api.showAt(anchor, cap.matches);
+    check("COMPONENT WORDS lists 資本 and 主義", partRows().join(",") === "資本,主義", partRows().join(","));
+    check("part rows show hanja, hangul and first gloss",
+      api.query(".part-row .p-hangul").textContent === "자본" &&
+      /capital/.test(api.query(".part-row .p-gloss").textContent),
+      JSON.stringify(api.query(".part-row").textContent.trim()));
+    check("all 4 component hanja are nested", nestedChars() === "資本主義", nestedChars());
+    check("COMPONENT WORDS sits ABOVE COMPONENT HANJA",
+      api.query(".card").innerHTML.indexOf("part-list") <
+      api.query(".card").innerHTML.indexOf("component-list"));
+    check("part rows carry a chevron affordance",
+      getComputedStyle(api.query(".part-row"), "::after").content.indexOf("›") >= 0,
+      getComputedStyle(api.query(".part-row"), "::after").content);
+    check("no breadcrumb at the root view", !api.query(".crumbs") && api.viewDepth() === 1);
+
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    check("2-char word has NO component-words section",
+      api.queryAll(".parts:not(:empty)").length === 0 &&
+      api.queryAll(".components:not(:empty)").length === 1);
+
+    // --- ADDENDUM: breadcrumb drill-down --------------------------------
+    api.showAt(anchor, cap.matches);
+    var callsBeforeDrill2 = fake.__calls;
+    api.queryAll(".part-row")[0].click();          // → 資本
+    await wait(90);
+    check("part click drills into that word's card",
+      api.viewDepth() === 2 && api.query(".word-body .surface").textContent === "資本",
+      "depth=" + api.viewDepth());
+    check("part click issued one lookup", fake.__calls === callsBeforeDrill2 + 1 &&
+      fake.__lastText === "資本", "calls=" + fake.__calls + " text=" + fake.__lastText);
+    check("breadcrumb shows 자본주의 › 資本",
+      api.crumbLabels().join(" › ") === "자본주의 › 資本", api.crumbLabels().join(" › "));
+    check("last crumb is not clickable",
+      api.queryAll(".crumb").pop().tagName === "SPAN" &&
+      api.queryAll(".crumb").pop().classList.contains("current"),
+      api.queryAll(".crumb").pop().tagName);
+    check("earlier crumbs are buttons",
+      api.queryAll(".crumb")[0].tagName === "BUTTON");
+
+    var callsBeforeBack2 = fake.__calls;
+    api.queryAll(".crumb")[0].click();             // back to the root
+    await wait(60);
+    check("crumb click restores the root view",
+      api.viewDepth() === 1 && !api.query(".crumbs") &&
+      api.query(".word-body .surface").textContent === "資本主義");
+    check("crumb click makes NO new sendMessage calls",
+      fake.__calls === callsBeforeBack2, "calls " + callsBeforeBack2 + " → " + fake.__calls);
+
+    // --- three/four levels deep, then jump straight to the root ---------
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    check("6-char word parts are 海外 + 大學生活",
+      partRows().join(",") === "海外,大學生活", partRows().join(","));
+    api.queryAll(".part-row")[1].click();          // → 大學生活
+    await wait(90);
+    api.queryAll(".part-row")[0].click();          // → 大學生
+    await wait(90);
+    check("three levels deep", api.viewDepth() === 3, "depth=" + api.viewDepth());
+    check("3-level trail reads 해외대학생활 › 大學生活 › 大學生",
+      api.crumbLabels().join(" › ") === "해외대학생활 › 大學生活 › 大學生",
+      api.crumbLabels().join(" › "));
+    api.queryAll(".part-row")[0].click();          // → 大學
+    await wait(90);
+    check("four levels deep", api.viewDepth() === 4, "depth=" + api.viewDepth());
+    check("long trail middle-truncates to first + … + last two",
+      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › "));
+
+    var callsBeforeJump = fake.__calls;
+    api.queryAll(".crumb")[0].click();             // jump 3 levels back at once
+    await wait(90);
+    check("crumb jumps DIRECTLY to the root, not one step",
+      api.viewDepth() === 1 && api.query(".word-body .surface").textContent === "海外大學生活",
+      "depth=" + api.viewDepth());
+    check("multi-level jump makes NO new sendMessage calls",
+      fake.__calls === callsBeforeJump, "calls " + callsBeforeJump + " → " + fake.__calls);
+
+    // re-descending the SAME path must not re-query
+    var callsBeforeRedo = fake.__calls;
+    api.queryAll(".part-row")[1].click();      // → 大學生活 again
+    await wait(90);
+    check("re-descending is served from cache",
+      api.viewDepth() === 2 && fake.__calls === callsBeforeRedo &&
+      api.query(".word-body .surface").textContent === "大學生活",
+      "calls " + callsBeforeRedo + " → " + fake.__calls);
+
+    // --- scroll restoration on crumb jump --------------------------------
+    api.showAt(anchor, fake.__lookup("사").matches);   // long reading list
+    api.scrollTop(120);
+    var savedScroll = api.scrollTop();
+    api.queryAll(".reading-row")[0].click();
+    await wait(90);
+    check("reading row drills in from a scrolled list", api.viewDepth() === 2);
+    api.queryAll(".crumb")[0].click();
+    await wait(90);
+    check("crumb jump restores the list scroll position",
+      Math.abs(api.scrollTop() - savedScroll) <= 2,
+      "want " + savedScroll + " got " + api.scrollTop());
+
+    // --- a NEW selection always opens at the top -------------------------
+    // 해외대학생활 is comfortably taller than the 360px panel, so it really scrolls.
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    api.scrollTop(150);
+    var scrolled = api.scrollTop();
+    check("test setup: that view really is scrollable", scrolled > 50,
+      "scrollTop=" + scrolled);
+
+    api.showAt(anchor, fake.__lookup("국민").matches);   // new selection, still open
+    check("new selection while the popup is open opens at the top",
+      api.scrollTop() === 0, "scrollTop=" + api.scrollTop());
+    check("new selection clears the nav stack",
+      api.viewDepth() === 1 && !api.query(".crumbs"), "depth=" + api.viewDepth());
+
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    api.scrollTop(150);
+    check("test setup: scrolled again before dismissing", api.scrollTop() > 50);
+    api.hide();
+    check("hide() zeroes the scroll container", api.scrollTop() === 0,
+      "scrollTop=" + api.scrollTop());
+    api.showAt(anchor, fake.__lookup("국민").matches);   // dismissed in between
+    check("new selection after a dismiss opens at the top",
+      api.scrollTop() === 0, "scrollTop=" + api.scrollTop());
+
+    // ...but within one session, drilling in and back keeps the parent offset.
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    api.scrollTop(150);
+    var parentScroll = api.scrollTop();
+    api.query(".part-row").click();
+    await wait(120);
+    check("the child view starts at the top", api.viewDepth() === 2 && api.scrollTop() === 0,
+      "depth=" + api.viewDepth() + " scrollTop=" + api.scrollTop());
+    api.queryAll(".crumb")[0].click();
+    await wait(120);
+    check("returning preserves the parent view's scroll offset",
+      Math.abs(api.scrollTop() - parentScroll) <= 2,
+      "want " + parentScroll + " got " + api.scrollTop());
+    api.hide();
+
+    // --- transition + reduced motion -------------------------------------
+    check("view swaps animate with a short fade",
+      /hh-view-in/.test(getComputedStyle(api.query(".view")).animationName) &&
+      parseFloat(getComputedStyle(api.query(".view")).animationDuration) <= 0.2,
+      getComputedStyle(api.query(".view")).animationName + " " +
+      getComputedStyle(api.query(".view")).animationDuration);
+    check("reduced-motion rule is present in the stylesheet",
+      /prefers-reduced-motion[\s\S]*?\.view\s*\{\s*animation:\s*none/.test(
+        api.query(".view").getRootNode().querySelector("style").textContent));
+
+    // --- ADDENDUM: chip swap swaps the parts section ---------------------
+    // Synthetic: two 4-char spellings sharing one surface, so a chip swap has
+    // to replace the parts rows as well as the body and the component hanja.
+    var synthSurface = "동음이의";
+    var synth = [
+      { kind: "word", surface: synthSurface, canonical: "資本主義", hangul: "자본주의",
+        glosses: ["capitalism"], chars: ["資", "本", "主", "義"],
+        parts: [{ type: "word", hanja: "資本", hangul: "자본", glosses: ["capital"] },
+                { type: "word", hanja: "主義", hangul: "주의", glosses: ["-ism"] }] },
+      { kind: "word", surface: synthSurface, canonical: "民主主義", hangul: "민주주의",
+        glosses: ["democracy"], chars: ["民", "主", "主", "義"],
+        parts: [{ type: "word", hanja: "民主", hangul: "민주", glosses: ["democracy"] },
+                { type: "word", hanja: "主義", hangul: "주의", glosses: ["-ism"] }] }
+    ];
+    api.showAt(anchor, synth);
+    check("synthetic homograph shows the first spelling's parts",
+      partRows().join(",") === "資本,主義", partRows().join(","));
+    api.queryAll(".spell-chip")[1].click();
+    await wait(90);
+    check("chip swap replaces the parts section",
+      partRows().join(",") === "民主,主義", partRows().join(","));
+    check("chip swap also swapped the body",
+      api.query(".word-body .surface").textContent === "民主主義");
+
+    // --- ADDENDUM: gloss presentation ------------------------------------
+    // 學 has two senses in the fixture; 生 has two; 法 has one.
+    var multi = fake.__lookup("學").matches[0];
+    check("學 fixture really has 2 senses", multi.glosses.length === 2,
+      JSON.stringify(multi.glosses));
+
+    api.showAt(anchor, [multi]);
+    check("multi-sense card renders a numbered list",
+      api.queryAll(".glosses.numbered").length === 1 &&
+      api.queryAll(".gloss-num").map(function (n) { return n.textContent; }).join("") === "1.2.",
+      api.queryAll(".gloss-num").map(function (n) { return n.textContent; }).join(""));
+    check("each sense is its own row",
+      api.queryAll(".glosses.numbered > .gloss").length === 2);
+    check("sense rows use hanging indent (number is its own column)",
+      getComputedStyle(api.query(".gloss")).display === "flex" &&
+      getComputedStyle(api.query(".gloss-num")).flexGrow === "0",
+      getComputedStyle(api.query(".gloss")).display);
+    check("senses render capitalized in the DOM",
+      api.queryAll(".gloss-text").map(function (g) { return g.textContent; })
+        .every(function (t) { return t[0] === t[0].toUpperCase(); }),
+      JSON.stringify(api.queryAll(".gloss-text").map(function (g) { return g.textContent; })));
+    check("underlying data string is NOT mutated",
+      multi.glosses[0] === "to learn; study" &&
+      fake.__lookup("學").matches[0].glosses[0] === "to learn; study",
+      JSON.stringify(multi.glosses[0]));
+
+    api.showAt(anchor, fake.__lookup("法").matches);
+    check("single-sense entry gets NO number",
+      api.queryAll(".gloss").length === 1 && api.queryAll(".gloss-num").length === 0 &&
+      api.queryAll(".glosses.numbered").length === 0);
+    check("single sense is still capitalized",
+      api.query(".gloss-text").textContent === "Law; rule; method",
+      JSON.stringify(api.query(".gloss-text").textContent));
+
+    // Leading parenthetical: capitalize the first LETTER, not the first char.
+    check("capitalizes inside a leading parenthetical",
+      (function () {
+        api.showAt(anchor, [{ kind: "char", surface: "X", canonical: "X",
+          eumhun: [{ hun: "", eum: "x" }], readings: ["x"],
+          glosses: ["(historical) a kind of hat"], compounds: [] }]);
+        return api.query(".gloss-text").textContent === "(Historical) a kind of hat";
+      })(), JSON.stringify(api.query(".gloss-text").textContent));
+    check("leaves a non-alphabetic sense alone",
+      (function () {
+        api.showAt(anchor, [{ kind: "char", surface: "X", canonical: "X",
+          eumhun: [{ hun: "", eum: "x" }], readings: ["x"],
+          glosses: ["漢字 only"], compounds: [] }]);
+        return api.query(".gloss-text").textContent === "漢字 only";
+      })(), JSON.stringify(api.query(".gloss-text").textContent));
+
+    // --- clamp + expander -------------------------------------------------
+    var longSense = "A very long sense that runs on and on and on so that it " +
+      "cannot possibly fit inside two lines of a three hundred and forty pixel " +
+      "wide popup panel, forcing the clamp to engage and an expander to appear.";
+    api.showAt(anchor, [{ kind: "char", surface: "長", canonical: "長",
+      eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"],
+      glosses: [longSense], compounds: [] }]);
+    var clampEl = api.query(".gloss-text.clamp");
+    check("long sense is clamped to 2 lines",
+      !!clampEl && getComputedStyle(clampEl).webkitLineClamp === "2" &&
+      clampEl.scrollHeight > clampEl.clientHeight + 1,
+      getComputedStyle(clampEl).webkitLineClamp);
+    var moreBtn = api.query(".gloss .more");
+    check("clamped sense gets a 'more' expander", !!moreBtn &&
+      moreBtn.textContent === "more", moreBtn ? moreBtn.textContent : "none");
+    check("full text is present in the DOM (nothing unreachable)",
+      clampEl.textContent === capitalizeFirst(longSense),
+      JSON.stringify(clampEl.textContent.slice(-24)));
+
+    var heightBefore = api.hostRect().height;
+    var topBefore = api.hostRect().top;
+    moreBtn.click();
+    await wait(60);
+    check("expander reveals the full text in place",
+      clampEl.classList.contains("expanded") &&
+      getComputedStyle(clampEl).webkitLineClamp === "none" &&
+      clampEl.scrollHeight <= clampEl.clientHeight + 1,
+      getComputedStyle(clampEl).webkitLineClamp);
+    check("expanding grows the popup", api.hostRect().height > heightBefore,
+      heightBefore + " → " + api.hostRect().height);
+    check("popup stays anchored and inside the viewport after expanding",
+      api.hostRect().top >= 7.5 && api.hostRect().bottom <= vh - 7.5,
+      "top " + Math.round(topBefore) + " → " + Math.round(api.hostRect().top));
+    check("expander flips to 'less'", moreBtn.textContent === "less" &&
+      moreBtn.getAttribute("aria-expanded") === "true");
+    moreBtn.click();
+    await wait(60);
+    check("collapsing re-clamps", !clampEl.classList.contains("expanded") &&
+      moreBtn.textContent === "more");
+
+    check("short senses get NO expander",
+      (function () {
+        api.showAt(anchor, fake.__lookup("法").matches);
+        return api.queryAll(".more").length === 0;
+      })());
+
+    // Compound lines clamp to one line.
+    api.showAt(anchor, [{ kind: "char", surface: "長", canonical: "長",
+      eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"], glosses: [],
+      compounds: [{ hangul: "장문", hanja: "長文",
+        gloss: "an extremely long piece of writing that will certainly not fit on a single line of this popup" }] }]);
+    var cpd = api.query(".compound.clamp");
+    check("compound line clamps to 1 line",
+      !!cpd && getComputedStyle(cpd).webkitLineClamp === "1",
+      cpd ? getComputedStyle(cpd).webkitLineClamp : "none");
+    check("overlong compound line gets an expander", !!api.query(".compounds .more"));
+    api.query(".compounds .more").click();
+    await wait(40);
+    check("compound line expands in place", cpd.classList.contains("expanded"));
+
+    // --- expander on a navigable row must not navigate --------------------
+    api.showAt(anchor, [{ kind: "word", surface: "長文主義", canonical: "長文主義",
+      hangul: "장문주의", glosses: ["x"], chars: ["長", "文", "主", "義"],
+      parts: [{ type: "word", hanja: "長文", hangul: "장문",
+        glosses: ["an extremely long gloss for a component word row that cannot fit on one line at all"] }] }]);
+    var partClamp = api.query(".part-row .p-text.clamp");
+    check("component-word row clamps to 1 line",
+      !!partClamp && getComputedStyle(partClamp).webkitLineClamp === "1");
+    var partMore = api.query(".part-row .more");
+    check("overlong component-word row gets an expander", !!partMore);
+    var depthBefore = api.viewDepth();
+    var callsBeforeExpand = fake.__calls;
+    partMore.click();
+    await wait(120);
+    check("expander on a clickable row does NOT navigate",
+      api.viewDepth() === depthBefore && fake.__calls === callsBeforeExpand,
+      "depth " + depthBefore + " → " + api.viewDepth() +
+      ", calls " + callsBeforeExpand + " → " + fake.__calls);
+    check("expander on a clickable row still expands",
+      partClamp.classList.contains("expanded"));
+    // ...while the row itself still navigates.
+    api.query(".part-row").click();
+    await wait(120);
+    check("the row itself still navigates",
+      api.viewDepth() === depthBefore + 1, "depth=" + api.viewDepth());
+
+    // --- copy conventions: no em dashes in user-visible text -------------
+    api.showAt(anchor, fake.__lookup("國").matches);
+    check("compound lines use a colon, not an em dash",
+      api.query(".cpd-gloss").textContent.indexOf(": ") === 0 &&
+      api.panelText().indexOf("—") === -1,
+      JSON.stringify(api.query(".compound").textContent));
+    check("compound line reads 국민 (國民): gloss",
+      /^국민 \(國民\): /.test(api.query(".compound").textContent),
+      JSON.stringify(api.query(".compound").textContent));
+
+    api.showAt(anchor, fake.__lookup("국").matches);
+    check("reading heading reads 'N hanja read 국'",
+      api.query(".reading-title").textContent ===
+        fake.__lookup("국").matches[0].candidates.length + " hanja read 국",
+      JSON.stringify(api.query(".reading-title").textContent));
+    check("reading heading keeps the syllable emphasised",
+      api.query(".reading-title b").textContent === "국");
+
+    api.showAt(anchor, fake.__lookup("사랑").matches);
+    check("hedge note is two sentences, no em dash",
+      api.query(".hedge-note").textContent ===
+        "Likely native Korean. This hanja spelling is obscure.",
+      JSON.stringify(api.query(".hedge-note").textContent));
+
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    check("no em dash anywhere in a full word+component render",
+      api.panelText().indexOf("—") === -1,
+      JSON.stringify(api.panelText().slice(0, 60)));
+    check("variant arrows are untouched",
+      (function () {
+        api.showAt(anchor, fake.__lookup("学生").matches);
+        return api.panelText().indexOf("学生 → 學生") >= 0;
+      })());
+    check("eumhun joiner · is untouched",
+      api.formatEumhun([{ hun: "긴", eum: "장" }, { hun: "어른", eum: "장" }]) === "긴 장 · 어른 장");
+
+    // --- ADDENDUM: rare hangul homographs are hedged ---------------------
+    var love = fake.__lookup("사랑");
+    var loveWord = love.matches.filter(function (m) { return m.kind === "word"; })[0];
+    check("사랑 → single rare hangul-sourced match",
+      loveWord && loveWord.canonical === "舍廊" && loveWord.rare === true &&
+      loveWord.surface === "사랑",
+      loveWord ? loveWord.surface + "/" + loveWord.canonical : "none");
+
+    api.showAt(anchor, love.matches);
+    var hedgedCard = api.query(".card.hedged");
+    check("rare hangul match renders a hedged card", !!hedgedCard);
+    check("hedge carries the house-style label",
+      api.query(".hedge .label").textContent.toUpperCase() === "RARE HANJA HOMOGRAPH" &&
+      getComputedStyle(api.query(".hedge .label")).textTransform === "uppercase",
+      JSON.stringify(api.query(".hedge .label").textContent));
+    check("hedged card is visually muted (background + text)",
+      getComputedStyle(hedgedCard).backgroundColor !== "rgba(0, 0, 0, 0)" &&
+      getComputedStyle(api.query(".card.hedged > .word-body .surface")).color !==
+        api.panelStyle("color"),
+      getComputedStyle(hedgedCard).backgroundColor);
+    check("hedged text stays legible (not the panel background)",
+      getComputedStyle(api.query(".card.hedged > .word-body .surface")).color !==
+        api.panelStyle("background-color"));
+    check("nested component cards under a hedge are NOT muted",
+      api.queryAll(".component-list > .card.component").length === 2 &&
+      getComputedStyle(api.query(".component-list > .card.component .surface")).color ===
+        api.panelStyle("color"),
+      getComputedStyle(api.query(".component-list > .card.component .surface")).color);
+
+    // Han-sourced: the user picked the hanja, so the flag is ignored.
+    var hanRare = fake.__lookup("舍廊");
+    check("舍廊 Han-sourced match still carries rare:true",
+      hanRare.matches[0].rare === true && hanRare.matches[0].surface === "舍廊");
+    api.showAt(anchor, hanRare.matches);
+    check("Han-sourced rare match renders NORMALLY (no hedge)",
+      !api.query(".card.hedged") && api.queryAll(".hedge:not(:empty)").length === 0);
+
+    // --- mixed-rarity homograph selector ---------------------------------
+    var mixedRare = fake.__lookup("사기");
+    check("non-rare spellings order first, rare last",
+      mixedRare.matches.filter(function (m) { return m.kind === "word"; })
+        .map(function (m) { return m.canonical + (m.rare ? "*" : ""); }).join(",") ===
+        "詐欺,士氣,沙器*",
+      mixedRare.matches.filter(function (m) { return m.kind === "word"; })
+        .map(function (m) { return m.canonical + (m.rare ? "*" : ""); }).join(","));
+
+    api.showAt(anchor, mixedRare.matches);
+    var rareChips = api.queryAll(".spell-chip.rare");
+    check("only the rare spelling's chip is marked", rareChips.length === 1 &&
+      rareChips[0].textContent.indexOf("沙器") === 0);
+    check("rare chip carries a superscript marker",
+      !!rareChips[0].querySelector(".chip-rare") &&
+      rareChips[0].querySelector(".chip-rare").textContent.toLowerCase() === "rare");
+    check("rare chip is muted relative to a normal chip",
+      getComputedStyle(rareChips[0]).color !==
+        getComputedStyle(api.queryAll(".spell-chip")[1]).color);
+    check("mixed card starts NOT hedged (non-rare selected)",
+      !api.query(".card.hedged"));
+    check("first non-rare spelling contributed the component cards",
+      nestedChars() === "詐欺", nestedChars());
+
+    api.queryAll(".spell-chip")[2].click();     // select the rare spelling
+    await wait(90);
+    check("selecting the rare chip hedges the card",
+      !!api.query(".card.hedged") &&
+      api.query(".word-body .surface").textContent === "沙器");
+    api.queryAll(".spell-chip")[0].click();     // back to a normal spelling
+    await wait(90);
+    check("selecting a normal chip un-hedges the card",
+      !api.query(".card.hedged") && api.queryAll(".hedge:not(:empty)").length === 0);
+
+    // --- gloss-less data must render without blanks ---------------------
+    var bare = fake.__lookup("무기");
+    var bareWord = bare.matches.filter(function (m) { return m.kind === "word"; })[0];
+    check("무기 word match really has empty glosses",
+      bareWord && bareWord.canonical === "武器" && bareWord.glosses.length === 0);
+    api.showAt(anchor, [bareWord]);
+    check("empty-gloss word card still shows hanja + hangul",
+      api.query(".surface").textContent === "武器" && api.query(".hangul").textContent === "무기");
+    check("empty-gloss word card omits the gloss block entirely",
+      api.queryAll(".glosses").length === 0 && api.queryAll(".gloss").length === 0);
+    check("empty-gloss card renders no 'undefined' / 'null' text",
+      !/undefined|null/.test(api.panelText()), JSON.stringify(api.panelText()));
+
+    var bareChar = fake.__lookup("朞").matches[0];
+    api.showAt(anchor, [bareChar]);
+    check("reading-only char (hun:\"\") shows just the eum",
+      api.query(".eumhun").textContent === "기",
+      JSON.stringify(api.query(".eumhun").textContent));
+    check("reading-only char omits glosses and compounds",
+      api.queryAll(".glosses").length === 0 && api.queryAll(".compounds").length === 0 &&
+      api.queryAll(".label").length === 0);
+    check("reading-only card text is exactly glyph + eum + the link",
+      api.panelText() === "朞기Wiktionary ↗", JSON.stringify(api.panelText()));
+
+    // --- ADDENDUM: Wiktionary links --------------------------------------
+    var WIKI = "https://en.wiktionary.org/wiki/";
+    // Clicks an anchor without letting the browser actually open a tab.
+    function clickInert(node) {
+      function block(ev) { ev.preventDefault(); }
+      document.addEventListener("click", block, true);
+      node.dispatchEvent(new MouseEvent("click",
+        { bubbles: true, cancelable: true, composed: true }));
+      document.removeEventListener("click", block, true);
+    }
+
+    api.showAt(anchor, fake.__lookup("國").matches);
+    var charLink = api.query(".card .wiki");
+    check("char card carries a Wiktionary link", !!charLink &&
+      charLink.textContent === "Wiktionary ↗",
+      charLink ? JSON.stringify(charLink.textContent) : "none");
+    check("char link href is the canonical hanja page, percent-encoded",
+      charLink.getAttribute("href") === WIKI + encodeURIComponent("國") + "#Korean" &&
+      charLink.getAttribute("href") === WIKI + "%E5%9C%8B#Korean",
+      charLink.getAttribute("href"));
+    check("link opens in a new tab with rel=noopener noreferrer",
+      charLink.target === "_blank" && /\bnoopener\b/.test(charLink.rel) &&
+      /\bnoreferrer\b/.test(charLink.rel), charLink.target + " / " + charLink.rel);
+    check("link lives in the card head, last (so chips/hedge can't collide)",
+      charLink.parentNode.classList.contains("head") &&
+      charLink.parentNode.lastChild === charLink);
+    (function () {
+      var cardBox = api.queryAll(".card")[0].getBoundingClientRect();
+      var linkBox = charLink.getBoundingClientRect();
+      check("link renders in the card's TOP-RIGHT corner",
+        cardBox.right - linkBox.right <= 14 && linkBox.top - cardBox.top <= 20 &&
+        linkBox.width > 0,
+        "dx=" + Math.round(cardBox.right - linkBox.right) +
+        " dy=" + Math.round(linkBox.top - cardBox.top));
+    })();
+    check("link is muted at rest, not underlined",
+      getComputedStyle(charLink).color !== getComputedStyle(api.query(".eumhun")).color &&
+      getComputedStyle(charLink).textDecorationLine === "none",
+      getComputedStyle(charLink).color);
+
+    // A variant surface still links to the canonical entry.
+    api.showAt(anchor, [variantChar]);
+    check("variant char card links to 國, not 国",
+      api.query(".wiki").getAttribute("href") === WIKI + "%E5%9C%8B#Korean",
+      api.query(".wiki").getAttribute("href"));
+
+    // Word card: the HANGUL headword page.
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    var wordLink = api.query(".word-body .wiki");
+    check("word card links to the HANGUL headword 국민",
+      wordLink.getAttribute("href") === WIKI + encodeURIComponent("국민") + "#Korean" &&
+      wordLink.getAttribute("href") === WIKI + "%EA%B5%AD%EB%AF%BC#Korean",
+      wordLink.getAttribute("href"));
+    var nestedLinks = api.queryAll(".component-list > .card.component .wiki");
+    check("each nested component card has its own link",
+      nestedLinks.length === 2 &&
+      nestedLinks[0].getAttribute("href") === WIKI + "%E5%9C%8B#Korean",
+      nestedLinks.map(function (a) { return a.getAttribute("href"); }).join(" "));
+    check("nested link is one step smaller than a top-level one",
+      parseFloat(getComputedStyle(nestedLinks[0]).fontSize) <
+      parseFloat(getComputedStyle(wordLink).fontSize),
+      getComputedStyle(wordLink).fontSize + " → " +
+      getComputedStyle(nestedLinks[0]).fontSize);
+    check("hangul-less word card falls back to the canonical spelling",
+      (function () {
+        api.showAt(anchor, [{ kind: "word", surface: "國民", canonical: "國民",
+          glosses: ["x"], chars: [] }]);
+        return api.query(".wiki").getAttribute("href") ===
+          WIKI + encodeURIComponent("國民") + "#Korean";
+      })(), api.query(".wiki").getAttribute("href"));
+
+    // Reading rows are deliberately linkless (their drill-down card has one).
+    api.showAt(anchor, fake.__lookup("국").matches);
+    check("reading-list rows carry NO Wiktionary link",
+      api.queryAll(".wiki").length === 0 && api.queryAll(".reading-row .wiki").length === 0,
+      "links=" + api.queryAll(".wiki").length);
+    api.queryAll(".reading-row")[0].click();      // → 國
+    await wait(90);
+    check("the drill-down char card DOES have one",
+      api.viewDepth() === 2 &&
+      api.query(".wiki").getAttribute("href") === WIKI + "%E5%9C%8B#Korean",
+      api.query(".wiki") ? api.query(".wiki").getAttribute("href") : "none");
+
+    // Clicking the link must not be swallowed, and must not navigate the popup.
+    var depthBeforeLink = api.viewDepth();
+    var callsBeforeLink = fake.__calls;
+    api.query(".wiki").dispatchEvent(new MouseEvent("mousedown",
+      { bubbles: true, composed: true }));
+    check("mousedown on the link does not dismiss the popup", api.isVisible());
+    clickInert(api.query(".wiki"));
+    await wait(60);
+    check("clicking the link does not navigate or re-query",
+      api.viewDepth() === depthBeforeLink && fake.__calls === callsBeforeLink &&
+      api.isVisible(),
+      "depth " + depthBeforeLink + " → " + api.viewDepth() +
+      ", calls " + callsBeforeLink + " → " + fake.__calls);
+
+    // Homograph chip swap re-points the link at the new spelling's hangul.
+    var wikiSynth = [
+      { kind: "word", surface: "동음이의", canonical: "資本主義", hangul: "자본주의",
+        glosses: ["capitalism"], chars: ["資", "本", "主", "義"] },
+      { kind: "word", surface: "동음이의", canonical: "民主主義", hangul: "민주주의",
+        glosses: ["democracy"], chars: ["民", "主", "主", "義"] }
+    ];
+    api.showAt(anchor, wikiSynth);
+    check("homograph card links to the first spelling's hangul",
+      api.query(".word-body .wiki").getAttribute("href") ===
+        WIKI + encodeURIComponent("자본주의") + "#Korean",
+      api.query(".word-body .wiki").getAttribute("href"));
+    api.queryAll(".spell-chip")[1].click();
+    await wait(90);
+    check("chip swap re-points the link at 민주주의",
+      api.query(".word-body .wiki").getAttribute("href") ===
+        WIKI + encodeURIComponent("민주주의") + "#Korean",
+      api.query(".word-body .wiki").getAttribute("href"));
+    check("still exactly one link on the word card body",
+      api.queryAll(".word-body .wiki").length === 1);
+
+    // A card that also owns a clickable row: the row still navigates.
+    api.showAt(anchor, fake.__lookup("자본주의").matches);
+    check("a card with parts still has exactly one body link",
+      api.queryAll(".word-body .wiki").length === 1 &&
+      api.queryAll(".part-row .wiki").length === 0);
+    var depthBeforeRow = api.viewDepth();
+    api.query(".part-row").click();
+    await wait(120);
+    check("component-word rows still navigate with links present",
+      api.viewDepth() === depthBeforeRow + 1, "depth=" + api.viewDepth());
+
+    // Distinct surfaces must still stack.
+    var mixed = fake.__lookup("國民 學生");
+    api.showAt(anchor, mixed.matches);
+    check("distinct surfaces still stack as separate cards",
+      api.queryAll(".card").length >= 2 && api.queryAll(".spellings").length === 0,
+      "cards=" + api.cardCount());
+
+    api.hide();
+    check("hide() clears visibility", !api.isVisible());
+    } catch (e) {
+      fail++;
+      lines.push("THREW  " + (e && e.message) + "  @ " +
+        String((e && e.stack) || "").split("\n")[1]);
+    }
+
+    lines.push("");
+    lines.push(fail === 0 ? ("ALL PASS (" + pass + ")") : (fail + " FAILED / " + pass + " passed"));
+    out.textContent = lines.join("\n");
+  });
+})();
+</script>
+
+</body>
+</html>
+
+
+
+
