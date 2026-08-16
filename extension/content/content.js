@@ -274,8 +274,8 @@
     // screen, so this beats pushing a duplicate view.
     "@keyframes hh-flash { from { background-color: var(--flash); }",
     "  to { background-color: transparent; } }",
-    ".card.flash { animation: hh-flash " + FLASH_MS + "ms ease-out; border-radius: 7px; }",
-    "@media (prefers-reduced-motion: reduce) { .card.flash { animation: none; } }",
+    ".flash { animation: hh-flash " + FLASH_MS + "ms ease-out; border-radius: 7px; }",
+    "@media (prefers-reduced-motion: reduce) { .flash { animation: none; } }",
     ".label {",
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
@@ -513,6 +513,8 @@
   // --- resize state (survives the popup session; only a reload resets it) ---
   var userSized = false;      // the user has taken control of the dimensions
   var resizing = false;       // a handle drag is in progress
+  var dragState = null;       // {x, y, w, h} captured when the drag started
+  var dragScrollTop = null;   // scroll offset pinned for the whole gesture
   var resizeTimer = null;
   var lastPanelW = 0;         // last size the observer acted on (loop guard)
   var lastPanelH = 0;
@@ -612,7 +614,10 @@
     resizeTimer = null;
     clampPanelSize();
     syncClamps();
-    if (visible) reposition();
+    // A tick that lands during (or right after) a drag must not let the
+    // content shift under the user.
+    holdDragScroll();
+    if (visible && !dragState) reposition();
     // Absorb the adjustments we just made, so the observer does not treat
     // them as a fresh user resize and loop.
     var box = panel.getBoundingClientRect();
@@ -620,17 +625,72 @@
     lastPanelH = box.height;
   }
 
+  function inResizeCorner(ev) {
+    var box = panel.getBoundingClientRect();
+    return ev.clientX <= box.right && ev.clientY <= box.bottom &&
+      (box.right - ev.clientX) <= RESIZE_ZONE &&
+      (box.bottom - ev.clientY) <= RESIZE_ZONE;
+  }
+
+  // The panel's scroll offset must not move because the user resized it. The
+  // browser clamps scrollTop whenever the visible area grows, and the vertical
+  // scrollbar ends right where the handle begins, so a drag that starts a few
+  // pixels high used to grab the thumb and scroll the content instead. Pin the
+  // offset for the whole gesture and put it back on every tick.
+  function holdDragScroll() {
+    if (dragScrollTop === null) return;
+    if (panel.scrollTop !== dragScrollTop) panel.scrollTop = dragScrollTop;
+  }
+
   function installResize() {
-    // Starting a drag must not read as a click on whatever row sits under the
-    // handle, and must not dismiss the popup. mousedown is never preventDefault'd
-    // here — that would cancel the native drag before it starts.
+    // We drive the resize ourselves rather than leaving it to the native
+    // resizer: its hit area is a handful of pixels that overlap the scrollbar,
+    // which made drags scroll the content or do nothing at all. Taking the
+    // gesture means a predictable RESIZE_ZONE target, no text selection, and
+    // exact control over the scroll offset. `resize: both` stays in the
+    // stylesheet purely so Chrome paints the grip.
     panel.addEventListener("mousedown", function (ev) {
-      var box = panel.getBoundingClientRect();
-      var inCorner = ev.clientX <= box.right && ev.clientY <= box.bottom &&
-        (box.right - ev.clientX) <= RESIZE_ZONE && (box.bottom - ev.clientY) <= RESIZE_ZONE;
-      if (!inCorner) return;
-      resizing = true;
+      if (ev.button !== 0 || !inResizeCorner(ev)) return;
+      ev.preventDefault();   // no native resize, no drag-select
+      ev.stopPropagation();  // no row underneath sees the press
       beginUserResize();
+      var box = panel.getBoundingClientRect();
+      dragState = {
+        x: ev.clientX, y: ev.clientY,
+        w: box.width, h: box.height
+      };
+      dragScrollTop = panel.scrollTop;
+      resizing = true;
+    }, true);
+
+    window.addEventListener("mousemove", function (ev) {
+      if (!dragState) return;
+      ev.preventDefault();
+      var vp = viewportSize();
+      var maxW = Math.max(MIN_PANEL_W, Math.round(vp.w * MAX_PANEL_VW));
+      var maxH = Math.max(MIN_PANEL_H, Math.round(vp.h * MAX_PANEL_VH));
+      var w = dragState.w + (ev.clientX - dragState.x);
+      var h = dragState.h + (ev.clientY - dragState.y);
+      w = Math.max(MIN_PANEL_W, Math.min(maxW, w));
+      h = Math.max(MIN_PANEL_H, Math.min(maxH, h));
+      panel.style.setProperty("width", Math.round(w) + "px");
+      panel.style.setProperty("height", Math.round(h) + "px");
+      // The top-left stays put during the gesture, so the drag feels direct;
+      // re-anchoring happens once the drag ends.
+      holdDragScroll();
+    }, true);
+
+    window.addEventListener("mouseup", function () {
+      if (!dragState) return;
+      dragState = null;
+      holdDragScroll();
+      // A width change alters how many lines a gloss takes, which changes the
+      // content height — measure, then hold the offset again.
+      syncClamps();
+      holdDragScroll();
+      reposition();
+      dragScrollTop = null;
+      setTimeout(function () { resizing = false; }, 0);
     }, true);
 
     // Capture phase: swallow the click that ends the drag before any row sees it.
@@ -639,13 +699,6 @@
       resizing = false;
       ev.preventDefault();
       ev.stopPropagation();
-    }, true);
-
-    // If the drag ended outside the panel no click arrives; clear the flag on
-    // the next task, which is after any click that does fire.
-    window.addEventListener("mouseup", function () {
-      if (!resizing) return;
-      setTimeout(function () { resizing = false; }, 0);
     }, true);
 
     if (typeof ResizeObserver !== "function") return;
@@ -1022,33 +1075,36 @@
       navigateTo(ch);
       return false;
     }
-    var reduced = prefersReducedMotion();
     var panelBox = panel.getBoundingClientRect();
     var cardBox = card.getBoundingClientRect();
-    var limit = Math.max(0, panel.scrollHeight - panel.clientHeight);
-    var target = panel.scrollTop + (cardBox.top - panelBox.top) - 8;
-    target = Math.max(0, Math.min(limit, target));
-    if (reduced || typeof panel.scrollTo !== "function") {
-      panel.scrollTop = target;
-    } else {
-      var startTop = panel.scrollTop;
-      panel.scrollTo({ top: target, behavior: "smooth" });
-      // Smooth scrolling is driven by animation frames. A host that is not
-      // compositing (background tab, hidden pane) never ticks them and the
-      // request silently does nothing, which would strand the user. If the
-      // offset has not budged at all by the time a normal animation would
-      // have finished, land on the target outright. Any movement means the
-      // animation ran — or the user took over — so leave it alone.
-      if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
-      scrollSettleTimer = setTimeout(function () {
-        scrollSettleTimer = null;
-        if (panel.scrollTop === startTop && startTop !== target) {
-          panel.scrollTop = target;
-        }
-      }, SCROLL_SETTLE_MS);
-    }
-    if (!reduced) flashCard(card);
+    scrollPanelTo(panel.scrollTop + (cardBox.top - panelBox.top) - 8);
+    if (!prefersReducedMotion()) flashCard(card);
     return true;
+  }
+
+  // Smooth where it is wanted, instant under reduced motion.
+  function scrollPanelTo(top) {
+    var limit = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    var target = Math.max(0, Math.min(limit, top));
+    if (prefersReducedMotion() || typeof panel.scrollTo !== "function") {
+      panel.scrollTop = target;
+      return;
+    }
+    var startTop = panel.scrollTop;
+    panel.scrollTo({ top: target, behavior: "smooth" });
+    // Smooth scrolling is driven by animation frames. A host that is not
+    // compositing (background tab, hidden pane) never ticks them and the
+    // request silently does nothing, which would strand the user. If the
+    // offset has not budged at all by the time a normal animation would have
+    // finished, land on the target outright. Any movement means the animation
+    // ran — or the user took over — so leave it alone.
+    if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
+    scrollSettleTimer = setTimeout(function () {
+      scrollSettleTimer = null;
+      if (panel.scrollTop === startTop && startTop !== target) {
+        panel.scrollTop = target;
+      }
+    }, SCROLL_SETTLE_MS);
   }
 
   // Used-in disclosure (design option C): ONE collapsed line at the end of the
@@ -1082,6 +1138,7 @@
         // Failure (or an empty list): stay on the card, keep the row pressable.
         if (!words || !words.length) return;
         pushView({
+          key: "usedin:" + word,
           label: "Used in",
           matches: [{ kind: "usedin", word: word, rows: words }]
         });
@@ -1616,7 +1673,112 @@
    * Navigation: a stack of views presented as a breadcrumb trail
    * ------------------------------------------------------------------ */
 
+  /* ---- view identity -------------------------------------------------- *
+   * A view's key is what it is ABOUT: one word, one character, one syllable
+   * list, one used-in list. Navigation compares keys so that arriving at a
+   * level already in the trail re-enters it instead of stacking a duplicate
+   * (the 學生 › 學生 › 學生 report). A view showing several independent things
+   * — a mixed sentence, a word plus unrelated characters — has no identity at
+   * all: pushing a genuinely new view is much cheaper than wrongly collapsing
+   * two different ones, so anything ambiguous returns null.
+   * --------------------------------------------------------------------- */
+  function viewKey(matches) {
+    var list = usableMatches(matches);
+    if (!list.length) return null;
+
+    var usedIns = [], readings = [], words = [], chars = [];
+    list.forEach(function (m) {
+      if (m.kind === "usedin") usedIns.push(m);
+      else if (m.kind === "reading") readings.push(m);
+      else if (m.kind === "word") words.push(m);
+      else if (m.kind === "char") chars.push(m);
+    });
+
+    if (list.length === 1 && usedIns.length === 1) {
+      var listWord = nonEmptyString(usedIns[0].word);
+      return listWord ? "usedin:" + listWord : null;
+    }
+    if (list.length === 1 && readings.length === 1) {
+      var syllable = nonEmptyString(readings[0].surface) ||
+        nonEmptyString(readings[0].eum);
+      return syllable ? "reading:" + syllable : null;
+    }
+    if (usedIns.length || readings.length) return null;   // mixed: no identity
+
+    if (words.length) {
+      // Homographs share one surface and render as ONE card, so they are still
+      // a single target; two different surfaces are two cards and are not.
+      var surfaces = uniqStrings(words.map(function (m) {
+        return nonEmptyString(m.surface) || nonEmptyString(m.canonical);
+      }));
+      if (surfaces.length !== 1) return null;
+      // Only the first spelling contributes component char cards (rule 3b);
+      // any char card beyond those is an independent card on screen.
+      var isComponent = Object.create(null);
+      uniqStrings(asArray(words[0].chars)).forEach(function (ch) {
+        isComponent[ch] = true;
+      });
+      var independent = chars.filter(function (m) {
+        return !isComponent[spellingKey(m)];
+      });
+      if (independent.length) return null;
+      // The canonical, never the surface: a hangul-sourced 학생 view and a
+      // hanja 學生 navigation are the same view.
+      var canonical = nonEmptyString(words[0].canonical) || surfaces[0];
+      return canonical ? "word:" + canonical : null;
+    }
+
+    if (chars.length === 1) {
+      var glyph = spellingKey(chars[0]);
+      return glyph ? "char:" + glyph : null;
+    }
+    return null;
+  }
+
+  function findViewByKey(key) {
+    if (!key) return -1;
+    for (var i = 0; i < viewStack.length; i++) {
+      if (viewStack[i].key === key) return i;
+    }
+    return -1;
+  }
+
+  // Already-on-screen target: no push. Scroll back to the top and flash the
+  // card head, the same orientation cue the eumhun chips use.
+  function orientCurrentView() {
+    if (!viewRoot) return;
+    scrollPanelTo(0);
+    if (prefersReducedMotion()) return;
+    var card = viewRoot.querySelector(".card");
+    if (!card) return;
+    flashCard(card.querySelector(".head") ||
+      card.querySelector(".reading-title") || card);
+  }
+
+  // Re-enter a level already in the trail: the current one just orients,
+  // an ancestor behaves exactly like clicking its crumb.
+  function enterExistingView(index) {
+    if (index < 0) return false;
+    if (index === viewStack.length - 1) orientCurrentView();
+    else goToDepth(index);
+    return true;
+  }
+
+  // A crumb names what the view IS, not the gesture that opened it: selecting
+  // 学生 roots the trail as 學生 (the card's "学生 → 學生" note already records
+  // what was highlighted). That is exactly the view's identity, so the label
+  // falls straight out of the key. Reading lists keep their syllable — the 국
+  // view is the homophone list, not a variant spelling of 國. Only a view with
+  // no single canonical (a mixed selection) falls back to its surface text.
   function viewLabel(matches, fallback) {
+    var key = viewKey(matches);
+    if (key) {
+      var cut = key.indexOf(":");
+      var kind = key.slice(0, cut);
+      if (kind === "word" || kind === "char" || kind === "reading") {
+        return key.slice(cut + 1);
+      }
+    }
     var order = ["reading", "word", "char"];
     for (var k = 0; k < order.length; k++) {
       for (var i = 0; i < matches.length; i++) {
@@ -1760,22 +1922,39 @@
   // Descend one level. Every drill-down goes through here, so the breadcrumb,
   // the saved scroll offset and the fade-in stay consistent.
   function pushView(view) {
+    if (enterExistingView(findViewByKey(view.key))) return;
     saveCurrentViewState();
     viewStack.push({
-      label: view.label, matches: view.matches, scrollTop: 0, selection: null
+      key: view.key || null, label: view.label, matches: view.matches,
+      scrollTop: 0, selection: null
     });
     renderCurrentView();
     refreshLayout();
   }
 
+  // Every nav row — compounds, component words, used-in entries, reading rows,
+  // chip fallbacks — lands here, so the cycle guard covers all of them at once.
   function navigateTo(text) {
+    var target = nonEmptyString(text);
+    if (!target) return;
+
+    // Rows navigate by canonical spelling, so the key is usually knowable
+    // before asking the worker anything. Re-entering costs zero lookups.
+    var known = findViewByKey("word:" + target);
+    if (known < 0) known = findViewByKey("char:" + target);
+    if (enterExistingView(known)) return;
+
     var seq = requestSeq;
-    fetchLookup(text).then(function (response) {
+    fetchLookup(target).then(function (response) {
       if (seq !== requestSeq) return;                 // dismissed or superseded
       if (!response || response.ok !== true) return;  // keep the current view
       var list = usableMatches(response.matches);
       if (!list.length) return;
-      pushView({ label: viewLabel(list, text), matches: list });
+      // Authoritative check: a variant surface (学生) only resolves to its
+      // canonical key once the worker has answered.
+      var key = viewKey(list);
+      if (enterExistingView(findViewByKey(key))) return;
+      pushView({ key: key, label: viewLabel(list, target), matches: list });
     });
   }
 
@@ -1859,7 +2038,8 @@
     var list = usableMatches(matches);
     resetSession();
     viewStack = [{
-      label: viewLabel(list, ""), matches: list, scrollTop: 0, selection: null
+      key: viewKey(list), label: viewLabel(list, ""), matches: list,
+      scrollTop: 0, selection: null
     }];
     var count = renderCurrentView();
     if (!count) {
@@ -2080,6 +2260,7 @@
    * ------------------------------------------------------------------ */
 
   if (IS_STUB) {
+    var testDragOrigin = { x: 0, y: 0 };
     globalThis.__hanjaHover = {
       showAt: function (rect, matches) { ensureHost(); return showAt(rect, matches); },
       hide: hide,
@@ -2101,6 +2282,9 @@
         return Array.prototype.slice.call(panel.querySelectorAll(sel));
       },
       viewDepth: function () { return viewStack.length; },
+      viewKeys: function () {
+        return viewStack.map(function (v) { return v.key; });
+      },
       crumbLabels: function () {
         ensureHost();
         return Array.prototype.slice.call(panel.querySelectorAll(".crumb, .crumb-gap"))
@@ -2145,6 +2329,32 @@
         lastPanelW = 0;
         lastPanelH = 0;
         return { width: panel.style.width, height: panel.style.height };
+      },
+      // Drives the real handlers with real events: press in the corner, then
+      // move to each [dx, dy] offset FROM THE PRESS POINT. Pass continue=true
+      // to keep the current gesture going instead of starting a new one.
+      dragResize: function (x, y, steps, keepGoing) {
+        ensureHost();
+        if (!keepGoing) {
+          testDragOrigin = { x: x, y: y };
+          panel.dispatchEvent(new MouseEvent("mousedown", {
+            bubbles: true, composed: true, cancelable: true,
+            button: 0, clientX: x, clientY: y
+          }));
+        }
+        (steps || []).forEach(function (step) {
+          window.dispatchEvent(new MouseEvent("mousemove", {
+            bubbles: true, composed: true, cancelable: true,
+            clientX: testDragOrigin.x + step[0], clientY: testDragOrigin.y + step[1]
+          }));
+        });
+        var box = panel.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+      },
+      endDragResize: function () {
+        window.dispatchEvent(new MouseEvent("mouseup", {
+          bubbles: true, composed: true, cancelable: true
+        }));
       },
       resizeCorner: function () {
         ensureHost();

@@ -1059,7 +1059,7 @@
     check("part click issued one lookup", fake.__calls === callsBeforeDrill2 + 1 &&
       fake.__lastText === "資本", "calls=" + fake.__calls + " text=" + fake.__lastText);
     check("breadcrumb shows 자본주의 › 資本",
-      api.crumbLabels().join(" › ") === "자본주의 › 資本", api.crumbLabels().join(" › "));
+      api.crumbLabels().join(" › ") === "資本主義 › 資本", api.crumbLabels().join(" › "));
     check("last crumb is not clickable",
       api.queryAll(".crumb").pop().tagName === "SPAN" &&
       api.queryAll(".crumb").pop().classList.contains("current"),
@@ -1086,13 +1086,13 @@
     await wait(90);
     check("three levels deep", api.viewDepth() === 3, "depth=" + api.viewDepth());
     check("3-level trail reads 해외대학생활 › 大學生活 › 大學生",
-      api.crumbLabels().join(" › ") === "해외대학생활 › 大學生活 › 大學生",
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生",
       api.crumbLabels().join(" › "));
     api.queryAll(".part-row")[0].click();          // → 大學
     await wait(90);
     check("four levels deep", api.viewDepth() === 4, "depth=" + api.viewDepth());
     check("long trail middle-truncates to first + … + last two",
-      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
 
     var callsBeforeJump = fake.__calls;
@@ -1919,7 +1919,7 @@
     check("the list view is the only card", api.cardCount() === 1,
       "cards=" + api.cardCount());
     check("breadcrumb reads 학생 › Used in",
-      api.crumbLabels().join(" › ") === "학생 › Used in", api.crumbLabels().join(" › "));
+      api.crumbLabels().join(" › ") === "學生 › Used in", api.crumbLabels().join(" › "));
 
     var rareUsed = usedInRows().filter(function (r) { return r.classList.contains("rare"); });
     check("the rare entry is muted and marked",
@@ -1940,7 +1940,7 @@
       fake.__calls === callsBeforeUsedNav + 1 && fake.__lastText === "大學生",
       "calls=" + fake.__calls + " text=" + fake.__lastText);
     check("trail is 학생 › Used in › 大學生",
-      api.crumbLabels().join(" › ") === "학생 › Used in › 大學生",
+      api.crumbLabels().join(" › ") === "學生 › Used in › 大學生",
       api.crumbLabels().join(" › "));
     var callsBeforeUsedBack = fake.__calls;
     api.queryAll(".crumb")[1].click();          // back to the list
@@ -2041,7 +2041,7 @@
     api.queryAll(".part-row")[0].click();       // → 大學
     await wait(90);
     check("four levels deep, trail is truncated", api.viewDepth() === 4 &&
-      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
     var gap = api.query(".crumb-gap");
     check("the … is a real BUTTON, not decoration",
@@ -2053,7 +2053,7 @@
     gap.click();
     await wait(60);
     check("pressing … expands the trail in place to every level",
-      api.crumbLabels().join(" › ") === "해외대학생활 › 大學生活 › 大學生 › 大學" &&
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學" &&
       !api.query(".crumb-gap"), api.crumbLabels().join(" › "));
     check("expanding navigates nowhere and queries nothing",
       api.viewDepth() === depthBeforeExpand && fake.__calls === callsBeforeExpand2,
@@ -2082,7 +2082,7 @@
     await wait(90);
     check("the trail re-collapses after the next navigation",
       api.viewDepth() === 4 && !!api.query(".crumb-gap") &&
-      api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
+      api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
 
     // --- ADDENDUM: resizable panel (stage 1, no persistence) -------------
@@ -2261,6 +2261,82 @@
       !api.isResizing() && api.isVisible());
     releasePanel(mid.left + 20, mid.top + 20);
 
+    // --- reported bug: a resize drag must not move the scroll offset -----
+    // The vertical scrollbar ends exactly where the handle begins, and the
+    // browser re-clamps scrollTop whenever the visible area grows, so an
+    // enlarge used to shove the content and leave it there.
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    var W0 = Math.min(330, LIMIT_W - 30);
+    var H0 = Math.min(400, LIMIT_H - 30);
+    api.resizePanel(W0, H0);
+    api.scrollTop(150);
+    var dragScroll = api.scrollTop();
+    check("test setup: content is scrolled well past the headword",
+      dragScroll > 100, "scrollTop=" + dragScroll);
+
+    var grip = api.resizeCorner();
+    api.dragResize(grip.x, grip.y, [[20, 60], [40, 120]]);   // enlarge
+    var enlarged = api.panelSize();
+    check("enlarging by drag actually grows the panel",
+      enlarged.width > W0 && enlarged.height > H0,
+      W0 + "x" + H0 + " → " + JSON.stringify(enlarged));
+    check("enlarging by drag leaves the scroll offset untouched",
+      Math.abs(api.scrollTop() - dragScroll) <= 1,
+      "want " + dragScroll + " got " + Math.round(api.scrollTop()));
+
+    // Same gesture, now dragging back inwards.
+    api.dragResize(null, null, [[-30, -90]], true);
+    var shrunk = api.panelSize();
+    check("shrinking within the SAME drag works",
+      shrunk.width < W0 && shrunk.height < H0 &&
+      shrunk.width > 280 && shrunk.height > 220,
+      JSON.stringify(enlarged) + " → " + JSON.stringify(shrunk));
+    check("shrinking leaves the scroll offset untouched too",
+      Math.abs(api.scrollTop() - dragScroll) <= 1,
+      "want " + dragScroll + " got " + Math.round(api.scrollTop()));
+    api.endDragResize();
+
+    // A fresh drag must shrink just as well — the reported "shrink does
+    // nothing after enlarging".
+    var afterFirst = api.panelSize();
+    var grip2 = api.resizeCorner();
+    api.dragResize(grip2.x, grip2.y, [[-20, -60]]);
+    api.endDragResize();
+    check("a SUBSEQUENT drag shrinks further",
+      api.panelSize().width < afterFirst.width &&
+      api.panelSize().height < afterFirst.height,
+      JSON.stringify(afterFirst) + " → " + JSON.stringify(api.panelSize()));
+
+    // ...all the way down to the minimum, then back up.
+    var grip3 = api.resizeCorner();
+    api.dragResize(grip3.x, grip3.y, [[-900, -900]]);
+    api.endDragResize();
+    check("a drag can shrink to the 280x220 minimum",
+      Math.abs(api.panelSize().width - 280) <= 1 &&
+      Math.abs(api.panelSize().height - 220) <= 1,
+      JSON.stringify(api.panelSize()));
+    var grip4 = api.resizeCorner();
+    api.dragResize(grip4.x, grip4.y, [[80, 80]]);
+    api.endDragResize();
+    check("and grow again from the minimum",
+      api.panelSize().width > 300 && api.panelSize().height > 240,
+      JSON.stringify(api.panelSize()));
+
+    // A press away from the corner is NOT a resize gesture.
+    var before = api.panelSize();
+    var mid2 = api.hostRect();
+    api.dragResize(mid2.left + 30, mid2.top + 30, [[80, 80]]);
+    api.endDragResize();
+    check("dragging inside the body does not resize the panel",
+      Math.abs(api.panelSize().width - before.width) < 1 &&
+      Math.abs(api.panelSize().height - before.height) < 1,
+      JSON.stringify(before) + " → " + JSON.stringify(api.panelSize()));
+    // The guard that swallows the click ending a drag clears on the next
+    // task; yield so it cannot eat the first click of the next block.
+    await wait(30);
+    check("the drag guard is clear again", !api.isResizing());
+
     // Back to the stylesheet's footprint so later checks measure what they expect.
     api.resetPanelSize();
     api.showAt(anchor, fake.__lookup("국민").matches);
@@ -2412,7 +2488,189 @@
       api.query(".surface").textContent === "民",
       api.query(".surface").textContent);
     check("the fallback grows the breadcrumb like any drill-down",
-      api.crumbLabels().join(" › ") === "국민 › 民", api.crumbLabels().join(" › "));
+      api.crumbLabels().join(" › ") === "國民 › 民", api.crumbLabels().join(" › "));
+
+    // --- ADDENDUM: cycle navigation --------------------------------------
+    // Reported as 学生 › 學生 › 學生 › 學生 from clicking 學生's own compound
+    // row over and over while already on the 學生 view.
+    function compoundRowFor(spelling) {
+      return api.queryAll(".compounds > .compound-row").filter(function (r) {
+        var h = r.querySelector(".cpd-hanja");
+        return h && h.textContent.replace(/[\s()]/g, "") === spelling;
+      })[0];
+    }
+
+    api.hide();
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    check("a hangul-sourced view is keyed by its CANONICAL spelling",
+      api.viewKeys().join(",") === "word:學生", api.viewKeys().join(","));
+    check("test setup: the 學 card lists 학생 (學生) as a compound",
+      !!compoundRowFor("學生"));
+
+    var selfDepth = api.viewDepth();
+    var selfCalls = fake.__calls;
+    api.scrollTop(120);
+    compoundRowFor("學生").click();
+    await wait(120);
+    check("clicking the current view's own compound row pushes NOTHING",
+      api.viewDepth() === selfDepth && api.viewKeys().join(",") === "word:學生",
+      "depth " + selfDepth + " → " + api.viewDepth() +
+      " keys=" + api.viewKeys().join(","));
+    check("...and issues zero lookups", fake.__calls === selfCalls,
+      "calls " + selfCalls + " → " + fake.__calls);
+    check("...and flashes the card head as an orientation cue",
+      api.queryAll(".flash").length === 1 &&
+      api.query(".flash").classList.contains("head"),
+      api.query(".flash") ? api.query(".flash").className : "none");
+    check("...and scrolls back to the top",
+      await until(function () { return api.scrollTop() === 0; }, 2000),
+      "scrollTop=" + Math.round(api.scrollTop()));
+    check("...and still shows no breadcrumb (still the root view)",
+      !api.query(".crumbs"));
+
+    // Repeat presses must stay put — this is the exact reported cycle.
+    for (var cyc = 0; cyc < 4; cyc++) {
+      compoundRowFor("學生").click();
+      await wait(60);
+    }
+    check("four more presses still do not stack views",
+      api.viewDepth() === 1 && fake.__calls === selfCalls,
+      "depth=" + api.viewDepth() + " calls=" + fake.__calls);
+
+    // --- target is an ANCESTOR: behaves like clicking that crumb ----------
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    api.scrollTop(90);
+    var ancestorScroll = api.scrollTop();
+    check("test setup: the root view is scrolled", ancestorScroll > 50,
+      "scrollTop=" + ancestorScroll);
+    compoundRowFor("大學").click();           // 學生 › 大學
+    await wait(120);
+    check("test setup: descended to 學生 › 大學",
+      api.viewDepth() === 2 && api.viewKeys().join(",") === "word:學生,word:大學",
+      "keys=" + api.viewKeys().join(","));
+    var ancestorCalls = fake.__calls;
+    compoundRowFor("學生").click();          // 학생 again, from one level down
+    await wait(120);
+    check("navigating to an ancestor jumps back instead of pushing",
+      api.viewDepth() === 1 && api.viewKeys().join(",") === "word:學生",
+      "depth=" + api.viewDepth() + " keys=" + api.viewKeys().join(","));
+    check("the ancestor jump re-queries nothing", fake.__calls === ancestorCalls,
+      "calls " + ancestorCalls + " → " + fake.__calls);
+    check("the ancestor jump restores that level's scroll offset",
+      Math.abs(api.scrollTop() - ancestorScroll) <= 2,
+      "want " + ancestorScroll + " got " + Math.round(api.scrollTop()));
+
+    // --- a genuinely different target still pushes -----------------------
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    var newTargetCalls = fake.__calls;
+    compoundRowFor("大學").click();
+    await wait(120);
+    check("a genuinely new target still pushes a view",
+      api.viewDepth() === 2 &&
+      api.viewKeys().join(",") === "word:學生,word:大學" &&
+      fake.__calls === newTargetCalls + 1,
+      "keys=" + api.viewKeys().join(","));
+    check("the new view renders that word's card",
+      api.query(".word-body .surface").textContent === "大學");
+
+    // --- variant surfaces resolve to the same identity -------------------
+    api.showAt(anchor, fake.__lookup("学生").matches);   // simplified selection
+    check("a variant-sourced view keys to the canonical too",
+      api.viewKeys().join(",") === "word:學生", api.viewKeys().join(","));
+    var variantDepth = api.viewDepth();
+    compoundRowFor("學生").click();
+    await wait(120);
+    check("学生 and 學生 are the same view, so nothing is pushed",
+      api.viewDepth() === variantDepth && api.viewKeys().join(",") === "word:學生",
+      "depth " + variantDepth + " → " + api.viewDepth());
+
+    // --- ADDENDUM: crumb labels are canonical ----------------------------
+    api.showAt(anchor, fake.__lookup("学生").matches);   // variant selection
+    compoundRowFor("大學").click();
+    await wait(120);
+    check("a variant selection roots the trail with the CANONICAL spelling",
+      api.crumbLabels().join(" › ") === "學生 › 大學",
+      api.crumbLabels().join(" › "));
+    api.showAt(anchor, fake.__lookup("학생").matches);   // hangul selection
+    compoundRowFor("大學").click();
+    await wait(120);
+    check("a hangul selection roots the trail canonically too",
+      api.crumbLabels().join(" › ") === "學生 › 大學",
+      api.crumbLabels().join(" › "));
+
+    api.showAt(anchor, fake.__lookup("국").matches);      // reading list
+    api.queryAll(".reading-row")[1].click();
+    await wait(120);
+    check("reading-list views keep their syllable label",
+      api.crumbLabels().join(" › ") === "국 › 局",
+      api.crumbLabels().join(" › "));
+
+    api.showAt(anchor, fake.__lookup("國民 學生").matches);
+    api.queryAll(".compounds > .compound-row")[0].click();
+    await wait(120);
+    check("a multi-match root keeps its surface text (no single canonical)",
+      api.crumbLabels()[0] === "國民", api.crumbLabels().join(" › "));
+
+    // --- list views carry their own identity -----------------------------
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    api.query(".usedin-row").click();
+    await wait(120);
+    check("the used-in list gets a usedin: key",
+      api.viewKeys().join(",") === "word:學生,usedin:學生",
+      api.viewKeys().join(","));
+    usedInRows()[0].click();                 // → 大學生
+    await wait(120);
+    check("test setup: three deep through the list",
+      api.viewDepth() === 3 &&
+      api.viewKeys().join(",") === "word:學生,usedin:學生,word:大學生",
+      api.viewKeys().join(","));
+    api.query(".part-list .part-row").click();   // 大學生's component word 大學
+    await wait(120);
+    check("descending past a list view still pushes normally",
+      api.viewDepth() === 4 &&
+      api.viewKeys().join(",") === "word:學生,usedin:學生,word:大學生,word:大學",
+      "keys=" + api.viewKeys().join(","));
+
+    // Reopening the SAME list from the same card must not duplicate it.
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    api.query(".usedin-row").click();
+    await wait(120);
+    api.queryAll(".crumb")[0].click();        // back to the word card
+    await wait(120);
+    api.query(".usedin-row").click();         // open it again
+    await wait(120);
+    check("reopening the same used-in list does not stack duplicates",
+      api.viewDepth() === 2 &&
+      api.viewKeys().join(",") === "word:學生,usedin:學生",
+      "keys=" + api.viewKeys().join(","));
+
+    // --- ambiguous roots keep no identity, so they never swallow a push --
+    api.showAt(anchor, fake.__lookup("國民 學生").matches);
+    check("a multi-word selection has NO view identity",
+      api.viewKeys().join(",") === "", JSON.stringify(api.viewKeys()));
+    var mixedCalls = fake.__calls;
+    api.queryAll(".compounds > .compound-row")[0].click();
+    await wait(120);
+    check("a row in a mixed view still pushes",
+      api.viewDepth() === 2, "depth=" + api.viewDepth());
+    api.showAt(anchor, fake.__lookup("사기 國").matches);
+    check("a word plus an unrelated char also has no identity",
+      api.viewKeys().join(",") === "", JSON.stringify(api.viewKeys()));
+
+    // --- reduced motion: jump to top, no flash ---------------------------
+    var realMM2 = window.matchMedia;
+    window.matchMedia = function (q) {
+      if (/prefers-reduced-motion/.test(q)) return { matches: true, media: q };
+      return realMM2.call(window, q);
+    };
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    api.scrollTop(120);
+    compoundRowFor("學生").click();
+    check("reduced motion jumps to the top with no flash",
+      api.scrollTop() === 0 && api.queryAll(".flash").length === 0,
+      "scrollTop=" + api.scrollTop() + " flash=" + api.queryAll(".flash").length);
+    window.matchMedia = realMM2;
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");
