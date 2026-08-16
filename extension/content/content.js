@@ -50,6 +50,7 @@
       glosses: ["the people; citizens of a nation"], chars: ["國", "民"]
     };
     function respond(msg) {
+      if (msg && msg.type === "compounds") return { ok: true, compounds: [] };
       var text = (msg && msg.text) || "";
       var out = [];
       var seen = Object.create(null);
@@ -100,6 +101,7 @@
   var HANGUL_RE = /[가-힣]/;
   var MAX_SELECTION_CHARS = 30;
   var MAX_COMPOUNDS = 5;
+  var COMPOUND_PAGE = 5; // compounds revealed per press of "Show 5 more"
   var MAX_CRUMBS = 3;   // first + last two, everything between is elided
   var GAP = 8;          // gap between selection rect and popup
   var VIEWPORT_MARGIN = 8;
@@ -247,12 +249,41 @@
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
     "}",
-    ".compounds { margin-top: 3px; }",
-    ".compounds > .clampwrap { margin-top: 2px; }",
+    /* ---- compounds: nav rows + "show more" pagination ---- */
+    // The negative side margins let a row's hover background bleed into the
+    // card padding, so the compound text still lines up with the label above.
+    ".compounds { margin-top: 2px; margin-left: -6px; margin-right: -6px; }",
+    ".compound-row {",
+    "  display: flex; align-items: baseline; gap: 6px;",
+    "  padding: 2px 6px; border-radius: 6px;",
+    "}",
+    ".compound-row > .clampwrap { flex: 1 1 auto; min-width: 0; }",
+    // Hangul-only compounds have nothing to look up: no pointer, no chevron.
+    ".compound-row.nav { cursor: pointer; }",
     ".compound { overflow-wrap: anywhere; }",
     ".cpd-hangul { font-weight: 600; color: var(--fg); }",
     ".cpd-hanja { color: var(--muted); }",
     ".cpd-gloss { color: var(--fg-soft); }",
+    // Same muted treatment a rare homograph chip gets.
+    ".compound-row.rare .cpd-hangul,",
+    ".compound-row.rare .cpd-hanja,",
+    ".compound-row.rare .cpd-gloss { color: var(--hedge-fg); }",
+    ".cpd-rare {",
+    "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
+    "  text-transform: uppercase; margin-left: 4px; vertical-align: super;",
+    "  color: var(--hedge-fg);",
+    "}",
+    ".cpd-more {",
+    "  display: inline-block; font: inherit; font-size: 12px; font-weight: 600;",
+    "  line-height: 1.3; margin: 5px 0 0; padding: 3px 9px; border-radius: 6px;",
+    "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
+    "  color: var(--accent); cursor: pointer; white-space: nowrap;",
+    "}",
+    ".cpd-more:hover { background: var(--hover); }",
+    ".cpd-more:disabled { opacity: 0.55; cursor: default; }",
+    ".cpd-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    // A step smaller inside a nested component card, like its Wiktionary link.
+    ".card.component .cpd-more { font-size: 11px; padding: 2px 8px; }",
     /* ---- nested sections: component words + component hanja ---- */
     // Sections are built only when populated; an empty one must take no space.
     ".parts:empty, .components:empty, .hedge:empty, .top-chars:empty { display: none; }",
@@ -326,16 +357,20 @@
     ".r-eumhun { font-weight: 600; color: var(--accent); }",
     ".r-gloss { color: var(--muted); }",
     /* ---- shared affordance for navigable rows ---- */
-    ".reading-row:hover, .part-row:hover { background: var(--hover); }",
-    ".reading-row:focus-visible, .part-row:focus-visible {",
+    ".reading-row:hover, .part-row:hover, .compound-row.nav:hover {",
+    "  background: var(--hover);",
+    "}",
+    ".reading-row:focus-visible, .part-row:focus-visible,",
+    ".compound-row.nav:focus-visible {",
     "  outline: 2px solid var(--accent); outline-offset: -2px;",
     "}",
-    ".reading-row::after, .part-row::after {",
+    ".reading-row::after, .part-row::after, .compound-row.nav::after {",
     "  content: '\\203A'; margin-left: auto; padding-left: 8px;",
     "  align-self: center; color: var(--faint); font-size: 15px; line-height: 1;",
     "  flex: 0 0 auto;",
     "}",
-    ".reading-row:hover::after, .part-row:hover::after { color: var(--accent); }",
+    ".reading-row:hover::after, .part-row:hover::after,",
+    ".compound-row.nav:hover::after { color: var(--accent); }",
     /* ---- breadcrumb trail (one nav bar for every drill-down) ---- */
     ".crumbs {",
     "  position: sticky; top: 0; z-index: 2;",
@@ -409,6 +444,8 @@
 
   // --- per-popup session state (reset on every new selection) ---------
   var lookupCache = null;     // lookup text -> response, so nav never re-queries
+  var compoundsCache = null;  // char -> full joined compound list (one request)
+  var compoundsPending = null;// char -> in-flight promise, so two cards share it
   var charDataIndex = null;   // char -> char match data (accumulates)
   var viewStack = [];         // the descent; last entry is the current view
   var wordStates = [];        // one per word surface in the current view
@@ -461,6 +498,8 @@
   // scroll offsets are all discarded.
   function resetSession() {
     lookupCache = Object.create(null);
+    compoundsCache = Object.create(null);
+    compoundsPending = Object.create(null);
     charDataIndex = Object.create(null);
     viewStack = [];
     wordStates = [];
@@ -932,29 +971,152 @@
 
     appendGlosses(card, m.glosses);
 
-    var compounds = asArray(m.compounds).slice(0, MAX_COMPOUNDS);
-    var rows = [];
-    for (var i = 0; i < compounds.length; i++) {
-      var c = compounds[i];
-      if (!c || typeof c !== "object") continue;
-      var cHangul = nonEmptyString(c.hangul);
-      var cHanja = nonEmptyString(c.hanja);
-      if (!cHangul && !cHanja) continue;
-      var row = el("div", "compound");
-      row.appendChild(el("span", "cpd-hangul", cHangul || cHanja));
-      if (cHanja && cHangul) row.appendChild(el("span", "cpd-hanja", " (" + cHanja + ")"));
-      var cGloss = nonEmptyString(c.gloss);
-      if (cGloss) row.appendChild(el("span", "cpd-gloss", ": " + cGloss));
-      rows.push(clampWrap(row, 1));
-    }
-    if (rows.length) {
-      card.appendChild(el("div", "label", "Compounds"));
-      var box = el("div", "compounds");
-      for (var j = 0; j < rows.length; j++) box.appendChild(rows[j]);
-      card.appendChild(box);
-    }
+    appendCompounds(card, m);
 
     return card;
+  }
+
+  // One compound line: "국민 (國民): the people of a nation". A row with a
+  // hanja spelling is a nav row exactly like a component-word row; hangul-only
+  // entries (they exist in the data) have nothing to look up, so they get no
+  // chevron and no click target.
+  function buildCompoundRow(c) {
+    if (!c || typeof c !== "object") return null;
+    var hangul = nonEmptyString(c.hangul);
+    var hanja = nonEmptyString(c.hanja);
+    if (!hangul && !hanja) return null;
+
+    var row = el("div", "compound-row");
+    var text = el("span", "compound");
+    text.appendChild(el("span", "cpd-hangul", hangul || hanja));
+    if (hanja && hangul) text.appendChild(el("span", "cpd-hanja", " (" + hanja + ")"));
+    var gloss = nonEmptyString(c.gloss);
+    if (gloss) text.appendChild(el("span", "cpd-gloss", ": " + gloss));
+    if (c.rare === true) {
+      row.classList.add("rare");
+      text.appendChild(el("sup", "cpd-rare", "rare"));
+    }
+    row.appendChild(clampWrap(text, 1));
+
+    if (hanja) {
+      row.classList.add("nav");
+      makeNavRow(row, hanja);
+    }
+    return row;
+  }
+
+  // Scrolls `node` back into the panel's visible band after the card grew,
+  // so pressing "show more" never leaves the control off-screen.
+  function keepInView(node) {
+    if (!node || !node.isConnected || !panel) return;
+    var box = panel.getBoundingClientRect();
+    var target = node.getBoundingClientRect();
+    if (target.bottom > box.bottom - 2) {
+      panel.scrollTop += target.bottom - box.bottom + 6;
+    } else if (target.top < box.top + 2) {
+      panel.scrollTop -= box.top - target.top + 6;
+    }
+  }
+
+  // COMPOUNDS: the inline five, plus a "Show 5 more (N)" control when the
+  // char's full index (cwCount) holds more. The first press fetches that index
+  // once; later presses reveal five more from the cached list.
+  function appendCompounds(card, m) {
+    var box = el("div", "compounds");
+    var shown = Object.create(null);   // hanja spellings already on screen
+    var shownCount = 0;
+    var rowCount = 0;
+
+    asArray(m.compounds).slice(0, MAX_COMPOUNDS).forEach(function (c) {
+      var hanja = c && typeof c === "object" ? nonEmptyString(c.hanja) : "";
+      if (hanja && shown[hanja]) return;
+      var row = buildCompoundRow(c);
+      if (!row) return;
+      if (hanja) {
+        shown[hanja] = true;
+        shownCount++;
+      }
+      box.appendChild(row);
+      rowCount++;
+    });
+
+    var char = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
+    var total = (typeof m.cwCount === "number" && isFinite(m.cwCount) && m.cwCount > 0)
+      ? Math.floor(m.cwCount) : 0;
+    // Before the index is fetched the remaining count comes from cwCount minus
+    // the spellings already displayed (hangul-only rows are not in the index).
+    // Afterwards `pending` is authoritative.
+    var remaining = char ? Math.max(0, total - shownCount) : 0;
+
+    if (!rowCount && !remaining) return;
+    card.appendChild(el("div", "label", "Compounds"));
+    card.appendChild(box);
+    if (!remaining) return;
+
+    var pending = null;   // full index minus everything already displayed
+    var button = el("button", "cpd-more");
+    button.type = "button";
+
+    function syncButton() {
+      if (remaining <= 0) {
+        if (button.parentNode) button.parentNode.removeChild(button);
+        return;
+      }
+      button.textContent =
+        "Show " + Math.min(COMPOUND_PAGE, remaining) + " more (" + remaining + ")";
+    }
+
+    function revealNext() {
+      while (pending.length) {
+        var c = pending[0];
+        var hanja = nonEmptyString(c.hanja);
+        if (!hanja || shown[hanja]) { pending.shift(); continue; }
+        break;
+      }
+      var added = 0;
+      while (added < COMPOUND_PAGE && pending.length) {
+        var next = pending.shift();
+        var spelling = nonEmptyString(next.hanja);
+        if (spelling && shown[spelling]) continue;
+        var row = buildCompoundRow(next);
+        if (!row) continue;
+        if (spelling) shown[spelling] = true;
+        box.appendChild(row);
+        added++;
+      }
+      remaining = pending.length;
+      syncButton();
+      // The control follows the rows down; re-measure clamps, re-anchor the
+      // popup for its new height, then make sure it is still reachable.
+      var anchorEl = button.isConnected ? button : box.lastChild;
+      refreshLayout();
+      keepInView(anchorEl);
+    }
+
+    button.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();     // never read as a click on a compound row
+      if (button.disabled) return;
+      if (pending) { revealNext(); return; }
+
+      var seq = requestSeq;     // dismissal or a new selection cancels this
+      button.disabled = true;
+      fetchCompounds(char).then(function (list) {
+        if (seq !== requestSeq) return;
+        button.disabled = false;
+        // Failure: leave the rows alone and stay pressable for a retry.
+        if (!list) return;
+        pending = list.filter(function (c) {
+          var hanja = nonEmptyString(c.hanja);
+          return !!hanja && !shown[hanja];
+        });
+        remaining = pending.length;
+        revealNext();
+      });
+    });
+
+    syncButton();
+    card.appendChild(button);
   }
 
   /* ------------------------------------------------------------------ *
@@ -1392,7 +1554,7 @@
     return { text: text, rect: rect };
   }
 
-  function sendLookup(text) {
+  function sendToWorker(payload) {
     return new Promise(function (resolve) {
       var settled = false;
       function done(value) {
@@ -1404,7 +1566,7 @@
       try {
         // Callback form works in both MV3 and the test stub; when a callback is
         // supplied Chrome returns undefined rather than a promise.
-        maybePromise = RUNTIME.sendMessage({ type: "lookup", text: text }, function (response) {
+        maybePromise = RUNTIME.sendMessage(payload, function (response) {
           // Reading lastError clears the "Unchecked runtime.lastError" warning
           // that appears when no receiver is registered yet.
           if (HAS_CHROME_RUNTIME && globalThis.chrome.runtime.lastError) {
@@ -1422,6 +1584,31 @@
         maybePromise.then(function (response) { done(response || null); }, function () { done(null); });
       }
     });
+  }
+
+  function sendLookup(text) {
+    return sendToWorker({ type: "lookup", text: text });
+  }
+
+  // The char's COMPLETE compound index, joined by the service worker. Fetched
+  // at most once per character per popup session; a failure resolves to null
+  // and is NOT cached, so the control can simply be pressed again.
+  function fetchCompounds(char) {
+    if (compoundsCache && Object.prototype.hasOwnProperty.call(compoundsCache, char)) {
+      return Promise.resolve(compoundsCache[char]);
+    }
+    if (compoundsPending && compoundsPending[char]) return compoundsPending[char];
+    var promise = sendToWorker({ type: "compounds", char: char }).then(function (response) {
+      if (compoundsPending) delete compoundsPending[char];
+      if (!response || response.ok !== true || !Array.isArray(response.compounds)) return null;
+      var list = response.compounds.filter(function (c) {
+        return c && typeof c === "object";
+      });
+      if (compoundsCache) compoundsCache[char] = list;
+      return list;
+    });
+    if (compoundsPending) compoundsPending[char] = promise;
+    return promise;
   }
 
   function handleSelection() {

@@ -160,12 +160,17 @@
               { hangul: "민족", hanja: "民族", gloss: "ethnic group; people" },
               { hangul: "시민", hanja: "市民", gloss: "citizen" }
             ] },
+    // Five inline compounds, the last of them deliberately HANGUL-ONLY (no
+    // hanja spelling — those exist in the real data): that row must render
+    // without a chevron and must not navigate.
     "學": { eumhun: [{ hun: "배울", eum: "학" }], readings: ["학"],
             glosses: ["to learn; study", "school; learning"],
             compounds: [
               { hangul: "학생", hanja: "學生", gloss: "student" },
               { hangul: "대학", hanja: "大學", gloss: "university" },
-              { hangul: "학교", hanja: "學校", gloss: "school" }
+              { hangul: "학교", hanja: "學校", gloss: "school" },
+              { hangul: "과학", hanja: "科學", gloss: "science" },
+              { hangul: "학벌", gloss: "academic clique" }
             ] },
     "生": { eumhun: [{ hun: "날", eum: "생" }], readings: ["생"],
             glosses: ["to be born; to live", "raw; fresh"],
@@ -322,8 +327,53 @@
     "大學": [{ hangul: "대학", glosses: ["university; college"] }],
     "大學生": [{ hangul: "대학생", glosses: ["a university student"] }],
     "大學生活": [{ hangul: "대학생활", glosses: ["university life"] }],
-    "海外大學生活": [{ hangul: "해외대학생활", glosses: ["university life abroad"] }]
+    "海外大學生活": [{ hangul: "해외대학생활", glosses: ["university life abroad"] }],
+    // --- the long tail of 學 compounds, so the `cw` index below can be joined
+    //     against `words` exactly as the service worker does it -------------
+    "學校": [{ hangul: "학교", glosses: ["school"] }],
+    "科學": [{ hangul: "과학", glosses: ["science"] }],
+    "數學": [{ hangul: "수학", glosses: ["mathematics"] }],
+    "文學": [{ hangul: "문학", glosses: ["literature"] }],
+    "哲學": [{ hangul: "철학", glosses: ["philosophy"] }],
+    "醫學": [{ hangul: "의학", glosses: ["medical science"] }],
+    "化學": [{ hangul: "화학", glosses: ["chemistry"] }],
+    "學者": [{ hangul: "학자", glosses: ["scholar"] }],
+    "學問": [{ hangul: "학문", glosses: ["learning; scholarship"] }],
+    "學院": [{ hangul: "학원", glosses: ["private academy"] }],
+    "學術": [{ hangul: "학술", glosses: ["academic study"] }],
+    "留學": [{ hangul: "유학", glosses: ["studying abroad"] }],
+    "入學": [{ hangul: "입학", glosses: ["entering a school"] }],
+    // The one rare entry in the index: revealed rows must render it muted.
+    "晩學": [{ hangul: "만학", glosses: ["taking up study late in life"], rare: true }]
   };
+
+  // ADDENDUM `cw`: EVERY words.json spelling containing the char, ranked, as a
+  // bare array. Superset of `compounds` (which is why revealing has to skip
+  // spellings already on screen). 學 has 17 entries; 4 of the 5 inline rows
+  // are in it (the fifth is hangul-only), so 13 remain.
+  var CW = {
+    "學": [
+      "學生", "大學", "學校", "科學", "數學", "文學", "哲學", "醫學", "化學",
+      "學者", "學問", "學院", "學術", "留學", "入學", "大學生", "晩學"
+    ]
+  };
+
+  // The service worker's `buildFullCompounds`: join each cw spelling against
+  // `words` (first sense: hangul, first gloss or "", rare only when true),
+  // preserving cw order.
+  function fullCompounds(char) {
+    var canon = canonicalize(String(char || "").normalize("NFC"));
+    return (CW[canon] || []).map(function (spelling) {
+      var sense = (WORDS[spelling] || [])[0] || {};
+      var entry = {
+        hanja: spelling,
+        hangul: sense.hangul || "",
+        gloss: (sense.glosses || [])[0] || ""
+      };
+      if (sense.rare === true) entry.rare = true;
+      return entry;
+    });
+  }
 
   // byHangul: hangul spelling → every hanja spelling, no cap.
   var BY_HANGUL = {};
@@ -422,11 +472,15 @@
   function charMatch(canon, surface) {
     var d = CHARS[canon];
     if (!d) return null;
-    return {
+    var m = {
       kind: "char", surface: surface, canonical: canon,
       eumhun: d.eumhun, readings: d.readings, glosses: d.glosses,
       compounds: d.compounds
     };
+    // Total size of the char's cw index — the UI needs it to label
+    // "Show 5 more (N)" before it has fetched anything. Omitted when 0.
+    if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
+    return m;
   }
 
   function readingMatch(syllable) {
@@ -520,21 +574,33 @@
     __isStub: true,
     __calls: 0,          // every sendMessage — lets tests prove "back" doesn't re-query
     __lastText: null,
+    __compoundCalls: 0,  // {type:"compounds"} only
+    __lastChar: null,
+    __failCompounds: false,  // flip on to exercise the retry path
     sendMessage: function (msg, cb) {
       this.__calls++;
-      this.__lastText = msg && msg.text;
       var resp;
       try {
-        resp = (msg && msg.type === "lookup")
-          ? lookup(String(msg.text || ""))
-          : { ok: false, error: "unknown message type" };
+        if (msg && msg.type === "lookup") {
+          this.__lastText = msg.text;
+          resp = lookup(String(msg.text || ""));
+        } else if (msg && msg.type === "compounds") {
+          this.__compoundCalls++;
+          this.__lastChar = msg.char;
+          resp = this.__failCompounds
+            ? { ok: false, error: "simulated failure" }
+            : { ok: true, compounds: fullCompounds(msg.char) };
+        } else {
+          resp = { ok: false, error: "unknown message type" };
+        }
       } catch (e) {
         resp = { ok: false, error: String(e) };
       }
       if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
       return Promise.resolve(resp);
     },
-    __lookup: lookup
+    __lookup: lookup,
+    __fullCompounds: fullCompounds
   };
 })();
 </script>
@@ -1472,6 +1538,259 @@
     await wait(120);
     check("component-word rows still navigate with links present",
       api.viewDepth() === depthBeforeRow + 1, "depth=" + api.viewDepth());
+
+    // --- ADDENDUM: compound navigation + pagination ----------------------
+    function cpdRows() { return api.queryAll(".compounds > .compound-row"); }
+    function cpdSpellings() {
+      return cpdRows().map(function (r) {
+        var h = r.querySelector(".cpd-hanja");
+        return h ? h.textContent.replace(/[\s()]/g, "") : "";
+      });
+    }
+    function moreBtnText() {
+      var b = api.query(".cpd-more");
+      return b ? b.textContent : "none";
+    }
+    function inPanel(node) {
+      var p = api.hostRect();
+      var b = node.getBoundingClientRect();
+      return b.top >= p.top - 1 && b.bottom <= p.bottom + 1;
+    }
+
+    var hak = fake.__lookup("學").matches[0];
+    check("fixture: 學 carries cwCount 17 and 5 inline compounds",
+      hak.cwCount === 17 && hak.compounds.length === 5,
+      "cwCount=" + hak.cwCount + " inline=" + hak.compounds.length);
+    check("fixture: the 5th inline compound is hangul-only",
+      !hak.compounds[4].hanja && hak.compounds[4].hangul === "학벌",
+      JSON.stringify(hak.compounds[4]));
+    check("fixture: cw is a superset of the inline spellings",
+      ["學生", "大學", "學校", "科學"].every(function (s) {
+        return fake.__fullCompounds("學").some(function (c) { return c.hanja === s; });
+      }));
+
+    api.showAt(anchor, [hak]);
+    check("char card renders the 5 inline compounds as rows",
+      cpdRows().length === 5, "rows=" + cpdRows().length);
+    check("compounds with a hanja spelling are nav rows",
+      cpdRows().slice(0, 4).every(function (r) { return r.classList.contains("nav"); }));
+    check("compound nav rows carry a chevron affordance",
+      getComputedStyle(cpdRows()[0], "::after").content.indexOf("›") >= 0,
+      getComputedStyle(cpdRows()[0], "::after").content);
+    check("hangul-only compound row gets NO chevron and no nav wiring",
+      !cpdRows()[4].classList.contains("nav") &&
+      getComputedStyle(cpdRows()[4], "::after").content === "none" &&
+      !cpdRows()[4].hasAttribute("role"),
+      getComputedStyle(cpdRows()[4], "::after").content);
+    check("hangul-only row still shows its hangul and gloss",
+      /^학벌: /.test(cpdRows()[4].textContent), JSON.stringify(cpdRows()[4].textContent));
+
+    var callsBeforeDead = fake.__calls;
+    var depthBeforeDead = api.viewDepth();
+    cpdRows()[4].click();
+    await wait(90);
+    check("clicking a hangul-only compound row does nothing",
+      api.viewDepth() === depthBeforeDead && fake.__calls === callsBeforeDead,
+      "depth " + depthBeforeDead + " → " + api.viewDepth() +
+      ", calls " + callsBeforeDead + " → " + fake.__calls);
+
+    // --- compound row click → that word's card, breadcrumb, cached --------
+    var callsBeforeCpd = fake.__calls;
+    cpdRows()[1].click();                     // 大學
+    await wait(90);
+    check("compound row click drills into the word card",
+      api.viewDepth() === 2 && api.query(".word-body .surface").textContent === "大學",
+      "depth=" + api.viewDepth());
+    check("compound row click issues exactly one lookup",
+      fake.__calls === callsBeforeCpd + 1 && fake.__lastText === "大學",
+      "calls=" + fake.__calls + " text=" + fake.__lastText);
+    check("compound drill-down grows the breadcrumb 學 › 大學",
+      api.crumbLabels().join(" › ") === "學 › 大學", api.crumbLabels().join(" › "));
+    var callsBeforeCpdBack = fake.__calls;
+    api.queryAll(".crumb")[0].click();
+    await wait(90);
+    check("breadcrumb back restores the 學 char card with its compounds",
+      api.viewDepth() === 1 && api.query(".surface").textContent === "學" &&
+      cpdRows().length === 5, "depth=" + api.viewDepth() + " rows=" + cpdRows().length);
+    check("compound drill-down back does NOT re-query",
+      fake.__calls === callsBeforeCpdBack,
+      "calls " + callsBeforeCpdBack + " → " + fake.__calls);
+
+    // --- "Show 5 more (N)" ------------------------------------------------
+    api.showAt(anchor, [hak]);                // fresh session: caches cleared
+    check("pagination control renders with the remaining count",
+      moreBtnText() === "Show 5 more (13)", moreBtnText());
+    check("control sits after the compound rows, inside the card",
+      api.query(".cpd-more").previousSibling === api.query(".compounds"));
+
+    var cpdCallsBefore = fake.__compoundCalls;
+    var callsBeforePress = fake.__calls;
+    var depthBeforePress = api.viewDepth();
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("first press sends exactly ONE compounds request",
+      fake.__compoundCalls === cpdCallsBefore + 1 && fake.__lastChar === "學" &&
+      fake.__calls === callsBeforePress + 1,
+      "compoundCalls=" + fake.__compoundCalls + " char=" + fake.__lastChar);
+    check("first press does not navigate", api.viewDepth() === depthBeforePress);
+    check("first press reveals 5 more rows", cpdRows().length === 10,
+      "rows=" + cpdRows().length);
+    check("revealed rows skip spellings already shown",
+      cpdSpellings().slice(5).join(",") === "數學,文學,哲學,醫學,化學",
+      cpdSpellings().slice(5).join(","));
+    check("no duplicate spellings anywhere in the list",
+      (function () {
+        var seen = {}, dup = false;
+        cpdSpellings().forEach(function (s) {
+          if (!s) return;
+          if (seen[s]) dup = true;
+          seen[s] = true;
+        });
+        return !dup;
+      })(), cpdSpellings().join(","));
+    check("revealed rows are nav rows like the inline five",
+      cpdRows().slice(5).every(function (r) {
+        return r.classList.contains("nav") && r.getAttribute("role") === "button";
+      }));
+    check("count updates to the new remaining", moreBtnText() === "Show 5 more (8)",
+      moreBtnText());
+    check("popup re-anchors inside the viewport after growing",
+      api.hostRect().top >= 7.5 && api.hostRect().bottom <= vh - 7.5,
+      "top=" + Math.round(api.hostRect().top));
+    check("the control keeps itself in view after growing",
+      inPanel(api.query(".cpd-more")),
+      "btn=" + Math.round(api.query(".cpd-more").getBoundingClientRect().bottom) +
+      " panel=" + Math.round(api.hostRect().bottom));
+
+    var cpdCallsBefore2 = fake.__compoundCalls;
+    var callsBefore2 = fake.__calls;
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("second press makes NO further requests",
+      fake.__compoundCalls === cpdCallsBefore2 && fake.__calls === callsBefore2,
+      "compoundCalls " + cpdCallsBefore2 + " → " + fake.__compoundCalls +
+      ", calls " + callsBefore2 + " → " + fake.__calls);
+    check("second press reveals 5 more rows locally", cpdRows().length === 15,
+      "rows=" + cpdRows().length);
+    check("count updates again (fewer than a page left)",
+      moreBtnText() === "Show 3 more (3)", moreBtnText());
+
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("final press reveals the remainder", cpdRows().length === 18,
+      "rows=" + cpdRows().length);
+    check("control disappears once the index is exhausted",
+      !api.query(".cpd-more"), moreBtnText());
+    check("every cw spelling ended up on screen",
+      fake.__fullCompounds("學").every(function (c) {
+        return cpdSpellings().indexOf(c.hanja) >= 0;
+      }), cpdSpellings().join(","));
+    check("the last revealed row stays in view after exhaustion",
+      inPanel(cpdRows()[17]));
+
+    // --- rare entries get the muted treatment ----------------------------
+    var rareRow = cpdRows().filter(function (r) { return r.classList.contains("rare"); });
+    check("exactly one revealed row is flagged rare", rareRow.length === 1 &&
+      /만학/.test(rareRow[0].textContent), rareRow.length + " " +
+      (rareRow[0] ? rareRow[0].textContent : ""));
+    check("rare compound row is muted relative to a normal one",
+      getComputedStyle(rareRow[0].querySelector(".cpd-hangul")).color !==
+      getComputedStyle(cpdRows()[0].querySelector(".cpd-hangul")).color,
+      getComputedStyle(rareRow[0].querySelector(".cpd-hangul")).color);
+    check("rare compound row carries the superscript marker",
+      !!rareRow[0].querySelector(".cpd-rare") &&
+      rareRow[0].querySelector(".cpd-rare").textContent.toLowerCase() === "rare");
+    check("a rare compound row still navigates",
+      rareRow[0].classList.contains("nav"));
+
+    // --- revealed rows navigate the same way -----------------------------
+    var callsBeforeRevealedNav = fake.__calls;
+    cpdRows()[5].click();                      // 數學
+    await wait(90);
+    check("a revealed compound row navigates too",
+      api.viewDepth() === 2 && fake.__calls === callsBeforeRevealedNav + 1 &&
+      fake.__lastText === "數學",
+      "depth=" + api.viewDepth() + " text=" + fake.__lastText);
+    api.queryAll(".crumb")[0].click();
+    await wait(90);
+
+    // --- the gloss expander on a compound row must not navigate ----------
+    api.showAt(anchor, [{ kind: "char", surface: "長", canonical: "長",
+      eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"], glosses: [],
+      compounds: [{ hangul: "장문", hanja: "長文",
+        gloss: "an extremely long piece of writing that will certainly not fit on a single line of this popup" }] }]);
+    check("that compound row is navigable", cpdRows()[0].classList.contains("nav"));
+    var cpdMore = api.query(".compounds .more");
+    check("overlong compound row still gets its expander", !!cpdMore);
+    var depthBeforeCpdMore = api.viewDepth();
+    var callsBeforeCpdMore = fake.__calls;
+    cpdMore.click();
+    await wait(120);
+    check("gloss expander on a compound row does NOT navigate",
+      api.viewDepth() === depthBeforeCpdMore && fake.__calls === callsBeforeCpdMore,
+      "depth " + depthBeforeCpdMore + " → " + api.viewDepth() +
+      ", calls " + callsBeforeCpdMore + " → " + fake.__calls);
+    check("gloss expander on a compound row still expands",
+      api.query(".compound.clamp").classList.contains("expanded"));
+
+    // --- failure path: rows stay, control stays pressable ----------------
+    api.showAt(anchor, [hak]);                 // fresh session: cache cleared
+    fake.__failCompounds = true;
+    var cpdCallsBeforeFail = fake.__compoundCalls;
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("failed compounds request keeps the existing rows",
+      cpdRows().length === 5, "rows=" + cpdRows().length);
+    check("failed request still went out once",
+      fake.__compoundCalls === cpdCallsBeforeFail + 1,
+      "compoundCalls " + cpdCallsBeforeFail + " → " + fake.__compoundCalls);
+    check("control survives the failure, enabled and unchanged",
+      !!api.query(".cpd-more") && api.query(".cpd-more").disabled === false &&
+      moreBtnText() === "Show 5 more (13)", moreBtnText());
+    fake.__failCompounds = false;
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("retry after a failure succeeds",
+      cpdRows().length === 10 && moreBtnText() === "Show 5 more (8)",
+      "rows=" + cpdRows().length + " btn=" + moreBtnText());
+    check("the failed attempt was not cached (a second request went out)",
+      fake.__compoundCalls === cpdCallsBeforeFail + 2,
+      "compoundCalls=" + fake.__compoundCalls);
+
+    // --- pagination applies to nested and drill-down char cards ----------
+    api.showAt(anchor, [hak]);
+    var topMoreSize = getComputedStyle(api.query(".cpd-more")).fontSize;
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    var nestedMore = api.queryAll(".component-list > .card.component .cpd-more");
+    check("nested component char cards get the control too",
+      nestedMore.length === 1 && nestedMore[0].textContent === "Show 5 more (13)",
+      nestedMore.map(function (b) { return b.textContent; }).join("|"));
+    check("nested control keeps the smaller nested scale",
+      parseFloat(getComputedStyle(nestedMore[0]).fontSize) < parseFloat(topMoreSize),
+      topMoreSize + " → " + getComputedStyle(nestedMore[0]).fontSize);
+
+    api.showAt(anchor, fake.__lookup("학").matches);   // reading list → 學
+    api.queryAll(".reading-row")[0].click();
+    await wait(90);
+    check("drill-down char cards get the control as well",
+      api.viewDepth() === 2 && api.query(".surface").textContent === "學" &&
+      moreBtnText() === "Show 5 more (13)",
+      "depth=" + api.viewDepth() + " btn=" + moreBtnText());
+    var cpdCallsBeforeDrillPress = fake.__compoundCalls;
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("the control works from a drill-down view",
+      cpdRows().length === 10 &&
+      fake.__compoundCalls === cpdCallsBeforeDrillPress + 1,
+      "rows=" + cpdRows().length);
+    check("pressing it did not disturb the breadcrumb",
+      api.crumbLabels().join(" › ") === "학 › 學", api.crumbLabels().join(" › "));
+
+    // A char with no cw index must not grow a control at all.
+    api.showAt(anchor, fake.__lookup("國").matches);
+    check("chars without a cw index render no control",
+      !api.query(".cpd-more") && api.queryAll(".compounds > .compound-row").length === 5,
+      "rows=" + api.queryAll(".compounds > .compound-row").length);
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");
