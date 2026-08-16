@@ -10,14 +10,41 @@
 
 /** Rule 1: cap the input at 20 relevant (Han + Hangul) characters. */
 export const MAX_RELEVANT_CHARS = 20;
-/** Rule 3: greedy longest-match over Han runs, max word length 6. */
+/**
+ * Rule 3: greedy longest-match over Han runs. FALLBACK ONLY — the real cap is
+ * words.json's `maxWordLen` (the longest key actually shipped, currently 11:
+ * 後天性免疫缺乏症候群). This 6 is what a bundle without the metadata gets, and
+ * what the old hardcoded behavior was.
+ */
 export const MAX_WORD_LEN = 6;
 /** words.json only contains hanja spellings of length >= 2. */
 export const MIN_WORD_LEN = 2;
 /** Rule 3b: hangul spans shorter than 2 syllables are skipped. */
 export const MIN_HANGUL_WORD_LEN = 2;
-/** Rule 3b: hangul spans are matched up to 6 syllables. */
+/**
+ * Rule 3b: hangul spans. FALLBACK ONLY, same rule as MAX_WORD_LEN — the real
+ * cap is words.json's `maxHangulLen`.
+ */
 export const MAX_HANGUL_WORD_LEN = 6;
+
+/**
+ * Length metadata ADDENDUM: read a segmentation cap off words.json, falling
+ * back to the documented constant when the bundle predates the field (old
+ * fixtures, placeholder data).
+ */
+function lenMeta(value, fallback) {
+  return Number.isInteger(value) && value >= MIN_WORD_LEN ? value : fallback;
+}
+
+/** Rule 3 cap for a given words.json object. */
+export function maxWordLenOf(words) {
+  return lenMeta(words && words.maxWordLen, MAX_WORD_LEN);
+}
+
+/** Rule 3b cap for a given words.json object. */
+export function maxHangulLenOf(words) {
+  return lenMeta(words && words.maxHangulLen, MAX_HANGUL_WORD_LEN);
+}
 /** Word-parts addendum: sub-word glosses are capped at 2 (first sense). */
 export const MAX_PART_GLOSSES = 2;
 /**
@@ -141,10 +168,11 @@ const asItems = (chars) => chars.map((ch) => ({ surface: ch, canonical: ch }));
  * @param {string[]} run single Han run (array of code points)
  * @param {object} wordTable words.json `words` object
  * @param {object} variantMap variants.json `map` object
+ * @param {number} [maxLen] longest span to try (words.json `maxWordLen`)
  */
-export function segmentRun(run, wordTable, variantMap) {
+export function segmentRun(run, wordTable, variantMap, maxLen = MAX_WORD_LEN) {
   const items = run.map((ch) => ({ surface: ch, canonical: toCanonical(ch, variantMap) }));
-  return greedySegment(items, (key) => hasOwn(wordTable, key), MIN_WORD_LEN, MAX_WORD_LEN);
+  return greedySegment(items, (key) => hasOwn(wordTable, key), MIN_WORD_LEN, maxLen);
 }
 
 /**
@@ -154,12 +182,13 @@ export function segmentRun(run, wordTable, variantMap) {
  *
  * @param {string[]} run single Hangul run (array of syllables)
  * @param {object} byHangul words.json `byHangul` object
+ * @param {number} [maxLen] longest span to try (words.json `maxHangulLen`)
  * @returns {Array<{start:number, length:number, surface:string}>} matched spans
  */
-export function segmentHangulRun(run, byHangul) {
+export function segmentHangulRun(run, byHangul, maxLen = MAX_HANGUL_WORD_LEN) {
   const isWord = (key) =>
     hasOwn(byHangul, key) && Array.isArray(byHangul[key]) && byHangul[key].length > 0;
-  return greedySegment(asItems(run), isWord, MIN_HANGUL_WORD_LEN, MAX_HANGUL_WORD_LEN)
+  return greedySegment(asItems(run), isWord, MIN_HANGUL_WORD_LEN, maxLen)
     .filter((seg) => seg.kind === "word")
     .map((seg) => ({ start: seg.start, length: seg.length, surface: seg.surface }));
 }
@@ -197,13 +226,14 @@ function isBetterSegmentation(a, b) {
  * word and is rejected, but the same key appearing as a proper sub-span of a
  * longer word remains valid.
  *
- * Cost is O(n * MAX_WORD_LEN) with n <= 20, i.e. negligible.
+ * Cost is O(n * maxLen) with n <= 20, i.e. negligible.
  *
  * @param {string} canonical the word's canonical hanja spelling
  * @param {object} wordTable words.json `words` object
+ * @param {number} [maxLen] longest sub-word to try (words.json `maxWordLen`)
  * @returns {Array<object>|null} parts, or null when no multi-char sub-word exists
  */
-export function buildWordParts(canonical, wordTable) {
+export function buildWordParts(canonical, wordTable, maxLen = MAX_WORD_LEN) {
   const chars = [...canonical];
   const total = chars.length;
   if (total < 3) return null;
@@ -231,7 +261,7 @@ export function buildWordParts(canonical, wordTable) {
     // exact ties resolve deterministically toward earlier candidates.
     consider(1, false, 0);
 
-    const limit = Math.min(MAX_WORD_LEN, total - i);
+    const limit = Math.min(maxLen, total - i);
     for (let len = MIN_WORD_LEN; len <= limit; len += 1) {
       if (i === 0 && len === total) continue; // never a part of itself
       const key = chars.slice(i, i + len).join("");
@@ -273,7 +303,8 @@ export function buildWordParts(canonical, wordTable) {
 function buildWordMatch(
   { surface, canonical, hangul, glosses, rare, hp },
   wordTable,
-  charTable
+  charTable,
+  maxWordLen = MAX_WORD_LEN
 ) {
   const match = {
     kind: "word",
@@ -293,7 +324,7 @@ function buildWordMatch(
   // requesting the list. Omitted when 0.
   const usedIn = usedInSpellings(canonical, charTable ?? {}, wordTable).length;
   if (usedIn > 0) match.usedInCount = usedIn;
-  const parts = buildWordParts(canonical, wordTable);
+  const parts = buildWordParts(canonical, wordTable, maxWordLen);
   if (parts) match.parts = parts;
   return match;
 }
@@ -521,6 +552,9 @@ export function buildMatches(text, data) {
   const wordTable = (bundle.words && bundle.words.words) || {};
   const byHangul = (bundle.words && bundle.words.byHangul) || {};
   const variantMap = (bundle.variants && bundle.variants.map) || {};
+  // Length metadata ADDENDUM: segmentation reaches as far as the data goes.
+  const maxWordLen = maxWordLenOf(bundle.words);
+  const maxHangulLen = maxHangulLenOf(bundle.words);
 
   const runs = extractRuns(text);
   const totalChars = runs.reduce((n, run) => n + run.chars.length, 0);
@@ -582,7 +616,7 @@ export function buildMatches(text, data) {
 
   for (const run of runs) {
     if (run.script === "han") {
-      for (const segment of segmentRun(run.chars, wordTable, variantMap)) {
+      for (const segment of segmentRun(run.chars, wordTable, variantMap, maxWordLen)) {
         if (segment.kind === "word") {
           const raw = wordTable[segment.canonical];
           const entries = (Array.isArray(raw) ? raw : [raw]).filter(
@@ -600,7 +634,8 @@ export function buildMatches(text, data) {
                   hp: entry.hp,
                 },
                 wordTable,
-                charTable
+                charTable,
+                maxWordLen
               )
             );
           }
@@ -614,7 +649,7 @@ export function buildMatches(text, data) {
       }
     } else {
       // Rule 3b: hangul reverse lookup.
-      for (const span of segmentHangulRun(run.chars, byHangul)) {
+      for (const span of segmentHangulRun(run.chars, byHangul, maxHangulLen)) {
         // Rule 3b: ALL spellings, no cap — the UI renders a selector.
         const resolved = [];
         for (const spelling of byHangul[span.surface]) {
@@ -645,7 +680,8 @@ export function buildMatches(text, data) {
                 hp: sense.hp,
               },
               wordTable,
-              charTable
+              charTable,
+              maxWordLen
             )
           );
         }

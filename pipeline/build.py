@@ -34,6 +34,7 @@ import re
 import subprocess
 import sys
 import time
+import unicodedata
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1261,6 +1262,58 @@ def verify(hanja_obj, words_obj, variants_obj):
         "國民" in (by_hangul.get("국민") or []),
         json.dumps(by_hangul.get("국민"), ensure_ascii=False))
 
+    # Canonical keys ADDENDUM: the runtime NFC-normalizes and variant-maps a
+    # selection before it ever touches `words`, so any key that is not already
+    # canonical is either unreachable or a silent redirect to another record.
+    def canon(sp):
+        return "".join(vmap.get(ch, ch)
+                       for ch in unicodedata.normalize("NFC", sp))
+
+    non_canon = [sp for sp in words_out if canon(sp) != sp]
+    add("every words key is variant-canonical (lookup can reach it)",
+        not non_canon,
+        "%d of %d keys would re-map%s" % (
+            len(non_canon), len(words_out),
+            "" if not non_canon else ", e.g. " + ", ".join(
+                "%s->%s" % (sp, canon(sp)) for sp in non_canon[:5])))
+    bad_ref = sorted({sp for lst in by_hangul.values() for sp in lst
+                      if sp not in words_out})
+    add("byHangul points only at existing words keys", not bad_ref,
+        "%d dangling%s" % (len(bad_ref),
+                           "" if not bad_ref else ": " + " ".join(bad_ref[:5])))
+    bad_cw = sorted({sp for e in chars_out.values()
+                     for sp in (e.get("cw") or [])
+                     if canon(sp) != sp}
+                    | {x["hanja"] for e in chars_out.values()
+                       for x in e["compounds"] if canon(x["hanja"]) != x["hanja"]})
+    add("cw / compounds spellings are canonical too", not bad_cw,
+        "%d non-canonical%s" % (len(bad_cw),
+                                "" if not bad_cw else ": " + " ".join(bad_cw[:5])))
+    # 中腦 was unreachable (中 + 腦->匘) and 一舉兩得 redirected into 一擧兩得.
+    noe = words_out.get(canon("中腦"))
+    jugeo = words_out.get(canon("一舉兩得"))
+    add("re-keyed records survive the merge (中腦 -> %s, 一舉兩得 -> %s)"
+        % (canon("中腦"), canon("一舉兩得")),
+        bool(noe) and any(x["hangul"] == "중뇌" for x in noe)
+        and bool(jugeo) and "一舉兩得" not in words_out
+        and any(x["hangul"] == "일거양득" for x in jugeo),
+        "%s=%s | %s=%s" % (
+            canon("中腦"), json.dumps(noe, ensure_ascii=False),
+            canon("一舉兩得"), json.dumps(jugeo, ensure_ascii=False)))
+
+    # Length metadata ADDENDUM: lookup.js segments up to these lengths.
+    real_w = max((len(sp) for sp in words_out), default=0)
+    real_h = max((len(h) for h in by_hangul), default=0)
+    add("maxWordLen / maxHangulLen match the shipped keys",
+        words_obj.get("maxWordLen") == real_w
+        and words_obj.get("maxHangulLen") == real_h
+        and real_w >= 6,
+        "declared %s/%s, actual %d/%d (longest: %s, %s)" % (
+            words_obj.get("maxWordLen"), words_obj.get("maxHangulLen"),
+            real_w, real_h,
+            max((sp for sp in words_out), key=len, default=""),
+            max((h for h in by_hangul), key=len, default="")))
+
     failed = 0
     log("=============== SPOT CHECKS ================")
     for name, ok, detail in checks:
@@ -1376,8 +1429,87 @@ def main(argv):
            format(sum(1 for v in edu_tier.values() if v == "h"), ","),
            len(untiered), (": " + " ".join(untiered)) if untiered else ""))
 
+    # ---- variants.json ----------------------------------------------
+    # Built FIRST, ahead of words.json: the words keys are canonicalized
+    # through this map (SPEC "Canonical keys"), so it has to exist before any
+    # spelling is emitted or scored. It only needs to know WHICH characters
+    # will have a hanja.json entry, which is decided by the char data alone.
+    log("[3/5] building variants.json")
+    char_keys = {c for c, e in chars.items()
+                 if e["eumhun"] or e["readings"] or e["glosses"]}
+    char_word_count = collections.Counter()
+    for sp in words:
+        for ch in set(sp):
+            if ch in char_keys:
+                char_word_count[ch] += 1
+    with zipfile.ZipFile(UNIHAN_FILE) as z:
+        unihan_text = z.read("Unihan_Variants.txt").decode("utf-8")
+    cands = parse_unihan_variants(unihan_text)
+    cands.extend(parse_translingual(TRANSLINGUAL_FILE))
+    ja_cands = parse_japanese(JAPANESE_FILE)
+    cands.extend(ja_cands)
+    src_counts = {}
+    for variant, (target, prio) in wiki_alt.items():
+        cands.append((variant, target, prio))
+
+    def canon_rank(c):
+        """Tie-break within one source: Unihan fields are multi-valued
+        (药 kTraditionalVariant = 葯 藥) and the first token is not always the
+        form Korean actually uses. Rank by how many sino-Korean words actually
+        contain the character - an uncapped, direct usage count. Counted over
+        the PRE-canonical spellings, since canonicalization needs this map;
+        that is a tie-break heuristic, not a correctness input."""
+        e = chars.get(c)
+        return (char_word_count[c],
+                len(e["eumhun"]) if e else 0,
+                len(e["glosses"]) if e else 0)
+
+    chosen = {}
+    for variant, canonical, prio in cands:
+        if variant == canonical:
+            continue                      # self-mapping
+        if canonical not in char_keys:
+            continue                      # canonical must exist in hanja.json
+        if variant in char_keys:
+            continue                      # never shadow a real hanja entry
+        rank = canon_rank(canonical)
+        cur = chosen.get(variant)
+        if cur is None or prio < cur[1] or (prio == cur[1] and rank > cur[2]):
+            chosen[variant] = (canonical, prio, rank)
+    variant_map = {}
+    for k in sorted(chosen):
+        variant_map[k] = chosen[k][0]
+        src_counts[chosen[k][1]] = src_counts.get(chosen[k][1], 0) + 1
+
+    # Report, never hide, where the Japanese extract disagrees with the winner.
+    ja_best = {}
+    for variant, canonical, prio in ja_cands:
+        if variant == canonical or canonical not in char_keys or variant in char_keys:
+            continue
+        cur = ja_best.get(variant)
+        if cur is None or prio < cur[1]:
+            ja_best[variant] = (canonical, prio)
+    ja_new = sorted(v for v in ja_best if chosen.get(v, (None,))[0] == ja_best[v][0]
+                    and chosen[v][1] in (PRIO_JA_SIMP, PRIO_JA_VAR))
+    ja_conflict = sorted(v for v in ja_best
+                         if v in chosen and chosen[v][0] != ja_best[v][0])
+    non_ja = {v for v, c, p in cands
+              if p not in (PRIO_JA_SIMP, PRIO_JA_VAR)
+              and v != c and c in char_keys and v not in char_keys}
+    ja_unique = [v for v in ja_new if v not in non_ja]
+    log("  japanese extract: %s mappings won (%s of them provided by no other "
+        "source), %s conflicts with a higher-priority source"
+        % (format(len(ja_new), ","), format(len(ja_unique), ","),
+           format(len(ja_conflict), ",")))
+    for v in ja_conflict[:15]:
+        log("    conflict %s: kept %s (%s), japanese said %s (%s)"
+            % (v, chosen[v][0], PRIO_NAMES[chosen[v][1]],
+               ja_best[v][0], PRIO_NAMES[ja_best[v][1]]))
+    if len(ja_conflict) > 15:
+        log("    ... and %d more" % (len(ja_conflict) - 15))
+
     # ---- words.json -------------------------------------------------
-    log("[3/5] building words.json")
+    log("[4/5] building words.json")
     log("  frequency signal: %s example sentences, %s distinct hangul n-grams"
         % (format(stats["examples"], ","), format(len(ngram_freq), ",")))
     ext_freq = parse_ext_freq(EXTFREQ_FILE)
@@ -1392,12 +1524,56 @@ def main(argv):
         return (base
                 + 2.5 * math.log1p(ngram_freq.get(hangul, 0))
                 + 1.2 * math.log1p(inbound.get(hangul, 0))
-                + 2.0 * math.log1p(alt_inbound.get(sp, 0)))
+                + 2.0 * math.log1p(canon_alt_inbound.get(sp, 0)))
+
+    # Canonical keys (SPEC ADDENDUM): every words key goes through the same
+    # normalization the runtime applies before lookup (NFC, then variants.map
+    # per character). Without this, a key like 中腦 is UNREACHABLE — the
+    # service worker canonicalizes the selection to 中匘 (a legitimate mapping:
+    # 腦 has no hanja.json entry of its own) and finds no such key — and a key
+    # like 一舉兩得 silently resolves through a DIFFERENT record (一擧兩得).
+    # Source spellings that collapse onto one canonical key merge here, with
+    # the established per-field semantics: glosses deduped via push_gloss, hp
+    # any-wins, score max. `rare` is derived later from the merged key, so it
+    # needs no merge rule of its own.
+    def canon_sp(sp):
+        return "".join(variant_map.get(ch, ch)
+                       for ch in unicodedata.normalize("NFC", sp))
+
+    canon_words = {}
+    n_rekeyed = n_absorbed = 0
+    for sp in sorted(words):
+        bucket = words[sp]
+        key = canon_sp(sp)
+        if key != sp:
+            n_rekeyed += 1
+        tgt = canon_words.get(key)
+        if tgt is None:
+            canon_words[key] = {h: dict(v) for h, v in bucket.items()}
+            continue
+        n_absorbed += 1
+        for hangul, v in bucket.items():
+            cur = tgt.get(hangul)
+            if cur is None:
+                tgt[hangul] = dict(v)
+                continue
+            for g in v["glosses"]:
+                push_gloss(cur["glosses"], g, 3)
+            cur["score"] = max(cur["score"], v["score"])
+            cur["hp"] = bool(cur.get("hp")) or bool(v.get("hp"))
+    # The scoring signals keyed by hanja spelling have to follow the keys.
+    canon_alt_inbound = collections.Counter()
+    for sp, n in alt_inbound.items():
+        canon_alt_inbound[canon_sp(sp)] += n
+    log("  canonical keys: %s spellings -> %s keys (%s re-keyed, %s merged "
+        "into an existing record)"
+        % (format(len(words), ","), format(len(canon_words), ","),
+           format(n_rekeyed, ","), format(n_absorbed, ",")))
 
     words_out = {}
     best_score = {}
     by_hangul_tmp = {}
-    for sp, bucket in words.items():
+    for sp, bucket in canon_words.items():
         lst = sorted(
             ({"hangul": h, "glosses": v["glosses"][:3], "hp": v.get("hp", False),
               "score": final_score(sp, h, v["score"])}
@@ -1412,7 +1588,7 @@ def main(argv):
             by_hangul_tmp.setdefault(x["hangul"], []).append((sp, x["score"]))
 
     # ---- hanja.json -------------------------------------------------
-    log("[4/5] building hanja.json (reverse index + compound ranking)")
+    log("[5/5] building hanja.json (reverse index + compound ranking)")
     char_to_words = {}
     for sp in words_out:
         for ch in set(sp):
@@ -1428,9 +1604,11 @@ def main(argv):
         return l[0]["hangul"] if l else ""
 
     # how many different hanja pages list a given compound as a derived term
+    # Keyed by CANONICAL spelling, like words_out — a derived-terms list may
+    # name a variant spelling (一舉兩得) of a canonical record (一擧兩得).
     cross_derived = collections.Counter()
     for e in chars.values():
-        for sp in {d["hanja"] for d in e["derived"]}:
+        for sp in {canon_sp(d["hanja"]) for d in e["derived"]}:
             cross_derived[sp] += 1
 
     def compound_score(sp, curated):
@@ -1447,7 +1625,9 @@ def main(argv):
         cand = {}
         # (a) curated Wiktionary "derived terms" for this hanja
         for d in e["derived"]:
-            hanja = d["hanja"]
+            # canonical, so the row's spelling is a real words.json key and the
+            # UI's follow-up lookup of it resolves to this same record
+            hanja = canon_sp(d["hanja"])
             gloss = d["gloss"] or first_gloss(hanja)
             hangul = d["hangul"] or first_hangul(hanja)
             if not hangul or not gloss:
@@ -1502,72 +1682,6 @@ def main(argv):
         if cw:
             chars_out[c]["cw"] = cw
 
-    # ---- variants.json ----------------------------------------------
-    log("[5/5] building variants.json")
-    with zipfile.ZipFile(UNIHAN_FILE) as z:
-        unihan_text = z.read("Unihan_Variants.txt").decode("utf-8")
-    cands = parse_unihan_variants(unihan_text)
-    cands.extend(parse_translingual(TRANSLINGUAL_FILE))
-    ja_cands = parse_japanese(JAPANESE_FILE)
-    cands.extend(ja_cands)
-    src_counts = {}
-    for variant, (target, prio) in wiki_alt.items():
-        cands.append((variant, target, prio))
-
-    def canon_rank(c):
-        """Tie-break within one source: Unihan fields are multi-valued
-        (药 kTraditionalVariant = 葯 藥) and the first token is not always the
-        form Korean actually uses. Rank by how many sino-Korean words actually
-        contain the character - an uncapped, direct usage count."""
-        e = chars_out.get(c) or {}
-        return (len(char_to_words.get(c, ())),
-                len(e.get("eumhun") or []),
-                len(e.get("glosses") or []))
-
-    chosen = {}
-    for variant, canonical, prio in cands:
-        if variant == canonical:
-            continue                      # self-mapping
-        if canonical not in chars_out:
-            continue                      # canonical must exist in hanja.json
-        if variant in chars_out:
-            continue                      # never shadow a real hanja entry
-        rank = canon_rank(canonical)
-        cur = chosen.get(variant)
-        if cur is None or prio < cur[1] or (prio == cur[1] and rank > cur[2]):
-            chosen[variant] = (canonical, prio, rank)
-    variant_map = {}
-    for k in sorted(chosen):
-        variant_map[k] = chosen[k][0]
-        src_counts[chosen[k][1]] = src_counts.get(chosen[k][1], 0) + 1
-
-    # Report, never hide, where the Japanese extract disagrees with the winner.
-    ja_best = {}
-    for variant, canonical, prio in ja_cands:
-        if variant == canonical or canonical not in chars_out or variant in chars_out:
-            continue
-        cur = ja_best.get(variant)
-        if cur is None or prio < cur[1]:
-            ja_best[variant] = (canonical, prio)
-    ja_new = sorted(v for v in ja_best if chosen.get(v, (None,))[0] == ja_best[v][0]
-                    and chosen[v][1] in (PRIO_JA_SIMP, PRIO_JA_VAR))
-    ja_conflict = sorted(v for v in ja_best
-                         if v in chosen and chosen[v][0] != ja_best[v][0])
-    non_ja = {v for v, c, p in cands
-              if p not in (PRIO_JA_SIMP, PRIO_JA_VAR)
-              and v != c and c in chars_out and v not in chars_out}
-    ja_unique = [v for v in ja_new if v not in non_ja]
-    log("  japanese extract: %s mappings won (%s of them provided by no other "
-        "source), %s conflicts with a higher-priority source"
-        % (format(len(ja_new), ","), format(len(ja_unique), ","),
-           format(len(ja_conflict), ",")))
-    for v in ja_conflict[:15]:
-        log("    conflict %s: kept %s (%s), japanese said %s (%s)"
-            % (v, chosen[v][0], PRIO_NAMES[chosen[v][1]],
-               ja_best[v][0], PRIO_NAMES[ja_best[v][1]]))
-    if len(ja_conflict) > 15:
-        log("    ... and %d more" % (len(ja_conflict) - 15))
-
     # ---- byHangul ----------------------------------------------------
     # Exhaustive per SPEC addendum: every hanja spelling for a hangul word,
     # no cap, most common first.
@@ -1593,7 +1707,7 @@ def main(argv):
     # common secondary readings - 監査 "audit", 士氣 "morale", 修道 - because
     # alt_inbound is sparse. Only the two unambiguous cases are flagged now.
     def is_rare(sp, hangul):
-        a = alt_inbound.get(sp, 0)
+        a = canon_alt_inbound.get(sp, 0)
         if hangul in native_hangul:
             # 사랑/우리: the hangul's counts belong to the native word, so a
             # lone passing mention is not enough to call the spelling attested.
@@ -1628,7 +1742,19 @@ def main(argv):
 
     # ---- emit ---------------------------------------------------------
     hanja_obj = {"version": 1, "chars": chars_out}
-    words_obj = {"version": 1, "words": words_out, "byHangul": by_hangul}
+    # Length metadata (SPEC ADDENDUM): the segmentation caps in lookup.js were
+    # hardcoded at 6, which made every longer headword (中華人民共和國,
+    # 後天性免疫缺乏症候群) unreachable as a whole word — the scan never tried a
+    # span that long. Ship the real maxima instead.
+    max_word_len = max((len(sp) for sp in words_out), default=0)
+    max_hangul_len = max((len(h) for h in by_hangul), default=0)
+    log("  longest key: %d hanja chars (%s), %d hangul syllables (%s)"
+        % (max_word_len,
+           max((sp for sp in words_out), key=len, default=""),
+           max_hangul_len,
+           max((h for h in by_hangul), key=len, default="")))
+    words_obj = {"version": 1, "words": words_out, "byHangul": by_hangul,
+                 "maxWordLen": max_word_len, "maxHangulLen": max_hangul_len}
     variants_obj = {"version": 1, "map": variant_map}
     s_h = write_json("hanja.json", hanja_obj)
     s_w = write_json("words.json", words_obj)

@@ -23,6 +23,8 @@ import {
   lookup,
   extractRuns,
   segmentRun,
+  maxWordLenOf,
+  maxHangulLenOf,
 } from "../extension/lookup.js";
 
 // ---------------------------------------------------------------------------
@@ -257,6 +259,9 @@ const words = {
     // 우리 is likewise native — both hanja spellings are rare.
     牛李: [{ hangul: "우리", glosses: ["the Niu-Li factional strife"], rare: true }],
     隅籬: [{ hangul: "우리", glosses: ["a corner fence"], rare: true }],
+    // --- length-metadata addendum: a 7-char headword, longer than the old
+    // hardcoded segmentation cap of 6, in both scripts ---
+    中華人民共和國: [{ hangul: "중화인민공화국", glosses: ["the People's Republic of China"] }],
   },
   byHangul: {
     국민: ["國民"],
@@ -270,7 +275,11 @@ const words = {
     사랑: ["舍廊", "沙羅"],
     우리: ["牛李", "隅籬"],
     안전: ["安全"],
+    중화인민공화국: ["中華人民共和國"],
   },
+  // Length metadata addendum: the real caps for rules 3 / 3b.
+  maxWordLen: 7,
+  maxHangulLen: 7,
 };
 
 const data = { hanja, words, variants };
@@ -578,6 +587,63 @@ test("eduT: on char matches and reading candidates, absent otherwise", () => {
   assert.equal(cHak.edu, true);
   const cGuk = lookup("국", data).matches[0].candidates.find((c) => c.char === "國");
   assert.equal("eduT" in cGuk, false, "edu without a known tier stays bare");
+});
+
+// --- length metadata: segmentation caps come from the data ---------------
+
+test("7-char hanja selection returns the whole word, not fragments", () => {
+  const w = wordsOf(lookup("中華人民共和國", data).matches);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].canonical, "中華人民共和國");
+  assert.equal(w[0].hangul, "중화인민공화국");
+});
+
+test("7-syllable hangul reverse lookup resolves the whole word", () => {
+  const w = wordsOf(lookup("중화인민공화국", data).matches);
+  assert.equal(w.length, 1);
+  assert.equal(w[0].surface, "중화인민공화국");
+  assert.equal(w[0].canonical, "中華人民共和國");
+});
+
+test("without the meta fields, segmentation falls back to 6 (old behavior)", () => {
+  assert.equal(maxWordLenOf(undefined), 6);
+  assert.equal(maxWordLenOf({}), 6);
+  assert.equal(maxHangulLenOf({}), 6);
+  assert.equal(maxWordLenOf({ maxWordLen: 11 }), 11);
+  // junk values fall back rather than breaking segmentation
+  assert.equal(maxWordLenOf({ maxWordLen: 0 }), 6);
+  assert.equal(maxHangulLenOf({ maxHangulLen: "11" }), 6);
+
+  const noMeta = {
+    hanja,
+    words: { version: 1, words: words.words, byHangul: words.byHangul },
+    variants,
+  };
+  const w = wordsOf(lookup("中華人民共和國", noMeta).matches);
+  assert.ok(
+    !w.some((m) => m.canonical === "中華人民共和國"),
+    "a 7-char span is out of reach when the cap falls back to 6"
+  );
+  assert.equal(wordsOf(lookup("중화인민공화국", noMeta).matches).length, 0);
+  // and the 6-char word is still reachable on the fallback path
+  assert.equal(wordsOf(lookup("民主主義國家", noMeta).matches)[0].canonical, "民主主義國家");
+});
+
+test("word parts respect the data-driven cap", () => {
+  // 7-char sub-span 中華人民共和國 inside an 8-char word is only visible when
+  // buildWordParts is allowed to look past 6.
+  const parts = buildWordParts("大中華人民共和國", words.words, 7);
+  assert.deepEqual(
+    parts.map((p) => (p.type === "word" ? p.hanja : p.char)),
+    ["大", "中華人民共和國"]
+  );
+  assert.equal(
+    (buildWordParts("大中華人民共和國", words.words) || []).some(
+      (p) => p.hanja === "中華人民共和國"
+    ),
+    false,
+    "default cap of 6 cannot see the 7-char sub-word"
+  );
 });
 
 test("cwCount: present on chars with a cw index, absent otherwise", () => {
@@ -1090,6 +1156,41 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
     }
   }
 
+  // ROUND TRIP (regression net for the canonical-keys + length-metadata
+  // fixes): every shipped key must be reachable by looking up the key itself.
+  // Before the fix, 131 words keys resolved to nothing (中腦 → 中匘, no such
+  // key), 130 more silently answered from a different record, and every key
+  // longer than 6 chars came back as fragments.
+  const wordKeys = Object.keys(real.words.words);
+  const unreachable = [];
+  const redirected = [];
+  for (const key of wordKeys) {
+    const ms = lookup(key, real).matches.filter((m) => m.kind === "word");
+    if (ms.length === 0) unreachable.push(key);
+    else if (!ms.some((m) => m.canonical === key)) redirected.push(`${key}->${ms[0].canonical}`);
+  }
+  assert.deepEqual(unreachable.slice(0, 5), [], `${kind} data: ${unreachable.length} unreachable words keys`);
+  assert.deepEqual(redirected.slice(0, 5), [], `${kind} data: ${redirected.length} words keys redirect elsewhere`);
+
+  const hangulKeys = Object.keys(real.words.byHangul);
+  const deadHangul = [];
+  for (const key of hangulKeys) {
+    if (lookup(key, real).matches.some((m) => m.kind === "word")) continue;
+    deadHangul.push(key);
+  }
+  assert.deepEqual(deadHangul.slice(0, 5), [], `${kind} data: ${deadHangul.length} byHangul keys resolve to nothing`);
+
+  // The declared caps must be the real ones, and long keys must survive the
+  // whole pipeline as single word matches.
+  assert.equal(maxWordLenOf(real.words), Math.max(...wordKeys.map((k) => k.length)));
+  assert.equal(maxHangulLenOf(real.words), Math.max(...hangulKeys.map((k) => k.length)));
+  const longest = wordKeys.reduce((a, b) => (b.length > a.length ? b : a), "");
+  const longMatch = lookup(longest, real).matches.find((m) => m.kind === "word");
+  assert.equal(longMatch.canonical, longest, `${kind} data: longest key resolves whole`);
+  const roundTripNote =
+    `round-trip ${wordKeys.length} words + ${hangulKeys.length} byHangul keys, ` +
+    `0 unreachable, 0 redirects, longest ${longest} (${longest.length})`;
+
   // Word-parts addendum against the real corpus (skipped if 資本主義 absent).
   let partsNote = "資本主義 absent";
   if (Object.prototype.hasOwnProperty.call(real.words.words, "資本主義")) {
@@ -1118,7 +1219,7 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
   }
 
   console.log(
-    `      (${partsNote}; ${rareNote}; ${eduNote}; ` +
+    `      (${roundTripNote}; ${partsNote}; ${rareNote}; ${eduNote}; ` +
       `${kind} data: ${Object.keys(real.hanja.chars).length} chars, ` +
       `${Object.keys(real.words.words).length} words, ` +
       `${Object.keys(real.variants.map).length} variants, ` +

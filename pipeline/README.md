@@ -289,6 +289,35 @@ also go unflagged, because `alt_inbound` is too sparse to tell them apart from
 `byHangul` lists all non-rare spellings before rare ones, so a reverse lookup
 leads with a confident match; ordering within each group is unchanged.
 
+## Canonical words keys, and how long a key can be
+
+The service worker NFC-normalizes a selection and maps every character through
+`variants.map` **before** it touches `words`, so a shipped key that is not
+itself canonical is either unreachable or a silent redirect. Both happened: 131
+keys (e.g. 中腦, whose 腦 legitimately maps to 匘 because 腦 has no hanja.json
+entry) resolved to nothing, and 130 more (一舉兩得 → 一擧兩得) answered from a
+different record.
+
+So the build canonicalizes every key at emission, which forces the pipeline
+order **variants → words → hanja**: `variants.json` is built first, from the
+character data alone (a canonical must have a hanja.json entry, and a variant
+must not), and its map then re-keys the word buckets. Source spellings that
+collapse onto one key merge with the same semantics used everywhere else:
+glosses deduped through `push_gloss`, `hp` any-wins, score max, hangul senses
+merged per hangul; `rare` needs no rule because it is derived after the merge.
+`byHangul` values, `cw` indexes and compound rows all use the canonical keys.
+Current effect: 27,759 source spellings → 27,627 keys (261 re-keyed, 132
+absorbed into an existing record). The variant-map tie-break (`canon_rank`)
+counts pre-canonical spellings, since it runs before the re-keying; it is a
+heuristic between equal-priority sources, not a correctness input.
+
+`words.json` also carries top-level **`maxWordLen`** and **`maxHangulLen`** —
+the longest keys actually shipped (both 11: 朝鮮民主主義人民共和國 /
+조선민주주의인민공화국). `lookup.js` segments up to those lengths; its `6`
+constants are now only the fallback for a bundle without the fields. With the
+old hardcoded 6, all 30 hanja keys and 31 byHangul keys longer than that came
+back as fragments instead of whole words.
+
 ## Compound ranking
 
 `compounds` per character is a reverse index over `words.json` capped at 8, one
@@ -323,6 +352,11 @@ Every run ends with counts, output sizes, and spot-checks:
 * 医, 県, 缶 keep their own Korean entries and stay **unmapped** (regression
   guard on the never-shadow invariant).
 * 國民 → 국민 in `words`, and 國民 in `byHangul[국민]`.
+* Every `words` key is variant-canonical (canonicalizing it is a no-op),
+  `byHangul` points only at existing keys, `cw`/compound spellings are
+  canonical too, and the two re-keyed anchors survive: 中腦→中匘 keeps 중뇌 and
+  一舉兩得 exists only as 一擧兩得.
+* `maxWordLen` / `maxHangulLen` match a recomputation over the shipped keys.
 * 20 very common characters are present, including 文/金/小/中/時, which use an
   older template shape (`alt-of` senses pointing at a hangul reading) that a
   naive parser silently drops.
