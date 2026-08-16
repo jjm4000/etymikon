@@ -521,29 +521,52 @@ A typed-search surface reusing the selection popup's renderer end to end.
   position, 100% width, no floating anchor, no resize handle; the closed
   shadow root stays for style isolation) into a container supplied through
   the embed API. Skips positionAt entirely.
-- Embed API (exposed only when the flag is set): `mount(container)`,
-  `searchFor(text)` — which routes through the internal fetchLookup + render
-  path so session caching, drill-downs, breadcrumbs, show-more, used-in and
-  badges behave identically to the selection popup — and `clear()`. Normal
-  (content-script) mode must be behaviorally unchanged.
+- Embed API (exposed as `globalThis.__okpyeonEmbedApi` when the flag is set —
+  a separate gate from the IS_STUB test hooks; a page may have both):
+  `mount(container)` (container must be document-connected; single mount),
+  `searchFor(text) -> Promise<{ok, count}>` — structurally the selection
+  handler's path (request-sequence bump, stale-response guard, then the
+  normal render with an inert rect), NOT the drill-down fetch cache — and
+  `clear()`. Drill-downs, breadcrumbs, show-more, used-in and badges behave
+  identically to the selection popup. Normal mode must be behaviorally
+  unchanged.
+- Embed layout rules (from design review): installResize() must NOT be called
+  in embed (its corner hit-test is geometric, not CSS-gated); the panel gets
+  an `.embed` class overriding width:100%, max-height:none, overflow:visible,
+  resize:none — the popup page's results area is the ONLY scroll container
+  (no nested scrollbars); reposition() no-ops in embed.
 - Popup page (extension/popup/): popup.html loads, in order, popup-boot.js
-  (sets the embed flag), ../content/content.js, popup.js — all via src (MV3
-  extension-page CSP forbids inline script). popup.js wires a search input:
-  debounced (~200ms) search-as-you-type that is IME-safe (no lookups
-  mid-composition; compositionstart/end tracked; Enter forces immediate),
-  reads `?q=` for deep links, autofocuses, and shows quiet empty-state and
-  no-results states. Popup ~360px wide; results scroll internally
-  (max-height ~520px). The page must also work opened as a normal tab
-  (the omnibox target).
+  (sets the embed flag, nothing else), ../content/content.js, popup.js — all
+  CLASSIC scripts via src (no type=module/defer/async: modules defer and
+  would break the flag-before-script ordering; MV3 extension-page CSP
+  forbids inline script), placed AFTER the results-container markup so
+  mount() sees a laid-out container. popup.js wires the search input:
+  debounced (~200ms) search-as-you-type using InputEvent.isComposing
+  (`if (e.isComposing) return` on input; compositionend as a fallback
+  trigger into the same debounce; Enter forces immediate BUT no-ops while
+  composing / keyCode 229), reads `?q=` for deep links (auto-search after
+  mount, skipping the empty-state flash), autofocuses, and shows quiet
+  empty-state / no-results states driven by searchFor's {ok, count}.
+  Popup ~360px wide; the popup page's results area is the single scroll
+  container (max-height ~520px). popup.css must carry its OWN
+  prefers-color-scheme rules matching the panel palette (the shadow root's
+  tokens don't reach the outer page). The page must also work opened as a
+  normal tab (the omnibox target). Known limitation (document, don't fix):
+  in default_popup mode the BROWSER closes the popup on Escape, which some
+  IME cancel flows may trigger — tab mode is unaffected.
 - Manifest: `"action": {"default_popup": "popup/popup.html", "default_icon":
   <existing icons>}` and `"omnibox": {"keyword": "hj"}`. NO new permissions;
   web_accessible_resources stays absent (anti-fingerprinting stance).
 - Omnibox (background.js, guarded so Node import still works):
   onInputChanged → up to 5 suggestions from a pure `buildOmniboxSuggestions
-  (text, data)` in lookup.js (word, char and reading candidates; description
-  strings XML-escaped per the omnibox API); onInputEntered → open
-  `popup/popup.html?q=<query>` in a new tab. Default suggestion describes
-  the search action.
+  (text, data)` in lookup.js. Each suggestion: `content` = the candidate's
+  own canonical spelling/syllable, PLAIN text (never escaped — it round-trips
+  into onInputEntered); `description` = the rendered label, XML-escaped.
+  setDefaultSuggestion called once at wiring time. onInputEntered(text,
+  disposition) respects disposition: currentTab → tabs.update, otherwise
+  tabs.create (active only for newForegroundTab), with url =
+  chrome.runtime.getURL("popup/popup.html") + "?q=" +
+  encodeURIComponent(text).
 
 ## Verification expectations
 
