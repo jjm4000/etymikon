@@ -1,4 +1,4 @@
-# Okpyeon — Hanja Popup Dictionary
+# Okpyeon: Hanja Popup Dictionary
 
 A study tool for Korean learners. Highlight hanja, hanzi, or kanji on any page
 to read them in Korean, or highlight a Korean (hangul) word to see its hanja.
