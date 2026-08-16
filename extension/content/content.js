@@ -107,6 +107,13 @@
   var GAP = 8;          // gap between selection rect and popup
   var VIEWPORT_MARGIN = 8;
   var Z_INDEX = "2147483646";
+  // Resize bounds (stage 1: no persistence — a size lasts for the page visit).
+  var MIN_PANEL_W = 280;
+  var MIN_PANEL_H = 220;
+  var MAX_PANEL_VW = 0.9;
+  var MAX_PANEL_VH = 0.85;
+  var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
+  var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
 
   var CSS = [
     ":host { all: initial; }",
@@ -130,9 +137,16 @@
     "  --hover: #eef1f8;",
     "  --shadow: 0 8px 28px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12);",
     "  --scroll: rgba(0, 0, 0, 0.22);",
+    "  --grip: rgba(0, 0, 0, 0.3);",
     "  width: 340px;",
     "  max-height: 360px;",
     "  overflow-y: auto;",
+    // The panel IS the scroll container, which is exactly what `resize` needs
+    // (it only applies when the computed overflow is not `visible`). The size
+    // bounds are NOT declared here: min-height would inflate every short card,
+    // and max-height is the 360px default cap until the user takes over. Both
+    // are applied inline the moment a drag starts — see beginUserResize.
+    "  resize: both;",
     "  overscroll-behavior: contain;",
     "  -webkit-user-select: text;",
     "  user-select: text;",
@@ -171,6 +185,7 @@
     "    --hover: #2e2e38;",
     "    --shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);",
     "    --scroll: rgba(255, 255, 255, 0.24);",
+    "    --grip: rgba(255, 255, 255, 0.34);",
     "  }",
     "}",
     /* ---- view container: the unit that swaps on navigation ---- */
@@ -421,6 +436,20 @@
     ".panel::-webkit-scrollbar-thumb {",
     "  background: var(--scroll); border-radius: 999px;",
     "  border: 3px solid transparent; background-clip: content-box;",
+    "}",
+    /* ---- resize grip ---- */
+    // Where the vertical scrollbar meets the resizer Chrome paints an opaque
+    // corner, which reads as a white block on a dark panel. Clear it so only
+    // the grip below shows.
+    ".panel::-webkit-scrollbar-corner { background: transparent; }",
+    // Chrome paints a nearly invisible default resizer, and it is invisible
+    // outright on dark backgrounds. Two diagonal strokes in a theme token make
+    // the affordance discoverable without shouting.
+    ".panel::-webkit-resizer {",
+    "  background-color: transparent;",
+    "  background-image: linear-gradient(135deg,",
+    "    transparent 0 30%, var(--grip) 30% 42%,",
+    "    transparent 42% 58%, var(--grip) 58% 70%, transparent 70% 100%);",
     "}"
   ].join("\n");
 
@@ -466,6 +495,13 @@
   var requestSeq = 0;
   var anchorRect = null;      // selection rect the popup is currently glued to
 
+  // --- resize state (survives the popup session; only a reload resets it) ---
+  var userSized = false;      // the user has taken control of the dimensions
+  var resizing = false;       // a handle drag is in progress
+  var resizeTimer = null;
+  var lastPanelW = 0;         // last size the observer acted on (loop guard)
+  var lastPanelH = 0;
+
   // --- per-popup session state (reset on every new selection) ---------
   var lookupCache = null;     // lookup text -> response, so nav never re-queries
   var compoundsCache = null;  // char -> full joined compound list (one request)
@@ -498,8 +534,116 @@
       panel = document.createElement("div");
       panel.className = "panel";
       shadow.appendChild(panel);
+      installResize();
     }
     (document.documentElement || document.body).appendChild(host);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Resizing (stage 1 — no persistence)
+   *
+   * The panel carries `resize: both`. Its bounds are applied inline at the
+   * start of the first drag rather than in the stylesheet, because the
+   * stylesheet values do double duty: `max-height: 360px` is the DEFAULT
+   * content cap (height is auto, so short cards stay short), and a
+   * `min-height` in the base rule would inflate every small popup. Once the
+   * user takes over, the panel is explicitly sized and the bounds become the
+   * real min/max. Chrome does honour min-/max-width/height while dragging,
+   * but the JS clamp below is authoritative — it also covers viewport changes
+   * and programmatic sizing.
+   * ------------------------------------------------------------------ */
+
+  function viewportSize() {
+    var doc = document.documentElement;
+    return {
+      w: (doc && doc.clientWidth) || window.innerWidth || 0,
+      h: (doc && doc.clientHeight) || window.innerHeight || 0
+    };
+  }
+
+  // Freeze the current dimensions and hand the panel over to the user. Called
+  // on mousedown in the handle's corner, before the browser starts dragging.
+  function beginUserResize() {
+    if (userSized) return;
+    var box = panel.getBoundingClientRect();
+    userSized = true;
+    panel.style.setProperty("min-width", MIN_PANEL_W + "px");
+    panel.style.setProperty("min-height", MIN_PANEL_H + "px");
+    panel.style.setProperty("max-width", (MAX_PANEL_VW * 100) + "vw");
+    panel.style.setProperty("max-height", (MAX_PANEL_VH * 100) + "vh");
+    // Height was auto; pin it so the drag continues from what is on screen.
+    panel.style.setProperty("width", Math.round(box.width) + "px");
+    panel.style.setProperty("height", Math.round(box.height) + "px");
+  }
+
+  function clampPanelSize() {
+    if (!userSized) return;
+    var vp = viewportSize();
+    var maxW = Math.max(MIN_PANEL_W, Math.round(vp.w * MAX_PANEL_VW));
+    var maxH = Math.max(MIN_PANEL_H, Math.round(vp.h * MAX_PANEL_VH));
+    var box = panel.getBoundingClientRect();
+    if (box.width > maxW + 0.5) panel.style.setProperty("width", maxW + "px");
+    else if (box.width < MIN_PANEL_W - 0.5) panel.style.setProperty("width", MIN_PANEL_W + "px");
+    if (box.height > maxH + 0.5) panel.style.setProperty("height", maxH + "px");
+    else if (box.height < MIN_PANEL_H - 0.5) panel.style.setProperty("height", MIN_PANEL_H + "px");
+  }
+
+  // A resize has no end event, so this runs on a debounce from the observer.
+  // Width changes alter how many lines a gloss takes, so the clamp/"more"
+  // measurement has to run again before the popup is re-anchored.
+  function settleResize() {
+    resizeTimer = null;
+    clampPanelSize();
+    syncClamps();
+    if (visible) reposition();
+    // Absorb the adjustments we just made, so the observer does not treat
+    // them as a fresh user resize and loop.
+    var box = panel.getBoundingClientRect();
+    lastPanelW = box.width;
+    lastPanelH = box.height;
+  }
+
+  function installResize() {
+    // Starting a drag must not read as a click on whatever row sits under the
+    // handle, and must not dismiss the popup. mousedown is never preventDefault'd
+    // here — that would cancel the native drag before it starts.
+    panel.addEventListener("mousedown", function (ev) {
+      var box = panel.getBoundingClientRect();
+      var inCorner = ev.clientX <= box.right && ev.clientY <= box.bottom &&
+        (box.right - ev.clientX) <= RESIZE_ZONE && (box.bottom - ev.clientY) <= RESIZE_ZONE;
+      if (!inCorner) return;
+      resizing = true;
+      beginUserResize();
+    }, true);
+
+    // Capture phase: swallow the click that ends the drag before any row sees it.
+    panel.addEventListener("click", function (ev) {
+      if (!resizing) return;
+      resizing = false;
+      ev.preventDefault();
+      ev.stopPropagation();
+    }, true);
+
+    // If the drag ended outside the panel no click arrives; clear the flag on
+    // the next task, which is after any click that does fire.
+    window.addEventListener("mouseup", function () {
+      if (!resizing) return;
+      setTimeout(function () { resizing = false; }, 0);
+    }, true);
+
+    if (typeof ResizeObserver !== "function") return;
+    var observer = new ResizeObserver(function () {
+      var box = panel.getBoundingClientRect();
+      // Hidden popups report 0; ignore, and ignore sizes we produced ourselves.
+      if (!box.width && !box.height) return;
+      if (Math.abs(box.width - lastPanelW) < 0.5 &&
+          Math.abs(box.height - lastPanelH) < 0.5) return;
+      lastPanelW = box.width;
+      lastPanelH = box.height;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(settleResize, RESIZE_DEBOUNCE);
+    });
+    observer.observe(panel);
   }
 
   function isInsidePopup(node) {
@@ -1879,7 +2023,48 @@
         ensureHost();
         if (typeof v === "number") panel.scrollTop = v;
         return panel.scrollTop;
-      }
+      },
+      // --- resize ---
+      panelSize: function () {
+        ensureHost();
+        var box = panel.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+      },
+      isUserSized: function () { return userSized; },
+      // Readable while the popup is hidden, unlike getBoundingClientRect.
+      panelInlineSize: function () {
+        ensureHost();
+        return { width: panel.style.width, height: panel.style.height };
+      },
+      // Simulates a drag: take the panel over, set a size, then run the same
+      // settle path the debounced ResizeObserver uses.
+      resizePanel: function (w, h) {
+        ensureHost();
+        beginUserResize();
+        panel.style.setProperty("width", w + "px");
+        panel.style.setProperty("height", h + "px");
+        settleResize();
+        var box = panel.getBoundingClientRect();
+        return { width: box.width, height: box.height };
+      },
+      // Test-only: hands the panel back to the stylesheet. There is no
+      // in-product reset in stage 1 (a page reload is the reset), but the
+      // self-check suite has to start every run from the default size.
+      resetPanelSize: function () {
+        ensureHost();
+        userSized = false;
+        ["width", "height", "min-width", "min-height", "max-width", "max-height"]
+          .forEach(function (prop) { panel.style.removeProperty(prop); });
+        lastPanelW = 0;
+        lastPanelH = 0;
+        return { width: panel.style.width, height: panel.style.height };
+      },
+      resizeCorner: function () {
+        ensureHost();
+        var box = panel.getBoundingClientRect();
+        return { x: box.right - 4, y: box.bottom - 4 };
+      },
+      isResizing: function () { return resizing; }
     };
   }
 })();

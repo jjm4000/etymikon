@@ -690,6 +690,10 @@
     var vh = document.documentElement.clientHeight;
     var fake = globalThis.__hanjaHoverTestRuntime;
     var anchor = rect(40, 100, 60, 20);
+    // A user-chosen panel size deliberately survives for the whole page visit,
+    // so a second run of the suite would inherit it. Start from the default.
+    api.hide();
+    if (api.resetPanelSize) api.resetPanelSize();
 
     try {
     // --- lookup shape -------------------------------------------------
@@ -2080,6 +2084,180 @@
       api.viewDepth() === 4 && !!api.query(".crumb-gap") &&
       api.crumbLabels().join(" › ") === "해외대학생활 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
+
+    // --- ADDENDUM: resizable panel (stage 1, no persistence) -------------
+    var LONG_SENSE = "A very long sense that runs on and on and on so that it " +
+      "cannot possibly fit inside two lines of a three hundred and forty pixel " +
+      "wide popup panel, forcing the clamp to engage and an expander to appear.";
+    function longCard() {
+      return [{ kind: "char", surface: "長", canonical: "長",
+        eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"],
+        glosses: [LONG_SENSE], compounds: [] }];
+    }
+
+    // Sizes are derived from the viewport so the suite passes in any window.
+    var LIMIT_W = Math.floor(vw * 0.9);
+    var LIMIT_H = Math.floor(vh * 0.85);
+    var BIG_W = Math.min(520, LIMIT_W - 8);
+    var BIG_H = Math.min(300, LIMIT_H - 8);
+
+    api.hide();
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    check("panel advertises a native resize handle",
+      api.panelStyle("resize") === "both", api.panelStyle("resize"));
+    check("panel starts at the default size and is not user-sized",
+      !api.isUserSized() && Math.abs(api.panelSize().width - 340) < 2,
+      JSON.stringify(api.panelSize()));
+    check("test setup: the viewport allows a bigger-than-default panel",
+      BIG_W > 340 && BIG_H >= 220, "BIG=" + BIG_W + "x" + BIG_H);
+
+    var sized = api.resizePanel(BIG_W, BIG_H);
+    check("panel accepts a programmatic size change",
+      Math.abs(sized.width - BIG_W) < 2 && Math.abs(sized.height - BIG_H) < 2,
+      JSON.stringify(sized) + " want " + BIG_W + "x" + BIG_H);
+    check("resizing marks the panel as user-sized", api.isUserSized());
+    var TALL_H = Math.min(480, LIMIT_H - 8);
+    check("a resized panel is not capped by the 360px default any more",
+      (function () {
+        var tall = api.resizePanel(BIG_W, TALL_H);
+        return TALL_H > 365 && tall.height > 365;
+      })(), "asked " + TALL_H + " got " + Math.round(api.panelSize().height));
+
+    // Repositioning must use the CURRENT dimensions, not the defaults.
+    api.resizePanel(BIG_W, BIG_H);
+    api.showAt(rect(vw - 40, 100, 30, 20), fake.__lookup("국민").matches);
+    var rbox = api.hostRect();
+    check("a resized panel still clamps to the right edge",
+      rbox.right <= vw - 7.5 && Math.abs(rbox.width - BIG_W) < 2,
+      "right=" + Math.round(rbox.right) + " vw=" + vw + " w=" + Math.round(rbox.width));
+    check("re-showing does NOT snap the panel back to the default size",
+      Math.abs(api.panelSize().width - BIG_W) < 2 &&
+      Math.abs(api.panelSize().height - BIG_H) < 2,
+      JSON.stringify(api.panelSize()));
+
+    api.showAt(rect(40, vh - 30, 60, 20), fake.__lookup("국민").matches);
+    rbox = api.hostRect();
+    check("a resized panel flips above using its real height",
+      rbox.bottom <= vh - 30 + 0.5 && rbox.top >= 7.5 &&
+      Math.abs(rbox.height - BIG_H) < 2,
+      "bottom=" + Math.round(rbox.bottom) + " h=" + Math.round(rbox.height));
+
+    // --- the size outlives dismissal and new selections ------------------
+    api.hide();
+    check("hide() leaves the chosen size on the panel",
+      api.panelInlineSize().width === BIG_W + "px" &&
+      api.panelInlineSize().height === BIG_H + "px",
+      JSON.stringify(api.panelInlineSize()));
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    check("a new selection keeps the user's size",
+      Math.abs(api.panelSize().width - BIG_W) < 2 &&
+      Math.abs(api.panelSize().height - BIG_H) < 2,
+      JSON.stringify(api.panelSize()));
+    check("...and still opens scrolled to the top",
+      api.scrollTop() === 0, "scrollTop=" + api.scrollTop());
+
+    api.showAt(anchor, fake.__lookup("해외대학생활").matches);
+    api.scrollTop(140);
+    var sizedScroll = api.scrollTop();
+    check("test setup: the resized panel still scrolls", sizedScroll > 50,
+      "scrollTop=" + sizedScroll);
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    check("scrollTop resets on a new selection while the SIZE persists",
+      api.scrollTop() === 0 && Math.abs(api.panelSize().width - BIG_W) < 2,
+      "scrollTop=" + api.scrollTop() + " w=" + Math.round(api.panelSize().width));
+
+    // Drill-down navigation must not disturb it either.
+    api.showAt(anchor, fake.__lookup("자본주의").matches);
+    api.query(".part-row").click();
+    await wait(120);
+    check("drilling down keeps the user's size",
+      api.viewDepth() === 2 && Math.abs(api.panelSize().width - BIG_W) < 2,
+      JSON.stringify(api.panelSize()));
+
+    // --- bounds ----------------------------------------------------------
+    var tiny = api.resizePanel(100, 50);
+    check("panel cannot be shrunk below the minimum",
+      tiny.width >= 280 - 0.5 && tiny.height >= 220 - 0.5, JSON.stringify(tiny));
+    var huge = api.resizePanel(99999, 99999);
+    check("panel cannot be grown past 90vw x 85vh",
+      huge.width <= vw * 0.9 + 1 && huge.height <= vh * 0.85 + 1,
+      JSON.stringify(huge) + " limits=" +
+      Math.round(vw * 0.9) + "x" + Math.round(vh * 0.85));
+    check("a maximised panel is still fully inside the viewport",
+      (function () {
+        api.showAt(anchor, fake.__lookup("국민").matches);
+        var b = api.hostRect();
+        return b.left >= 7.5 && b.top >= 7.5 &&
+          b.right <= vw - 7.5 && b.bottom <= vh - 7.5;
+      })(), JSON.stringify(api.hostRect()));
+
+    // --- a width change re-runs the clamp measurement --------------------
+    api.resizePanel(340, BIG_H);
+    api.showAt(anchor, longCard());
+    check("at the default width the long sense clamps and gets an expander",
+      !!api.query(".gloss .more") &&
+      api.query(".gloss-text.clamp").scrollHeight >
+        api.query(".gloss-text.clamp").clientHeight + 1,
+      "more=" + !!api.query(".gloss .more"));
+    var wideTarget = Math.min(900, Math.floor(vw * 0.9) - 4);
+    var wide = api.resizePanel(wideTarget, BIG_H);
+    if (wide.width >= 700) {
+      check("widening re-measures the clamp and drops the expander",
+        !api.query(".gloss .more"),
+        "w=" + Math.round(wide.width) + " more=" + !!api.query(".gloss .more"));
+      var narrow = api.resizePanel(340, BIG_H);
+      check("narrowing again brings the expander back",
+        !!api.query(".gloss .more"), "w=" + Math.round(narrow.width));
+    } else {
+      check("viewport too narrow to test clamp re-measurement (skipped)", true,
+        "maxWidth=" + Math.round(wide.width));
+    }
+
+    // --- interaction safety ----------------------------------------------
+    api.resizePanel(Math.min(420, LIMIT_W - 8), Math.min(320, LIMIT_H - 8));
+    api.showAt(anchor, fake.__lookup("국").matches);      // a list of nav rows
+    var corner = api.resizeCorner();
+    var depthBeforeDrag = api.viewDepth();
+    var callsBeforeDrag = fake.__calls;
+    // The panel itself lives above the query root, so reach it via the row.
+    function panelEl() {
+      return api.queryAll(".reading-row")[0].getRootNode().querySelector(".panel");
+    }
+    function pressPanel(x, y) {
+      panelEl().dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y
+      }));
+    }
+    pressPanel(corner.x, corner.y);
+    check("pressing the resize handle does not dismiss the popup",
+      api.isVisible(), "visible=" + api.isVisible());
+    check("pressing the handle arms the drag guard", api.isResizing());
+    api.queryAll(".reading-row")[0].click();   // the click that ends the drag
+    await wait(120);
+    check("the click ending a drag does not trigger row navigation",
+      api.viewDepth() === depthBeforeDrag && fake.__calls === callsBeforeDrag &&
+      api.isVisible(),
+      "depth " + depthBeforeDrag + " → " + api.viewDepth() +
+      ", calls " + callsBeforeDrag + " → " + fake.__calls);
+    check("the guard clears after that one click", !api.isResizing());
+    api.queryAll(".reading-row")[0].click();   // a genuine click still works
+    await wait(120);
+    check("the very next click navigates normally",
+      api.viewDepth() === depthBeforeDrag + 1, "depth=" + api.viewDepth());
+
+    // A mousedown away from the corner is an ordinary interaction.
+    api.showAt(anchor, fake.__lookup("국").matches);
+    var mid = api.hostRect();
+    pressPanel(mid.left + 20, mid.top + 20);
+    check("a mousedown away from the corner does not arm the guard",
+      !api.isResizing() && api.isVisible());
+
+    // Back to the stylesheet's footprint so later checks measure what they expect.
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    check("releasing the size restores the default footprint",
+      !api.isUserSized() && Math.abs(api.panelSize().width - 340) < 2,
+      JSON.stringify(api.panelSize()));
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");
