@@ -36,7 +36,13 @@ privacy-policy update ("stores your display preferences locally"):
 - One example sentence per word (already present in the cached kaikki extracts)
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
 - Omnibox lookup (`hj 국민` from the address bar)
-- 급수 proficiency-level badges (blocked on a cleanly licensed source)
+- 급수 proficiency-level badges — phase 1 (MOE Basic-1800 "기초" badge from
+  Unihan kKoreanEducationHanja) is implemented; finer ladders (MOE
+  middle/high split, 어문회 급수) under active source/licensing research
+- 대법원 인명용 badge ("usable in given names", ~8,000 chars from the Supreme
+  Court rules annex — Korean law excludes statutes/rules from copyright, so
+  likely clean): deliberately deferred; investigate as an optional badge
+  long-term, not part of the current levels work
 - General dictionary mode: include native Korean words, not just Sino-Korean
   (the full Wiktionary Korean extract is already downloaded and parsed at
   build time — this is a filter change plus roughly double words.json, and a
