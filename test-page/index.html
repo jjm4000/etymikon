@@ -2233,6 +2233,111 @@
         "maxWidth=" + Math.round(wide.width));
     }
 
+    // --- ADDENDUM: expander state is GEOMETRY-DERIVED --------------------
+    // The reported bug: shrink → "more" → expand → widen until the text fits,
+    // and the "less" button survived with nothing left to collapse.
+    function glossBody() { return api.query(".gloss-text.clamp"); }
+    function glossMore() { return api.query(".gloss .more"); }
+    if (wide.width >= 700) {
+      api.resizePanel(340, BIG_H);
+      api.showAt(anchor, longCard());
+      check("narrow panel: the long sense clamps and offers 'more'",
+        !!glossMore() && glossMore().textContent === "more" &&
+        glossMore().getAttribute("aria-expanded") === "false" &&
+        !glossBody().classList.contains("expanded"),
+        glossMore() ? glossMore().textContent : "no control");
+
+      glossMore().click();
+      await wait();
+      check("expanding shows the full sense under a 'less' control",
+        glossBody().classList.contains("expanded") &&
+        glossMore().textContent === "less" &&
+        glossMore().getAttribute("aria-expanded") === "true",
+        glossMore() ? glossMore().textContent : "no control");
+
+      // …now widen until the sense fits on its own.
+      api.resizePanel(wideTarget, BIG_H);
+      check("widening past the point where the text fits REMOVES the control",
+        !glossMore(), "control=" + (glossMore() ? glossMore().textContent : "none"));
+      check("…and clears the expanded state it left behind",
+        !!glossBody() && !glossBody().classList.contains("expanded"),
+        glossBody() ? glossBody().className : "no body");
+      check("the fitting sense reads in full, unclamped either way",
+        glossBody().scrollHeight <= glossBody().clientHeight + 1 &&
+        api.queryAll(".gloss .more").length === 0,
+        glossBody().scrollHeight + " vs " + glossBody().clientHeight);
+
+      // The other direction: narrowing must re-create the control, and it
+      // starts collapsed — a fresh clamp is less surprising than silently
+      // restoring an expansion the reader can no longer see.
+      api.resizePanel(340, BIG_H);
+      check("re-narrowing re-creates the control, collapsed and fresh",
+        !!glossMore() && glossMore().textContent === "more" &&
+        !glossBody().classList.contains("expanded") &&
+        glossBody().scrollHeight > glossBody().clientHeight + 1,
+        glossMore() ? glossMore().textContent : "no control");
+
+      // A sense long enough to overflow at ANY width: here the user's choice
+      // must survive the resize, and the control must still work.
+      var HUGE_SENSE = new Array(40).join(
+        "a very long sense that keeps going and going without a break; ");
+      api.showAt(anchor, [{ kind: "char", surface: "長", canonical: "長",
+        eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"],
+        glosses: [HUGE_SENSE], compounds: [] }]);
+      glossMore().click();
+      await wait();
+      var expandedBody = glossBody();
+      var classBefore = expandedBody.className;
+      var classAtCallback = null;
+      var observer = new MutationObserver(function () {
+        classAtCallback = expandedBody.className;
+      });
+      observer.observe(expandedBody, { attributes: true, attributeFilter: ["class"] });
+      api.resizePanel(wideTarget, BIG_H);
+      await wait(0);
+      observer.disconnect();
+      check("a sense that still overflows keeps its control and the user's choice",
+        !!glossMore() && glossMore().textContent === "less" &&
+        glossBody().classList.contains("expanded"),
+        glossMore() ? glossMore().textContent : "no control");
+      // The measurement drops and restores .expanded inside one synchronous
+      // task, so no intermediate state can reach the screen: by the time the
+      // observer's microtask runs, the class is already back.
+      check("re-measuring an expanded element never leaves a visible flicker",
+        classAtCallback === null || classAtCallback === classBefore,
+        "before=" + classBefore + " atCallback=" + classAtCallback);
+      check("the retained control still collapses the text",
+        (function () {
+          glossMore().click();
+          return !glossBody().classList.contains("expanded") &&
+            glossMore().textContent === "more" &&
+            glossBody().scrollHeight > glossBody().clientHeight + 1;
+        })(), glossMore() ? glossMore().textContent : "no control");
+
+      // Compound rows (1-line clamps) obey the same rule.
+      api.resizePanel(340, BIG_H);
+      api.showAt(anchor, [{ kind: "char", surface: "長", canonical: "長",
+        eumhun: [{ hun: "긴", eum: "장" }], readings: ["장"], glosses: [],
+        compounds: [{ hangul: "장문", hanja: "長文",
+          // Long enough to wrap in a 340px panel, short enough to fit one
+          // line once the panel is wide — the whole point of the exercise.
+          gloss: "a moderately long gloss that wraps only in a narrow panel" }] }]);
+      var cpdCtl = api.query(".compounds .more");
+      check("a compound row clamps and offers 'more' in a narrow panel",
+        !!cpdCtl, "control=" + (cpdCtl ? cpdCtl.textContent : "none"));
+      cpdCtl.click();
+      await wait();
+      api.resizePanel(wideTarget, BIG_H);
+      check("a compound row that now fits loses its control and expanded state",
+        !api.query(".compounds .more") &&
+        !api.query(".compound.clamp").classList.contains("expanded"),
+        api.query(".compound.clamp").className);
+      api.resizePanel(340, BIG_H);
+    } else {
+      check("viewport too narrow to test geometry-derived expanders (skipped)",
+        true, "maxWidth=" + Math.round(wide.width));
+    }
+
     // --- interaction safety ----------------------------------------------
     api.resizePanel(Math.min(420, LIMIT_W - 8), Math.min(320, LIMIT_H - 8));
     api.showAt(anchor, fake.__lookup("국").matches);      // a list of nav rows

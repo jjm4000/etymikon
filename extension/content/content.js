@@ -888,7 +888,25 @@
     parent.appendChild(box);
   }
 
-  // Reveals clamped text in place. Runs after layout, so overflow is real.
+  // Does this text still need clamping? The question is always asked of the
+  // CLAMPED state, even for expanded elements: an expanded element is
+  // `overflow: visible` and would always measure as fitting, which is how a
+  // "less" button used to survive the panel being widened until the text fit.
+  // The class is dropped and restored inside one synchronous task, so the two
+  // forced layouts never reach the screen — nothing flickers.
+  function clampOverflows(body) {
+    var expanded = body.classList.contains("expanded");
+    if (expanded) body.classList.remove("expanded");
+    var overflowing = body.scrollHeight > body.clientHeight + 1;
+    if (expanded) body.classList.add("expanded");
+    return overflowing;
+  }
+
+  // Expander state is GEOMETRY-DERIVED: every re-measure (resize, width
+  // change, content growth) re-decides whether a control belongs here at all.
+  // Text that now fits loses its control AND its expanded state — it renders
+  // identically either way, so there is nothing left to toggle. Text that
+  // still overflows keeps its control and the reader's current choice.
   function syncClamps() {
     if (!viewRoot) return;
     var wraps = viewRoot.querySelectorAll(".clampwrap");
@@ -896,27 +914,37 @@
       var wrap = wraps[i];
       var body = wrap.firstChild;
       if (!body || !body.classList || !body.classList.contains("clamp")) continue;
-      if (body.classList.contains("expanded")) continue; // keep its toggle
-      var overflowing = body.scrollHeight > body.clientHeight + 1;
+      var overflowing = clampOverflows(body);
       var button = wrap.querySelector(".more");
-      if (overflowing && !button) {
-        wrap.appendChild(makeMoreButton(body));
-      } else if (!overflowing && button) {
-        wrap.removeChild(button);
+      if (!overflowing) {
+        if (button) wrap.removeChild(button);
+        // Reset, so re-narrowing starts from a fresh, collapsed clamp rather
+        // than silently restoring an expansion the reader can no longer see.
+        body.classList.remove("expanded");
+        continue;
       }
+      if (!button) wrap.appendChild(makeMoreButton(body));
+      else syncMoreButton(button, body);
     }
+  }
+
+  // The label always states what the button will do next, read off the body.
+  function syncMoreButton(button, body) {
+    var expanded = body.classList.contains("expanded");
+    var label = expanded ? "less" : "more";
+    if (button.textContent !== label) button.textContent = label;
+    button.setAttribute("aria-expanded", expanded ? "true" : "false");
   }
 
   function makeMoreButton(body) {
     var button = el("button", "more", "more");
     button.type = "button";
-    button.setAttribute("aria-expanded", "false");
+    syncMoreButton(button, body);
     button.addEventListener("click", function (ev) {
       ev.preventDefault();
       ev.stopPropagation();   // never triggers navigation on a clickable row
-      var expanded = body.classList.toggle("expanded");
-      button.textContent = expanded ? "less" : "more";
-      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+      body.classList.toggle("expanded");
+      syncMoreButton(button, body);
       refreshLayout();
     });
     return button;
