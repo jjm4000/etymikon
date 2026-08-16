@@ -65,6 +65,9 @@ const hanja = {
       // ranked index for the used-in tests: 學生 is contained by 學生會 and
       // 民主主義國家 is not; 不明 isn't a words key and must be skipped.
       cw: ["學生", "學生會", "不明學生"],
+      // eduT addendum: MOE tier. Never present without edu.
+      edu: true,
+      eduT: "m",
     },
     生: {
       eumhun: [{ hun: "날", eum: "생" }],
@@ -555,6 +558,28 @@ test("edu flag: on char matches and reading candidates, absent otherwise", () =>
   assert.equal("edu" in cGug, false);
 });
 
+test("eduT: on char matches and reading candidates, absent otherwise", () => {
+  const hak = charsOf(lookup("學", data).matches)[0];
+  assert.equal(hak.edu, true);
+  assert.equal(hak.eduT, "m");
+  // 國 is edu but has no tier in the fixture; 民 has neither.
+  const guk = charsOf(lookup("國", data).matches)[0];
+  assert.equal(guk.edu, true);
+  assert.equal("eduT" in guk, false);
+  const min = charsOf(lookup("民", data).matches)[0];
+  assert.equal("eduT" in min, false);
+
+  // the kind:"reading" path rebuilds candidates through an explicit field
+  // list — the tier has to survive that rebuild.
+  const reading = lookup("학", data).matches[0];
+  assert.equal(reading.kind, "reading");
+  const cHak = reading.candidates.find((c) => c.char === "學");
+  assert.equal(cHak.eduT, "m");
+  assert.equal(cHak.edu, true);
+  const cGuk = lookup("국", data).matches[0].candidates.find((c) => c.char === "國");
+  assert.equal("eduT" in cGuk, false, "edu without a known tier stays bare");
+});
+
 test("cwCount: present on chars with a cw index, absent otherwise", () => {
   const guk = charsOf(lookup("國", data).matches)[0];
   assert.equal(guk.cwCount, 4, "counts the whole index, not just joinable rows");
@@ -1039,6 +1064,32 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
     }
   }
 
+  // eduT addendum: the tier may only ever appear alongside edu, and only with
+  // the two documented values. Checked over every char in the real corpus.
+  let eduNote = "no eduT in corpus yet";
+  const tiered = Object.entries(real.hanja.chars).filter(([, e]) => e && e.eduT);
+  if (tiered.length > 0) {
+    const bad = tiered.filter(([, e]) => e.eduT !== "m" && e.eduT !== "h");
+    assert.deepEqual(bad.map(([c]) => c), [], `${kind} data: eduT must be "m" or "h"`);
+    const orphans = tiered.filter(([, e]) => e.edu !== true);
+    assert.deepEqual(
+      orphans.map(([c]) => c),
+      [],
+      `${kind} data: eduT must never appear without edu`
+    );
+    const m = tiered.filter(([, e]) => e.eduT === "m").length;
+    eduNote = `eduT ${m}m/${tiered.length - m}h`;
+    // and it must reach the matches, char cards and reading rows alike
+    const [sample, sampleEntry] = tiered[0];
+    const card = charsOf(lookup(sample, real).matches)[0];
+    assert.equal(card.eduT, sampleEntry.eduT, `${kind} data: ${sample} card carries eduT`);
+    const row = lookup(sampleEntry.readings[0], real).matches[0];
+    if (row && row.kind === "reading") {
+      const c = row.candidates.find((x) => x.char === sample);
+      if (c) assert.equal(c.eduT, sampleEntry.eduT, `${kind} data: reading row carries eduT`);
+    }
+  }
+
   // Word-parts addendum against the real corpus (skipped if 資本主義 absent).
   let partsNote = "資本主義 absent";
   if (Object.prototype.hasOwnProperty.call(real.words.words, "資本主義")) {
@@ -1067,7 +1118,7 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
   }
 
   console.log(
-    `      (${partsNote}; ${rareNote}; ` +
+    `      (${partsNote}; ${rareNote}; ${eduNote}; ` +
       `${kind} data: ${Object.keys(real.hanja.chars).length} chars, ` +
       `${Object.keys(real.words.words).length} words, ` +
       `${Object.keys(real.variants.map).length} variants, ` +

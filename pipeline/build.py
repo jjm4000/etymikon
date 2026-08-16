@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import collections
 import gzip
+import io
 import json
 import math
 import os
@@ -57,12 +58,24 @@ JAPANESE_URL = "https://kaikki.org/dictionary/downloads/ja/ja-extract.jsonl.gz"
 # 2018 corpus. Nothing from it ships in the extension. See README "Provenance".
 EXTFREQ_URL = ("https://raw.githubusercontent.com/hermitdave/FrequencyWords/"
                "master/content/2018/ko/ko_full.txt")
+# Korean Wikipedia 「대한민국 중고등학교 기초한자 목록」, raw wikitext. The MOE
+# 1,800 basic-education hanja split into 중학교용 900 / 고등학교용 900 — the tier
+# (eduT) only; membership (edu) stays Unihan-authoritative. CC BY-SA 4.0,
+# attributed in extension/data/DATA-LICENSE.md. Title is percent-encoded here
+# so no runtime URL building is needed:
+# 대한민국_중고등학교_기초한자_목록
+EDU_TIER_URL = (
+    "https://ko.wikipedia.org/w/index.php?title="
+    "%EB%8C%80%ED%95%9C%EB%AF%BC%EA%B5%AD_%EC%A4%91%EA%B3%A0%EB%93%B1%ED%95%99"
+    "%EA%B5%90_%EA%B8%B0%EC%B4%88%ED%95%9C%EC%9E%90_%EB%AA%A9%EB%A1%9D"
+    "&action=raw")
 
 KAIKKI_FILE = os.path.join(CACHE, "kaikki-Korean.jsonl")
 UNIHAN_FILE = os.path.join(CACHE, "Unihan.zip")
 TRANSLINGUAL_FILE = os.path.join(CACHE, "kaikki-Translingual.jsonl")
 JAPANESE_FILE = os.path.join(CACHE, "ja-extract.jsonl.gz")
 EXTFREQ_FILE = os.path.join(CACHE, "ko_full_opensubtitles.txt")
+EDU_TIER_FILE = os.path.join(CACHE, "ko-wiki-edu-tier.wikitext")
 
 # ---------------------------------------------------------------- script ranges
 
@@ -151,6 +164,32 @@ def download(url: str, dest: str, force: bool = False) -> str:
     if rc != 0 and not (want > 0 and now == want):
         raise SystemExit("download failed (curl exit %s): %s" % (rc, url))
     log("  got      %s (%s)" % (os.path.basename(dest), mb(now)))
+    return dest
+
+
+def download_small(url: str, dest: str, force: bool = False) -> str:
+    """Cached fetch for small, editable documents (a wiki page).
+
+    Same download-if-missing contract as download(), but never resumes: a wiki
+    page that grew between builds would corrupt a `-C -` resume, and the whole
+    file is a few tens of KB anyway. Re-fetched only when the cached size no
+    longer matches the remote one (or --force-download).
+    """
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    have = os.path.getsize(dest) if os.path.exists(dest) else 0
+    want = remote_size(url)
+    if have and not force and (want <= 0 or have == want):
+        log("  cached   %s (%s bytes)" % (os.path.basename(dest), format(have, ",")))
+        return dest
+    log("  fetching %s" % os.path.basename(dest))
+    rc = subprocess.run(
+        ["curl", "-L", "--fail", "--retry", "3", "--retry-delay", "2",
+         "-o", dest, url]
+    ).returncode
+    now = os.path.getsize(dest) if os.path.exists(dest) else 0
+    if rc != 0 or not now:
+        raise SystemExit("download failed (curl exit %s): %s" % (rc, url))
+    log("  got      %s (%s bytes)" % (os.path.basename(dest), format(now, ",")))
     return dest
 
 
@@ -922,6 +961,46 @@ def parse_unihan_readings(text):
     return defs, hangul
 
 
+# The wikitable prints four characters in their PRE-2007 glyph forms; Unihan
+# (and therefore hanja.json) uses the forms fixed by 교육인적자원부 고시
+# 제2007-79호, which corrected 자형 only and changed no membership. Validated by
+# the level-source research report, which diffed the two full sets: wiki-only
+# {戱 晩 玆 產} vs Unihan-only {戲 晚 茲 産}, four pairs and nothing else, with
+# both sets at 900/900. Mapping is wiki form -> Unihan/2007 form.
+EDU_TIER_GLYPH_FIX = {"戱": "戲", "晩": "晚", "玆": "茲", "產": "産"}
+
+RE_WIKI_TAG = re.compile(r"<[^>]*>")
+RE_EDU_TIER_ROW = re.compile(r"^\|\s*([가-힣]+)\s*\|\|(.*)$")
+
+
+def parse_edu_tiers(path):
+    """Korean Wikipedia 기초한자 목록 wikitable -> {char: "m" | "h"}.
+
+    One row per 음 with exactly two data columns (중학교용 || 고등학교용); the
+    characters inside are separated by the {{·}} template, so any Han codepoint
+    in a column is a list member. Pre-2007 glyphs are folded to the Unihan
+    forms. Tier only — membership is decided by kKoreanEducationHanja.
+    """
+    tiers = {}
+    rows = 0
+    with io.open(path, encoding="utf-8") as f:
+        for raw in f:
+            m = RE_EDU_TIER_ROW.match(RE_WIKI_TAG.sub("", raw).rstrip())
+            if not m:
+                continue
+            rows += 1
+            cols = m.group(2).split("||")
+            for i, col in enumerate(cols[:2]):
+                for ch in col:
+                    if is_han(ch):
+                        tiers[EDU_TIER_GLYPH_FIX.get(ch, ch)] = "m" if i == 0 else "h"
+    log("  MOE tier table: %s 음 rows, %s middle, %s high" % (
+        format(rows, ","),
+        format(sum(1 for v in tiers.values() if v == "m"), ","),
+        format(sum(1 for v in tiers.values() if v == "h"), ",")))
+    return tiers
+
+
 def parse_unihan_variants(text):
     """Yield (variant, canonical, priority); lower priority number wins."""
     out = []
@@ -1050,6 +1129,32 @@ def verify(hanja_obj, words_obj, variants_obj):
         and 1500 <= edu_n <= 1800
         and edu_n < len(chars_out),
         "%d edu chars in corpus (of %d)" % (edu_n, len(chars_out)))
+    # eduT ADDENDUM: MOE middle/high tier.
+    tier_m = [c for c, e in chars_out.items() if e.get("eduT") == "m"]
+    tier_h = [c for c, e in chars_out.items() if e.get("eduT") == "h"]
+    bad_tier = [c for c, e in chars_out.items()
+                if e.get("eduT") not in (None, "m", "h")]
+    add("eduT: both tiers present in bulk, values are m/h only",
+        len(tier_m) >= 700 and len(tier_h) >= 700
+        and len(tier_m) + len(tier_h) <= 1800 and not bad_tier,
+        "%d middle + %d high = %d tiered of %d edu chars%s" % (
+            len(tier_m), len(tier_h), len(tier_m) + len(tier_h), edu_n,
+            "" if not bad_tier else "; BAD VALUES %s" % bad_tier[:5]))
+    orphan = [c for c, e in chars_out.items() if e.get("eduT") and not e.get("edu")]
+    add("eduT never without edu", not orphan,
+        "checked %d chars; %d orphans%s" % (
+            len(chars_out), len(orphan),
+            "" if not orphan else " e.g. " + " ".join(orphan[:5])))
+    no_tier = sorted(c for c, e in chars_out.items()
+                     if e.get("edu") and not e.get("eduT"))
+    add("edu chars in corpus lacking a tier (informational, ≤ 6 expected)",
+        len(no_tier) <= 6,
+        "%d untiered%s" % (len(no_tier),
+                           (": " + " ".join(no_tier)) if no_tier else ""))
+    spot = {c: (chars_out.get(c) or {}).get("eduT") for c in ("學", "國", "民")}
+    add("eduT spot-check 學/國/民 = middle school",
+        all(v == "m" for v in spot.values()),
+        json.dumps(spot, ensure_ascii=False))
     ok_glosses = (chars_out.get("玉") or {}).get("glosses", [])
     xref = [g for e in chars_out.values() for g in e["glosses"]
             if "see there for further compounds" in g.lower()]
@@ -1185,6 +1290,7 @@ def main(argv):
     download(TRANSLINGUAL_URL, TRANSLINGUAL_FILE, force)
     download(JAPANESE_URL, JAPANESE_FILE, force)
     download(EXTFREQ_URL, EXTFREQ_FILE, force)
+    download_small(EDU_TIER_URL, EDU_TIER_FILE, force)
 
     log("[2/5] streaming kaikki Korean JSONL (line by line)")
     parse_kaikki(KAIKKI_FILE)
@@ -1248,6 +1354,20 @@ def main(argv):
             if "\tkKoreanEducationHanja\t" in line:
                 edu_set.add(chr(int(line.split("\t")[0][2:], 16)))
     log("  kKoreanEducationHanja: %s chars" % format(len(edu_set), ","))
+
+    # Tier (급 levels phase 2): middle/high split from the CC BY-SA Korean
+    # Wikipedia table. Unihan stays authoritative for MEMBERSHIP — a tier is
+    # kept only for characters already in edu_set, so eduT can never appear
+    # without edu. Anything the table tiers but Unihan does not list is
+    # dropped; anything Unihan lists but the table misses simply gets no tier.
+    edu_tier = {c: t for c, t in parse_edu_tiers(EDU_TIER_FILE).items()
+                if c in edu_set}
+    untiered = sorted(edu_set - set(edu_tier))
+    log("  MOE tier ∩ Unihan membership: %s tiered (%s m / %s h), %s untiered%s"
+        % (format(len(edu_tier), ","),
+           format(sum(1 for v in edu_tier.values() if v == "m"), ","),
+           format(sum(1 for v in edu_tier.values() if v == "h"), ","),
+           len(untiered), (": " + " ".join(untiered)) if untiered else ""))
 
     # ---- words.json -------------------------------------------------
     log("[3/5] building words.json")
@@ -1358,6 +1478,10 @@ def main(argv):
         }
         if c in edu_set:
             chars_out[c]["edu"] = True
+            # eduT ADDENDUM: MOE middle/high tier, emitted only when known and
+            # only alongside edu (see the intersection above).
+            if c in edu_tier:
+                chars_out[c]["eduT"] = edu_tier[c]
         # cw ADDENDUM: the COMPLETE compound index, spellings only, ranked by
         # the same score as the curated list (ranking baked into array order —
         # no scores shipped). Unlike the curated list, gloss-less words are

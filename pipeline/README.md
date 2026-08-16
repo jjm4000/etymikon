@@ -53,12 +53,43 @@ verification check fails.
 | `cache/kaikki-Translingual.jsonl`| `https://kaikki.org/dictionary/Translingual/kaikki.org-dictionary-Translingual.jsonl` | ~136 MB |
 | `cache/ja-extract.jsonl.gz`      | `https://kaikki.org/dictionary/downloads/ja/ja-extract.jsonl.gz` | ~62 MB (gz) |
 | `cache/ko_full_opensubtitles.txt`| `https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/ko/ko_full.txt` | ~11 MB |
+| `cache/ko-wiki-edu-tier.wikitext` | `https://ko.wikipedia.org/w/index.php?title=대한민국_중고등학교_기초한자_목록&action=raw` (percent-encoded in `build.py`) | ~22 KB |
 
 The Translingual and Japanese extracts are used **only to establish variant
 links**. Nothing from them is ever displayed: every gloss, reading and eumhun
 the extension shows comes from the Korean hanja entry of the *canonical*
 character, which the "canonical must exist in hanja.json" rule guarantees. The
 Japanese file is read with `gzip` and never decompressed to disk.
+
+### Provenance of the MOE tier table (`eduT`)
+
+The 중학교용 / 고등학교용 split of the Ministry of Education's 1,800 기초한자 comes
+from the Korean Wikipedia article 「대한민국 중고등학교 기초한자 목록」, fetched as
+raw wikitext (`&action=raw`) and cached like any other source. It is **CC BY-SA
+4.0** — the same licence the shipped data bundle is already under, so it adds no
+new licence surface; attribution is in `extension/data/DATA-LICENSE.md`. The
+underlying list is a 교육부 고시 annex, which 저작권법 제7조 excludes from copyright
+altogether, so the wiki page is a convenience mirror rather than the rights
+source.
+
+The page is a single `wikitable`: one row per 음, two data columns
+(중학교용 || 고등학교용), characters separated by the `{{·}}` template. Parsed to
+900 + 900 = 1,800 tiers.
+
+**Unihan stays authoritative for membership.** `kKoreanEducationHanja` decides
+`edu`; the wiki table only decides `eduT`, and a tier is kept only for a
+character Unihan already lists, so `eduT` can never appear without `edu`. The
+two sets disagree on exactly four glyphs — the wiki table prints the pre-2007
+forms 戱/晩/玆/產 where Unihan uses the forms fixed by 교육인적자원부 고시
+제2007-79호 (자형 corrections only, no membership change): 戲/晚/茲/産. That
+four-entry map is hardcoded in `build.py` (`EDU_TIER_GLYPH_FIX`); after it, the
+intersection is a clean 1,800 with 0 untiered. The build verifies the counts,
+the m/h-only value domain, the eduT⇒edu invariant, and 學/國/民 = middle school.
+
+Unlike the other sources, this one is a live wiki page that can be edited, so it
+is fetched **without** `curl -C -` resume (a grown page would corrupt a resumed
+download); a size mismatch against the remote `Content-Length` re-fetches the
+whole 22 KB.
 
 ### Provenance of the external frequency list
 

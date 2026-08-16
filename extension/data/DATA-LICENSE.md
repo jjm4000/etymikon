@@ -12,6 +12,13 @@ are a derived database compiled from the following sources by
 - **The Unicode Unihan Database** (https://www.unicode.org/charts/unihan.html),
   used under the Unicode License (https://www.unicode.org/license.txt) for
   variant mappings, supplementary definitions, and readings.
+- **Korean Wikipedia**, article 「대한민국 중고등학교 기초한자 목록」
+  (https://ko.wikipedia.org/wiki/대한민국_중고등학교_기초한자_목록), used under
+  the **Creative Commons Attribution-ShareAlike 4.0 International License**
+  (https://creativecommons.org/licenses/by-sa/4.0/) for the middle-school /
+  high-school tier (`eduT`) of the Ministry of Education basic-education hanja
+  list. (The underlying 교육부 고시 list is itself excluded from copyright by
+  저작권법 제7조.)
 - **hermitdave/FrequencyWords** (MIT License, © 2016 Hermit Dave), derived from
   the OPUS OpenSubtitles 2018 corpus — used only as a build-time frequency
   signal; no data from it is included in these files.

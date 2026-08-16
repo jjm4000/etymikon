@@ -315,6 +315,9 @@ function buildCharMatch(item, entry) {
   }
   // edu ADDENDUM: MOE basic-education hanja badge. Omitted when false.
   if (entry.edu === true) match.edu = true;
+  // eduT ADDENDUM: MOE middle/high tier badge. Only ever set alongside edu
+  // (the build guarantees that); omitted when the tier is unknown.
+  if (entry.eduT === "m" || entry.eduT === "h") match.eduT = entry.eduT;
   return match;
 }
 
@@ -483,6 +486,8 @@ export function buildReadingIndex(hanjaData) {
       const candidate = { char, hun, eum, gloss };
       // edu ADDENDUM: badge school-curriculum characters in the browse list.
       if (entry.edu === true) candidate.edu = true;
+      // eduT ADDENDUM: tier badge on reading-list rows too.
+      if (entry.eduT === "m" || entry.eduT === "h") candidate.eduT = entry.eduT;
       index[eum].push(candidate);
     }
   }
@@ -535,6 +540,7 @@ export function buildMatches(text, data) {
         candidates: candidates.map((c) => {
           const out = { char: c.char, hun: c.hun, eum: c.eum, gloss: c.gloss };
           if (c.edu === true) out.edu = true;
+          if (c.eduT === "m" || c.eduT === "h") out.eduT = c.eduT;
           return out;
         }),
       },
