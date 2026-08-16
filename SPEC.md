@@ -321,6 +321,13 @@ Service worker behavior:
   Single-gloss lines (compounds, component-word rows) clamp to one line with
   the same expander affordance when overlong. No `…` may hide content the user
   cannot reach.
+  Expander state is GEOMETRY-DERIVED (ADDENDUM — fix): whenever layout
+  re-measures (panel resize, width change, content growth), each clampable
+  element's control is re-derived from actual overflow: if the content now
+  fits within its clamp lines un-expanded, the control disappears entirely
+  and any expanded state resets; if it still overflows, the control shows
+  "more"/"less" per current state. A stale "less" on text that no longer
+  needs clamping (shrink → expand → widen) must be impossible.
 - Card layout, char match: big glyph, "나라 국"-style eumhun line, readings if no
   eumhun, glosses line, then up to 5 compounds as "국민 (國民) — gloss" lines.
   The big glyph is ALWAYS the canonical character (same rule as word cards);
