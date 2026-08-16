@@ -36,9 +36,14 @@ privacy-policy update ("stores your display preferences locally"):
 - One example sentence per word (already present in the cached kaikki extracts)
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
 - Omnibox lookup (`hj 국민` from the address bar)
-- 급수 proficiency-level badges — phase 1 (MOE Basic-1800 "기초" badge from
-  Unihan kKoreanEducationHanja) is implemented; finer ladders (MOE
-  middle/high split, 어문회 급수) under active source/licensing research
+- Level badges: phase 1 (MOE Basic-1800 badge, Unihan) shipped; phase 2 (MOE
+  middle/high tier badges from the CC BY-SA Korean Wikipedia table) in
+  progress. The 어문회 검정시험 급수 ladder is CLOSED as won't-do: no openly
+  licensed source exists (verified — Korean Wiktionary carries no level data;
+  all compilations trace to the association unlicensed), and Korean
+  database-producer rights (저작권법 제91조–98조, with case law) make
+  unlicensed extraction indefensible for a distributed product. MOE tiers
+  are the recognized-ladder substitute.
 - 대법원 인명용 badge ("usable in given names", ~8,000 chars from the Supreme
   Court rules annex — Korean law excludes statutes/rules from copyright, so
   likely clean): deliberately deferred; investigate as an optional badge

@@ -77,9 +77,18 @@ exists in hanja.json. Self-mappings omitted.
   max 8. `gloss` is a single short English gloss.
 - `edu` (ADDENDUM — 급 levels phase 1): `"edu": true` when the character is in
   the South Korean MOE basic-education hanja list (1,800 chars; source:
-  Unihan kKoreanEducationHanja, Unicode license). Membership only — no tier.
-  Omitted when false. Propagated onto `kind:"char"` matches and reading-list
-  candidates so the UI can badge school-curriculum characters.
+  Unihan kKoreanEducationHanja, Unicode license). Omitted when false.
+  Propagated onto `kind:"char"` matches and reading-list candidates so the UI
+  can badge school-curriculum characters.
+- `eduT` (ADDENDUM — 급 levels phase 2, MOE tier): `"eduT": "m"` (middle
+  school, 중학교용) or `"h"` (high school, 고등학교용) on edu-flagged chars
+  whose tier is known. Source: the CC BY-SA wikitable at Korean Wikipedia
+  「대한민국 중고등학교 기초한자 목록」 (extraction validated in the level-source
+  research report), intersected with the Unihan membership set; a small
+  glyph-variant map bridges the wiki's pre-2007 forms (戱→戲 etc.).
+  Membership (edu) remains Unihan-authoritative: eduT never appears without
+  edu. Emitted only when known; propagated wherever edu is. Attribution for
+  the wiki source goes in extension/data/DATA-LICENSE.md.
 - `cw` (ADDENDUM — complete compound index): EVERY words.json spelling that
   contains this character, as a bare array of spellings pre-sorted by the
   build-time frequency score, best first (ranking is baked into array order —
@@ -316,6 +325,12 @@ Service worker behavior:
   eumhun, glosses line, then up to 5 compounds as "국민 (國民) — gloss" lines.
   The big glyph is ALWAYS the canonical character (same rule as word cards);
   a variant surface (highlighting 国) appears only in the "国 → 國" note.
+  Variant-note scope (ADDENDUM — fix): the note renders ONLY when the variant
+  surface actually occurs in the CURRENT view's source text (the text that
+  view was looked up from). Cached char data reused in drill-down views must
+  not drag a stale surface along: selecting 学生 shows "学 → 學" on the root
+  view's 學 card, but after drilling to 文學, its 學 component card renders
+  plain 學 with no note. Same rule for word cards' surface → canonical note.
 - Compound navigation + pagination (ADDENDUM):
   - Compound lines on char cards are NAV ROWS, exactly like component-word
     rows: chevron affordance, hover state, click → follow-up
@@ -391,6 +406,13 @@ Service worker behavior:
   education hanja (1,800)"); one label, no compact variant (user decision —
   re-assess later if it crowds narrow layouts). No badge anywhere when the
   flag is absent.
+  Tier badge (ADDENDUM — phase 2): when the match carries `eduT`, a SECOND
+  badge in the same style renders next to the Basic-1800 badge (Naver-style
+  separate badges per classification): label "Middle (중학)" for m,
+  "High (고교)" for h; tooltip/aria "MOE tier: middle school (중학교용)" /
+  "MOE tier: high school (고등학교용)". No tier badge when eduT is absent.
+  Rendered everywhere the Basic-1800 badge is (card heads, nested cards,
+  reading rows).
 - Clickable eumhun chips (ADDENDUM): the per-character eumhun chips on word
   cards are click targets. Primary behavior: smooth-scroll the popup to that
   character's nested COMPONENT HANJA card and flash-highlight it briefly
