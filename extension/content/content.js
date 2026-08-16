@@ -115,7 +115,7 @@
   var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
   var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
   var FLASH_MS = 600;        // eumhun chip → component card orientation flash
-  var EDU_LABEL = "기초";
+  var EDU_LABEL = "Basic-1800 (기초)";
   var EDU_TITLE = "MOE basic education hanja (1,800)";
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
 

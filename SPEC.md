@@ -386,10 +386,11 @@ Service worker behavior:
   the parts section along with the rest of the card body.
 - Edu badge (ADDENDUM — 급 levels phase 1): char cards whose match carries
   `edu: true`, and reading-list rows whose candidate does, render a small
-  quiet badge (suggested label "기초", title/aria "MOE basic education hanja
-  (1,800)") near the eumhun — informative, not loud; muted colors in both
-  themes. Nested component cards inherit it at their smaller scale. No badge
-  anywhere when the flag is absent.
+  quiet badge near the eumhun — informative, not loud; muted colors in both
+  themes. Label: "Basic-1800 (기초)" everywhere (title/aria "MOE basic
+  education hanja (1,800)"); one label, no compact variant (user decision —
+  re-assess later if it crowds narrow layouts). No badge anywhere when the
+  flag is absent.
 - Clickable eumhun chips (ADDENDUM): the per-character eumhun chips on word
   cards are click targets. Primary behavior: smooth-scroll the popup to that
   character's nested COMPONENT HANJA card and flash-highlight it briefly
@@ -415,14 +416,16 @@ Service worker behavior:
   show every crumb (wrapping to extra lines as needed), each clickable as
   usual; the trail re-collapses to the truncated form after the next
   navigation. Intermediate levels must never be unreachable.
-- Cycle navigation (ADDENDUM — fix): navigating to a target whose view is
-  ALREADY in the trail must not push a duplicate. Target == current view →
-  no push; scroll to top and flash the card head (chips-style orientation
-  cue, reduced-motion respected). Target == an ancestor view → identical to
-  clicking that crumb: jump back to the cached level (scroll restored), trail
-  truncates to it. Identity is the view's lookup key (canonical spelling /
-  char / syllable), so 학생 vs 學生 both mean the 學生 view. Applies to every
-  nav-row kind (compounds, parts, used-in, reading rows, chip fallbacks).
+- Cycle navigation (ADDENDUM — fix, REVISED per user): only the CURRENT view
+  is protected from duplication. Target == current view → no push; scroll to
+  top and flash the card head (chips-style orientation cue, reduced-motion
+  respected). Target == an ANCESTOR view → push forward NORMALLY like any
+  other navigation (學生 › 學校 › 學生 is a legitimate trail — forward
+  navigation to a previously visited place is still forward, as in browser
+  history; do NOT collapse to the ancestor crumb). Identity is the view's
+  lookup key (canonical spelling / char / syllable), so 학생 vs 學生 both
+  mean the 學生 view. Applies to every nav-row kind (compounds, parts,
+  used-in, reading rows, chip fallbacks).
 - Crumb labels are CANONICAL (ADDENDUM — fix): a crumb names the view's
   canonical identity, not the gesture that opened it — selecting 学生 roots
   the trail as 學生 (the card's "学生 → 學生" note already records what was

@@ -2716,7 +2716,8 @@
     api.showAt(anchor, fake.__lookup("國").matches);
     var eduBadge = api.query(".edu-badge");
     check("a flagged char card renders the badge", !!eduBadge &&
-      eduBadge.textContent === "기초", eduBadge ? eduBadge.textContent : "none");
+      eduBadge.textContent === "Basic-1800 (기초)",
+      eduBadge ? eduBadge.textContent : "none");
     check("the badge sits on the eumhun line, not beside the wiki link",
       eduBadge.parentNode.classList.contains("eumhun"),
       eduBadge.parentNode.className);
