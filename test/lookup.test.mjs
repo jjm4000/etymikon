@@ -48,6 +48,8 @@ const hanja = {
       // cw addendum: complete ranked index — superset of `compounds`, may
       // reference spellings the words fixture lacks (skipped on join).
       cw: ["國民", "國家", "大韓民國", "不在words"],
+      // edu addendum: MOE basic-education list membership.
+      edu: true,
     },
     民: {
       eumhun: [{ hun: "백성", eum: "민" }],
@@ -541,6 +543,18 @@ test("a spelling is rare only when every contributing sense-set is rare", () => 
   assert.deepEqual(saranng.glosses, ["obscure sense", "an attested sense"]);
 });
 
+test("edu flag: on char matches and reading candidates, absent otherwise", () => {
+  const guk = charsOf(lookup("國", data).matches)[0];
+  assert.equal(guk.edu, true);
+  const min = charsOf(lookup("民", data).matches)[0];
+  assert.equal("edu" in min, false);
+  const reading = lookup("국", data).matches[0];
+  const cGuk = reading.candidates.find((c) => c.char === "國");
+  const cGug = reading.candidates.find((c) => c.char === "局");
+  assert.equal(cGuk.edu, true);
+  assert.equal("edu" in cGug, false);
+});
+
 test("cwCount: present on chars with a cw index, absent otherwise", () => {
   const guk = charsOf(lookup("國", data).matches)[0];
   assert.equal(guk.cwCount, 4, "counts the whole index, not just joinable rows");
@@ -764,6 +778,7 @@ test('lookup("국") returns a reading match including 國 with hun 나라', () =
     hun: "나라",
     eum: "국",
     gloss: "country; state; nation",
+    edu: true,
   });
 });
 

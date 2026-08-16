@@ -1043,6 +1043,13 @@ def verify(hanja_obj, words_obj, variants_obj):
 
     # SPEC eumhun normalization addendum
     han_eumhun = [(x["hun"], x["eum"]) for x in (chars_out.get("韓") or {}).get("eumhun", [])]
+    edu_n = sum(1 for e in chars_out.values() if e.get("edu"))
+    add("edu flag: 國/學 marked, sane coverage of the MOE 1800",
+        (chars_out.get("國") or {}).get("edu") is True
+        and (chars_out.get("學") or {}).get("edu") is True
+        and 1500 <= edu_n <= 1800
+        and edu_n < len(chars_out),
+        "%d edu chars in corpus (of %d)" % (edu_n, len(chars_out)))
     ok_glosses = (chars_out.get("玉") or {}).get("glosses", [])
     xref = [g for e in chars_out.values() for g in e["glosses"]
             if "see there for further compounds" in g.lower()]
@@ -1231,6 +1238,17 @@ def main(argv):
     log("  Unihan gap-fill: %s glosses, %s readings"
         % (format(filled_g, ","), format(filled_r, ",")))
 
+    # Education-hanja flag (급 levels phase 1): kKoreanEducationHanja marks the
+    # South Korean Ministry of Education "basic hanja for educational use"
+    # list (1,800 chars, 2007 revision). Membership only — the field carries
+    # no middle/high tier and no 급수. Unicode license; already cached.
+    edu_set = set()
+    with zipfile.ZipFile(UNIHAN_FILE) as z:
+        for line in z.read("Unihan_OtherMappings.txt").decode("utf-8").splitlines():
+            if "\tkKoreanEducationHanja\t" in line:
+                edu_set.add(chr(int(line.split("\t")[0][2:], 16)))
+    log("  kKoreanEducationHanja: %s chars" % format(len(edu_set), ","))
+
     # ---- words.json -------------------------------------------------
     log("[3/5] building words.json")
     log("  frequency signal: %s example sentences, %s distinct hangul n-grams"
@@ -1338,6 +1356,8 @@ def main(argv):
             "glosses": e["glosses"][:6],
             "compounds": compounds,
         }
+        if c in edu_set:
+            chars_out[c]["edu"] = True
         # cw ADDENDUM: the COMPLETE compound index, spellings only, ranked by
         # the same score as the curated list (ranking baked into array order —
         # no scores shipped). Unlike the curated list, gloss-less words are

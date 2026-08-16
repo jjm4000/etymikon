@@ -75,6 +75,11 @@ exists in hanja.json. Self-mappings omitted.
 - `glosses`: short English definitions, deduped, max ~6.
 - `compounds`: top compounds containing this character, ranked most-common first,
   max 8. `gloss` is a single short English gloss.
+- `edu` (ADDENDUM — 급 levels phase 1): `"edu": true` when the character is in
+  the South Korean MOE basic-education hanja list (1,800 chars; source:
+  Unihan kKoreanEducationHanja, Unicode license). Membership only — no tier.
+  Omitted when false. Propagated onto `kind:"char"` matches and reading-list
+  candidates so the UI can badge school-curriculum characters.
 - `cw` (ADDENDUM — complete compound index): EVERY words.json spelling that
   contains this character, as a bare array of spellings pre-sorted by the
   build-time frequency score, best first (ranking is baked into array order —

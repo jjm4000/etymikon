@@ -313,6 +313,8 @@ function buildCharMatch(item, entry) {
   if (Array.isArray(entry.cw) && entry.cw.length > 0) {
     match.cwCount = entry.cw.length;
   }
+  // edu ADDENDUM: MOE basic-education hanja badge. Omitted when false.
+  if (entry.edu === true) match.edu = true;
   return match;
 }
 
@@ -478,7 +480,10 @@ export function buildReadingIndex(hanjaData) {
 
     for (const [eum, hun] of eums) {
       if (index[eum] === undefined) index[eum] = [];
-      index[eum].push({ char, hun, eum, gloss });
+      const candidate = { char, hun, eum, gloss };
+      // edu ADDENDUM: badge school-curriculum characters in the browse list.
+      if (entry.edu === true) candidate.edu = true;
+      index[eum].push(candidate);
     }
   }
 
@@ -527,12 +532,11 @@ export function buildMatches(text, data) {
         kind: "reading",
         surface: eum,
         eum,
-        candidates: candidates.map((c) => ({
-          char: c.char,
-          hun: c.hun,
-          eum: c.eum,
-          gloss: c.gloss,
-        })),
+        candidates: candidates.map((c) => {
+          const out = { char: c.char, hun: c.hun, eum: c.eum, gloss: c.gloss };
+          if (c.edu === true) out.edu = true;
+          return out;
+        }),
       },
     ];
   }
