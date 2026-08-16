@@ -408,11 +408,28 @@ Service worker behavior:
   flag is absent.
   Tier badge (ADDENDUM — phase 2): when the match carries `eduT`, a SECOND
   badge in the same style renders next to the Basic-1800 badge (Naver-style
-  separate badges per classification): label "Middle (중학)" for m,
-  "High (고교)" for h; tooltip/aria "MOE tier: middle school (중학교용)" /
-  "MOE tier: high school (고등학교용)". No tier badge when eduT is absent.
-  Rendered everywhere the Basic-1800 badge is (card heads, nested cards,
-  reading rows).
+  separate badges per classification): label "Middle school" for m,
+  "High school" for h (plain English, user decision); tooltip/aria
+  "MOE tier: middle school (중학교용)" / "MOE tier: high school (고등학교용)".
+  The tier badge REPLACES the Basic-1800 badge when eduT is present (user
+  decision: tier strictly implies membership, and two badges saying one
+  thing is clutter) — so Basic-1800 renders only on edu chars with no known
+  tier (the small variant-gap set). Rendered everywhere badges render (card
+  heads, nested cards, reading rows).
+- Badge registry (ADDENDUM — infrastructure, user-requested): classification
+  badges are DECLARATIVE. One registry array defines them — each entry:
+  { key, when(match-or-candidate) -> false | {label, title} } — and one
+  renderer (appendBadges(container, m)) walks the registry in order at every
+  badge site (card heads, nested component cards, reading rows). Adding or
+  changing a badge must mean editing ONLY a registry entry: no per-badge
+  render code, no per-site wiring, styling shared via the .edu-badge class
+  family (a per-key modifier class is emitted for optional overrides). The
+  Basic-1800 and tier badges are registry entries #1 and #2. Badge ORDER is
+  the registry order. The registry is MULTI-BADGE by design: every matching
+  entry renders, and future badges co-render freely beside existing ones;
+  mutual exclusions (like basic1800 vs moeTier) are expressed inside the
+  entries' own when() conditions, never as a global badge cap. This covers
+  classification badges; inline semantic markers (RARE) stay as they are.
 - Clickable eumhun chips (ADDENDUM): the per-character eumhun chips on word
   cards are click targets. Primary behavior: smooth-scroll the popup to that
   character's nested COMPONENT HANJA card and flash-highlight it briefly

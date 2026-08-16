@@ -1039,7 +1039,14 @@ def parse_unihan_variants(text):
 
 def write_json(name, obj):
     path = os.path.join(OUT, name)
-    data = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    # sort_keys makes the build byte-deterministic: every object here is a
+    # lookup table whose key order is meaningless, while all ORDER-BEARING
+    # data (byHangul rankings, cw, compounds) lives in arrays, which
+    # sort_keys never touches. Without it, set-iteration order (randomized
+    # per run) leaks into dict insertion order and rebuilds produce noisy
+    # git diffs of reordered-but-identical data.
+    data = json.dumps(obj, ensure_ascii=False, separators=(",", ":"),
+                      sort_keys=True)
     with open(path, "w", encoding="utf-8", newline="") as fh:   # utf-8, no BOM
         fh.write(data)
     return os.path.getsize(path)
