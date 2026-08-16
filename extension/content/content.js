@@ -115,6 +115,8 @@
   var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
   var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
   var FLASH_MS = 600;        // eumhun chip → component card orientation flash
+  var EDU_LABEL = "기초";
+  var EDU_TITLE = "MOE basic education hanja (1,800)";
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
 
   var CSS = [
@@ -378,6 +380,18 @@
     ".spell-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
     ".spell-chip.rare { color: var(--hedge-fg); opacity: 0.75; }",
     ".spell-chip.rare.sel { opacity: 1; }",
+    // Curriculum badge: same quiet register as the rare marker. It rides at
+    // the end of the eumhun line, so it can never crowd the Wiktionary link
+    // (a separate flex item) or the variant note (the line below).
+    ".edu-badge {",
+    "  display: inline-block; margin-left: 6px; padding: 0 4px;",
+    "  border-radius: 4px; vertical-align: 2px;",
+    "  font-size: 9px; font-weight: 700; letter-spacing: 0.04em;",
+    "  line-height: 1.6; white-space: nowrap;",
+    "  color: var(--faint); background: var(--chip-bg);",
+    "  border: 1px solid var(--chip-edge);",
+    "}",
+    ".card.component .edu-badge { font-size: 8px; margin-left: 5px; }",
     ".chip-rare {",
     "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
     "  text-transform: uppercase; margin-left: 3px; vertical-align: super;",
@@ -1311,6 +1325,7 @@
       var eum = nonEmptyString(c.eum) || syllable;
       var label = hun && eum ? hun + " " + eum : (eum || hun);
       if (label) text.appendChild(el("span", "r-eumhun", label));
+      if (c.edu === true) text.appendChild(makeEduBadge());
       var gloss = nonEmptyString(c.gloss);
       if (gloss) text.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
       row.appendChild(text);
@@ -1320,6 +1335,15 @@
     });
     card.appendChild(list);
     return card;
+  }
+
+  // Membership in the MOE basic-education list, phase 1: no tier, just a
+  // quiet "this one is school curriculum" cue.
+  function makeEduBadge() {
+    var badge = el("span", "edu-badge", EDU_LABEL);
+    badge.title = EDU_TITLE;
+    badge.setAttribute("aria-label", EDU_TITLE);
+    return badge;
   }
 
   function buildCharCard(m) {
@@ -1336,11 +1360,22 @@
 
     var meta = el("div", "headmeta");
     var eumhun = formatEumhun(m.eumhun);
+    var readingLine = null;
     if (eumhun) {
-      meta.appendChild(el("div", "eumhun", eumhun));
+      readingLine = el("div", "eumhun", eumhun);
+      meta.appendChild(readingLine);
     } else {
       var readings = asArray(m.readings).map(nonEmptyString).filter(Boolean);
-      if (readings.length) meta.appendChild(el("div", "readings", readings.join(", ")));
+      if (readings.length) {
+        readingLine = el("div", "readings", readings.join(", "));
+        meta.appendChild(readingLine);
+      }
+    }
+    // School-curriculum marker, tucked onto the end of the reading line.
+    if (m.edu === true) {
+      var badge = makeEduBadge();
+      if (readingLine) readingLine.appendChild(badge);
+      else meta.appendChild(badge);
     }
     if (surface && surface !== big) {
       meta.appendChild(el("div", "canonical", surface + " → " + big));

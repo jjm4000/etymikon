@@ -294,6 +294,13 @@
     "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
   };
 
+  // MOE basic-education membership (Unihan kKoreanEducationHanja). These
+  // five match the real data: among the 국 homophones 國/局/菊 are in the
+  // list and 鞠/麴 are not, so the reading list badges selectively.
+  ["國", "學", "民", "局", "菊"].forEach(function (c) {
+    if (CHARS[c]) CHARS[c].edu = true;
+  });
+
   var WORDS = {
     // Deliberately listed BEFORE 詐欺 so the non-rare-first ordering has to
     // actually reorder it (Agent B does this in the service worker).
@@ -522,6 +529,8 @@
     // Total size of the char's cw index — the UI needs it to label
     // "Show 5 more (N)" before it has fetched anything. Omitted when 0.
     if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
+    // MOE basic-education membership; omitted when false.
+    if (d.edu === true) m.edu = true;
     return m;
   }
 
@@ -533,10 +542,12 @@
       candidates: chars.map(function (ch) {
         var d = CHARS[ch];
         var hun = (d.eumhun && d.eumhun[0] && d.eumhun[0].hun) || "";
-        return {
+        var cand = {
           char: ch, hun: hun, eum: syllable,
           gloss: (d.glosses && d.glosses[0]) || ""
         };
+        if (d.edu === true) cand.edu = true;   // propagated onto candidates
+        return cand;
       })
     };
   }
@@ -2671,6 +2682,104 @@
       api.scrollTop() === 0 && api.queryAll(".flash").length === 0,
       "scrollTop=" + api.scrollTop() + " flash=" + api.queryAll(".flash").length);
     window.matchMedia = realMM2;
+
+    // --- ADDENDUM: MOE basic-education badge -----------------------------
+    var EDU_TITLE = "MOE basic education hanja (1,800)";
+    check("fixture: 國 carries edu, the obscure 麴 does not",
+      fake.__lookup("國").matches[0].edu === true &&
+      fake.__lookup("麴").matches[0].edu === undefined,
+      "國=" + fake.__lookup("國").matches[0].edu +
+      " 麴=" + fake.__lookup("麴").matches[0].edu);
+
+    api.hide();
+    api.resetPanelSize();
+    api.showAt(anchor, fake.__lookup("國").matches);
+    var eduBadge = api.query(".edu-badge");
+    check("a flagged char card renders the badge", !!eduBadge &&
+      eduBadge.textContent === "기초", eduBadge ? eduBadge.textContent : "none");
+    check("the badge sits on the eumhun line, not beside the wiki link",
+      eduBadge.parentNode.classList.contains("eumhun"),
+      eduBadge.parentNode.className);
+    check("the badge is described for assistive tech",
+      eduBadge.getAttribute("aria-label") === EDU_TITLE &&
+      eduBadge.title === EDU_TITLE,
+      eduBadge.getAttribute("aria-label"));
+    check("the badge is muted, not loud",
+      getComputedStyle(eduBadge).color !==
+        getComputedStyle(api.query(".eumhun")).color &&
+      parseFloat(getComputedStyle(eduBadge).fontSize) <= 10,
+      getComputedStyle(eduBadge).color + " " + getComputedStyle(eduBadge).fontSize);
+
+    api.showAt(anchor, fake.__lookup("麴").matches);
+    check("an unflagged char card renders NO badge",
+      api.queryAll(".edu-badge").length === 0,
+      "badges=" + api.queryAll(".edu-badge").length);
+
+    // Nested component cards, at their smaller scale.
+    api.showAt(anchor, fake.__lookup("국민").matches);
+    var nestedBadges = api.queryAll(".component-list > .card.component .edu-badge");
+    check("nested component cards carry the badge too",
+      nestedBadges.length === 2, "badges=" + nestedBadges.length);
+    check("the nested badge is a step smaller",
+      (function () {
+        api.showAt(anchor, fake.__lookup("國").matches);
+        var top = parseFloat(getComputedStyle(api.query(".edu-badge")).fontSize);
+        api.showAt(anchor, fake.__lookup("국민").matches);
+        var nested = parseFloat(getComputedStyle(
+          api.query(".component-list > .card.component .edu-badge")).fontSize);
+        return nested < top;
+      })());
+
+    // Reading-list rows.
+    api.showAt(anchor, fake.__lookup("국").matches);
+    var readingBadges = api.queryAll(".reading-row .edu-badge");
+    check("reading rows badge only the flagged candidates",
+      readingBadges.length === 3 &&
+      api.queryAll(".reading-row").filter(function (r) {
+        return !!r.querySelector(".edu-badge");
+      }).map(function (r) {
+        return r.querySelector(".r-glyph").textContent;
+      }).join("") === "國局菊",
+      "badges=" + readingBadges.length + " on " +
+      api.queryAll(".reading-row").filter(function (r) {
+        return !!r.querySelector(".edu-badge");
+      }).map(function (r) { return r.querySelector(".r-glyph").textContent; }).join(""));
+    check("the obscure tail of the reading list stays unbadged",
+      api.queryAll(".reading-row").slice(3).every(function (r) {
+        return !r.querySelector(".edu-badge");
+      }));
+    check("the reading-row badge follows the eumhun",
+      readingBadges[0].previousSibling &&
+      readingBadges[0].previousSibling.classList.contains("r-eumhun"),
+      readingBadges[0].previousSibling ?
+        readingBadges[0].previousSibling.className : "none");
+
+    // At the narrowest the panel can get, the badge must not run into the link.
+    api.showAt(anchor, fake.__lookup("國").matches);
+    api.resizePanel(280, 260);
+    (function () {
+      var badgeBox = api.query(".edu-badge").getBoundingClientRect();
+      var linkBox = api.query(".wiki").getBoundingClientRect();
+      check("at minimum width the badge does not collide with the wiki link",
+        badgeBox.right <= linkBox.left + 0.5 || badgeBox.bottom <= linkBox.top + 0.5,
+        "badge.right=" + Math.round(badgeBox.right) +
+        " link.left=" + Math.round(linkBox.left) +
+        " badge.bottom=" + Math.round(badgeBox.bottom) +
+        " link.top=" + Math.round(linkBox.top));
+      check("the badge stays inside the card at minimum width",
+        badgeBox.right <= api.hostRect().right - 0.5,
+        "badge.right=" + Math.round(badgeBox.right) +
+        " panel.right=" + Math.round(api.hostRect().right));
+    })();
+    api.resetPanelSize();
+
+    // A variant surface still shows the badge and keeps the note separate.
+    api.showAt(anchor, [variantChar]);
+    check("a variant char card badges the canonical entry",
+      !!api.query(".edu-badge") &&
+      api.query(".canonical").textContent === "国 → 國" &&
+      !api.query(".canonical .edu-badge"),
+      api.query(".canonical").textContent);
 
     // Distinct surfaces must still stack.
     var mixed = fake.__lookup("國民 學生");
