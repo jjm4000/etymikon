@@ -21,7 +21,17 @@ All merged on `main` and verified:
 - Listing updates at upload time: privacy policy URL moves to GitHub Pages,
   homepage field points at this repo
 
-## 1.1 — options page + storage permission
+## 1.1 — in progress
+
+The queued release absorbed everything since 1.0 (see git history). Now also
+in progress for it:
+
+- Toolbar-popup search: type a query (hanja, hangul word, or syllable) into
+  the extension's popup and get the same cards, drill-downs and badges as
+  selection lookup — via an embed mode of the existing renderer
+- Omnibox keyword (`hj 국민` from the address bar) opening the search page
+
+## Options page + storage permission (1.2 candidates)
 
 These share the `storage` permission and an options page, and require a
 privacy-policy update ("stores your display preferences locally"):
@@ -35,7 +45,6 @@ privacy-policy update ("stores your display preferences locally"):
 - Character decomposition (國 = 囗 + 或) via the openly licensed cjkvi-ids data
 - One example sentence per word (already present in the cached kaikki extracts)
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
-- Omnibox lookup (`hj 국민` from the address bar)
 - Level badges: phase 1 (MOE Basic-1800 badge, Unihan) shipped; phase 2 (MOE
   middle/high tier badges from the CC BY-SA Korean Wikipedia table) in
   progress. The 어문회 검정시험 급수 ladder is CLOSED as won't-do: no openly

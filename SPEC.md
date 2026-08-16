@@ -509,6 +509,42 @@ Service worker behavior:
   popup stays anchored to the original selection throughout. The bare "← back"
   control is superseded by the breadcrumb (crumb before last = back).
 
+## Search popup (1.1 ADDENDUM)
+
+A typed-search surface reusing the selection popup's renderer end to end.
+
+- Embed mode (content.js): a host document sets `globalThis.__okpyeonEmbed =
+  true` BEFORE content.js loads (a gate orthogonal to the test-hook IS_STUB
+  gate — popup pages HAVE chrome.runtime). In embed mode content.js installs
+  NO selection or dismissal listeners (mousedown/scroll/Escape etc. are inert
+  for the popup lifecycle), and `ensureHost` mounts the host IN-FLOW (static
+  position, 100% width, no floating anchor, no resize handle; the closed
+  shadow root stays for style isolation) into a container supplied through
+  the embed API. Skips positionAt entirely.
+- Embed API (exposed only when the flag is set): `mount(container)`,
+  `searchFor(text)` — which routes through the internal fetchLookup + render
+  path so session caching, drill-downs, breadcrumbs, show-more, used-in and
+  badges behave identically to the selection popup — and `clear()`. Normal
+  (content-script) mode must be behaviorally unchanged.
+- Popup page (extension/popup/): popup.html loads, in order, popup-boot.js
+  (sets the embed flag), ../content/content.js, popup.js — all via src (MV3
+  extension-page CSP forbids inline script). popup.js wires a search input:
+  debounced (~200ms) search-as-you-type that is IME-safe (no lookups
+  mid-composition; compositionstart/end tracked; Enter forces immediate),
+  reads `?q=` for deep links, autofocuses, and shows quiet empty-state and
+  no-results states. Popup ~360px wide; results scroll internally
+  (max-height ~520px). The page must also work opened as a normal tab
+  (the omnibox target).
+- Manifest: `"action": {"default_popup": "popup/popup.html", "default_icon":
+  <existing icons>}` and `"omnibox": {"keyword": "hj"}`. NO new permissions;
+  web_accessible_resources stays absent (anti-fingerprinting stance).
+- Omnibox (background.js, guarded so Node import still works):
+  onInputChanged → up to 5 suggestions from a pure `buildOmniboxSuggestions
+  (text, data)` in lookup.js (word, char and reading candidates; description
+  strings XML-escaped per the omnibox API); onInputEntered → open
+  `popup/popup.html?q=<query>` in a new tab. Default suggestion describes
+  the search action.
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
