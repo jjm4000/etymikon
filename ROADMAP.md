@@ -26,8 +26,6 @@ All merged on `main` and verified:
 These share the `storage` permission and an options page, and require a
 privacy-policy update ("stores your display preferences locally"):
 
-- Japanese and Chinese pronunciations on character cards (Unihan
-  kMandarin / kJapaneseOn / kJapaneseKun; default on/off undecided)
 - Save-word list with Anki/CSV export
 - Resizable popup, stage 2: persist the chosen size; explicit size setting
 - Per-site disable, hover-mode toggle (hover mode itself is further out)
@@ -46,6 +44,10 @@ privacy-policy update ("stores your display preferences locally"):
 - Sidebar lookup: a typeable dictionary panel via Chrome's sidePanel API,
   complementing selection lookup — pairs naturally with general dictionary
   mode and the omnibox idea
+- Japanese and Chinese pronunciations on character cards, as an option
+  (Unihan kMandarin / kJapaneseOn / kJapaneseKun — data is nearly free, but
+  whether cross-language readings belong in a Korean-first tool is uncertain;
+  would ride the options page whenever it exists)
 - List views auto-growing taller than card views
 - Korean-language store listing
 
