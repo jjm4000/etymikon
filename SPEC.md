@@ -117,6 +117,22 @@ exists in hanja.json. Self-mappings omitted.
 Include Korean entries (any pos) that have a hanja form of length ≥ 2.
 Max ~3 glosses per sense-set.
 
+Canonical keys (ADDENDUM — fix): every `words` key is VARIANT-CANONICAL —
+each character already mapped through variants.map, using the same map the
+runtime applies before lookup. Source spellings that canonicalize to the
+same key merge into one bucket (glosses deduped, hp any-wins, rare
+all-wins, scores max). byHangul values and the per-char `cw` indexes use
+the canonical keys. Invariant (build-verified): canonicalizing any words
+key is a no-op — no shipped record can be unreachable or shadowed at
+lookup time.
+
+Length metadata (ADDENDUM — fix): words.json carries top-level
+`"maxWordLen"` and `"maxHangulLen"` — the actual longest hanja key and
+byHangul key (data has headwords up to 11 chars, e.g. 中華人民共和國;
+the old hardcoded 6 made them unreachable as whole words). Rules 3/3b and
+parts segmentation use these (falling back to 6 when absent). The rule 1
+input cap (20 relevant chars) is unchanged and still bounds everything.
+
 Hanja-page flag (ADDENDUM): a sense-set gets `"hp": true` when its Wiktionary
 entry was harvested from the hanja-spelling page (大韓民國, 安全) rather than
 the hangul page (국민). Even stub Korean sections qualify: the hanja-titled
