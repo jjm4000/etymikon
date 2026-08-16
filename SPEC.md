@@ -75,6 +75,12 @@ exists in hanja.json. Self-mappings omitted.
 - `glosses`: short English definitions, deduped, max ~6.
 - `compounds`: top compounds containing this character, ranked most-common first,
   max 8. `gloss` is a single short English gloss.
+- `cw` (ADDENDUM — complete compound index): EVERY words.json spelling that
+  contains this character, as a bare array of spellings pre-sorted by the
+  build-time frequency score, best first (ranking is baked into array order —
+  no scores are shipped). Superset of the spellings in `compounds`. Omitted
+  when empty. Glosses/hangul are NOT duplicated here; the service worker joins
+  them from words.json on request.
 - No truncation (ADDENDUM): gloss strings anywhere in the data (char glosses,
   word glosses, compound glosses, part glosses) are emitted in full — never cut
   with `…`. A generous safety cap (~400 chars) may drop a whole overlong sense,
@@ -141,6 +147,22 @@ Service worker responds:
 }
 ```
 On failure: `{ "ok": false, "error": "message" }`.
+
+ADDENDUM — `kind:"char"` matches carry `"cwCount": N` (total entries in the
+char's `cw` index; omitted when 0), so the UI can render "Show 5 more (N)"
+before ever requesting the full list.
+
+ADDENDUM — full compound list request (powers the "show more" compounds UI):
+```json
+{ "type": "compounds", "char": "學" }
+```
+Response: `{ "ok": true, "compounds": [ { "hanja": "大學", "hangul": "대학",
+"gloss": "university", "rare": true? } ] }` — every entry of the char's `cw`
+index joined against words.json (first sense: hangul, first gloss or "",
+`rare` propagated only when true), preserving `cw` order. NFC-normalize and
+variant-map the incoming char first. Unknown char or empty index →
+`{ ok: true, compounds: [] }`. Pure join logic lives in lookup.js
+(`buildFullCompounds`), chrome glue in background.js.
 
 ADDENDUM — word parts: every `kind:"word"` match whose canonical spelling is
 ≥ 3 chars gets a `parts` field: the word's interior re-segmented against
@@ -274,6 +296,24 @@ Service worker behavior:
   eumhun, glosses line, then up to 5 compounds as "국민 (國民) — gloss" lines.
   The big glyph is ALWAYS the canonical character (same rule as word cards);
   a variant surface (highlighting 国) appears only in the "国 → 國" note.
+- Compound navigation + pagination (ADDENDUM):
+  - Compound lines on char cards are NAV ROWS, exactly like component-word
+    rows: chevron affordance, hover state, click → follow-up
+    `{type:"lookup", text: "<compound hanja>"}` replacing the popup content
+    with that word's card, breadcrumb grows, cached per target. The gloss
+    "more" expander on a row must still not trigger navigation.
+  - After the inline compounds (5 shown), when the char's full index holds
+    more, render a "Show 5 more (N)" control (N = remaining count). First
+    press sends ONE `{type:"compounds", char}` request, caches the joined
+    list for the popup session, and reveals the next 5 (skipping spellings
+    already displayed, comparing by hanja spelling); each further press
+    reveals 5 more locally. The control shows the updated remaining count,
+    disappears when exhausted, must not be swallowed by row navigation,
+    keeps itself in view (no scroll jump), and re-anchors the popup after
+    growth. Revealed rows are nav rows identical to the inline five; rows
+    for `rare` words render with the muted rare treatment.
+  - Applies to char cards everywhere they appear (top-level, nested
+    component cards, drill-down views).
 - Wiktionary links (ADDENDUM): every word card and char card carries a small
   "Wiktionary ↗" link in the card's TOP-RIGHT CORNER (option A: labelled text
   link, muted color, hover reveals link color + underline; a step smaller on

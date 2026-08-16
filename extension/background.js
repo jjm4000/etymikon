@@ -6,7 +6,12 @@
  * manifest.json so this import works.
  */
 
-import { buildReadingIndex, lookup, toErrorMessage } from "./lookup.js";
+import {
+  buildFullCompounds,
+  buildReadingIndex,
+  lookup,
+  toErrorMessage,
+} from "./lookup.js";
 
 const DATA_FILES = {
   hanja: "data/hanja.json",
@@ -76,11 +81,31 @@ export async function handleLookup(text) {
   }
 }
 
+/**
+ * Handle a {type:"compounds", char} message (cw ADDENDUM): the char's complete
+ * compound index joined against words.json, in ranked order.
+ * @returns {Promise<{ok:true, compounds:object[]}|{ok:false, error:string}>}
+ */
+export async function handleCompounds(char) {
+  try {
+    const data = await getData();
+    return { ok: true, compounds: buildFullCompounds(char, data) };
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) };
+  }
+}
+
 // Guarded so this module can also be imported by Node (tests) without chrome.
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (!message || message.type !== "lookup") return false;
-    handleLookup(message.text).then(sendResponse, (err) => {
+    const handler =
+      message && message.type === "lookup"
+        ? handleLookup(message.text)
+        : message && message.type === "compounds"
+          ? handleCompounds(message.char)
+          : null;
+    if (handler === null) return false;
+    handler.then(sendResponse, (err) => {
       sendResponse({ ok: false, error: toErrorMessage(err) });
     });
     // Keep the message channel open for the async response.

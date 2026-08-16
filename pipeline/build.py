@@ -1322,6 +1322,18 @@ def main(argv):
             "glosses": e["glosses"][:6],
             "compounds": compounds,
         }
+        # cw ADDENDUM: the COMPLETE compound index, spellings only, ranked by
+        # the same score as the curated list (ranking baked into array order —
+        # no scores shipped). Unlike the curated list, gloss-less words are
+        # kept: the SW joins hangul/glosses from words.json when the UI asks
+        # for the tail, and an empty gloss renders fine there.
+        cw_scores = {sp: v[2] for sp, v in cand.items()}
+        for sp in char_to_words.get(c, ()):
+            if sp not in cw_scores and first_hangul(sp):
+                cw_scores[sp] = compound_score(sp, False)
+        cw = sorted(cw_scores, key=lambda sp: (-cw_scores[sp], len(sp), sp))
+        if cw:
+            chars_out[c]["cw"] = cw
 
     # ---- variants.json ----------------------------------------------
     log("[5/5] building variants.json")

@@ -290,7 +290,7 @@ function buildWordMatch({ surface, canonical, hangul, glosses, rare, hp }, wordT
 }
 
 function buildCharMatch(item, entry) {
-  return {
+  const match = {
     kind: "char",
     surface: item.surface,
     canonical: item.canonical,
@@ -299,6 +299,56 @@ function buildCharMatch(item, entry) {
     glosses: Array.isArray(entry.glosses) ? entry.glosses : [],
     compounds: Array.isArray(entry.compounds) ? entry.compounds : [],
   };
+  // cw ADDENDUM: total size of the full compound index, so the UI can render
+  // "Show 5 more (N)" without requesting the list. Omitted when 0.
+  if (Array.isArray(entry.cw) && entry.cw.length > 0) {
+    match.cwCount = entry.cw.length;
+  }
+  return match;
+}
+
+/**
+ * ADDENDUM {type:"compounds"}: join a char's complete `cw` index against
+ * words.json. Pure; the chrome glue in background.js calls this. The incoming
+ * char is NFC-normalized and variant-mapped like any lookup input. Returns
+ * the SPEC response array (order = cw order); unknown char or missing index
+ * yields [].
+ */
+export function buildFullCompounds(char, data) {
+  if (typeof char !== "string" || char.length === 0) return [];
+  const variantMap = data?.variants?.map ?? {};
+  const charTable = data?.hanja?.chars ?? {};
+  const wordTable = data?.words?.words ?? {};
+  const normalized = char.normalize("NFC");
+  const canonical = hasOwn(variantMap, normalized)
+    ? variantMap[normalized]
+    : normalized;
+  if (!hasOwn(charTable, canonical)) return [];
+  const cw = charTable[canonical].cw;
+  if (!Array.isArray(cw)) return [];
+  const out = [];
+  for (const spelling of cw) {
+    if (typeof spelling !== "string" || !hasOwn(wordTable, spelling)) continue;
+    const senses = wordTable[spelling];
+    const first = Array.isArray(senses) ? senses[0] : senses;
+    if (!first || typeof first !== "object") continue;
+    const row = {
+      hanja: spelling,
+      hangul: typeof first.hangul === "string" ? first.hangul : "",
+      gloss:
+        Array.isArray(first.glosses) && typeof first.glosses[0] === "string"
+          ? first.glosses[0]
+          : "",
+    };
+    // rare propagated only when every sense of the spelling is rare, matching
+    // collapseEntries' any-attested-sense-clears-it semantics.
+    const all = Array.isArray(senses) ? senses : [senses];
+    if (all.length > 0 && all.every((s) => s && s.rare === true)) {
+      row.rare = true;
+    }
+    out.push(row);
+  }
+  return out;
 }
 
 /**

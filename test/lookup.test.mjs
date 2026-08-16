@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import {
+  buildFullCompounds,
   buildMatches,
   buildReadingIndex,
   buildWordParts,
@@ -43,6 +44,9 @@ const hanja = {
         { hangul: "국민", hanja: "國民", gloss: "the people of a nation" },
         { hangul: "국가", hanja: "國家", gloss: "state; country" },
       ],
+      // cw addendum: complete ranked index — superset of `compounds`, may
+      // reference spellings the words fixture lacks (skipped on join).
+      cw: ["國民", "國家", "大韓民國", "不在words"],
     },
     民: {
       eumhun: [{ hun: "백성", eum: "민" }],
@@ -531,6 +535,40 @@ test("a spelling is rare only when every contributing sense-set is rare", () => 
   const saranng = w.find((m) => m.canonical === "舍廊");
   assert.equal("rare" in saranng, false, "one attested sense clears the flag");
   assert.deepEqual(saranng.glosses, ["obscure sense", "an attested sense"]);
+});
+
+test("cwCount: present on chars with a cw index, absent otherwise", () => {
+  const guk = charsOf(lookup("國", data).matches)[0];
+  assert.equal(guk.cwCount, 4, "counts the whole index, not just joinable rows");
+  const min = charsOf(lookup("民", data).matches)[0];
+  assert.equal("cwCount" in min, false);
+});
+
+test("buildFullCompounds joins cw against words in order, skipping unknowns", () => {
+  const rows = buildFullCompounds("國", data);
+  assert.deepEqual(rows, [
+    { hanja: "國民", hangul: "국민", gloss: "the people; citizens of a nation" },
+    { hanja: "國家", hangul: "국가", gloss: "state; nation" },
+  ]);
+});
+
+test("buildFullCompounds normalizes variants and handles unknown chars", () => {
+  assert.deepEqual(buildFullCompounds("国", data), buildFullCompounds("國", data));
+  assert.deepEqual(buildFullCompounds("𠀀", data), []);
+  assert.deepEqual(buildFullCompounds("", data), []);
+});
+
+test("buildFullCompounds: rare only when every sense of a spelling is rare", () => {
+  const patched = {
+    ...data,
+    hanja: {
+      ...hanja,
+      chars: { ...hanja.chars, 國: { ...hanja.chars.國, cw: ["舍廊", "沙羅"] } },
+    },
+  };
+  const rows = buildFullCompounds("國", patched);
+  assert.equal(rows[0].rare, true, "舍廊 is rare in the fixture");
+  assert.equal("rare" in rows[1], false, "沙羅 is not");
 });
 
 test("hp flag: propagates on both paths, any-wins, absent otherwise", () => {
