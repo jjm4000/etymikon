@@ -404,6 +404,22 @@ Service worker behavior:
   show every crumb (wrapping to extra lines as needed), each clickable as
   usual; the trail re-collapses to the truncated form after the next
   navigation. Intermediate levels must never be unreachable.
+- Cycle navigation (ADDENDUM — fix): navigating to a target whose view is
+  ALREADY in the trail must not push a duplicate. Target == current view →
+  no push; scroll to top and flash the card head (chips-style orientation
+  cue, reduced-motion respected). Target == an ancestor view → identical to
+  clicking that crumb: jump back to the cached level (scroll restored), trail
+  truncates to it. Identity is the view's lookup key (canonical spelling /
+  char / syllable), so 학생 vs 學生 both mean the 學生 view. Applies to every
+  nav-row kind (compounds, parts, used-in, reading rows, chip fallbacks).
+- Crumb labels are CANONICAL (ADDENDUM — fix): a crumb names the view's
+  canonical identity, not the gesture that opened it — selecting 学生 roots
+  the trail as 學生 (the card's "学生 → 學生" note already records what was
+  selected). Word/char views label with the canonical spelling/glyph;
+  reading-list views keep the syllable (국 › 國 is correct — the 국 view IS
+  the homophone list, a different thing, not a variant spelling); list views
+  keep their own labels; a multi-match root view keeps its surface text
+  (no single canonical exists).
 - Drill-down navigation polish (ADDENDUM): all click-through navigation
   (reading-list rows, component-word rows, any future drill-down) shares ONE
   sticky nav bar rendered as a clickable breadcrumb trail of the descent, e.g.
