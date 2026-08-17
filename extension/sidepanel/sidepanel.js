@@ -30,6 +30,9 @@
  *   renderActions()         -> number of actions rendered
  *   showView(key)           -> boolean; mounts on first show, then toggles
  *   activeView()            -> the key currently shown, or null
+ *   handleWorkerMessage(m)  the worker-message handler (the panel half of the
+ *                           pending-query push), driveable without a real
+ *                           chrome.runtime; -> Promise<{applied, ...}>
  *   ready                   Promise resolved once the boot sequence is done
  *                           (the initial query has been resolved, the chrome
  *                           rendered and the search view mounted)
@@ -401,6 +404,125 @@
     return initialQuery;
   });
 
+  // Never rejects, so a poke that arrives while boot is in flight (or after a
+  // boot that went wrong) still gets a decision instead of hanging.
+  var bootSettled = ready.then(null, function () { return null; });
+
+  /* ------------------------------------------------------------------ *
+   * Repeat omnibox searches (the push half of the handshake)
+   *
+   * The boot pull above only covers a COLD panel. When the panel is already
+   * open, the worker pokes it after sidePanel.open() resolves and the panel
+   * pulls again — otherwise a second `hj` query would sit unread until the
+   * next panel open, and then re-run as a stale search.
+   *
+   * The poke carries the window it was meant for. A panel that knows its own
+   * window id and sees a different one ignores it, so a second Chrome window's
+   * panel does not steal the query. "Unknown" (no chrome.windows, e.g. the
+   * harness or the page opened as a plain tab) is not a mismatch: with nothing
+   * to compare, applying is the behavior that keeps the single-window case —
+   * the one that actually happens — working.
+   * ------------------------------------------------------------------ */
+
+  var ownWindowId = null;
+
+  // Always resolves; "we never found out" reads the same as "no chrome.windows".
+  var ownWindowReady = (function () {
+    var chromeObj = globalThis.chrome;
+    var windows = chromeObj && chromeObj.windows;
+    if (!windows || typeof windows.getCurrent !== "function") {
+      return Promise.resolve();
+    }
+    return new Promise(function (resolve) {
+      function take(win) {
+        if (win && typeof win.id === "number") ownWindowId = win.id;
+        resolve();
+      }
+      var maybePromise;
+      try {
+        maybePromise = windows.getCurrent(function (win) {
+          // Read lastError so Chrome doesn't log an unchecked-error warning.
+          if (globalThis.chrome && globalThis.chrome.runtime &&
+              globalThis.chrome.runtime.lastError) {
+            resolve();
+            return;
+          }
+          take(win);
+        });
+      } catch (e) {
+        resolve();
+        return;
+      }
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(take, function () { resolve(); });
+      }
+    });
+  })();
+
+  // Writes a pulled query into the page and searches it. The shell's search()
+  // deliberately does not touch input.value, so the input is set here — the
+  // same programmatic set the boot path does, and like it, it is not a typing
+  // event, so nothing about IME composition is being interrupted.
+  function applyPendingQuery(query) {
+    var shellModule = globalThis.__okpyeonSearchShell;
+    var controller = shellModule && typeof shellModule.controller === "function"
+      ? shellModule.controller()
+      : null;
+    if (!controller) return Promise.resolve({ applied: false, reason: "no-shell" });
+    var inputEl = document.getElementById("okp-input");
+    if (inputEl) {
+      inputEl.value = query;
+      try {
+        var end = inputEl.value.length;
+        if (typeof inputEl.setSelectionRange === "function") {
+          inputEl.setSelectionRange(end, end);
+        }
+      } catch (e) { /* caret placement is a nicety, never a failure */ }
+    }
+    return Promise.resolve(controller.search(query)).then(function () {
+      return { applied: true, query: query };
+    }, function () {
+      // The search reporting an error is the shell's business, not the poke's.
+      return { applied: true, query: query };
+    });
+  }
+
+  // Exposed on __okpyeonSidebar so the harness can drive it with no runtime.
+  function handleWorkerMessage(message) {
+    if (!message || message.type !== "pendingQueryChanged") {
+      return Promise.resolve({ applied: false, reason: "ignored" });
+    }
+    return bootSettled.then(function () {
+      return ownWindowReady;
+    }).then(function () {
+      if (typeof message.windowId === "number" &&
+          typeof ownWindowId === "number" &&
+          message.windowId !== ownWindowId) {
+        return { applied: false, reason: "other-window" };
+      }
+      return pendingQuery().then(function (query) {
+        // Empty means another panel won the read-once race, or the poke was
+        // stale. Either way there is nothing to show and nothing to clear.
+        if (!query) return { applied: false, reason: "nothing-pending" };
+        return applyPendingQuery(query);
+      });
+    });
+  }
+
+  // Real runtime only: the harness has no onMessage, and drives the handler
+  // directly instead. Returns nothing — the reply channel is not used.
+  (function () {
+    var chromeObj = globalThis.chrome;
+    var runtime = chromeObj && chromeObj.runtime;
+    if (!runtime || !runtime.id || !runtime.onMessage ||
+        typeof runtime.onMessage.addListener !== "function") {
+      return;
+    }
+    runtime.onMessage.addListener(function (message) {
+      handleWorkerMessage(message);
+    });
+  })();
+
   // The registries themselves, so a check can prove that a NEW view or a new
   // action needs nothing but an entry — the same hook content.js exposes for
   // its badge registry.
@@ -412,6 +534,7 @@
     renderActions: renderActions,
     showView: showView,
     activeView: function () { return activeKey; },
+    handleWorkerMessage: handleWorkerMessage,
     ready: ready
   };
 })();

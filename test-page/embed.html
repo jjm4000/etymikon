@@ -109,8 +109,9 @@
 <p class="note">
   Embed layout, inert dismissal, the drill-down surface inside embed, the
   shell's debounce / IME / deep-link / no-result wiring, and the side panel
-  page's own boot sequence, view registry, header actions and
-  single-scroll-container invariant.
+  page's own boot sequence, view registry, header actions,
+  single-scroll-container invariant and pending-query handshake (both the
+  boot pull and the worker's poke for a panel that is already open).
 </p>
 <p><button id="run">Run embed self-checks</button></p>
 <pre id="out">not run yet</pre>
@@ -772,6 +773,39 @@
 })();
 </script>
 
+<!-- ------------------------------------------------------------------ -->
+<!-- Optional fake chrome.windows — only when the URL carries ?win=<id>.  -->
+<!--                                                                     -->
+<!-- sidepanel.js caches this page's own window id at boot to decide      -->
+<!-- whether a "pendingQueryChanged" poke was meant for it. Both halves   -->
+<!-- of that decision need covering, and a page can only be in one of     -->
+<!-- them, so the id is opt-in: THIS page boots without it (own id        -->
+<!-- unknown, where a mismatching poke must still apply), and the         -->
+<!-- known-id checks boot a second copy in an iframe with ?win= set.      -->
+<!-- The callback is async on purpose — that is how the real API behaves. -->
+<!-- Only chrome.windows is added; chrome.runtime stays absent, so the    -->
+<!-- fake worker above stays selected (see the note on the tabs spy).     -->
+<!-- ------------------------------------------------------------------ -->
+<script>
+(function () {
+  "use strict";
+  var m = /[?&]win=(\d+)/.exec(location.search);
+  if (!m) return;
+  var id = Number(m[1]);
+  globalThis.chrome = globalThis.chrome || {};
+  globalThis.chrome.windows = {
+    getCurrent: function (cb) {
+      if (typeof cb === "function") {
+        setTimeout(function () { cb({ id: id }); }, 0);
+        return undefined;
+      }
+      return Promise.resolve({ id: id });
+    }
+  };
+  globalThis.__fakeWindowId = id;
+})();
+</script>
+
 <!-- The real side panel boot chain, in the real order. -->
 <script src="../extension/sidepanel/boot.js"></script>
 <script src="../extension/content/content.js"></script>
@@ -887,7 +921,8 @@
       Array.isArray(sidebar.viewRegistry) && Array.isArray(sidebar.actionRegistry) &&
       typeof sidebar.registerView === "function" && typeof sidebar.renderNav === "function" &&
       typeof sidebar.renderActions === "function" && typeof sidebar.showView === "function" &&
-      typeof sidebar.activeView === "function" && !!sidebar.ready);
+      typeof sidebar.activeView === "function" &&
+      typeof sidebar.handleWorkerMessage === "function" && !!sidebar.ready);
     check("boot pulls the worker's pending query and starts from it",
       bootQuery === pendingSpy.bootQuery, JSON.stringify(bootQuery));
     check("the panel asked the worker for a pending query exactly once",
@@ -1552,6 +1587,113 @@
           "state=" + childShell.state() + " cards=" + win.__hanjaHover.cardCount());
       }
       probeFrame.parentNode.removeChild(probeFrame);
+    }
+
+    /* ==================================================================
+     * Repeat omnibox searches while the panel is already open.
+     *
+     * The worker pokes live panel pages after sidePanel.open() resolves; the
+     * panel pulls the pending query again and shows it. Driven through
+     * __okpyeonSidebar.handleWorkerMessage, which is the same function the
+     * real chrome.runtime.onMessage listener calls — the harness has no
+     * runtime to deliver through.
+     * ================================================================== */
+    shell = reinit();
+    var pokeQuery = "국민";
+    var callsBefore = pendingSpy.calls();
+    pendingSpy.set(pokeQuery);
+    var poked = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
+    await wait(TAIL);
+    check("a poke with a query pending pulls it and searches it",
+      poked && poked.applied === true && input.value === pokeQuery &&
+      shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
+      JSON.stringify(poked) + " value=" + JSON.stringify(input.value) +
+      " state=" + shell.state() + " cards=" + api.cardCount());
+    check("the poke asked the worker exactly once",
+      pendingSpy.calls() === callsBefore + 1,
+      "before=" + callsBefore + " after=" + pendingSpy.calls());
+    check("the poked query is read-once too: nothing is left pending",
+      pendingSpy.peek() === null, JSON.stringify(pendingSpy.peek()));
+
+    var idleCalls = pendingSpy.calls();
+    var idlePoke = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
+    await wait(TAIL);
+    check("a poke with nothing pending changes nothing",
+      idlePoke && idlePoke.applied === false && input.value === pokeQuery &&
+      shell.state() === "results" && pendingSpy.calls() === idleCalls + 1,
+      JSON.stringify(idlePoke) + " value=" + JSON.stringify(input.value));
+
+    // Own window id UNKNOWN (no chrome.windows on this page): there is nothing
+    // to compare against, so a windowId in the poke cannot rule it out.
+    pendingSpy.set("學生");
+    var blindPoke = await sidebar.handleWorkerMessage({
+      type: "pendingQueryChanged", windowId: 4242
+    });
+    await wait(TAIL);
+    check("with its own window id unknown, a poke applies whatever windowId says",
+      blindPoke && blindPoke.applied === true && input.value === "學生",
+      JSON.stringify(blindPoke) + " value=" + JSON.stringify(input.value));
+
+    var otherMsg = await sidebar.handleWorkerMessage({ type: "somethingElse" });
+    check("a message that is not a pendingQueryChanged poke is ignored",
+      otherMsg && otherMsg.applied === false && input.value === "學生",
+      JSON.stringify(otherMsg));
+
+    /* ==================================================================
+     * The window-id half, in a page that KNOWS its own id.
+     *
+     * Same trick as the ?q= probe above: a second copy of this page in an
+     * iframe, booted with ?win= so the pre-boot script installs a fake
+     * chrome.windows. Same-origin only, so file:// reports it skipped.
+     * ================================================================== */
+    if (location.protocol === "file:") {
+      skip("a poke for another window is ignored by a panel that knows its id",
+        "file:// blocks same-origin iframe access — serve the repo over http://");
+    } else {
+      var winFrame = document.createElement("iframe");
+      winFrame.className = "probe-frame";
+      winFrame.title = "window-id poke probe";
+      var winLoaded = new Promise(function (resolve) {
+        winFrame.addEventListener("load", resolve, { once: true });
+        setTimeout(resolve, 5000);
+      });
+      winFrame.src = location.origin + location.pathname + "?win=7";
+      document.body.appendChild(winFrame);
+      await winLoaded;
+      var wwin = winFrame.contentWindow;
+      var winSidebar = wwin && wwin.__okpyeonSidebar;
+      if (!winSidebar) {
+        check("a poke for another window is ignored by a panel that knows its id",
+          false, "the probe frame did not boot");
+      } else {
+        await winSidebar.ready;
+        var winShell = wwin.__okpyeonSearchShell.controller();
+        if (winShell) await winShell.ready;
+        var winInput = wwin.document.getElementById("okp-input");
+        wwin.__pendingQuerySpy.set("漢字");
+        var matched = await winSidebar.handleWorkerMessage({
+          type: "pendingQueryChanged", windowId: 7
+        });
+        await wait(TAIL);
+        check("a poke for THIS window is applied by a panel that knows its id",
+          matched && matched.applied === true && winInput.value === "漢字",
+          JSON.stringify(matched) + " value=" + JSON.stringify(winInput.value));
+
+        var winCalls = wwin.__pendingQuerySpy.calls();
+        wwin.__pendingQuerySpy.set("국민");
+        var mismatched = await winSidebar.handleWorkerMessage({
+          type: "pendingQueryChanged", windowId: 999
+        });
+        await wait(TAIL);
+        check("a poke for ANOTHER window is ignored, and the query left unread",
+          mismatched && mismatched.applied === false &&
+          winInput.value === "漢字" &&
+          wwin.__pendingQuerySpy.calls() === winCalls &&
+          wwin.__pendingQuerySpy.peek() === "국민",
+          JSON.stringify(mismatched) + " value=" + JSON.stringify(winInput.value) +
+          " calls=" + wwin.__pendingQuerySpy.calls());
+      }
+      winFrame.parentNode.removeChild(winFrame);
     }
 
     // Leave the page in a usable state for manual poking.

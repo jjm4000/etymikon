@@ -237,6 +237,33 @@ if (typeof chrome !== "undefined" && chrome.windows && chrome.windows.getLastFoc
   }
 }
 
+/**
+ * Sidebar ADDENDUM (repeat omnibox searches): the push half of the handshake.
+ * The boot pull only covers a COLD panel — an already-open panel never re-asks,
+ * so a second `hj` query would sit unread until the next panel open. After the
+ * panel is open, poke every live extension page so an open one pulls again.
+ *
+ * Everything is swallowed on purpose: a rejection here is the normal cold-open
+ * case (no page was listening yet), and that page's boot pull collects the
+ * query anyway. Read-once semantics are untouched — only getPendingQuery
+ * clears the query, so exactly one panel consumes it.
+ */
+function pokePanelPages() {
+  if (typeof chrome === "undefined" || !chrome.runtime ||
+      typeof chrome.runtime.sendMessage !== "function") {
+    return;
+  }
+  try {
+    const sent = chrome.runtime.sendMessage({
+      type: "pendingQueryChanged",
+      windowId: focusedWindowId,
+    });
+    if (sent && typeof sent.catch === "function") sent.catch(() => {});
+  } catch {
+    // No receiver, or the context went away mid-call. Nothing to do.
+  }
+}
+
 /** Sidebar ADDENDUM: the panel page as a TAB, deep-linked with the typed query. */
 function searchUrl(text) {
   return `${chrome.runtime.getURL("sidepanel/sidepanel.html")}?q=${encodeURIComponent(text)}`;
@@ -292,7 +319,10 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
     setPendingQuery(text);
     try {
       // Called SYNCHRONOUSLY in the gesture — see the focusedWindowId note.
-      chrome.sidePanel.open({ windowId: focusedWindowId }).catch(() => {
+      // The poke goes in the RESOLVE half, never before open(): an awaited
+      // call here would cost the gesture. Two-argument then(), not
+      // .then().catch(), so the fallback stays tied to open() failing.
+      chrome.sidePanel.open({ windowId: focusedWindowId }).then(pokePanelPages, () => {
         setPendingQuery(null);
         openSearchTab(text, disposition);
       });
