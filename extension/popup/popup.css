@@ -21,6 +21,9 @@
   --field-bg: #f6f6f9;
   --field-edge: rgba(0, 0, 0, 0.14);
   --scroll-thumb: rgba(0, 0, 0, 0.22);
+  --brand: #2e6b57;
+  --action-fg: #6b6b73;
+  --action-hover: rgba(0, 0, 0, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -35,6 +38,11 @@
     --field-bg: rgba(255, 255, 255, 0.06);
     --field-edge: rgba(255, 255, 255, 0.18);
     --scroll-thumb: rgba(255, 255, 255, 0.24);
+    /* The light jade is far too dark on #23232a; this one holds the same hue
+       while clearing contrast against the dark ground. */
+    --brand: #7cc3a3;
+    --action-fg: #9a9aa4;
+    --action-hover: rgba(255, 255, 255, 0.09);
   }
 }
 
@@ -70,6 +78,72 @@ body {
 }
 
 /* ---- search field ---------------------------------------------------- */
+
+/* ---- header (design D) ------------------------------------------------
+   One slim row, and it must STAY one row: the wordmark is fixed-size and the
+   actions container is the only flexible part, so results growing below can
+   never reflow or shift it. Every pixel here comes out of the ~105px empty
+   budget, so there is no border, no min-height and no vertical padding
+   beyond what the glyphs need. */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 3px 10px 1px;
+  background: var(--page-bg);
+}
+
+.brand {
+  font-family: Batang, 바탕, BatangChe, AppleMyungjo, "Nanum Myeongjo",
+    "Noto Serif KR", "Source Han Serif K", "Songti SC", SimSun, serif;
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: .04em;
+  color: var(--brand);
+  /* Decorative CJK: never let it be the thing that widens the popup. */
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Ships empty — zero-size until the HEADER_ACTIONS registry has an entry. */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.action {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 1px 5px;
+  color: var(--action-fg);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.action:hover { background: var(--action-hover); }
+
+.action:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: -1px;
+}
+
+/* Present but not yet usable: dimmed, inert, and explained by its title. */
+.action--disabled,
+.action:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.action--disabled:hover,
+.action:disabled:hover { background: none; }
 
 /* Quiet utility, not an app window: slim field, no heavy chrome. */
 .searchbar {

@@ -58,6 +58,10 @@
 </p>
 
 <div class="app">
+  <header class="header">
+    <span class="brand" role="img" aria-label="Okpyeon">玉篇</span>
+    <div id="okp-actions" class="actions"></div>
+  </header>
   <div class="searchbar">
     <input id="okp-input" type="text" class="query"
            placeholder="한자 · 한글 · 음절"
@@ -71,8 +75,9 @@
 
 <h2>Automated checks</h2>
 <p class="note">
-  Embed layout, inert dismissal, the drill-down surface inside embed, and the
-  shell's debounce / IME / deep-link / no-result wiring.
+  Embed layout, inert dismissal, the drill-down surface inside embed, the
+  shell's debounce / IME / deep-link / no-result wiring, and the popup page's
+  own header + declarative actions registry.
 </p>
 <p><button id="run">Run embed self-checks</button></p>
 <pre id="out">not run yet</pre>
@@ -860,7 +865,13 @@
     check("a burst of keystrokes collapses into ONE lookup",
       fake.__calls === callsBefore + 1 && fake.__lastText === "국민",
       "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
-    check("the collapsed search rendered results", api.isVisible() && api.cardCount() === 3);
+    // The lookup having been SENT does not mean it has been rendered: the
+    // stub answers on its own timer. Give the response a tick of its own
+    // rather than folding it into the debounce budget.
+    await wait(TAIL);
+    check("the collapsed search rendered results",
+      api.isVisible() && api.cardCount() === 3,
+      "visible=" + api.isVisible() + " cards=" + api.cardCount());
 
     // --- shell: IME ------------------------------------------------------
     // Synthetic composition events only. Real IME timing (and the Chromium
@@ -954,6 +965,98 @@
     check("the deep link renders results without any typing",
       shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
       seenStates.join(",") + " cards=" + api.cardCount());
+
+    // --- popup page chrome: header + actions registry --------------------
+    // The header is popup.html's own chrome, not search-shell behavior. It is
+    // checked here because this harness loads the REAL popup.js against the
+    // REAL popup.css, so the registry and its styling are the shipped ones.
+    shell = reinit();                        // empty state, nothing typed
+    var app = document.querySelector(".app");
+    var header = document.querySelector(".header");
+    var brand = document.querySelector(".brand");
+    var actions = document.getElementById("okp-actions");
+    var headerApi = globalThis.__okpyeonPopupHeader;
+
+    check("the header is one slim row inside its 26px budget",
+      header.getBoundingClientRect().height <= 26,
+      "h=" + header.getBoundingClientRect().height.toFixed(1));
+    check("the wordmark is 玉篇, serif, jade, with a readable accessible name",
+      brand.textContent === "玉篇" &&
+      brand.getAttribute("aria-label") === "Okpyeon" &&
+      brand.getAttribute("role") === "img" &&
+      /batang|myungjo|myeongjo|serif|song|sim/i.test(getComputedStyle(brand).fontFamily) &&
+      getComputedStyle(brand).color !== getComputedStyle(document.body).color,
+      getComputedStyle(brand).color + " / " + getComputedStyle(brand).fontFamily);
+    check("the actions registry ships EMPTY — no dead placeholder icons",
+      headerApi.actionRegistry.length === 0 && actions.childElementCount === 0,
+      "entries=" + headerApi.actionRegistry.length);
+    check("the empty popup still fits the ~105px budget with the header",
+      app.clientHeight <= 105, "shell=" + app.clientHeight + "px");
+
+    // The acceptance test for the scaffold: a whole new action, with no new
+    // markup, CSS or wiring — just one entry.
+    var fired = 0;
+    headerApi.actionRegistry.push({
+      key: "probe", label: "★", title: "Probe action",
+      onClick: function () { fired++; }
+    });
+    headerApi.render();
+    var probe = actions.querySelector(".action--probe");
+    check("a new header action needs nothing but a registry entry",
+      !!probe && actions.childElementCount === 1 && probe.textContent === "★");
+    check("it gets its per-key modifier class, title and accessible name",
+      probe.classList.contains("action") && probe.title === "Probe action" &&
+      probe.getAttribute("aria-label") === "Probe action");
+    probe.click();
+    check("its onClick fires", fired === 1, "fired=" + fired);
+    check("the header still fits its budget with an action in it",
+      header.getBoundingClientRect().height <= 26 &&
+      brand.getBoundingClientRect().right <= actions.getBoundingClientRect().left + 1,
+      "h=" + header.getBoundingClientRect().height.toFixed(1));
+
+    headerApi.actionRegistry.push({ key: "probe2", label: "☆", title: "Second probe" });
+    headerApi.render();
+    check("multiple actions stay on ONE row at 340px (no wrap)",
+      actions.childElementCount === 2 &&
+      header.getBoundingClientRect().height <= 26 &&
+      Math.abs(actions.children[0].getBoundingClientRect().top -
+               actions.children[1].getBoundingClientRect().top) < 0.5,
+      "h=" + header.getBoundingClientRect().height.toFixed(1));
+    headerApi.actionRegistry.pop();
+
+    headerApi.actionRegistry[0].enabled = false;
+    headerApi.render();
+    var dimmed = actions.querySelector(".action--probe");
+    var firedBefore = fired;
+    dimmed.click();
+    check("a disabled entry renders dimmed, inert and still titled",
+      dimmed.disabled === true && dimmed.classList.contains("action--disabled") &&
+      parseFloat(getComputedStyle(dimmed).opacity) < 1 &&
+      dimmed.title === "Probe action" && fired === firedBefore,
+      "opacity=" + getComputedStyle(dimmed).opacity + " fired=" + fired);
+
+    headerApi.actionRegistry.pop();
+    headerApi.render();
+    check("removing the entry empties the header again",
+      actions.childElementCount === 0 && headerApi.actionRegistry.length === 0);
+
+    // --- the header must never move as results arrive --------------------
+    // Measured relative to the shell, not the viewport: this harness page can
+    // scroll under the shell (autofocus, growing results), which would move
+    // every viewport rect without the header having shifted at all.
+    function headerOffset() {
+      return header.getBoundingClientRect().top - app.getBoundingClientRect().top;
+    }
+    var offsetBefore = headerOffset();
+    var heightBefore = header.getBoundingClientRect().height;
+    await shell.search("大韓民國");
+    check("the header does not shift or reflow when results grow",
+      Math.abs(headerOffset() - offsetBefore) < 0.5 &&
+      Math.abs(header.getBoundingClientRect().height - heightBefore) < 0.5 &&
+      api.isVisible(),
+      "offset " + offsetBefore.toFixed(1) + "→" + headerOffset().toFixed(1) +
+      " h " + heightBefore.toFixed(1) + "→" +
+      header.getBoundingClientRect().height.toFixed(1));
 
     // Leave the page in a usable state for manual poking.
     shell = reinit();
