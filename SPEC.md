@@ -830,12 +830,22 @@ folderId)` / `removeItems(state, ids)`, `resolveExportSelection(state,
 {ids?, folderIds?, all?})` → item list, `joinItems(items, data)` →
 display rows (word: hangul, glosses, rare; char: eumhun, readings,
 glosses, lvl; an entry missing from data → `{missing:true}` row), and
-`buildAnkiTsv(joinedRows, settings)` → string. TSV format: header
-directives `#separator:tab` and `#html:false`, then Front TAB Back per
-item; back fields joined with " · "; definitions rendered as a numbered
-"1. …; 2. …" string over ALL glosses; any field containing tab, newline
-or double quote is CSV-style quoted with doubled quotes; missing rows are
-skipped and counted.
+`buildAnkiTsv(joinedRows, settings)` → string, and
+`buildCsv(joinedRows, folders)` → string (Export formats below).
+
+### Export formats (ADDENDUM — user-directed: offer both)
+
+- ANKI (`.txt`): header directives `#separator:tab` and `#html:false`,
+  then Front TAB Back per item shaped by the anki settings; back fields
+  joined with " · "; definitions rendered as a numbered "1. …; 2. …"
+  string over ALL glosses; any field containing tab, newline or double
+  quote is CSV-style quoted with doubled quotes; missing rows are skipped
+  and counted.
+- CSV (`.csv`): a full-data spreadsheet, independent of the anki
+  settings. Header row + RFC-4180 quoting. Fixed columns: kind, key,
+  hangul, eumhun (joined "하늘 천, …"), readings, definitions, level,
+  folder (name), added (ISO date). Missing rows are skipped and counted
+  the same way.
 
 ### Worker messages (join the existing router; handlers exported for Node)
 
@@ -848,7 +858,9 @@ folders ride along so the save bubble needs no second round-trip.
 → `{ok, folder}` / `folderRename {id, name}` / `folderDelete {id}` /
 `settingsGet` → `{ok, settings}` / `settingsSet {patch}` → `{ok,
 settings}` (shallow-merge patch, then normalize) / `savedExport {ids? |
-folderIds? | all?}` → `{ok, tsv, count, skipped, filename}`. Without
+folderIds? | all?, format:"anki"|"csv"}` → `{ok, tsv, count, skipped,
+filename}` (`tsv` carries the file body for either format; filename ends
+`.txt` for anki, `.csv` for csv; format defaults to "anki"). Without
 chrome.storage every handler answers `{ok:false, error:"storage
 unavailable"}` — surfaces treat that as "feature absent", never as an
 error to display. addedAt = Date.now() in the worker.
@@ -893,16 +905,24 @@ eumhun/hangul instead).
 - Top bar: folder filter select ("All" + each folder with counts), New
   folder (inline name input), Rename/Delete controls for the selected
   folder (Delete confirms and moves items to f0; f0 offers no delete).
-- List: header select-all checkbox (operates on the current filter);
-  rows = checkbox + primary text (word spelling / char glyph) +
+- List, GROUPED BY FOLDER (ADDENDUM — user-directed): with the filter on
+  "All", items render under folder header rows; a header row carries a
+  CHECKBOX + folder name + count, and its checkbox selects/deselects
+  every item in that folder (indeterminate when partially selected —
+  batch selection works at both the folder and the item level). A
+  single-folder filter renders a flat list. A global select-all checkbox
+  operates on the current filter either way.
+- Item rows = checkbox + primary text (word spelling / char glyph) +
   secondary (hangul or eumhun) + first gloss, `.missing` styling and a
   "no longer in the dictionary" note for missing rows.
 - Row click (outside the checkbox) → set `#okp-input.value` to the key,
   `controller.search(key)`, `showView("search")`.
-- Actions bar: "Move to…" folder select, Remove, Export. Export sends
-  `savedExport` with the checked ids; nothing checked exports the current
-  filter (All = everything). Download: Blob + `<a download>` click,
-  filename from the worker (`okpyeon-anki-YYYYMMDD.txt`), then revoke.
+- Actions bar: "Move to…" folder select, Remove, Export — all act on the
+  checked set; nothing checked = the current filter (All = everything).
+  Remove requires an INLINE two-step confirmation ("Remove N items?" →
+  confirm/cancel buttons in place; no window.confirm). Export opens an
+  inline FORMAT choice: "Anki" or "CSV" (see Export formats). Download:
+  Blob + `<a download>` click, filename from the worker, then revoke.
 - `onShow` refreshes via `savedGet`; a guarded `chrome.storage.onChanged`
   listener (real runtime only) refreshes while visible, so saves made
   from pages appear live.
@@ -911,17 +931,22 @@ eumhun/hangul instead).
 ### Sidebar: settings view (extension/sidepanel/settings-view.js, view 3)
 
 - `SETTINGS_SCHEMA`: declarative array rendered generically — a future
-  setting is ONE entry. Entry: `{key (dot-path into settings), type:
-  "select" | "checkset" | "folder-select", label, options:[{value,
-  label}], default}`. folder-select resolves its options from `savedGet`
-  folders at render time.
+  setting is ONE entry, and the page is EXPECTED TO GROW (user-directed):
+  entries carry a `group` string and the renderer emits a heading per
+  group in schema order, so new settings slot into existing sections or
+  open new ones with zero renderer changes. Entry: `{key (dot-path into
+  settings), group, type: "select" | "checkset" | "folder-select",
+  label, options:[{value, label}], default}`. folder-select resolves its
+  options from `savedGet` folders at render time. New setting TYPES (a
+  future toggle, text field, etc.) are added by extending the one
+  control-builder switch — nothing else may special-case a setting.
 - Rendered controls write through `settingsSet` immediately (no save
   button); `onShow` re-reads settings and folders.
-- Shipping entries: "Save new items to" (folder-select,
-  key defaultFolderId); "Word cards: front" (select hanja/hangul);
-  "Word cards: back" (checkset hanja/hangul/defs); "Character cards:
-  front" (select char/eumhun); "Character cards: back" (checkset
-  char/eumhun/readings/defs/lvl).
+- Shipping entries — group "Saving": "Save new items to" (folder-select,
+  key defaultFolderId); group "Anki export": "Word cards: front" (select
+  hanja/hangul), "Word cards: back" (checkset hanja/hangul/defs),
+  "Character cards: front" (select char/eumhun), "Character cards: back"
+  (checkset char/eumhun/readings/defs/lvl).
 
 ### Searchbar + omnibox while on another view
 
@@ -940,11 +965,14 @@ must never land invisibly behind the saved or settings view.
 - embed.html checks: stars render + batched single savedCheck + toggle +
   revert-on-failure; bubble (opens on save only, folder select moves,
   Remove unsaves, outside-click and Escape dismiss, one at a time);
-  saved view (list render incl. missing-row note, folder create/filter/
-  rename/delete-moves-to-f0, select-all on filter, move/remove, row
-  click lands in search view with the card rendered, export gating and
-  TSV content via the download anchor, live refresh on a simulated
-  change); settings view (schema-rendered controls, immediate persist,
+  saved view (grouped list render incl. folder-header checkboxes with
+  indeterminate state and missing-row note, folder create/filter/
+  rename/delete-moves-to-f0, select-all on filter, move, remove with the
+  two-step inline confirm (first click arms, cancel disarms, confirm
+  removes), row click lands in search view with the card rendered,
+  export format chooser with both file bodies asserted via the download
+  anchor, live refresh on a simulated change); settings view
+  (group headings, schema-rendered controls, immediate persist,
   folder-select options, defaults); nav shows 3 tabs; search state
   survives visiting both views; searchbar auto-switch.
 - index.html: a small set of star checks in normal (selection popup)
