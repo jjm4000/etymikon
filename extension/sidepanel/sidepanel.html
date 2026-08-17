@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Okpyeon — Hanja search</title>
+<link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+
+<div class="app">
+  <!--
+    One slim header row. The wordmark is decorative CJK, so it carries
+    role="img" + aria-label to give a screen reader the readable name rather
+    than the two characters. Both containers ship EMPTY and are filled
+    declaratively from sidepanel.js: #okp-actions from HEADER_ACTIONS,
+    #okp-nav from SIDEBAR_VIEWS (which renders tabs only once a second view
+    exists, so the nav is invisible today).
+  -->
+  <header class="header">
+    <span class="brand" role="img" aria-label="Okpyeon">玉篇</span>
+    <nav id="okp-nav" class="nav" aria-label="Views"></nav>
+    <div id="okp-actions" class="actions"></div>
+  </header>
+  <div class="searchbar">
+    <input id="okp-input" type="text" class="query"
+           placeholder="한자 · 한글 · 음절"
+           aria-label="Search hanja, a sino-Korean word, or a single syllable"
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+  <!--
+    The view container: one child container per registered view, shown and
+    hidden by sidepanel.js, never destroyed. The search view's container is
+    authored here rather than built at runtime — it is the one view that
+    always exists, and content.js's mount() wants a container that is already
+    in the document and laid out. Views added to the registry later get their
+    container created for them.
+  -->
+  <div id="okp-views" class="views">
+    <div id="okp-view-search" class="view view--search" data-view="search">
+      <!--
+        THE scroll container. content.js mounts its shadow host in here, and
+        the panel gives up its own overflow in embed mode, so there is exactly
+        one scrollbar on this page.
+      -->
+      <div id="okp-results" class="results">
+        <p id="okp-status" class="status"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!--
+  Load order is load-bearing and all four are CLASSIC scripts (no
+  type=module / defer / async): the boot flag must be set before content.js
+  evaluates, search-shell.js needs the embed API content.js exposes, and
+  sidepanel.js needs the shell. They sit AFTER the markup so mount() sees a
+  laid-out container. MV3's extension-page CSP forbids inline script, so none
+  of this can be collapsed into the page.
+
+  The first three lines are surface-independent: any future extension page
+  loads them verbatim and supplies only its own bootstrapper.
+-->
+<script src="boot.js"></script>
+<script src="../content/content.js"></script>
+<script src="search-shell.js"></script>
+<script src="sidepanel.js"></script>
+
+</body>
+</html>

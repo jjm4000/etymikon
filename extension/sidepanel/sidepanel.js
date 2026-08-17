@@ -1,0 +1,417 @@
+/*
+ * Okpyeon — side panel bootstrapper.
+ *
+ * Deliberately thin. Everything about how search BEHAVES lives in
+ * search-shell.js, which knows nothing about this page; this file only finds
+ * this page's elements, renders the page's own chrome, works out the initial
+ * query, and starts the shell. Any future extension page reuses boot.js +
+ * content.js + search-shell.js verbatim and writes its own equivalent of this
+ * file.
+ *
+ * Runs as a CLASSIC script placed after the markup, so the container it hands
+ * to the shell is already in the document and laid out.
+ *
+ * Two declarative registries live here, both built the way content.js builds
+ * its badges — a generic renderer plus an array — so that shipping a new view
+ * or a new header action is ONE entry and nothing else:
+ *
+ *   SIDEBAR_VIEWS   {key, label, title, enabled, mount(container, ctx),
+ *                    onShow(), onHide()} — the panel's views. Ships with
+ *                   exactly one entry, `search`.
+ *   HEADER_ACTIONS  {key, label, title, enabled, onClick} — the buttons at
+ *                   the right of the header row. Ships empty.
+ *
+ * Exposed for the test harness as globalThis.__okpyeonSidebar:
+ *
+ *   viewRegistry            the live SIDEBAR_VIEWS array
+ *   actionRegistry          the live HEADER_ACTIONS array
+ *   registerView(view)      push + re-render the nav; returns the view
+ *   renderNav()             -> number of tabs rendered (0 with one view)
+ *   renderActions()         -> number of actions rendered
+ *   showView(key)           -> boolean; mounts on first show, then toggles
+ *   activeView()            -> the key currently shown, or null
+ *   ready                   Promise resolved once the boot sequence is done
+ *                           (the initial query has been resolved, the chrome
+ *                           rendered and the search view mounted)
+ */
+(function () {
+  "use strict";
+
+  /* ------------------------------------------------------------------ *
+   * Header actions registry
+   *
+   * renderHeaderActions below is entirely generic, so a new header action is
+   * one entry in this array: no new markup, no new CSS (the per-key modifier
+   * class is generated), no new wiring.
+   *
+   * Entry: {
+   *   key,      // required, unique — becomes the .action--<key> modifier
+   *   label,    // the visible glyph or short word
+   *   title,    // tooltip / accessible name; on a disabled entry, say WHY
+   *   enabled,  // boolean or () => boolean; default true. false = dimmed+inert
+   *   onClick   // (event) => void, ignored when disabled
+   * }
+   *
+   * It ships EMPTY on purpose. Search needs no icon (its input is always
+   * visible directly below), and a placeholder that does nothing is worse
+   * than an empty header. Example of the first real entry, for when the
+   * saved-words surface exists — on this surface it is a VIEW, so the action
+   * registers one and switches to it rather than navigating the page away:
+   *
+   *   HEADER_ACTIONS.push({
+   *     key: "saved",
+   *     label: "★",
+   *     title: "Saved words",
+   *     enabled: true,
+   *     onClick: function () {
+   *       registerView({
+   *         key: "saved",
+   *         label: "Saved",
+   *         title: "Saved words",
+   *         mount: function (container, ctx) { ... }
+   *       });
+   *       showView("saved");
+   *     }
+   *   });
+   * ------------------------------------------------------------------ */
+
+  var HEADER_ACTIONS = [];
+
+  function isEnabled(action) {
+    if (typeof action.enabled === "function") return action.enabled() !== false;
+    return action.enabled !== false; // default: enabled
+  }
+
+  // Rebuilt wholesale rather than patched: the registry is small, and a full
+  // rebuild means `enabled` can be a live predicate without any invalidation
+  // protocol. Returns the number of actions rendered.
+  function renderHeaderActions(container, registry) {
+    if (!container) return 0;
+    while (container.firstChild) container.removeChild(container.firstChild);
+    var list = registry || [];
+    for (var i = 0; i < list.length; i++) {
+      var action = list[i];
+      if (!action || !action.key) continue;
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "action action--" + action.key;
+      // Dictionary/registry text only ever reaches the DOM as text.
+      button.textContent = action.label == null ? "" : String(action.label);
+      var title = action.title == null ? "" : String(action.title);
+      if (title) button.title = title;
+      // The label is usually a bare glyph, so the title carries the name.
+      button.setAttribute("aria-label", title || button.textContent || action.key);
+      if (isEnabled(action)) {
+        if (typeof action.onClick === "function") {
+          button.addEventListener("click", (function (fn) {
+            return function (ev) { fn(ev); };
+          })(action.onClick));
+        }
+      } else {
+        button.disabled = true;
+        button.classList.add("action--disabled");
+      }
+      container.appendChild(button);
+    }
+    return container.childElementCount;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * View registry
+   *
+   * Entry: {
+   *   key,      // required, unique — becomes the .view--<key> modifier and
+   *             //   the id of the view's container
+   *   label,    // the tab's visible text (falls back to the key)
+   *   title,    // the tab's tooltip; on a disabled entry, say WHY
+   *   enabled,  // boolean or () => boolean; default true. false = dimmed+inert
+   *   mount,    // required: (container, ctx) => void, called ONCE
+   *   onShow,   // optional: () => void, on every switch TO this view
+   *   onHide    // optional: () => void, on every switch AWAY from it
+   * }
+   *
+   * A view is mounted once and then only shown and hidden, so its input,
+   * results, breadcrumb trail and scroll position all survive a trip to
+   * another view. `ctx` is {embedApi, shell}: the live embed API content.js
+   * exposed, and the search-shell MODULE (not a controller instance) — the
+   * module is defined before any view can mount, and its .controller() hands
+   * back the live controller whenever a view actually wants it.
+   *
+   * It ships with exactly ONE entry. The nav renders tabs only from the
+   * second entry on, so adding "saved" or "settings" later is one push and
+   * the tab row appears by itself.
+   * ------------------------------------------------------------------ */
+
+  var SIDEBAR_VIEWS = [];
+
+  var navBox = document.getElementById("okp-nav");
+  var actionsBox = document.getElementById("okp-actions");
+  var viewsBox = document.getElementById("okp-views");
+
+  // key -> container element, so mount() runs exactly once per view.
+  var mountedViews = Object.create(null);
+  var activeKey = null;
+  // The query the search view should start with. Resolved before the view is
+  // mounted (see the boot sequence), because the shell takes it at init time.
+  var bootQuery = "";
+
+  function findView(key) {
+    for (var i = 0; i < SIDEBAR_VIEWS.length; i++) {
+      if (SIDEBAR_VIEWS[i] && SIDEBAR_VIEWS[i].key === key) return SIDEBAR_VIEWS[i];
+    }
+    return null;
+  }
+
+  function viewContext() {
+    return {
+      embedApi: globalThis.__okpyeonEmbedApi,
+      shell: globalThis.__okpyeonSearchShell
+    };
+  }
+
+  // The search view's container is authored in the markup (it is the one view
+  // that always exists, and the shell wants a laid-out container); every other
+  // view gets one built here on first show.
+  function containerFor(view) {
+    if (mountedViews[view.key]) return mountedViews[view.key];
+    var container = viewsBox
+      ? viewsBox.querySelector('[data-view="' + view.key + '"]')
+      : null;
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "okp-view-" + view.key;
+      container.className = "view view--" + view.key;
+      container.setAttribute("data-view", view.key);
+      container.classList.add("view--hidden");
+      if (viewsBox) viewsBox.appendChild(container);
+    }
+    return container;
+  }
+
+  // Shows one view and hides the rest. Mounts on the first show only — views
+  // are never destroyed or rebuilt, which is what keeps search state alive
+  // across a switch. Fires onHide on the outgoing view, then onShow on the
+  // incoming one. Returns false for an unknown key.
+  function showView(key) {
+    var view = findView(key);
+    if (!view) return false;
+    if (activeKey === key && mountedViews[key]) return true;
+
+    var container = containerFor(view);
+    var firstShow = !mountedViews[view.key];
+    if (firstShow) {
+      mountedViews[view.key] = container;
+      if (typeof view.mount === "function") view.mount(container, viewContext());
+    }
+
+    var outgoing = activeKey ? findView(activeKey) : null;
+    if (outgoing && outgoing.key !== key && typeof outgoing.onHide === "function") {
+      outgoing.onHide();
+    }
+
+    for (var i = 0; i < SIDEBAR_VIEWS.length; i++) {
+      var other = SIDEBAR_VIEWS[i];
+      var box = other && mountedViews[other.key];
+      if (!box) continue;
+      if (other.key === key) box.classList.remove("view--hidden");
+      else box.classList.add("view--hidden");
+    }
+
+    activeKey = key;
+    renderNav();
+    if (typeof view.onShow === "function") view.onShow();
+    return true;
+  }
+
+  // Tabs exist to choose BETWEEN views, so one view means no nav at all — not
+  // a lone tab that does nothing. Returns the number of tabs rendered.
+  function renderNav() {
+    if (!navBox) return 0;
+    while (navBox.firstChild) navBox.removeChild(navBox.firstChild);
+    if (SIDEBAR_VIEWS.length < 2) {
+      navBox.classList.add("nav--hidden");
+      return 0;
+    }
+    navBox.classList.remove("nav--hidden");
+    for (var i = 0; i < SIDEBAR_VIEWS.length; i++) {
+      var view = SIDEBAR_VIEWS[i];
+      if (!view || !view.key) continue;
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "tab tab--" + view.key;
+      button.textContent = view.label == null ? String(view.key) : String(view.label);
+      var title = view.title == null ? "" : String(view.title);
+      if (title) button.title = title;
+      button.setAttribute("aria-label", title || button.textContent || view.key);
+      if (view.key === activeKey) {
+        button.classList.add("tab--active");
+        button.setAttribute("aria-current", "page");
+      }
+      // Same convention as the header actions: a not-yet-usable entry is
+      // present, dimmed, inert, and explained by its title.
+      if (isEnabled(view)) {
+        button.addEventListener("click", (function (key) {
+          return function () { showView(key); };
+        })(view.key));
+      } else {
+        button.disabled = true;
+        button.classList.add("tab--disabled");
+      }
+      navBox.appendChild(button);
+    }
+    return navBox.childElementCount;
+  }
+
+  function registerView(view) {
+    if (!view || !view.key) throw new TypeError("sidebar: a view needs a key");
+    if (findView(view.key)) throw new Error("sidebar: duplicate view key " + view.key);
+    if (typeof view.mount !== "function") {
+      throw new TypeError("sidebar: view " + view.key + " needs a mount()");
+    }
+    SIDEBAR_VIEWS.push(view);
+    renderNav(); // a second entry is what makes the tab row appear
+    return view;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * The search view — the only entry today.
+   *
+   * Its container is the one in the markup, so mount() just hands the shell
+   * the elements inside it. The shell is a per-page singleton: mount runs
+   * once, so init() is never called twice, and switching away and back is a
+   * display toggle that leaves the input, the results and the breadcrumb
+   * trail exactly as they were.
+   * ------------------------------------------------------------------ */
+
+  SIDEBAR_VIEWS.push({
+    key: "search",
+    label: "Search",
+    title: "Search hanja and words",
+    mount: function (container, ctx) {
+      ctx.shell.init({
+        input: document.getElementById("okp-input"),
+        results: container.querySelector("#okp-results"),
+        status: container.querySelector("#okp-status"),
+        autofocus: true,
+        initialQuery: bootQuery
+      });
+    }
+  });
+
+  /* ------------------------------------------------------------------ *
+   * Initial query
+   *
+   * Two sources, and `?q=` wins: it is an explicit deep link (the omnibox
+   * tab fallback, or a hand-typed URL), while the pending query is whatever
+   * the worker happened to be holding. When `?q=` is present the worker is
+   * not asked at all — the omnibox clears the pending query before it takes
+   * the tab path, so there is nothing to collect.
+   * ------------------------------------------------------------------ */
+
+  function deepLinkQuery() {
+    try {
+      return new URLSearchParams(location.search).get("q") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // content.js's HAS_CHROME_RUNTIME probe with one addition: `id`. A plain
+  // web page (the test harness) can also see a chrome.runtime, but only an
+  // extension page's has an id and a receiver for a one-argument
+  // sendMessage. Anything else falls back to the harness's fake worker, and
+  // failing that there is no worker to ask.
+  function workerRuntime() {
+    var chromeObj = globalThis.chrome;
+    var runtime = chromeObj && chromeObj.runtime;
+    if (runtime && runtime.id && typeof runtime.sendMessage === "function") {
+      return runtime;
+    }
+    var fake = globalThis.__hanjaHoverTestRuntime;
+    if (fake && typeof fake.sendMessage === "function") return fake;
+    return null;
+  }
+
+  // Same shape as content.js's sendToWorker: callback form (which both MV3
+  // and the fake runtime support), promise form if one comes back, and every
+  // failure resolves null rather than rejecting.
+  function sendToWorker(payload) {
+    var runtime = workerRuntime();
+    if (!runtime) return Promise.resolve(null);
+    return new Promise(function (resolve) {
+      var settled = false;
+      function done(value) {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      }
+      var maybePromise;
+      try {
+        maybePromise = runtime.sendMessage(payload, function (response) {
+          // Reading lastError clears the "Unchecked runtime.lastError"
+          // warning an unanswered message would otherwise log.
+          if (globalThis.chrome && globalThis.chrome.runtime &&
+              globalThis.chrome.runtime.lastError) {
+            done(null);
+            return;
+          }
+          done(response || null);
+        });
+      } catch (e) {
+        // "Extension context invalidated" (reload/update) and friends.
+        done(null);
+        return;
+      }
+      if (maybePromise && typeof maybePromise.then === "function") {
+        maybePromise.then(function (response) { done(response || null); },
+                          function () { done(null); });
+      }
+    });
+  }
+
+  // The panel must boot normally when there is no pending query, no worker,
+  // or a worker too old to know the message type — all of which read as "".
+  function pendingQuery() {
+    return sendToWorker({ type: "getPendingQuery" }).then(function (res) {
+      if (res && res.ok === true && typeof res.query === "string") return res.query;
+      return "";
+    }, function () {
+      return "";
+    });
+  }
+
+  function resolveInitialQuery() {
+    var deep = deepLinkQuery();
+    if (deep) return Promise.resolve(deep);
+    return pendingQuery();
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Boot
+   * ------------------------------------------------------------------ */
+
+  function renderActions() {
+    return renderHeaderActions(actionsBox, HEADER_ACTIONS);
+  }
+
+  var ready = resolveInitialQuery().then(function (initialQuery) {
+    bootQuery = initialQuery;
+    renderActions();
+    showView(SIDEBAR_VIEWS[0].key); // mounts the search view and wires the shell
+    return initialQuery;
+  });
+
+  // The registries themselves, so a check can prove that a NEW view or a new
+  // action needs nothing but an entry — the same hook content.js exposes for
+  // its badge registry.
+  globalThis.__okpyeonSidebar = {
+    viewRegistry: SIDEBAR_VIEWS,
+    actionRegistry: HEADER_ACTIONS,
+    registerView: registerView,
+    renderNav: renderNav,
+    renderActions: renderActions,
+    showView: showView,
+    activeView: function () { return activeKey; },
+    ready: ready
+  };
+})();

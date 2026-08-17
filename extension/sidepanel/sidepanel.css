@@ -1,0 +1,297 @@
+/*
+ * Okpyeon — side panel page chrome.
+ *
+ * Only the page around the results: the cards themselves are rendered by
+ * content.js inside a CLOSED shadow root, so its palette tokens do not reach
+ * this stylesheet and the two colour schemes are maintained in parallel. The
+ * values below are the same palette as the panel's --bg/--fg/--muted/--edge/
+ * --accent, so the seam between page chrome and panel is invisible.
+ *
+ * Unlike the popup this replaced, the page is a FULL-HEIGHT column in a
+ * viewport the user resizes by dragging the panel edge: nothing here may fix
+ * a width or cap the column, and the height comes from the viewport rather
+ * than from the content.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --page-bg: #ffffff;
+  --page-fg: #1b1b1f;
+  --page-muted: #6b6b73;
+  --page-faint: #86868f;
+  --page-edge: rgba(0, 0, 0, 0.12);
+  --page-rule: rgba(0, 0, 0, 0.09);
+  --page-accent: #2f57c9;
+  --field-bg: #f6f6f9;
+  --field-edge: rgba(0, 0, 0, 0.14);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+  --brand: #2e6b57;
+  --action-fg: #6b6b73;
+  --action-hover: rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #23232a;
+    --page-fg: #e6e6ea;
+    --page-muted: #9a9aa4;
+    --page-faint: #8b8b95;
+    --page-edge: rgba(255, 255, 255, 0.14);
+    --page-rule: rgba(255, 255, 255, 0.12);
+    --page-accent: #96b4ff;
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --field-edge: rgba(255, 255, 255, 0.18);
+    --scroll-thumb: rgba(255, 255, 255, 0.24);
+    /* The light jade is far too dark on #23232a; this one holds the same hue
+       while clearing contrast against the dark ground. */
+    --brand: #7cc3a3;
+    --action-fg: #9a9aa4;
+    --action-hover: rgba(255, 255, 255, 0.09);
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+/* The column runs the full height of the panel, so the chain from <html>
+   down to the results area has to carry that height explicitly — a percentage
+   height resolves against a parent that has none otherwise. */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+
+body {
+  /* No width and no max-width anywhere in this file: the user drags the panel
+     edge, and the cards inside the shadow root are already width:100%. */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Malgun Gothic", "Apple SD Gothic Neo",
+    "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* Header and searchbar are fixed-size; the view container takes the rest.
+   min-height:0 is what lets the scroller below actually scroll instead of
+   growing the column past the viewport. */
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ---- header -----------------------------------------------------------
+   One slim row, and it must STAY one row: the wordmark and the actions are
+   fixed-size and the nav is the only flexible part, so results growing below
+   can never reflow or shift it. No border, no min-height, no vertical
+   padding beyond what the glyphs need. */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 3px 10px 1px;
+  background: var(--page-bg);
+}
+
+.brand {
+  flex: none;
+  font-family: Batang, 바탕, BatangChe, AppleMyungjo, "Nanum Myeongjo",
+    "Noto Serif KR", "Source Han Serif K", "Songti SC", SimSun, serif;
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: .04em;
+  color: var(--brand);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* ---- view tabs --------------------------------------------------------
+   Invisible today: sidepanel.js renders tabs only when SIDEBAR_VIEWS holds
+   two or more entries, so this row is empty and :empty collapses it. The
+   --hidden modifier is the same thing said explicitly, for the renderer. */
+
+.nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.nav:empty,
+.nav--hidden { display: none; }
+
+/* Tabs and header actions are the same kind of control in the same row, so
+   they share their metrics; only the selected state is a tab's own. */
+.tab {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 1px 6px;
+  color: var(--action-fg);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover { background: var(--action-hover); }
+
+.tab:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: -1px;
+}
+
+.tab--active {
+  color: var(--page-fg);
+  background: var(--action-hover);
+}
+
+.tab--disabled,
+.tab:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.tab--disabled:hover,
+.tab:disabled:hover { background: none; }
+
+/* ---- header actions ---------------------------------------------------
+   Ships empty — zero-size until the HEADER_ACTIONS registry has an entry. */
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.action {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 1px 5px;
+  color: var(--action-fg);
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.action:hover { background: var(--action-hover); }
+
+.action:focus-visible {
+  outline: 2px solid var(--page-accent);
+  outline-offset: -1px;
+}
+
+/* Present but not yet usable: dimmed, inert, and explained by its title. */
+.action--disabled,
+.action:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.action--disabled:hover,
+.action:disabled:hover { background: none; }
+
+/* ---- search field ---------------------------------------------------- */
+
+/* Quiet utility, not an app window: slim field, no heavy chrome. */
+.searchbar {
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--page-rule);
+  background: var(--page-bg);
+}
+
+.query {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  color: var(--page-fg);
+  background: var(--field-bg);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+  outline: none;
+}
+
+.query::placeholder {
+  color: var(--page-faint);
+}
+
+.query:focus {
+  border-color: var(--page-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-accent) 28%, transparent);
+}
+
+/* ---- views ------------------------------------------------------------
+   The container fills what the header and searchbar leave, and each view
+   fills the container. Hidden views keep their DOM (and their scroll
+   position) — switching is a display toggle, never a rebuild. */
+
+.views {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view--hidden { display: none; }
+
+/* ---- results: THE scroll container ----------------------------------- */
+
+/* The only scroller on the page. The embed layout rules make the shadow
+   panel inside give up its own overflow, so nothing here nests a second
+   scrollbar; overscroll-behavior keeps a flick at the end of the list from
+   scrolling whatever is behind the panel. */
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.results::-webkit-scrollbar { width: 10px; }
+.results::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.results::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- empty / no-result / error hints --------------------------------- */
+
+/* Always ONE short line — empty, no-results and error alike. */
+.status {
+  margin: 0;
+  padding: 8px 11px 10px;
+  color: var(--page-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.status[data-state="error"] {
+  color: var(--page-fg);
+}
