@@ -31,6 +31,7 @@ import {
 
 import {
   buildAnkiTsv,
+  buildCsv,
   checkKeys,
   createFolder,
   deleteFolder,
@@ -42,6 +43,7 @@ import {
   renameFolder,
   resolveExportSelection,
   toggleItem,
+  CSV_COLUMNS,
   DEFAULT_SETTINGS,
 } from "../extension/saved.js";
 
@@ -1645,6 +1647,106 @@ test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing
   assert.deepEqual(buildAnkiTsv(undefined, null), "#separator:tab\n#html:false\n");
 });
 
+// --- CSV export ----------------------------------------------------------
+
+test("buildCsv writes the header and every column, whatever the anki settings", () => {
+  const folders = [
+    { id: "f0", name: "Saved" },
+    { id: "f1", name: "Verbs" },
+  ];
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "國民", folderId: "f1", addedAt: Date.UTC(2026, 7, 17) },
+      { id: "i1", kind: "char", key: "學", folderId: "f0", addedAt: Date.UTC(2025, 0, 2) },
+    ],
+    data
+  );
+  const lines = buildCsv(rows, folders).replace(/\n$/, "").split("\n");
+
+  assert.deepEqual(CSV_COLUMNS, [
+    "kind",
+    "key",
+    "hangul",
+    "eumhun",
+    "readings",
+    "definitions",
+    "level",
+    "folder",
+    "added",
+  ]);
+  assert.equal(lines[0], "kind,key,hangul,eumhun,readings,definitions,level,folder,added");
+  // A word has no eumhun/readings/level; the columns stay in place, empty.
+  assert.equal(
+    lines[1],
+    "word,國民,국민,,,1. the people; citizens of a nation,,Verbs,2026-08-17"
+  );
+  // A char has no hangul; the folder name is resolved, not the id.
+  assert.equal(
+    lines[2],
+    "char,學,,배울 학,학,1. to learn; to study; 2. school; learning,m,Saved,2025-01-02"
+  );
+  assert.equal(lines.length, 3);
+});
+
+test("buildCsv quotes commas, quotes and newlines RFC-4180 style", () => {
+  const odd = {
+    variants: { map: {} },
+    hanja: { chars: {} },
+    words: {
+      words: {
+        特殊: [{ hangul: "특수", glosses: ['R&D <special> "quoted" \'odd\''] }],
+        分野: [{ hangul: "분야", glosses: ["field, comma'd", "line\nbroken"] }],
+        沒有: [{ hangul: "몰유", glosses: ["gone"] }],
+      },
+    },
+  };
+  const csv = buildCsv(
+    joinItems(
+      [
+        { id: "i0", kind: "word", key: "特殊", folderId: "f0", addedAt: 0 },
+        { id: "i1", kind: "word", key: "分野", folderId: "f2", addedAt: 0 },
+        { id: "i2", kind: "word", key: "沒有", folderId: "f0", addedAt: 0 },
+      ],
+      odd
+    ),
+    [{ id: "f0", name: 'The "big" list, part 2' }]
+  );
+
+  const lines = csv.replace(/\n$/, "").split("\n");
+  assert.equal(
+    lines[1],
+    'word,特殊,특수,,,"1. R&D <special> ""quoted"" \'odd\'",,"The ""big"" list, part 2",'
+  );
+  // An embedded newline lives inside the quoted field, so this row spans two
+  // physical lines; the unresolved folder falls back to its id.
+  assert.equal(lines[2], 'word,分野,분야,,,"1. field, comma\'d; 2. line');
+  assert.equal(lines[3], 'broken",,f2,');
+  assert.equal(lines[4], "word,沒有,몰유,,,1. gone,,\"The \"\"big\"\" list, part 2\",");
+  // addedAt 0 (an item normalized from junk) leaves the date column empty.
+  assert.ok(lines[1].endsWith(","));
+});
+
+test("buildCsv skips missing rows and survives junk input", () => {
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "國民", folderId: "f0", addedAt: 1 },
+      { id: "i1", kind: "word", key: "沒有", folderId: "f0", addedAt: 2 },
+      { id: "i2", kind: "char", key: "沒", folderId: "f0", addedAt: 3 },
+    ],
+    data
+  );
+  const csv = buildCsv(rows, [{ id: "f0", name: "Saved" }]);
+  assert.equal(csv.replace(/\n$/, "").split("\n").length, 2, "header + the one live row");
+  assert.ok(!csv.includes("沒"));
+  assert.equal(rows.filter((r) => r.missing === true).length, 2);
+
+  const header = `${CSV_COLUMNS.join(",")}\n`;
+  assert.equal(buildCsv([], []), header);
+  assert.equal(buildCsv(undefined, undefined), header);
+  // No folder list at all: the id stands in for the name.
+  assert.ok(buildCsv(rows, undefined).includes(",f0,"));
+});
+
 // --- background.js: still importable without chrome globals --------------
 
 await testAsync("background.js imports cleanly in Node (guards hold)", async () => {
@@ -1691,6 +1793,9 @@ await testAsync("without chrome.storage every saved handler answers 'unavailable
   assert.deepEqual(await bg.handleSettingsGet(), unavailable);
   assert.deepEqual(await bg.handleSettingsSet({ defaultFolderId: "f1" }), unavailable);
   assert.deepEqual(await bg.handleSavedExport({ all: true }), unavailable);
+  // Both export formats stop at the same guard.
+  assert.deepEqual(await bg.handleSavedExport({ all: true }, "csv"), unavailable);
+  assert.deepEqual(await bg.handleSavedExport({ all: true }, "anki"), unavailable);
 });
 
 await testAsync("the router carries every SPEC message type", async () => {
@@ -1722,6 +1827,11 @@ await testAsync("the router carries every SPEC message type", async () => {
       error: "storage unavailable",
     });
   }
+  // The export format rides on the message; an absent one means "anki".
+  assert.deepEqual(
+    await MESSAGE_HANDLERS.savedExport({ type: "savedExport", all: true, format: "csv" }),
+    { ok: false, error: "storage unavailable" }
+  );
 });
 
 // --- sidebar addendum: the omnibox -> panel pending query is read-once -----

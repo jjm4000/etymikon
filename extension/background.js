@@ -16,6 +16,7 @@ import {
 } from "./lookup.js";
 import {
   buildAnkiTsv,
+  buildCsv,
   checkKeys,
   createFolder,
   deleteFolder,
@@ -280,11 +281,14 @@ function mergeSettings(settings, patch) {
   return { ...settings, ...src, anki: { ...settings.anki, ...anki } };
 }
 
-/** Export filename: okpyeon-anki-YYYYMMDD.txt, dated by the worker. */
-function exportFilename(date = new Date()) {
+/**
+ * Export filename, dated by the worker: okpyeon-anki-YYYYMMDD.txt for the Anki
+ * file, okpyeon-saved-YYYYMMDD.csv for the spreadsheet.
+ */
+function exportFilename(format, date = new Date()) {
   const pad = (n) => String(n).padStart(2, "0");
   const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
-  return `okpyeon-anki-${stamp}.txt`;
+  return format === "csv" ? `okpyeon-saved-${stamp}.csv` : `okpyeon-anki-${stamp}.txt`;
 }
 
 /**
@@ -435,23 +439,30 @@ export async function handleSettingsSet(patch) {
 }
 
 /**
- * {type:"savedExport", ids? | folderIds? | all?} → the Anki import file.
- * Rows whose dictionary entry is gone are skipped and counted.
+ * {type:"savedExport", ids? | folderIds? | all?, format} → the export file.
+ * `format` is "anki" (default) or "csv"; `tsv` carries the body either way,
+ * and the filename extension follows the format. Rows whose dictionary entry
+ * is gone are skipped and counted.
  * @returns {Promise<{ok:true, tsv:string, count:number, skipped:number, filename:string}|{ok:false, error:string}>}
  */
-export async function handleSavedExport(selection) {
+export async function handleSavedExport(selection, format) {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    const settings = await readSettings(area, state);
     const data = await getData();
     const rows = joinItems(resolveExportSelection(state, selection), data);
     const skipped = rows.filter((row) => row.missing === true).length;
+    const csv = format === "csv";
+    // The Anki file is shaped by the field settings; the CSV is not, so it
+    // does not pay for the settings read.
+    const body = csv
+      ? buildCsv(rows, state.folders)
+      : buildAnkiTsv(rows, await readSettings(area, state));
     return {
       ok: true,
-      tsv: buildAnkiTsv(rows, settings),
+      tsv: body,
       count: rows.length - skipped,
       skipped,
-      filename: exportFilename(),
+      filename: exportFilename(csv ? "csv" : "anki"),
     };
   });
 }
@@ -479,7 +490,7 @@ export const MESSAGE_HANDLERS = {
   settingsGet: () => handleSettingsGet(),
   settingsSet: (m) => handleSettingsSet(m.patch),
   savedExport: (m) =>
-    handleSavedExport({ ids: m.ids, folderIds: m.folderIds, all: m.all }),
+    handleSavedExport({ ids: m.ids, folderIds: m.folderIds, all: m.all }, m.format),
 };
 
 /** The routed handler for a message, or null when nothing handles it. */

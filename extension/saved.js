@@ -37,6 +37,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
   }),
 });
 
+/** Columns of the CSV export, in order. */
+export const CSV_COLUMNS = [
+  "kind",
+  "key",
+  "hangul",
+  "eumhun",
+  "readings",
+  "definitions",
+  "level",
+  "folder",
+  "added",
+];
+
 /** Separator between the back fields of one Anki note. */
 const FIELD_SEPARATOR = " · ";
 /** Separator between the entries inside one multi-value field. */
@@ -464,8 +477,11 @@ function numberedDefs(glosses) {
 /** One Anki field token rendered from a joined row. */
 function fieldValue(row, token) {
   switch (token) {
+    // "key" is not an Anki token: it is how the CSV asks for the same value
+    // under a kind-neutral name.
     case "hanja":
     case "char":
+    case "key":
       return typeof row.key === "string" ? row.key : "";
     case "hangul":
       return typeof row.hangul === "string" ? row.hangul : "";
@@ -517,6 +533,61 @@ export function buildAnkiTsv(joinedRows, settings) {
       .filter((value) => value !== "")
       .join(FIELD_SEPARATOR);
     lines.push(`${tsvField(front)}\t${tsvField(back)}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * RFC-4180 quoting: a field carrying a comma, a quote or a line break is
+ * wrapped in double quotes with the inner quotes doubled.
+ */
+function csvField(value) {
+  return /[",\n\r]/.test(value) ? `"${value.split('"').join('""')}"` : value;
+}
+
+/** The folder's name, falling back to its id so nothing silently disappears. */
+function folderName(folderId, folders) {
+  const found = (Array.isArray(folders) ? folders : []).find(
+    (folder) => folder !== null && typeof folder === "object" && folder.id === folderId
+  );
+  if (found && typeof found.name === "string" && found.name !== "") return found.name;
+  return typeof folderId === "string" ? folderId : "";
+}
+
+/** addedAt -> ISO calendar date. A missing or unusable stamp renders empty. */
+function isoDate(addedAt) {
+  if (!Number.isFinite(addedAt) || addedAt <= 0) return "";
+  const date = new Date(addedAt);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+/**
+ * Build the CSV export: a full-data spreadsheet, independent of the Anki field
+ * settings — every column is always written, so the file is a complete record
+ * of what was saved. Header row first, then one row per item in CSV_COLUMNS
+ * order. Missing rows are skipped (the caller counts them), exactly like
+ * buildAnkiTsv. Lines end with LF, like the Anki file.
+ *
+ * @param {object[]} joinedRows rows from joinItems
+ * @param {Array<{id:string, name:string}>} folders folder list, for the name column
+ * @returns {string}
+ */
+export function buildCsv(joinedRows, folders) {
+  const lines = [CSV_COLUMNS.join(",")];
+  for (const row of Array.isArray(joinedRows) ? joinedRows : []) {
+    if (row === null || typeof row !== "object" || row.missing === true) continue;
+    const cells = [
+      row.kind === "char" ? "char" : "word",
+      fieldValue(row, "key"),
+      fieldValue(row, "hangul"),
+      fieldValue(row, "eumhun"),
+      fieldValue(row, "readings"),
+      fieldValue(row, "defs"),
+      fieldValue(row, "lvl"),
+      folderName(row.folderId, folders),
+      isoDate(row.addedAt),
+    ];
+    lines.push(cells.map(csvField).join(","));
   }
   return `${lines.join("\n")}\n`;
 }
