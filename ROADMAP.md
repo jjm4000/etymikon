@@ -42,7 +42,9 @@ the 1.0 review clears anyway.
 - **Build hygiene**: deterministic data emit (`sort_keys`), canonical words
   keys, data-driven segmentation caps, geometry-derived expander state.
 - Listing updates at upload time: privacy policy URL on GitHub Pages,
-  homepage field pointing at this repo.
+  homepage field pointing at this repo, and a style pass over
+  store-listing.md's newer sections (same rules as the README rewrite:
+  no rule-of-three phrasing, no flavor lines).
 
 ### Open question in this release
 
