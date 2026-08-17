@@ -785,6 +785,176 @@ wiki-link background-open rules all stand unchanged.
   message plus a `searchFor()` call on this page — nothing in this
   section may be built in a way that precludes it.
 
+## Saved words + settings (ADDENDUM)
+
+User-directed (2026-08-17): a saved-words list with folders and Anki
+export, plus the settings view arriving with its first real settings.
+Decisions: one folder per item; Chrome-bookmarks save UX (instant save +
+an anchored bubble to move/remove); clicking a saved row opens the full
+card in the search view; saved items are IDENTITY-ONLY references joined
+against live data at read time (no snapshots — duplicates structurally
+impossible; every saved item corresponds to exactly one data entry).
+
+### Storage
+
+- chrome.storage.local; manifest permissions become
+  `["sidePanel", "storage"]`. Nothing else; no unlimitedStorage, no sync.
+- The WORKER is the single writer. Every surface uses worker messages;
+  worker writes go through one serialized promise queue (read-modify-write
+  races are impossible by construction).
+- Key `okpSaved`, schema v1:
+  `{v:1, folders:[{id, name}], items:[{id, kind:"word"|"char", key,
+  folderId, addedAt}]}` — `key` is the canonical spelling/glyph. Folder
+  `f0` "Saved" always exists and cannot be deleted or renamed to empty;
+  deleting another folder moves its items to `f0`. Item identity is
+  (kind, key); toggling an existing identity removes it. Ids: `f<n>` /
+  `i<n>` from monotonic counters stored in the state.
+- Key `okpSettings`, schema v1:
+  `{v:1, defaultFolderId, anki:{wordFront, wordBack[], charFront,
+  charBack[]}}`. Field tokens — word: "hanja" | "hangul" | "defs";
+  char: "char" | "eumhun" | "readings" | "defs" | "lvl". Defaults:
+  defaultFolderId "f0"; wordFront "hanja"; wordBack ["hangul","defs"];
+  charFront "char"; charBack ["eumhun","defs"]. If the default folder is
+  deleted the setting resets to "f0".
+
+### Pure module extension/saved.js (ES module, no chrome.*, like lookup.js)
+
+All logic lives here, Node-testable; background.js is read-state → pure
+fn → write-state glue. Exports (state in, new state out, never mutate):
+`normalizeSavedState(raw)`, `normalizeSettings(raw)` (defaults +
+version fill), `toggleItem(state, kind, key, defaultFolderId, now)` →
+`{state, saved, item?}`, `checkKeys(state, keys)` → map keyed
+`"c:<key>"` / `"w:<key>"`, `createFolder(state, name)` / `renameFolder` /
+`deleteFolder` (refuses f0; moves items to f0) / `moveItems(state, ids,
+folderId)` / `removeItems(state, ids)`, `resolveExportSelection(state,
+{ids?, folderIds?, all?})` → item list, `joinItems(items, data)` →
+display rows (word: hangul, glosses, rare; char: eumhun, readings,
+glosses, lvl; an entry missing from data → `{missing:true}` row), and
+`buildAnkiTsv(joinedRows, settings)` → string. TSV format: header
+directives `#separator:tab` and `#html:false`, then Front TAB Back per
+item; back fields joined with " · "; definitions rendered as a numbered
+"1. …; 2. …" string over ALL glosses; any field containing tab, newline
+or double quote is CSV-style quoted with doubled quotes; missing rows are
+skipped and counted.
+
+### Worker messages (join the existing router; handlers exported for Node)
+
+`savedGet` → `{ok, folders, items}` with items PRE-JOINED via joinItems
+(worker data cache; same join pattern as buildFullCompounds).
+`savedToggle {kind, key}` → `{ok, saved, item?, folderId?, folders}` —
+folders ride along so the save bubble needs no second round-trip.
+`savedCheck {keys:[{kind,key}]}` → `{ok, saved:{"c:國":true, ...}}`.
+`savedRemove {ids}` / `savedMove {ids, folderId}` / `folderCreate {name}`
+→ `{ok, folder}` / `folderRename {id, name}` / `folderDelete {id}` /
+`settingsGet` → `{ok, settings}` / `settingsSet {patch}` → `{ok,
+settings}` (shallow-merge patch, then normalize) / `savedExport {ids? |
+folderIds? | all?}` → `{ok, tsv, count, skipped, filename}`. Without
+chrome.storage every handler answers `{ok:false, error:"storage
+unavailable"}` — surfaces treat that as "feature absent", never as an
+error to display. addedAt = Date.now() in the worker.
+
+### Save affordance (content.js, every surface)
+
+- New declarative CARD_ACTIONS registry (BADGES philosophy): entries
+  `{key, when(m) → false|true, build(m) → element}`; exposed as
+  `__hanjaHover.cardActionRegistry`. First entry: "save".
+- A star button (☆ resting / ★ saved; classes `.save` / `.save--on`,
+  `aria-pressed`) on char card heads (buildCharCard) and word card bodies
+  (fillWordBody — the ACTIVE spelling's m). Placed in the `.head` flex row
+  before the Wiktionary link; house interaction pattern (own listeners,
+  stopPropagation on mousedown/click, Enter/Space activation).
+- Saved-state: stars render HIDDEN, then one BATCHED `savedCheck` per
+  render pass (all keys in the rendered view, one message) reveals and
+  sets them. A `{ok:false}` answer leaves every star hidden for that
+  render — graceful on old workers and bare harnesses.
+- Click: optimistic flip, then `savedToggle {kind, key}`; revert on a
+  failed response. kind/key: char → canonical glyph; word → canonical
+  spelling of the active body.
+- SAVE BUBBLE (Chrome-bookmarks UX): a successful SAVE (not unsave) opens
+  one bubble anchored to that star, inside the shadow root: "Saved to"
+  + a folder `<select>` (options from the toggle response's folders;
+  change = `savedMove` immediately) + a Remove link (toggle off; star
+  reverts; bubble closes). Dismissed by clicking anywhere outside it,
+  by Escape, or by starting another card interaction; one bubble at a
+  time; unsaving never shows a bubble. Escape rule: while a bubble is
+  open, Escape closes ONLY the bubble — the normal-mode popup-hide
+  Escape handler must check bubble state first; in embed mode Escape
+  does nothing else anyway.
+- content.js does NOT listen to storage.onChanged in this cycle; stars
+  reflect render-time state plus optimistic toggles.
+
+### Sidebar: saved view (extension/sidepanel/saved-view.js, view 2)
+
+Classic script loaded after sidepanel.js; self-registers via
+`__okpyeonSidebar.registerView({key:"saved", label:"Saved", ...})` — the
+nav appears by itself. Page-chrome DOM styled by sidepanel.css (NOT the
+shadow renderer; no level chips in rows — secondary text carries the
+eumhun/hangul instead).
+- Top bar: folder filter select ("All" + each folder with counts), New
+  folder (inline name input), Rename/Delete controls for the selected
+  folder (Delete confirms and moves items to f0; f0 offers no delete).
+- List: header select-all checkbox (operates on the current filter);
+  rows = checkbox + primary text (word spelling / char glyph) +
+  secondary (hangul or eumhun) + first gloss, `.missing` styling and a
+  "no longer in the dictionary" note for missing rows.
+- Row click (outside the checkbox) → set `#okp-input.value` to the key,
+  `controller.search(key)`, `showView("search")`.
+- Actions bar: "Move to…" folder select, Remove, Export. Export sends
+  `savedExport` with the checked ids; nothing checked exports the current
+  filter (All = everything). Download: Blob + `<a download>` click,
+  filename from the worker (`okpyeon-anki-YYYYMMDD.txt`), then revoke.
+- `onShow` refreshes via `savedGet`; a guarded `chrome.storage.onChanged`
+  listener (real runtime only) refreshes while visible, so saves made
+  from pages appear live.
+- Empty state: one short line pointing at the star on cards.
+
+### Sidebar: settings view (extension/sidepanel/settings-view.js, view 3)
+
+- `SETTINGS_SCHEMA`: declarative array rendered generically — a future
+  setting is ONE entry. Entry: `{key (dot-path into settings), type:
+  "select" | "checkset" | "folder-select", label, options:[{value,
+  label}], default}`. folder-select resolves its options from `savedGet`
+  folders at render time.
+- Rendered controls write through `settingsSet` immediately (no save
+  button); `onShow` re-reads settings and folders.
+- Shipping entries: "Save new items to" (folder-select,
+  key defaultFolderId); "Word cards: front" (select hanja/hangul);
+  "Word cards: back" (checkset hanja/hangul/defs); "Character cards:
+  front" (select char/eumhun); "Character cards: back" (checkset
+  char/eumhun/readings/defs/lvl).
+
+### Searchbar + omnibox while on another view
+
+Typing in the global searchbar (any input event) while the active view is
+not "search" switches to the search view first. `applyPendingQuery` (the
+omnibox poke path) also calls `showView("search")` — an omnibox search
+must never land invisibly behind the saved or settings view.
+
+### Harness + tests
+
+- BOTH fixture blocks (test-page/index.html and embed.html, kept
+  byte-identical to each other) gain the same minimal in-memory saved
+  store answering every new message type against fixture data (join
+  simplified to fixture fields; savedExport returns a real TSV built from
+  the fixture store so the download check has content to assert on).
+- embed.html checks: stars render + batched single savedCheck + toggle +
+  revert-on-failure; bubble (opens on save only, folder select moves,
+  Remove unsaves, outside-click and Escape dismiss, one at a time);
+  saved view (list render incl. missing-row note, folder create/filter/
+  rename/delete-moves-to-f0, select-all on filter, move/remove, row
+  click lands in search view with the card rendered, export gating and
+  TSV content via the download anchor, live refresh on a simulated
+  change); settings view (schema-rendered controls, immediate persist,
+  folder-select options, defaults); nav shows 3 tabs; search state
+  survives visiting both views; searchbar auto-switch.
+- index.html: a small set of star checks in normal (selection popup)
+  mode, including bubble-Escape-leaves-popup-open.
+- Node: saved.js pure coverage (normalize/migration, toggle identity,
+  folder CRUD incl. f0 protection and default-folder reset, move/remove,
+  selection resolution, join incl. missing, TSV format + quoting,
+  settings normalize/patch) and worker handler seams (storage-absent
+  answers; exported handler shapes).
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
