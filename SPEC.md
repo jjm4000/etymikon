@@ -580,13 +580,18 @@ A typed-search surface reusing the selection popup's renderer end to end.
   normal tab (the omnibox target). Known limitation (document, don't fix):
   in default_popup mode the BROWSER closes the popup on Escape, which some
   IME cancel flows may trigger — tab mode is unaffected.
-- Wiktionary links in the popup surface (ADDENDUM — verified fix): plain
-  left- and middle-clicks on wiki links are intercepted in embed mode when
-  chrome.tabs is available (preventDefault + tabs.create({active:false})):
+- Wiktionary links open in the background on EVERY surface (ADDENDUM —
+  REVISED for consistency, user-reported): plain left- and middle-clicks on
+  wiki links never switch tabs. Embed surfaces intercept and call
+  chrome.tabs.create({active:false}) directly (also the popup-survival fix:
   browser-level link activation dismisses action popups even for background
-  tabs, while API-created background tabs do NOT (verified on real Chrome,
-  2026-08-17). Brief "Opened ↗" feedback; modified clicks (ctrl/cmd/shift)
-  keep native behavior; the in-page selection popup keeps plain links.
+  tabs, while API-created ones do not — verified on real Chrome 2026-08-17).
+  The in-page selection popup cannot touch chrome.tabs (content script), so
+  it sends a new worker message `{type:"openTab", url}` and the worker calls
+  tabs.create({url, active:false}) — same UX. Both paths flash "Opened ↗".
+  Modified clicks (ctrl/cmd/shift) keep native browser behavior everywhere.
+  The openTab handler must validate the url starts with the Wiktionary base
+  (never open arbitrary urls on a content script's say-so).
   Second known limitation (browser design, unfixable): the action popup is
   destroyed on ANY focus loss including tab switches — the future sidePanel
   is the persistence answer, not the popup.
