@@ -1068,9 +1068,10 @@
   }
 
   // Appends the small top-right link to a card head. Clicks are isolated from
-  // the popup's own click handling the same way the "more" expander does it —
-  // stopPropagation only, so the browser still follows the link. Opening the
-  // new tab ends the popup session by itself; nothing extra to dismiss.
+  // the popup's own click handling the same way the "more" expander does it.
+  // In the in-page selection popup the browser follows the link natively; in
+  // embed mode plain clicks background-open via chrome.tabs instead (see the
+  // popup-survival fix below).
   function appendWikiLink(head, title) {
     var url = wiktionaryUrl(title);
     if (!url) return null;
@@ -1081,12 +1082,13 @@
     link.setAttribute("aria-label",
       "Wiktionary entry for " + title + " (opens in a new tab)");
     link.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
-    // EXPERIMENT (popup-survival): in embed mode inside a real extension page,
-    // browser-level link activation in an action popup dismisses the popup —
-    // even middle-click-to-background-tab does (observed). Bypassing link
-    // handling entirely (preventDefault + chrome.tabs.create({active:false}))
-    // is the one route that may keep the popup alive; whether it does is
-    // empirically version-dependent, hence this is instrumented as a trial.
+    // Popup-survival fix (SPEC "Wiktionary links in the popup surface",
+    // verified on real Chrome 2026-08-17): browser-level link activation in an
+    // action popup dismisses the popup — even middle-click-to-background-tab
+    // does — but an API-created background tab does not. So in embed mode we
+    // bypass link handling entirely (preventDefault +
+    // chrome.tabs.create({active:false})). Modified clicks keep native
+    // behavior; the in-page selection popup keeps plain links.
     var canBackgroundOpen =
       IS_EMBED &&
       typeof chrome !== "undefined" &&
