@@ -439,8 +439,8 @@ Service worker behavior:
     (중학교용)"
   - h → "High school", blue tint; title "MOE curriculum, high school
     (고등학교용)"
-  - a → "Advanced", amber tint; title "Beyond the school curriculum; common
-    in real vocabulary (Okpyeon's classification)"
+  - a → "Advanced", amber tint; title "Beyond the school curriculum;
+    attested in real vocabulary (Okpyeon's classification)"
   - r → "Rare", grey tint; title "Archaic, specialist, or reading-only
     (Okpyeon's classification)"
   Quiet tints per zone (school zones slightly more saturated so they still
