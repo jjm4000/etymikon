@@ -907,11 +907,17 @@ eumhun/hangul instead).
   folder (Delete confirms and moves items to f0; f0 offers no delete).
 - List, GROUPED BY FOLDER (ADDENDUM — user-directed): with the filter on
   "All", items render under folder header rows; a header row carries a
-  CHECKBOX + folder name + count, and its checkbox selects/deselects
-  every item in that folder (indeterminate when partially selected —
-  batch selection works at both the folder and the item level). A
-  single-folder filter renders a flat list. A global select-all checkbox
-  operates on the current filter either way.
+  CHECKBOX + disclosure triangle + folder name + count, and its checkbox
+  selects/deselects every item in that folder (indeterminate when
+  partially selected — batch selection works at both the folder and the
+  item level). Folders COLLAPSE/EXPAND (user-directed): clicking the
+  header outside its checkbox toggles the folder; collapsed folders hide
+  their item rows but keep their count visible and their checkbox fully
+  functional (batch actions on a collapsed folder work unchanged).
+  Collapse state is page-session-local: default expanded, held while the
+  panel stays open, reset on a fresh open. A single-folder filter renders
+  a flat list (no headers). A global select-all checkbox operates on the
+  current filter either way.
 - Item rows = checkbox + primary text (word spelling / char glyph) +
   secondary (hangul or eumhun) + first gloss, `.missing` styling and a
   "no longer in the dictionary" note for missing rows.
@@ -966,7 +972,9 @@ must never land invisibly behind the saved or settings view.
   revert-on-failure; bubble (opens on save only, folder select moves,
   Remove unsaves, outside-click and Escape dismiss, one at a time);
   saved view (grouped list render incl. folder-header checkboxes with
-  indeterminate state and missing-row note, folder create/filter/
+  indeterminate state and missing-row note, collapse/expand — item rows
+  hidden, count visible, folder checkbox still selects the collapsed
+  folder's items — folder create/filter/
   rename/delete-moves-to-f0, select-all on filter, move, remove with the
   two-step inline confirm (first click arms, cancel disarms, confirm
   removes), row click lands in search view with the card rendered,
