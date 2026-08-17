@@ -14,6 +14,20 @@ import {
   lookup,
   toErrorMessage,
 } from "./lookup.js";
+import {
+  buildAnkiTsv,
+  checkKeys,
+  createFolder,
+  deleteFolder,
+  joinItems,
+  moveItems,
+  normalizeSavedState,
+  normalizeSettings,
+  removeItems,
+  renameFolder,
+  resolveExportSelection,
+  toggleItem,
+} from "./saved.js";
 
 const DATA_FILES = {
   hanja: "data/hanja.json",
@@ -174,21 +188,311 @@ export async function handleGetPendingQuery() {
   return { ok: true, query };
 }
 
+// ---------------------------------------------------------------------------
+// Saved words + settings (ADDENDUM): the worker is the single writer.
+// ---------------------------------------------------------------------------
+
+/** chrome.storage.local keys. Schema v1 for both; see saved.js. */
+const SAVED_KEY = "okpSaved";
+const SETTINGS_KEY = "okpSettings";
+
+/**
+ * The one answer every saved/settings message gets when there is no
+ * chrome.storage: a plain Node import (tests), or a Chrome too old for the
+ * permission. Surfaces treat it as "feature absent", never as an error to show.
+ */
+const STORAGE_UNAVAILABLE = "storage unavailable";
+
+/** The usable storage area, or null. Guarded like every other chrome.* touch. */
+function storageArea() {
+  if (typeof chrome === "undefined" || !chrome.storage || !chrome.storage.local) {
+    return null;
+  }
+  const area = chrome.storage.local;
+  return typeof area.get === "function" && typeof area.set === "function" ? area : null;
+}
+
+/**
+ * The serialization chain. Every saved/settings handler — reads included —
+ * runs as one link, so a read-modify-write can never interleave with another
+ * one no matter how many surfaces message the worker at once. A rejected link
+ * never breaks the chain: the tail is always a settled, ignored promise.
+ * @type {Promise<*>}
+ */
+let storageChain = Promise.resolve();
+
+function serialize(task) {
+  const run = storageChain.then(task, task);
+  storageChain = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+}
+
+/**
+ * Storage guard + serialization + error envelope, shared by all eleven
+ * handlers below.
+ * @param {(area:object) => Promise<object>} task
+ */
+async function withStorage(task) {
+  const area = storageArea();
+  if (area === null) return { ok: false, error: STORAGE_UNAVAILABLE };
+  return serialize(async () => {
+    try {
+      return await task(area);
+    } catch (err) {
+      return { ok: false, error: toErrorMessage(err) };
+    }
+  });
+}
+
+async function readKey(area, key) {
+  const got = await area.get(key);
+  return got !== null && typeof got === "object" ? got[key] : undefined;
+}
+
+/** Read + normalize the saved state. Storage is only rewritten on a change. */
+async function readSaved(area) {
+  return normalizeSavedState(await readKey(area, SAVED_KEY));
+}
+
+/** Read + normalize settings, resetting a default folder that no longer exists. */
+async function readSettings(area, savedState) {
+  return normalizeSettings(await readKey(area, SETTINGS_KEY), savedState);
+}
+
+function writeSaved(area, state) {
+  return area.set({ [SAVED_KEY]: state });
+}
+
+function writeSettings(area, settings) {
+  return area.set({ [SETTINGS_KEY]: settings });
+}
+
+/**
+ * Shallow patch merge, one level deep through `anki` so a settings control can
+ * send `{anki:{wordFront:"hangul"}}` without resetting its sibling fields.
+ */
+function mergeSettings(settings, patch) {
+  const src = patch !== null && typeof patch === "object" ? patch : {};
+  const anki = src.anki !== null && typeof src.anki === "object" ? src.anki : {};
+  return { ...settings, ...src, anki: { ...settings.anki, ...anki } };
+}
+
+/** Export filename: okpyeon-anki-YYYYMMDD.txt, dated by the worker. */
+function exportFilename(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+  return `okpyeon-anki-${stamp}.txt`;
+}
+
+/**
+ * {type:"savedGet"} → the folder list plus every saved item PRE-JOINED against
+ * the live data cache (identity-only storage, joined at read time).
+ * @returns {Promise<{ok:true, folders:object[], items:object[]}|{ok:false, error:string}>}
+ */
+export async function handleSavedGet() {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    const data = await getData();
+    return { ok: true, folders: state.folders, items: joinItems(state.items, data) };
+  });
+}
+
+/**
+ * {type:"savedToggle", kind, key} → save or unsave one identity. The folder
+ * list rides along so the save bubble needs no second round-trip.
+ * @returns {Promise<{ok:true, saved:boolean, item?:object, folderId?:string, folders:object[]}|{ok:false, error:string}>}
+ */
+export async function handleSavedToggle(kind, key) {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    const settings = await readSettings(area, state);
+    const result = toggleItem(state, kind, key, settings.defaultFolderId, Date.now());
+    await writeSaved(area, result.state);
+    const response = {
+      ok: true,
+      saved: result.saved,
+      folders: result.state.folders,
+    };
+    if (result.item) {
+      response.item = result.item;
+      response.folderId = result.item.folderId;
+    }
+    return response;
+  });
+}
+
+/**
+ * {type:"savedCheck", keys:[{kind,key}]} → the one batched answer a render pass
+ * needs, keyed "c:<key>" / "w:<key>".
+ * @returns {Promise<{ok:true, saved:Record<string,boolean>}|{ok:false, error:string}>}
+ */
+export async function handleSavedCheck(keys) {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    return { ok: true, saved: checkKeys(state, keys) };
+  });
+}
+
+/**
+ * {type:"savedRemove", ids} → drop saved items.
+ * @returns {Promise<{ok:true, removed:number}|{ok:false, error:string}>}
+ */
+export async function handleSavedRemove(ids) {
+  return withStorage(async (area) => {
+    const { state, removed } = removeItems(await readSaved(area), ids);
+    await writeSaved(area, state);
+    return { ok: true, removed };
+  });
+}
+
+/**
+ * {type:"savedMove", ids, folderId} → re-home saved items.
+ * @returns {Promise<{ok:true, moved:number}|{ok:false, error:string}>}
+ */
+export async function handleSavedMove(ids, folderId) {
+  return withStorage(async (area) => {
+    const { state, moved, error } = moveItems(await readSaved(area), ids, folderId);
+    if (error !== null) return { ok: false, error };
+    await writeSaved(area, state);
+    return { ok: true, moved };
+  });
+}
+
+/**
+ * {type:"folderCreate", name} → a new folder.
+ * @returns {Promise<{ok:true, folder:object}|{ok:false, error:string}>}
+ */
+export async function handleFolderCreate(name) {
+  return withStorage(async (area) => {
+    const { state, folder, error } = createFolder(await readSaved(area), name);
+    if (error !== null) return { ok: false, error };
+    await writeSaved(area, state);
+    return { ok: true, folder };
+  });
+}
+
+/**
+ * {type:"folderRename", id, name} → rename a folder (f0 included, never to empty).
+ * @returns {Promise<{ok:true, folder:object}|{ok:false, error:string}>}
+ */
+export async function handleFolderRename(id, name) {
+  return withStorage(async (area) => {
+    const { state, folder, error } = renameFolder(await readSaved(area), id, name);
+    if (error !== null) return { ok: false, error };
+    await writeSaved(area, state);
+    return { ok: true, folder };
+  });
+}
+
+/**
+ * {type:"folderDelete", id} → delete a folder, moving its items to f0. When the
+ * deleted folder was the "save new items to" target, the setting resets to f0
+ * in the same serialized link, so no surface can observe a dangling default.
+ * @returns {Promise<{ok:true, moved:number, settings:object}|{ok:false, error:string}>}
+ */
+export async function handleFolderDelete(id) {
+  return withStorage(async (area) => {
+    const before = await readSaved(area);
+    const { state, moved, error } = deleteFolder(before, id);
+    if (error !== null) return { ok: false, error };
+    await writeSaved(area, state);
+    const previous = await readSettings(area, before);
+    const settings = normalizeSettings(previous, state);
+    if (settings.defaultFolderId !== previous.defaultFolderId) {
+      await writeSettings(area, settings);
+    }
+    return { ok: true, moved, settings };
+  });
+}
+
+/**
+ * {type:"settingsGet"} → the settings record, defaults filled in.
+ * @returns {Promise<{ok:true, settings:object}|{ok:false, error:string}>}
+ */
+export async function handleSettingsGet() {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    return { ok: true, settings: await readSettings(area, state) };
+  });
+}
+
+/**
+ * {type:"settingsSet", patch} → merge, normalize, store, and hand back the
+ * result (the settings view renders from the response, never from its guess).
+ * @returns {Promise<{ok:true, settings:object}|{ok:false, error:string}>}
+ */
+export async function handleSettingsSet(patch) {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    const current = await readSettings(area, state);
+    const settings = normalizeSettings(mergeSettings(current, patch), state);
+    await writeSettings(area, settings);
+    return { ok: true, settings };
+  });
+}
+
+/**
+ * {type:"savedExport", ids? | folderIds? | all?} → the Anki import file.
+ * Rows whose dictionary entry is gone are skipped and counted.
+ * @returns {Promise<{ok:true, tsv:string, count:number, skipped:number, filename:string}|{ok:false, error:string}>}
+ */
+export async function handleSavedExport(selection) {
+  return withStorage(async (area) => {
+    const state = await readSaved(area);
+    const settings = await readSettings(area, state);
+    const data = await getData();
+    const rows = joinItems(resolveExportSelection(state, selection), data);
+    const skipped = rows.filter((row) => row.missing === true).length;
+    return {
+      ok: true,
+      tsv: buildAnkiTsv(rows, settings),
+      count: rows.length - skipped,
+      skipped,
+      filename: exportFilename(),
+    };
+  });
+}
+
+/**
+ * The message router, as a lookup map: the nested ternary it replaces stopped
+ * being readable at sixteen types. Each entry takes the raw message and
+ * returns the handler's promise. Exported so the tests can assert the routed
+ * set against the SPEC without a chrome.runtime.
+ */
+export const MESSAGE_HANDLERS = {
+  lookup: (m) => handleLookup(m.text),
+  compounds: (m) => handleCompounds(m.char),
+  usedIn: (m) => handleUsedIn(m.word),
+  openTab: (m) => handleOpenTab(m.url),
+  getPendingQuery: () => handleGetPendingQuery(),
+  savedGet: () => handleSavedGet(),
+  savedToggle: (m) => handleSavedToggle(m.kind, m.key),
+  savedCheck: (m) => handleSavedCheck(m.keys),
+  savedRemove: (m) => handleSavedRemove(m.ids),
+  savedMove: (m) => handleSavedMove(m.ids, m.folderId),
+  folderCreate: (m) => handleFolderCreate(m.name),
+  folderRename: (m) => handleFolderRename(m.id, m.name),
+  folderDelete: (m) => handleFolderDelete(m.id),
+  settingsGet: () => handleSettingsGet(),
+  settingsSet: (m) => handleSettingsSet(m.patch),
+  savedExport: (m) =>
+    handleSavedExport({ ids: m.ids, folderIds: m.folderIds, all: m.all }),
+};
+
+/** The routed handler for a message, or null when nothing handles it. */
+function routeMessage(message) {
+  if (!message || typeof message.type !== "string") return null;
+  if (!Object.prototype.hasOwnProperty.call(MESSAGE_HANDLERS, message.type)) return null;
+  return MESSAGE_HANDLERS[message.type](message);
+}
+
 // Guarded so this module can also be imported by Node (tests) without chrome.
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    const handler =
-      message && message.type === "lookup"
-        ? handleLookup(message.text)
-        : message && message.type === "compounds"
-          ? handleCompounds(message.char)
-          : message && message.type === "usedIn"
-            ? handleUsedIn(message.word)
-            : message && message.type === "openTab"
-              ? handleOpenTab(message.url)
-              : message && message.type === "getPendingQuery"
-                ? handleGetPendingQuery()
-                : null;
+    const handler = routeMessage(message);
     if (handler === null) return false;
     handler.then(sendResponse, (err) => {
       sendResponse({ ok: false, error: toErrorMessage(err) });

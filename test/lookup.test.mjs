@@ -29,6 +29,22 @@ import {
   MAX_OMNIBOX_SUGGESTIONS,
 } from "../extension/lookup.js";
 
+import {
+  buildAnkiTsv,
+  checkKeys,
+  createFolder,
+  deleteFolder,
+  joinItems,
+  moveItems,
+  normalizeSavedState,
+  normalizeSettings,
+  removeItems,
+  renameFolder,
+  resolveExportSelection,
+  toggleItem,
+  DEFAULT_SETTINGS,
+} from "../extension/saved.js";
+
 // ---------------------------------------------------------------------------
 // Inline fixtures (schema-exact per SPEC "Data files")
 // ---------------------------------------------------------------------------
@@ -1171,6 +1187,464 @@ test("junk data is tolerated: no throw, just no suggestions", () => {
   assert.deepEqual(buildOmniboxSuggestions("國民", exploding), []);
 });
 
+// ---------------------------------------------------------------------------
+// saved.js — saved words + settings (ADDENDUM). Pure, no chrome, no storage.
+// ---------------------------------------------------------------------------
+
+console.log("\nsaved.js");
+
+/** A saved state holding one word and one char, both in f0. */
+function seedState() {
+  let state = normalizeSavedState(null);
+  state = toggleItem(state, "word", "國民", "f0", 1000).state;
+  state = toggleItem(state, "char", "國", "f0", 2000).state;
+  return state;
+}
+
+// --- normalize / migration -----------------------------------------------
+
+test("normalizeSavedState turns nothing at all into a valid v1 state", () => {
+  for (const junk of [undefined, null, 42, "nope", [], {}]) {
+    const state = normalizeSavedState(junk);
+    assert.equal(state.v, 1);
+    assert.deepEqual(state.folders, [{ id: "f0", name: "Saved" }]);
+    assert.deepEqual(state.items, []);
+    assert.equal(state.nextFolder, 1);
+    assert.equal(state.nextItem, 0);
+  }
+});
+
+test("normalizeSavedState scrubs junk folders and items, keeping the good ones", () => {
+  const state = normalizeSavedState({
+    v: 1,
+    folders: [
+      { id: "f0", name: "" }, // f0 with no name falls back to "Saved"
+      { id: "f2", name: "  Verbs  " }, // trimmed
+      { id: "f3", name: "   " }, // nameless non-default folder: dropped
+      { id: "f2", name: "dupe id" }, // duplicate id: dropped
+      null,
+      "nope",
+    ],
+    items: [
+      { id: "i1", kind: "word", key: "國民", folderId: "f2", addedAt: 5 },
+      { id: "i1", kind: "char", key: "國", folderId: "f9", addedAt: 6 }, // dup id + dead folder
+      { kind: "word", key: "學生" }, // no id, no addedAt
+      { id: "i7", kind: "word", key: "國民" }, // duplicate identity: dropped
+      { id: "i8", kind: "verb", key: "x" }, // bad kind
+      { id: "i9", kind: "word", key: "" }, // bad key
+      null,
+    ],
+  });
+
+  assert.deepEqual(state.folders, [
+    { id: "f0", name: "Saved" },
+    { id: "f2", name: "Verbs" },
+  ]);
+  assert.deepEqual(
+    state.items.map((i) => [i.id, i.kind, i.key, i.folderId, i.addedAt]),
+    [
+      ["i1", "word", "國民", "f2", 5],
+      ["i2", "char", "國", "f0", 6], // fresh id, item rehomed to f0
+      ["i3", "word", "學生", "f0", 0],
+    ]
+  );
+  // Counters clear every id in use, so nothing can ever collide.
+  assert.equal(state.nextFolder, 3);
+  assert.equal(state.nextItem, 4);
+});
+
+test("normalizeSavedState never mutates its input", () => {
+  const raw = { folders: [], items: [{ id: "i0", kind: "word", key: "國民" }] };
+  const snapshot = JSON.stringify(raw);
+  normalizeSavedState(raw);
+  assert.equal(JSON.stringify(raw), snapshot);
+});
+
+// --- toggle identity round-trip ------------------------------------------
+
+test("toggleItem saves, then the same identity toggles back off", () => {
+  const empty = normalizeSavedState(null);
+
+  const saved = toggleItem(empty, "char", "國", "f0", 1234);
+  assert.equal(saved.saved, true);
+  assert.deepEqual(saved.item, {
+    id: "i0",
+    kind: "char",
+    key: "國",
+    folderId: "f0",
+    addedAt: 1234,
+  });
+  assert.equal(saved.state.items.length, 1);
+  assert.equal(empty.items.length, 0, "input state must not be mutated");
+
+  const off = toggleItem(saved.state, "char", "國", "f0", 5678);
+  assert.equal(off.saved, false);
+  assert.equal(off.item, undefined);
+  assert.deepEqual(off.state.items, []);
+  // Ids stay monotonic: re-saving does not reuse i0.
+  assert.equal(toggleItem(off.state, "char", "國", "f0", 9).item.id, "i1");
+});
+
+test("toggleItem keeps word and char identities apart, and refuses junk", () => {
+  let state = normalizeSavedState(null);
+  state = toggleItem(state, "word", "國", "f0", 1).state;
+  const both = toggleItem(state, "char", "國", "f0", 2);
+  assert.equal(both.saved, true);
+  assert.equal(both.state.items.length, 2);
+
+  const bad = toggleItem(both.state, "verb", "國", "f0", 3);
+  assert.equal(bad.saved, false);
+  assert.equal(bad.state.items.length, 2);
+  assert.equal(toggleItem(both.state, "char", "", "f0", 3).saved, false);
+});
+
+test("toggleItem drops a new item in the default folder, falling back to f0", () => {
+  const withFolder = createFolder(normalizeSavedState(null), "Verbs");
+  assert.equal(withFolder.folder.id, "f1");
+  assert.equal(toggleItem(withFolder.state, "word", "國民", "f1", 1).item.folderId, "f1");
+  // A default folder that no longer exists must not strand the item.
+  assert.equal(toggleItem(withFolder.state, "word", "國民", "f9", 1).item.folderId, "f0");
+});
+
+// --- checkKeys ------------------------------------------------------------
+
+test("checkKeys answers every requested identity with a boolean", () => {
+  const state = seedState();
+  assert.deepEqual(
+    checkKeys(state, [
+      { kind: "char", key: "國" },
+      { kind: "word", key: "國民" },
+      { kind: "char", key: "民" },
+      { kind: "word", key: "國" }, // same key, other kind: not saved
+      null,
+      { kind: "char" },
+    ]),
+    { "c:國": true, "w:國民": true, "c:民": false, "w:國": false }
+  );
+  assert.deepEqual(checkKeys(state, undefined), {});
+});
+
+// --- folder CRUD ----------------------------------------------------------
+
+test("createFolder mints monotonic ids and refuses an empty name", () => {
+  const first = createFolder(normalizeSavedState(null), "Verbs");
+  assert.equal(first.error, null);
+  assert.deepEqual(first.folder, { id: "f1", name: "Verbs" });
+
+  const second = createFolder(first.state, "  Idioms  ");
+  assert.deepEqual(second.folder, { id: "f2", name: "Idioms" });
+  assert.deepEqual(second.state.folders, [
+    { id: "f0", name: "Saved" },
+    { id: "f1", name: "Verbs" },
+    { id: "f2", name: "Idioms" },
+  ]);
+
+  const bad = createFolder(second.state, "   ");
+  assert.equal(bad.folder, null);
+  assert.equal(bad.error, "folder name required");
+  assert.equal(bad.state.folders.length, 3);
+});
+
+test("renameFolder renames f0 too, but never to empty", () => {
+  const state = createFolder(normalizeSavedState(null), "Verbs").state;
+
+  const renamed = renameFolder(state, "f0", " Bookmarks ");
+  assert.deepEqual(renamed.folder, { id: "f0", name: "Bookmarks" });
+  assert.equal(renamed.error, null);
+  assert.equal(state.folders[0].name, "Saved", "input state must not be mutated");
+
+  assert.equal(renameFolder(state, "f0", "  ").error, "folder name required");
+  assert.equal(renameFolder(state, "f9", "Nope").error, "no such folder");
+  assert.equal(renameFolder(state, "f9", "Nope").folder, null);
+});
+
+test("deleteFolder refuses f0 and moves a deleted folder's items to f0", () => {
+  let state = createFolder(seedState(), "Verbs").state; // f1
+  state = moveItems(state, ["i0"], "f1").state;
+
+  const refused = deleteFolder(state, "f0");
+  assert.equal(refused.error, "the default folder cannot be deleted");
+  assert.equal(refused.state.folders.length, 2);
+  assert.equal(deleteFolder(state, "f9").error, "no such folder");
+
+  const gone = deleteFolder(state, "f1");
+  assert.equal(gone.error, null);
+  assert.equal(gone.moved, 1);
+  assert.deepEqual(gone.state.folders, [{ id: "f0", name: "Saved" }]);
+  assert.ok(gone.state.items.every((i) => i.folderId === "f0"));
+  assert.equal(gone.state.items.length, 2, "items survive their folder");
+  // Deleting a folder never recycles its id.
+  assert.equal(createFolder(gone.state, "Later").folder.id, "f2");
+});
+
+test("deleting the default folder resets the setting to f0", () => {
+  const made = createFolder(normalizeSavedState(null), "Verbs");
+  const settings = normalizeSettings({ defaultFolderId: "f1" }, made.state);
+  assert.equal(settings.defaultFolderId, "f1", "a live folder stands");
+
+  const gone = deleteFolder(made.state, "f1");
+  assert.equal(normalizeSettings(settings, gone.state).defaultFolderId, "f0");
+  // Without a state to check against, the stored value is taken at face value.
+  assert.equal(normalizeSettings(settings).defaultFolderId, "f1");
+});
+
+// --- move / remove --------------------------------------------------------
+
+test("moveItems re-homes only the named items, and only into a real folder", () => {
+  const state = createFolder(seedState(), "Verbs").state; // f1
+
+  const moved = moveItems(state, ["i0", "i9"], "f1");
+  assert.equal(moved.error, null);
+  assert.equal(moved.moved, 1);
+  assert.deepEqual(
+    moved.state.items.map((i) => [i.id, i.folderId]),
+    [
+      ["i0", "f1"],
+      ["i1", "f0"],
+    ]
+  );
+  // A move into the folder the item is already in changes nothing.
+  assert.equal(moveItems(moved.state, ["i0"], "f1").moved, 0);
+
+  const nowhere = moveItems(state, ["i0"], "f9");
+  assert.equal(nowhere.error, "no such folder");
+  assert.equal(nowhere.moved, 0);
+  assert.deepEqual(nowhere.state.items[0].folderId, "f0");
+});
+
+test("removeItems drops the named ids and reports the count", () => {
+  const state = seedState();
+  const removed = removeItems(state, ["i1", "i9"]);
+  assert.equal(removed.removed, 1);
+  assert.deepEqual(removed.state.items.map((i) => i.id), ["i0"]);
+  assert.equal(removeItems(state, []).removed, 0);
+  assert.equal(removeItems(state, undefined).removed, 0);
+  assert.equal(state.items.length, 2, "input state must not be mutated");
+});
+
+// --- export selection -----------------------------------------------------
+
+test("resolveExportSelection takes ids, then folders, then all", () => {
+  let state = createFolder(seedState(), "Verbs").state; // f1
+  state = moveItems(state, ["i1"], "f1").state;
+  const ids = (items) => items.map((i) => i.id);
+
+  assert.deepEqual(ids(resolveExportSelection(state, { ids: ["i1"] })), ["i1"]);
+  assert.deepEqual(ids(resolveExportSelection(state, { folderIds: ["f1"] })), ["i1"]);
+  assert.deepEqual(ids(resolveExportSelection(state, { folderIds: ["f0", "f1"] })), [
+    "i0",
+    "i1",
+  ]);
+  assert.deepEqual(ids(resolveExportSelection(state, { all: true })), ["i0", "i1"]);
+  // Explicit ids win over everything else.
+  assert.deepEqual(
+    ids(resolveExportSelection(state, { ids: ["i0"], folderIds: ["f1"], all: true })),
+    ["i0"]
+  );
+  // Nothing asked for is nothing exported; the caller decides what a bare
+  // "export" means.
+  assert.deepEqual(resolveExportSelection(state, {}), []);
+  assert.deepEqual(resolveExportSelection(state, undefined), []);
+});
+
+// --- join against live data ----------------------------------------------
+
+test("joinItems joins words, chars, and marks entries the data no longer has", () => {
+  const items = [
+    { id: "i0", kind: "word", key: "國民", folderId: "f0", addedAt: 1 },
+    { id: "i1", kind: "char", key: "國", folderId: "f0", addedAt: 2 },
+    { id: "i2", kind: "word", key: "沒有", folderId: "f0", addedAt: 3 },
+    { id: "i3", kind: "char", key: "沒", folderId: "f0", addedAt: 4 },
+  ];
+  const [word, char, deadWord, deadChar] = joinItems(items, data);
+
+  assert.equal(word.hangul, "국민");
+  assert.deepEqual(word.glosses, ["the people; citizens of a nation"]);
+  assert.equal(word.rare, undefined);
+  assert.equal(word.missing, undefined);
+  assert.equal(word.id, "i0", "item fields ride along for the saved view");
+  assert.equal(word.folderId, "f0");
+
+  assert.deepEqual(char.eumhun, [{ hun: "나라", eum: "국" }]);
+  assert.deepEqual(char.readings, ["국"]);
+  assert.deepEqual(char.glosses, ["country; state; nation"]);
+  assert.equal(char.lvl, "m");
+
+  assert.equal(deadWord.missing, true);
+  assert.equal(deadWord.key, "沒有");
+  assert.equal(deadChar.missing, true);
+});
+
+test("joinItems merges homograph glosses, flags all-rare, and follows variants", () => {
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "우리", folderId: "f0", addedAt: 1 },
+      { id: "i1", kind: "word", key: "牛李", folderId: "f0", addedAt: 2 },
+      { id: "i2", kind: "word", key: "安全", folderId: "f0", addedAt: 3 },
+      { id: "i3", kind: "char", key: "国", folderId: "f0", addedAt: 4 },
+    ],
+    data
+  );
+  assert.equal(rows[0].missing, true, "a hangul spelling is not a words key");
+  assert.equal(rows[1].rare, true);
+  // 安全 has two senses; both glosses show, the hangul comes from the first.
+  assert.deepEqual(rows[2].glosses, ["safety; security", "archaic sense"]);
+  assert.equal(rows[2].hangul, "안전");
+  assert.equal(rows[2].rare, undefined);
+  // A variant glyph still resolves rather than reading as missing.
+  assert.equal(rows[3].missing, undefined);
+  assert.deepEqual(rows[3].readings, ["국"]);
+});
+
+// --- settings -------------------------------------------------------------
+
+test("normalizeSettings fills the SPEC defaults and drops unknown tokens", () => {
+  for (const junk of [undefined, null, 7, {}, { anki: "nope" }]) {
+    assert.deepEqual(normalizeSettings(junk), {
+      v: 1,
+      defaultFolderId: "f0",
+      anki: {
+        wordFront: "hanja",
+        wordBack: ["hangul", "defs"],
+        charFront: "char",
+        charBack: ["eumhun", "defs"],
+      },
+    });
+  }
+
+  const scrubbed = normalizeSettings({
+    v: 99,
+    defaultFolderId: "",
+    anki: {
+      wordFront: "lvl", // a char token: not valid on a word front
+      wordBack: ["defs", "defs", "lvl", 7, "hanja"],
+      charFront: "eumhun",
+      charBack: "not an array",
+    },
+  });
+  assert.equal(scrubbed.v, 1);
+  assert.equal(scrubbed.defaultFolderId, "f0");
+  assert.equal(scrubbed.anki.wordFront, "hanja");
+  assert.deepEqual(scrubbed.anki.wordBack, ["defs", "hanja"]);
+  assert.equal(scrubbed.anki.charFront, "eumhun");
+  assert.deepEqual(scrubbed.anki.charBack, ["eumhun", "defs"]);
+  // An emptied checkset is a real user choice and survives normalization.
+  assert.deepEqual(normalizeSettings({ anki: { charBack: [] } }).anki.charBack, []);
+});
+
+test("a settings patch merges over the current record, one level into anki", () => {
+  const current = normalizeSettings(null);
+  // The shape background.js's settingsSet merge produces.
+  const merged = normalizeSettings(
+    {
+      ...current,
+      defaultFolderId: "f1",
+      anki: { ...current.anki, wordFront: "hangul" },
+    },
+    { folders: [{ id: "f1", name: "Verbs" }] }
+  );
+  assert.equal(merged.defaultFolderId, "f1");
+  assert.equal(merged.anki.wordFront, "hangul");
+  assert.deepEqual(merged.anki.wordBack, ["hangul", "defs"], "siblings survive");
+  assert.equal(merged.anki.charFront, "char");
+  assert.equal(DEFAULT_SETTINGS.anki.wordFront, "hanja", "defaults stay defaults");
+});
+
+// --- Anki TSV -------------------------------------------------------------
+
+const tsvLines = (tsv) => tsv.replace(/\n$/, "").split("\n");
+
+test("buildAnkiTsv writes the directives, then Front TAB Back per item", () => {
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "國民", folderId: "f0", addedAt: 1 },
+      { id: "i1", kind: "char", key: "學", folderId: "f0", addedAt: 2 },
+    ],
+    data
+  );
+  const lines = tsvLines(buildAnkiTsv(rows, null));
+
+  assert.deepEqual(lines.slice(0, 2), ["#separator:tab", "#html:false"]);
+  // Word defaults: front hanja, back hangul + numbered defs.
+  assert.equal(lines[2], "國民\t국민 · 1. the people; citizens of a nation");
+  // Char defaults: front char, back eumhun + numbered defs over ALL glosses.
+  assert.equal(lines[3], "學\t배울 학 · 1. to learn; to study; 2. school; learning");
+  assert.equal(lines.length, 4);
+  assert.ok(buildAnkiTsv(rows, null).endsWith("\n"));
+});
+
+test("buildAnkiTsv renders the fields the settings ask for", () => {
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "國民", folderId: "f0", addedAt: 1 },
+      { id: "i1", kind: "char", key: "國", folderId: "f0", addedAt: 2 },
+    ],
+    data
+  );
+  const lines = tsvLines(
+    buildAnkiTsv(rows, {
+      anki: {
+        wordFront: "hangul",
+        wordBack: ["hanja", "defs"],
+        charFront: "eumhun",
+        charBack: ["char", "readings", "lvl"],
+      },
+    })
+  );
+  assert.equal(lines[2], "국민\t國民 · 1. the people; citizens of a nation");
+  assert.equal(lines[3], "나라 국\t國 · 국 · m");
+
+  // A back set that renders nothing at all leaves an empty back field.
+  const bare = tsvLines(buildAnkiTsv(rows, { anki: { wordBack: [] } }));
+  assert.equal(bare[2], "國民\t");
+});
+
+test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing rows", () => {
+  const odd = {
+    variants: { map: {} },
+    hanja: { chars: {} },
+    words: {
+      words: {
+        特殊: [{ hangul: "특수", glosses: ['R&D <special> "quoted" \'odd\''] }],
+        分野: [{ hangul: "분야", glosses: ["field\ttabbed", "line\nbroken"] }],
+      },
+    },
+  };
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "特殊", folderId: "f0", addedAt: 1 },
+      { id: "i1", kind: "word", key: "分野", folderId: "f0", addedAt: 2 },
+      { id: "i2", kind: "word", key: "沒有", folderId: "f0", addedAt: 3 },
+    ],
+    odd
+  );
+  const tsv = buildAnkiTsv(rows, null);
+
+  assert.ok(
+    tsv.includes('特殊\t"특수 · 1. R&D <special> ""quoted"" \'odd\'"'),
+    "an embedded double quote is doubled and the field is wrapped"
+  );
+  assert.ok(
+    tsv.includes('分野\t"분야 · 1. field\ttabbed; 2. line\nbroken"'),
+    "tab and newline force quoting too"
+  );
+  // The missing row is skipped; the caller counts it (background.js reports it
+  // as `skipped`). Asserted whole, since a quoted field may itself hold a
+  // newline and line counting would lie.
+  assert.equal(
+    tsv,
+    [
+      "#separator:tab",
+      "#html:false",
+      '特殊\t"특수 · 1. R&D <special> ""quoted"" \'odd\'"',
+      '分野\t"분야 · 1. field\ttabbed; 2. line\nbroken"',
+    ].join("\n") + "\n"
+  );
+  assert.equal(rows.filter((r) => r.missing === true).length, 1);
+  assert.deepEqual(buildAnkiTsv([], null), "#separator:tab\n#html:false\n");
+  assert.deepEqual(buildAnkiTsv(undefined, null), "#separator:tab\n#html:false\n");
+});
+
 // --- background.js: still importable without chrome globals --------------
 
 await testAsync("background.js imports cleanly in Node (guards hold)", async () => {
@@ -1183,9 +1657,70 @@ await testAsync("background.js imports cleanly in Node (guards hold)", async () 
     "handleOpenTab",
     "handleGetPendingQuery",
     "setPendingQuery",
+    "handleSavedGet",
+    "handleSavedToggle",
+    "handleSavedCheck",
+    "handleSavedRemove",
+    "handleSavedMove",
+    "handleFolderCreate",
+    "handleFolderRename",
+    "handleFolderDelete",
+    "handleSettingsGet",
+    "handleSettingsSet",
+    "handleSavedExport",
   ];
   for (const fn of exported) {
     assert.equal(typeof bg[fn], "function", `background.js should export ${fn}`);
+  }
+});
+
+// --- saved words: every handler answers when there is no chrome.storage ---
+
+await testAsync("without chrome.storage every saved handler answers 'unavailable'", async () => {
+  const bg = await import("../extension/background.js");
+  const unavailable = { ok: false, error: "storage unavailable" };
+
+  assert.deepEqual(await bg.handleSavedGet(), unavailable);
+  assert.deepEqual(await bg.handleSavedToggle("char", "國"), unavailable);
+  assert.deepEqual(await bg.handleSavedCheck([{ kind: "char", key: "國" }]), unavailable);
+  assert.deepEqual(await bg.handleSavedRemove(["i0"]), unavailable);
+  assert.deepEqual(await bg.handleSavedMove(["i0"], "f1"), unavailable);
+  assert.deepEqual(await bg.handleFolderCreate("Verbs"), unavailable);
+  assert.deepEqual(await bg.handleFolderRename("f1", "Verbs"), unavailable);
+  assert.deepEqual(await bg.handleFolderDelete("f1"), unavailable);
+  assert.deepEqual(await bg.handleSettingsGet(), unavailable);
+  assert.deepEqual(await bg.handleSettingsSet({ defaultFolderId: "f1" }), unavailable);
+  assert.deepEqual(await bg.handleSavedExport({ all: true }), unavailable);
+});
+
+await testAsync("the router carries every SPEC message type", async () => {
+  const { MESSAGE_HANDLERS } = await import("../extension/background.js");
+  const types = [
+    "lookup",
+    "compounds",
+    "usedIn",
+    "openTab",
+    "getPendingQuery",
+    "savedGet",
+    "savedToggle",
+    "savedCheck",
+    "savedRemove",
+    "savedMove",
+    "folderCreate",
+    "folderRename",
+    "folderDelete",
+    "settingsGet",
+    "settingsSet",
+    "savedExport",
+  ];
+  assert.deepEqual(Object.keys(MESSAGE_HANDLERS).sort(), types.slice().sort());
+  // Routed saved messages reach the storage guard, not a crash.
+  for (const type of types.filter((t) => t.startsWith("saved") || t.startsWith("folder") ||
+    t.startsWith("settings"))) {
+    assert.deepEqual(await MESSAGE_HANDLERS[type]({ type }), {
+      ok: false,
+      error: "storage unavailable",
+    });
   }
 });
 
