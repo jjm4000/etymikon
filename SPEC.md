@@ -709,15 +709,24 @@ wiki-link background-open rules all stand unchanged.
   pure-ish exported function like the others so Node tests can drive it.
 - Omnibox retarget: `onInputEntered(text, disposition)` now (1) sets
   `pendingQuery = text`, (2) calls `chrome.sidePanel.open({windowId})`
-  for the current window (omnibox Enter is a user gesture). If open()
-  REJECTS (gesture edge cases, older Chrome), fall back to the previous
-  tab behavior with url = getURL("sidepanel/sidepanel.html") + "?q=..."
-  respecting disposition (currentTab → tabs.update; otherwise
-  tabs.create, active only for newForegroundTab) — and clear
-  pendingQuery first (the tab path carries the query in the URL; a stale
-  pending query must not leak into a later panel open). `searchUrl()`
-  retargets to the sidepanel path. The sidepanel page must work opened
-  as a normal tab (this fallback and dev convenience).
+  SYNCHRONOUSLY in the handler. The Enter gesture does NOT survive an
+  awaited `chrome.windows.getCurrent()` (verified on real Chrome
+  2026-08-17: open() rejects and the fallback fires) — so open() must be
+  the first async call in the handler, and the worker must already hold
+  the window id: a module-level `focusedWindowId`, seeded via
+  `chrome.windows.getLastFocused` at module evaluation (the worker
+  re-evaluates on every wake, and omnibox keystrokes wake it well before
+  Enter) and kept fresh by `chrome.windows.onFocusChanged` (ignoring
+  WINDOW_ID_NONE, which means focus left Chrome). chrome.windows needs
+  no permission. If the panel API is missing, the id is still null, or
+  open() rejects, fall back to the previous tab behavior with url =
+  getURL("sidepanel/sidepanel.html") + "?q=..." respecting disposition
+  (currentTab → tabs.update; otherwise tabs.create, active only for
+  newForegroundTab) — and clear pendingQuery first (the tab path carries
+  the query in the URL; a stale pending query must not leak into a later
+  panel open). `searchUrl()` retargets to the sidepanel path. The
+  sidepanel page must work opened as a normal tab (this fallback and dev
+  convenience).
 - Escape: the panel is NOT closed by the browser on Escape — the old
   popup limitation is retired with the popup. Escape during IME
   composition must still not trigger a search (existing search-shell

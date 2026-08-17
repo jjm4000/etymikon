@@ -214,6 +214,29 @@ if (typeof chrome !== "undefined" && chrome.sidePanel && chrome.sidePanel.setPan
   }
 }
 
+// Sidebar ADDENDUM (gesture fix, verified on real Chrome 2026-08-17): the
+// omnibox Enter gesture does NOT survive an awaited chrome.windows.getCurrent()
+// — sidePanel.open() must be the FIRST async call in the handler or it rejects
+// and the tab fallback fires. So the worker tracks the focused window itself:
+// seeded here (this module re-evaluates on every worker wake, and omnibox
+// keystrokes wake the worker well before Enter lands) and kept fresh by
+// onFocusChanged. Guarded like the listeners above for Node importability.
+let focusedWindowId = null;
+if (typeof chrome !== "undefined" && chrome.windows && chrome.windows.getLastFocused) {
+  const WINDOW_ID_NONE = chrome.windows.WINDOW_ID_NONE;
+  chrome.windows.getLastFocused((win) => {
+    // Read lastError so Chrome doesn't log an unchecked-error warning.
+    if (chrome.runtime && chrome.runtime.lastError) return;
+    if (win && win.id !== WINDOW_ID_NONE) focusedWindowId = win.id;
+  });
+  if (chrome.windows.onFocusChanged) {
+    chrome.windows.onFocusChanged.addListener((windowId) => {
+      // WINDOW_ID_NONE means focus left Chrome entirely; keep the last real id.
+      if (windowId !== WINDOW_ID_NONE) focusedWindowId = windowId;
+    });
+  }
+}
+
 /** Sidebar ADDENDUM: the panel page as a TAB, deep-linked with the typed query. */
 function searchUrl(text) {
   return `${chrome.runtime.getURL("sidepanel/sidepanel.html")}?q=${encodeURIComponent(text)}`;
@@ -260,20 +283,22 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
   // the tab path carries the query in its URL and a leftover would re-run this
   // search the next time the panel opens for any other reason.
   chrome.omnibox.onInputEntered.addListener((text, disposition) => {
-    if (!chrome.sidePanel || !chrome.sidePanel.open) {
+    // No panel API, or the worker somehow has no window id yet: straight to
+    // the tab path (which needs no gesture and carries the query in its URL).
+    if (!chrome.sidePanel || !chrome.sidePanel.open || focusedWindowId === null) {
       openSearchTab(text, disposition);
       return;
     }
     setPendingQuery(text);
-    (async () => {
-      try {
-        // chrome.windows needs no permission; omnibox Enter is a user gesture.
-        const { id: windowId } = await chrome.windows.getCurrent();
-        await chrome.sidePanel.open({ windowId });
-      } catch {
+    try {
+      // Called SYNCHRONOUSLY in the gesture — see the focusedWindowId note.
+      chrome.sidePanel.open({ windowId: focusedWindowId }).catch(() => {
         setPendingQuery(null);
         openSearchTab(text, disposition);
-      }
-    })();
+      });
+    } catch {
+      setPendingQuery(null);
+      openSearchTab(text, disposition);
+    }
   });
 }
