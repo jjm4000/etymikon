@@ -835,12 +835,16 @@ glosses, lvl; an entry missing from data → `{missing:true}` row), and
 
 ### Export formats (ADDENDUM — user-directed: offer both)
 
-- ANKI (`.txt`): header directives `#separator:tab` and `#html:false`,
-  then Front TAB Back per item shaped by the anki settings; back fields
-  joined with " · "; definitions rendered as a numbered "1. …; 2. …"
-  string over ALL glosses; any field containing tab, newline or double
-  quote is CSV-style quoted with doubled quotes; missing rows are skipped
-  and counted.
+- ANKI (`.txt`): header directives `#separator:tab`, `#html:false`, and
+  `#tags column:3` (ADDENDUM — user-approved: folders carry into Anki as
+  tags), then Front TAB Back TAB Tag per item. Front/back shaped by the
+  anki settings; back fields joined with " · "; definitions rendered as
+  a numbered "1. …; 2. …" string over ALL glosses. The tag is the item's
+  folder name with every whitespace run replaced by "_" (Anki tags
+  cannot contain spaces); buildAnkiTsv therefore takes the folders list
+  (`buildAnkiTsv(joinedRows, settings, folders)`). Any field containing
+  tab, newline or double quote is CSV-style quoted with doubled quotes;
+  missing rows are skipped and counted.
 - CSV (`.csv`): a full-data spreadsheet, independent of the anki
   settings. Header row + RFC-4180 quoting. Fixed columns: kind, key,
   hangul, eumhun (joined "하늘 천, …"), readings, definitions, level,
