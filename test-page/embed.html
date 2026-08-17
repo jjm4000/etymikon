@@ -3,19 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Okpyeon — embed mode / search shell harness</title>
+<title>Okpyeon — sidebar / embed mode harness</title>
 
 <!--
-  The REAL popup stylesheet drives the shell below, so this page also serves
-  as the light/dark visual check for popup.css. The inline block after it only
-  widens the harness page itself (popup.css pins the body to 360px, which is
-  right for the action popup and wrong for a test page) and styles the parts
-  that belong to the harness, never to the popup.
+  The REAL side panel stylesheet drives the replicated panel below, so this
+  page also serves as the light/dark visual check for sidepanel.css. That
+  stylesheet is written for a panel that owns its whole viewport (html, body
+  and .app all at 100% height, no width anywhere), which is right for the side
+  panel and wrong for a test page that also carries prose and a check log. The
+  inline block after it therefore does two things and nothing else: it gives
+  the harness PAGE back its ordinary document flow, and it frames the
+  replicated panel in a fixed 360×600 box so .app has a height to be 100% of.
+  Everything it styles belongs to the harness, never to the panel's own
+  markup — the popup harness this file grew out of did exactly the same thing
+  for the popup's 340px assumption.
 -->
-<link rel="stylesheet" href="../extension/popup/popup.css">
+<link rel="stylesheet" href="../extension/sidepanel/sidepanel.css">
 <style>
+  /* sidepanel.css pins html/body to the viewport height; this page scrolls. */
+  html, body { height: auto; }
   body {
-    width: auto;
     max-width: 860px;
     margin: 0 auto;
     padding: 24px 20px 60px;
@@ -28,19 +35,29 @@
   p.note { margin: 0 0 12px; color: var(--page-muted); font-size: 13.5px; }
   code { font-size: .92em; }
 
-  /* The replicated popup shell: same markup and ids popup.html uses, so the
-     real popup.js bootstrapper runs against it verbatim. */
-  .app {
-    width: 340px;
+  /* The panel frame: the harness's stand-in for the browser-supplied side
+     panel viewport. The markup inside it is sidepanel.html's verbatim, so the
+     real sidepanel.js runs against it unchanged; the frame only supplies the
+     fixed size (and the panel's own type metrics, which the wider harness body
+     above overrides). */
+  .panel-frame {
+    width: 360px;
+    height: 600px;
     border: 1px solid var(--page-edge);
     border-radius: 10px;
     overflow: hidden;
     background: var(--page-bg);
+    font-size: 13px;
+    line-height: 1.45;
   }
 
-  button { font: inherit; font-size: 14px; padding: 5px 11px; border-radius: 6px;
-           border: 1px solid var(--page-edge); background: var(--field-bg);
-           color: var(--page-fg); cursor: pointer; }
+  /* The ?q= precedence check boots a SECOND copy of this page in here. */
+  .probe-frame { width: 360px; height: 220px; margin-top: 12px;
+                 border: 1px dashed var(--page-edge); border-radius: 8px; }
+
+  #run { font: inherit; font-size: 14px; padding: 5px 11px; border-radius: 6px;
+         border: 1px solid var(--page-edge); background: var(--field-bg);
+         color: var(--page-fg); cursor: pointer; }
   pre#out { font-size: 12.5px; line-height: 1.5; background: #12121a; color: #d8d8e2;
             padding: 12px; border-radius: 8px; overflow: auto; white-space: pre-wrap;
             min-height: 40px; }
@@ -48,18 +65,28 @@
 </head>
 <body>
 
-<h1>Okpyeon — embed mode / search shell harness</h1>
+<h1>Okpyeon — sidebar / embed mode harness</h1>
 <p class="note">
   This page sets <code>__hanjaHoverTestRuntime</code> (the same fake service worker
-  the selection test page uses) <em>and</em> loads the real
-  <code>popup-boot.js → content.js → search-shell.js → popup.js</code> against the
-  replicated popup shell below. Type in the field to drive the real search shell;
-  append <code>?q=國民</code> to the URL to exercise the deep link by hand.
+  the selection test page uses, extended to answer <code>getPendingQuery</code>)
+  <em>and</em> loads the real
+  <code>boot.js → content.js → search-shell.js → sidepanel.js</code> against the
+  replicated side panel below. The fake worker boots holding a pending query, so
+  the panel comes up already showing it, exactly as an omnibox open would.
+  Type in the field to drive the real search shell; append <code>?q=國民</code> to
+  the URL to exercise the deep link by hand (it takes precedence over the
+  pending query, and the worker is then never asked).
 </p>
 
+<div class="panel-frame">
+<!-- ------------------------------------------------------------------ -->
+<!-- Replicated from extension/sidepanel/sidepanel.html, ids and all, so  -->
+<!-- the shipped sidepanel.js bootstrapper runs against it verbatim.      -->
+<!-- ------------------------------------------------------------------ -->
 <div class="app">
   <header class="header">
     <span class="brand" role="img" aria-label="Okpyeon">玉篇</span>
+    <nav id="okp-nav" class="nav" aria-label="Views"></nav>
     <div id="okp-actions" class="actions"></div>
   </header>
   <div class="searchbar">
@@ -68,16 +95,22 @@
            aria-label="Search hanja, a sino-Korean word, or a single syllable"
            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
   </div>
-  <div id="okp-results" class="results">
-    <p id="okp-status" class="status"></p>
+  <div id="okp-views" class="views">
+    <div id="okp-view-search" class="view view--search" data-view="search">
+      <div id="okp-results" class="results">
+        <p id="okp-status" class="status"></p>
+      </div>
+    </div>
   </div>
+</div>
 </div>
 
 <h2>Automated checks</h2>
 <p class="note">
   Embed layout, inert dismissal, the drill-down surface inside embed, the
-  shell's debounce / IME / deep-link / no-result wiring, and the popup page's
-  own header + declarative actions registry.
+  shell's debounce / IME / deep-link / no-result wiring, and the side panel
+  page's own boot sequence, view registry, header actions and
+  single-scroll-container invariant.
 </p>
 <p><button id="run">Run embed self-checks</button></p>
 <pre id="out">not run yet</pre>
@@ -85,7 +118,9 @@
 <!-- ------------------------------------------------------------------ -->
 <!-- Fake service worker — inlined verbatim from index.html so both       -->
 <!-- harnesses exercise identical fixture data. Must be installed BEFORE  -->
-<!-- content.js loads.                                                    -->
+<!-- content.js loads. The sidebar's getPendingQuery message is added by   -->
+<!-- the DECORATOR in the next block rather than here, so this block stays -->
+<!-- byte-identical to index.html's copy.                                  -->
 <!-- ------------------------------------------------------------------ -->
 <script>
 (function () {
@@ -658,16 +693,63 @@
   };
 })();
 </script>
+<!-- ------------------------------------------------------------------ -->
+<!-- Pending-query decorator — the sidebar half of the fake worker.       -->
+<!--                                                                     -->
+<!-- The fixture block above is inlined VERBATIM from index.html and must  -->
+<!-- stay that way, so the message type only this surface sends is added   -->
+<!-- by wrapping the installed runtime instead of editing it: getPendingQuery -->
+<!-- is answered here, everything else delegates to the fixture untouched.  -->
+<!-- index.html needs no counterpart (content.js never sends it).           -->
+<!--                                                                       -->
+<!-- The answer mirrors background.js exactly: {ok:true, query} with query   -->
+<!-- a string or null, and READ-ONCE, so a reload or a second panel open     -->
+<!-- cannot re-run a stale search. The harness boots with one primed, which  -->
+<!-- is what an omnibox-opened panel sees.                                  -->
+<!-- ------------------------------------------------------------------ -->
+<script>
+(function () {
+  "use strict";
+
+  var BOOT_QUERY = "學生";
+
+  var fake = globalThis.__hanjaHoverTestRuntime;
+  var inner = fake.sendMessage;
+  var pending = BOOT_QUERY;
+  var calls = 0;
+
+  fake.sendMessage = function (msg, cb) {
+    if (msg && msg.type === "getPendingQuery") {
+      calls++;
+      var resp = { ok: true, query: pending };
+      pending = null;                    // read-once, like the real worker
+      if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
+      return Promise.resolve(resp);
+    }
+    return inner.apply(this, arguments);
+  };
+
+  globalThis.__pendingQuerySpy = {
+    bootQuery: BOOT_QUERY,
+    set: function (q) { pending = q; },
+    peek: function () { return pending; },
+    calls: function () { return calls; },
+    reset: function () { calls = 0; pending = null; }
+  };
+})();
+</script>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- Minimal chrome.tabs spy — the popup surface's background-open path.  -->
+<!-- Minimal chrome.tabs spy — the sidebar surface's background-open path. -->
 <!--                                                                     -->
 <!-- ONLY chrome.tabs, deliberately NOT chrome.runtime. content.js probes -->
 <!-- chrome.runtime SPECIFICALLY for HAS_CHROME_RUNTIME, so a chrome      -->
 <!-- object without it leaves IS_STUB true: the fake runtime above stays  -->
-<!-- selected and the __hanjaHover test hooks stay exposed. Adding        -->
-<!-- chrome.runtime here would silently flip that and disable the whole   -->
-<!-- suite, so the checks assert the detection explicitly.                -->
+<!-- selected and the __hanjaHover test hooks stay exposed. sidepanel.js  -->
+<!-- probes the same object for a runtime with an `id`, so its pending-   -->
+<!-- query pull also lands on the fake worker. Adding chrome.runtime here -->
+<!-- would silently flip both and disable the whole suite, so the checks   -->
+<!-- assert the detection explicitly.                                     -->
 <!-- Must be installed BEFORE content.js: appendWikiLink decides which    -->
 <!-- click handling to attach at link-creation time.                      -->
 <!-- ------------------------------------------------------------------ -->
@@ -690,11 +772,11 @@
 })();
 </script>
 
-<!-- The real popup boot chain, in the real order. -->
-<script src="../extension/popup/popup-boot.js"></script>
+<!-- The real side panel boot chain, in the real order. -->
+<script src="../extension/sidepanel/boot.js"></script>
 <script src="../extension/content/content.js"></script>
-<script src="../extension/popup/search-shell.js"></script>
-<script src="../extension/popup/popup.js"></script>
+<script src="../extension/sidepanel/search-shell.js"></script>
+<script src="../extension/sidepanel/sidepanel.js"></script>
 
 <!-- Self-checks. -->
 <script>
@@ -702,10 +784,24 @@
   "use strict";
 
   var out = document.getElementById("out");
+  var frame = document.querySelector(".panel-frame");
+  var app = document.querySelector(".app");
+  var header = document.querySelector(".header");
+  var brand = document.querySelector(".brand");
+  var nav = document.getElementById("okp-nav");
+  var actions = document.getElementById("okp-actions");
   var input = document.getElementById("okp-input");
+  var views = document.getElementById("okp-views");
+  var searchBox = document.getElementById("okp-view-search");
   var results = document.getElementById("okp-results");
   var status = document.getElementById("okp-status");
   var fake = globalThis.__hanjaHoverTestRuntime;
+  var pendingSpy = globalThis.__pendingQuerySpy;
+
+  // Every run registers its own probe view: the registry is live and a key,
+  // once mounted, is never taken back, so re-using one across runs would test
+  // the previous run's leftovers instead.
+  var runSeq = 0;
 
   // A failure switch for lookups, which the shared fixture does not have
   // (it only simulates compounds/usedIn failures). Patched onto the object
@@ -728,19 +824,26 @@
     var api = globalThis.__hanjaHover;                 // renderer test hooks
     var embed = globalThis.__okpyeonEmbedApi;          // the embed API itself
     var shellApi = globalThis.__okpyeonSearchShell;
-    var lines = [], pass = 0, fail = 0;
+    var sidebar = globalThis.__okpyeonSidebar;         // the page's own surface
+    var lines = [], pass = 0, fail = 0, skipped = 0;
     function check(name, cond, detail) {
       (cond ? pass++ : fail++);
       lines.push((cond ? "PASS  " : "FAIL  ") + name + (detail ? "   [" + detail + "]" : ""));
     }
+    function skip(name, why) {
+      skipped++;
+      lines.push("SKIP  " + name + "   [" + why + "]");
+    }
 
-    if (!embed || !shellApi) {
-      out.textContent = "FAIL: embed API / search shell missing — did popup-boot.js run first?";
+    if (!embed || !shellApi || !sidebar) {
+      out.textContent = "FAIL: embed API / search shell / sidebar surface missing — " +
+        "did boot.js run first?";
       return;
     }
 
-    // The shell popup.js started at load. Re-created from scratch here so the
-    // suite is independent of whatever the page was left in.
+    // The shell sidepanel.js started at load. Re-created from scratch below so
+    // the ported checks are independent of whatever the page was left in — but
+    // NOT before the boot section, which is about that very first start.
     var shell = shellApi.controller();
     function reinit(extra) {
       var live = shellApi.controller();
@@ -759,11 +862,61 @@
 
     function hostEl() { return results.querySelector("[data-hanja-hover]"); }
     function cpdRows() { return api.queryAll(".compounds > .compound-row"); }
+    function shown(el) { return !!el && el.getClientRects().length > 0; }
+
+    // "Scrolls" means the element both allows it and has something to scroll,
+    // which is the invariant that matters: overflow alone would also flag a
+    // scroller with nothing in it.
+    function canScroll(el) {
+      var oy = getComputedStyle(el).overflowY;
+      return (oy === "auto" || oy === "scroll") && (el.scrollHeight - el.clientHeight) > 1;
+    }
 
     try {
+    /* ==================================================================
+     * Boot — sidepanel.js's own sequence, asserted BEFORE anything here
+     * touches the page. `ready` settles once the initial query has been
+     * resolved, the chrome rendered and the search view mounted.
+     * ================================================================== */
+    var bootQuery = await sidebar.ready;
+    var bootShell = shellApi.controller();
+    if (bootShell) await bootShell.ready;
+    shell = bootShell;
+
+    check("the sidebar surface exposes its registries and view controls",
+      Array.isArray(sidebar.viewRegistry) && Array.isArray(sidebar.actionRegistry) &&
+      typeof sidebar.registerView === "function" && typeof sidebar.renderNav === "function" &&
+      typeof sidebar.renderActions === "function" && typeof sidebar.showView === "function" &&
+      typeof sidebar.activeView === "function" && !!sidebar.ready);
+    check("boot pulls the worker's pending query and starts from it",
+      bootQuery === pendingSpy.bootQuery, JSON.stringify(bootQuery));
+    check("the panel asked the worker for a pending query exactly once",
+      pendingSpy.calls() === 1, "calls=" + pendingSpy.calls());
+    check("the pending query is prefilled into the input",
+      input.value === pendingSpy.bootQuery, JSON.stringify(input.value));
+    check("the pending query renders results with nothing typed",
+      shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
+      "state=" + shell.state() + " cards=" + api.cardCount());
+    var secondPull = await new Promise(function (r) {
+      fake.sendMessage({ type: "getPendingQuery" }, r);
+    });
+    check("the pending query is read-once: the next pull comes back empty",
+      secondPull && secondPull.ok === true && secondPull.query === null,
+      JSON.stringify(secondPull));
+    check("the search view is mounted and active after boot",
+      sidebar.activeView() === "search" && searchBox.parentNode === views &&
+      !searchBox.classList.contains("view--hidden") && shown(searchBox),
+      "active=" + sidebar.activeView());
+    check("one registered view means NO nav row at all",
+      sidebar.viewRegistry.length === 1 && sidebar.renderNav() === 0 &&
+      nav.classList.contains("nav--hidden") && !shown(nav),
+      "views=" + sidebar.viewRegistry.length + " tabs=" + sidebar.renderNav());
+
     shell = reinit();
 
-    // --- wiring ---------------------------------------------------------
+    /* ==================================================================
+     * Embed contract — unchanged by the surface swap.
+     * ================================================================== */
     check("embed API exposes mount/searchFor/clear",
       typeof embed.mount === "function" && typeof embed.searchFor === "function" &&
       typeof embed.clear === "function");
@@ -819,6 +972,20 @@
       "scrollTop=" + results.scrollTop);
     check("the panel refuses to scroll — there is no nested scroller",
       api.scrollTop(60) === 0, "panelScrollTop=" + api.scrollTop());
+    // The single-scroll-container invariant, stated over the whole column
+    // rather than one element at a time: the frame, the app column, the view
+    // container and the view itself must all decline, leaving exactly one
+    // scrollbar on the panel (the harness PAGE around the frame is allowed to
+    // scroll — that is harness chrome, not the panel).
+    var column = [
+      ["frame", frame], ["app", app], ["views", views],
+      ["view", searchBox], ["results", results]
+    ];
+    var scrollers = column.filter(function (pair) { return canScroll(pair[1]); });
+    check("exactly ONE element in the panel column scrolls, and it is #okp-results",
+      scrollers.length === 1 && scrollers[0][1] === results &&
+      getComputedStyle(results).overflowY === "auto",
+      "scrollers=" + scrollers.map(function (p) { return p[0]; }).join(",") || "none");
     results.scrollTop = 0;
     await embed.searchFor("국민");
 
@@ -902,6 +1069,10 @@
     // --- clear() ---------------------------------------------------------
     embed.clear();
     check("clear() hides the panel", !api.isVisible());
+
+    /* ==================================================================
+     * Search shell — surface-independent behavior.
+     * ================================================================== */
 
     // --- shell: debounce -------------------------------------------------
     shell = reinit();
@@ -1001,7 +1172,7 @@
       shell.state() === "results" && api.isVisible());
 
     // --- shell: ?q= deep link -------------------------------------------
-    // init() with initialQuery is exactly what popup.js does with ?q=.
+    // init() with initialQuery is exactly what sidepanel.js does with ?q=.
     var seenStates = [];
     shell = reinit({
       initialQuery: "國民", autofocus: true,
@@ -1018,16 +1189,13 @@
       shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
       seenStates.join(",") + " cards=" + api.cardCount());
 
-    // --- popup page chrome: header + actions registry --------------------
-    // The header is popup.html's own chrome, not search-shell behavior. It is
-    // checked here because this harness loads the REAL popup.js against the
-    // REAL popup.css, so the registry and its styling are the shipped ones.
+    /* ==================================================================
+     * Side panel page chrome — header, actions registry, view registry.
+     * Checked here because this harness loads the REAL sidepanel.js against
+     * the REAL sidepanel.css, so the registries and their styling are the
+     * shipped ones.
+     * ================================================================== */
     shell = reinit();                        // empty state, nothing typed
-    var app = document.querySelector(".app");
-    var header = document.querySelector(".header");
-    var brand = document.querySelector(".brand");
-    var actions = document.getElementById("okp-actions");
-    var headerApi = globalThis.__okpyeonPopupHeader;
 
     check("the header is one slim row inside its 26px budget",
       header.getBoundingClientRect().height <= 26,
@@ -1040,44 +1208,50 @@
       getComputedStyle(brand).color !== getComputedStyle(document.body).color,
       getComputedStyle(brand).color + " / " + getComputedStyle(brand).fontFamily);
     check("the actions registry ships EMPTY — no dead placeholder icons",
-      headerApi.actionRegistry.length === 0 && actions.childElementCount === 0,
-      "entries=" + headerApi.actionRegistry.length);
-    check("the empty popup still fits the ~105px budget with the header",
-      app.clientHeight <= 105, "shell=" + app.clientHeight + "px");
+      sidebar.actionRegistry.length === 0 && actions.childElementCount === 0,
+      "entries=" + sidebar.actionRegistry.length);
+    // The popup was content-sized; the panel is a full-height column, and the
+    // results area is what takes the slack.
+    check("the panel column fills the panel viewport, results taking the slack",
+      app.clientHeight === frame.clientHeight &&
+      results.clientHeight > frame.clientHeight - 120,
+      "app=" + app.clientHeight + " frame=" + frame.clientHeight +
+      " results=" + results.clientHeight);
 
     // The acceptance test for the scaffold: a whole new action, with no new
     // markup, CSS or wiring — just one entry.
     var fired = 0;
-    headerApi.actionRegistry.push({
+    sidebar.actionRegistry.push({
       key: "probe", label: "★", title: "Probe action",
       onClick: function () { fired++; }
     });
-    headerApi.render();
-    var probe = actions.querySelector(".action--probe");
     check("a new header action needs nothing but a registry entry",
-      !!probe && actions.childElementCount === 1 && probe.textContent === "★");
+      sidebar.renderActions() === 1 && actions.childElementCount === 1 &&
+      !!actions.querySelector(".action--probe") &&
+      actions.querySelector(".action--probe").textContent === "★");
+    var probeAction = actions.querySelector(".action--probe");
     check("it gets its per-key modifier class, title and accessible name",
-      probe.classList.contains("action") && probe.title === "Probe action" &&
-      probe.getAttribute("aria-label") === "Probe action");
-    probe.click();
+      probeAction.classList.contains("action") && probeAction.title === "Probe action" &&
+      probeAction.getAttribute("aria-label") === "Probe action");
+    probeAction.click();
     check("its onClick fires", fired === 1, "fired=" + fired);
     check("the header still fits its budget with an action in it",
       header.getBoundingClientRect().height <= 26 &&
       brand.getBoundingClientRect().right <= actions.getBoundingClientRect().left + 1,
       "h=" + header.getBoundingClientRect().height.toFixed(1));
 
-    headerApi.actionRegistry.push({ key: "probe2", label: "☆", title: "Second probe" });
-    headerApi.render();
-    check("multiple actions stay on ONE row at 340px (no wrap)",
+    sidebar.actionRegistry.push({ key: "probe2", label: "☆", title: "Second probe" });
+    sidebar.renderActions();
+    check("multiple actions stay on ONE row at the panel's width (no wrap)",
       actions.childElementCount === 2 &&
       header.getBoundingClientRect().height <= 26 &&
       Math.abs(actions.children[0].getBoundingClientRect().top -
                actions.children[1].getBoundingClientRect().top) < 0.5,
       "h=" + header.getBoundingClientRect().height.toFixed(1));
-    headerApi.actionRegistry.pop();
+    sidebar.actionRegistry.pop();
 
-    headerApi.actionRegistry[0].enabled = false;
-    headerApi.render();
+    sidebar.actionRegistry[0].enabled = false;
+    sidebar.renderActions();
     var dimmed = actions.querySelector(".action--probe");
     var firedBefore = fired;
     dimmed.click();
@@ -1087,14 +1261,14 @@
       dimmed.title === "Probe action" && fired === firedBefore,
       "opacity=" + getComputedStyle(dimmed).opacity + " fired=" + fired);
 
-    headerApi.actionRegistry.pop();
-    headerApi.render();
+    sidebar.actionRegistry.pop();
     check("removing the entry empties the header again",
-      actions.childElementCount === 0 && headerApi.actionRegistry.length === 0);
+      sidebar.renderActions() === 0 && actions.childElementCount === 0 &&
+      sidebar.actionRegistry.length === 0);
 
     // --- the header must never move as results arrive --------------------
-    // Measured relative to the shell, not the viewport: this harness page can
-    // scroll under the shell (autofocus, growing results), which would move
+    // Measured relative to the app column, not the viewport: this harness page
+    // can scroll under the panel (autofocus, growing results), which would move
     // every viewport rect without the header having shifted at all.
     function headerOffset() {
       return header.getBoundingClientRect().top - app.getBoundingClientRect().top;
@@ -1110,13 +1284,130 @@
       " h " + heightBefore.toFixed(1) + "→" +
       header.getBoundingClientRect().height.toFixed(1));
 
-    // --- Wiktionary links: background-open on the popup surface ----------
-    // Browser-level link activation dismisses an action popup even when it
-    // opens a background tab; an API-created background tab does not. So in
-    // embed mode with chrome.tabs present, plain left/middle clicks are
-    // intercepted and routed through tabs.create({active: false}). Modified
-    // clicks keep native behavior. The in-page selection popup is unaffected
-    // (IS_EMBED gates the whole thing) — index.html covers that side.
+    /* --- view registry ---------------------------------------------------
+     * The acceptance test for the OTHER scaffold: a second view is one
+     * registry entry, the nav appears by itself, and switching is a display
+     * toggle that leaves the search view exactly as it was.
+     */
+    var searchView = sidebar.viewRegistry[0];
+    var order = [];
+    searchView.onShow = function () { order.push("search:show"); };
+    searchView.onHide = function () { order.push("search:hide"); };
+
+    var VIEW_KEY = "probeview" + (++runSeq);
+    function probeBox() { return views.querySelector('[data-view="' + VIEW_KEY + '"]'); }
+    var mounts = 0, probeCtx = null;
+    var probeView = sidebar.registerView({
+      key: VIEW_KEY, label: "Probe", title: "Harness probe view",
+      mount: function (container, ctx) {
+        mounts++;
+        probeCtx = ctx;
+        var p = document.createElement("p");
+        p.className = "probe-body";
+        p.textContent = "probe view";
+        container.appendChild(p);
+      },
+      onShow: function () { order.push("probe:show"); },
+      onHide: function () { order.push("probe:hide"); }
+    });
+    check("registerView returns the entry and grows the live registry",
+      probeView && sidebar.viewRegistry.length === 2 &&
+      sidebar.viewRegistry[1] === probeView && mounts === 0,
+      "views=" + sidebar.viewRegistry.length + " mounts=" + mounts);
+    check("a second view is all it takes for the nav row to appear",
+      sidebar.renderNav() === 2 && !nav.classList.contains("nav--hidden") &&
+      shown(nav) && nav.querySelectorAll(".tab").length === 2 &&
+      !!nav.querySelector(".tab--search") && !!nav.querySelector(".tab--" + VIEW_KEY),
+      "tabs=" + nav.querySelectorAll(".tab").length);
+    check("the active view's tab is the marked one",
+      nav.querySelector(".tab--search").classList.contains("tab--active") &&
+      nav.querySelector(".tab--search").getAttribute("aria-current") === "page" &&
+      !nav.querySelector(".tab--" + VIEW_KEY).classList.contains("tab--active"));
+
+    // Give the search view state worth losing: a query, rendered cards, and a
+    // scroll position that is not the top. Typed through the input rather than
+    // handed to search() directly, because the input's own value is part of
+    // what has to survive.
+    input.value = "大韓民國";
+    await shell.search();
+    var stateCards = api.cardCount();
+    results.scrollTop = 80;
+    var stateScroll = results.scrollTop;
+    check("fixture sanity: the search view is scrolled before the switch",
+      stateScroll > 0 && stateCards === 5,
+      "scrollTop=" + stateScroll + " cards=" + stateCards);
+
+    order.length = 0;
+    check("showView mounts the new view on its FIRST show only",
+      sidebar.showView(VIEW_KEY) === true && mounts === 1 &&
+      sidebar.activeView() === VIEW_KEY && !!probeBox() &&
+      probeBox().querySelector(".probe-body"),
+      "mounts=" + mounts + " active=" + sidebar.activeView());
+    check("mount() receives the embed API and the search-shell MODULE as ctx",
+      !!probeCtx && probeCtx.embedApi === embed && probeCtx.shell === shellApi &&
+      probeCtx.shell.controller() === shell);
+    check("switching hides the outgoing container and shows the incoming one",
+      searchBox.classList.contains("view--hidden") && !shown(searchBox) &&
+      !probeBox().classList.contains("view--hidden") && shown(probeBox()),
+      "search hidden=" + searchBox.classList.contains("view--hidden"));
+    check("lifecycle order is onHide (outgoing) then onShow (incoming)",
+      order.join(" ") === "search:hide probe:show", JSON.stringify(order.join(" ")));
+    check("the nav marks the newly active tab instead",
+      nav.querySelector(".tab--" + VIEW_KEY).classList.contains("tab--active") &&
+      !nav.querySelector(".tab--search").classList.contains("tab--active"));
+
+    order.length = 0;
+    check("an unknown view key is refused and changes nothing",
+      sidebar.showView("no-such-view") === false &&
+      sidebar.activeView() === VIEW_KEY && order.length === 0,
+      "active=" + sidebar.activeView());
+    var dupThrew = false;
+    try { sidebar.registerView({ key: VIEW_KEY, mount: function () {} }); }
+    catch (e) { dupThrew = true; }
+    check("a duplicate view key throws and leaves the registry alone",
+      dupThrew && sidebar.viewRegistry.length === 2);
+    var noMountThrew = false;
+    try { sidebar.registerView({ key: VIEW_KEY + "-x", label: "No mount" }); }
+    catch (e) { noMountThrew = true; }
+    check("a view without a mount() throws and leaves the registry alone",
+      noMountThrew && sidebar.viewRegistry.length === 2);
+
+    // Back via the rendered tab, not the API — the nav has to work too.
+    order.length = 0;
+    nav.querySelector(".tab--search").click();
+    check("clicking a nav tab switches back to that view",
+      sidebar.activeView() === "search" && shown(searchBox) &&
+      !shown(probeBox()) && !searchBox.classList.contains("view--hidden"),
+      "active=" + sidebar.activeView());
+    check("lifecycle order on the way back is onHide then onShow again",
+      order.join(" ") === "probe:hide search:show", JSON.stringify(order.join(" ")));
+    check("a mounted view is never re-mounted", mounts === 1, "mounts=" + mounts);
+    check("search state survives the round trip: input, cards, scroll, shell",
+      input.value === "大韓民國" && api.isVisible() &&
+      api.cardCount() === stateCards && results.scrollTop === stateScroll &&
+      shellApi.controller() === shell,
+      "input=" + JSON.stringify(input.value) + " cards=" + api.cardCount() +
+      " scrollTop=" + results.scrollTop + " (was " + stateScroll + ")");
+
+    // Put the registry back the way it shipped.
+    delete searchView.onShow;
+    delete searchView.onHide;
+    sidebar.viewRegistry.pop();
+    var orphan = probeBox();
+    if (orphan && orphan.parentNode) orphan.parentNode.removeChild(orphan);
+    check("dropping back to one view hides the nav again",
+      sidebar.viewRegistry.length === 1 && sidebar.renderNav() === 0 &&
+      nav.classList.contains("nav--hidden") && !shown(nav));
+    results.scrollTop = 0;
+
+    /* ==================================================================
+     * Wiktionary links: background-open on the sidebar surface.
+     *
+     * In embed mode with chrome.tabs present, plain left/middle clicks are
+     * intercepted and routed through tabs.create({active: false}); modified
+     * clicks keep native behavior. The in-page selection popup is unaffected
+     * (IS_EMBED gates the whole thing) — index.html covers that side.
+     * ================================================================== */
     var tabsSpy = globalThis.__tabsSpy;
 
     check("a chrome object WITHOUT .runtime still selects the fake test runtime",
@@ -1159,8 +1450,8 @@
       return verdict;
     }
 
-    var cardsBefore = api.cardCount();
-    var depthBefore2 = api.viewDepth();
+    var wikiCards = api.cardCount();
+    var wikiDepth = api.viewDepth();
 
     // --- plain left click ---
     tabsSpy.reset();
@@ -1171,9 +1462,9 @@
       JSON.stringify(tabsSpy.calls));
     check("plain left click prevents the browser's own link activation",
       plain.seen && plain.prevented === true, "prevented=" + plain.prevented);
-    check("the popup is completely untouched by the interception",
-      api.isVisible() && api.cardCount() === cardsBefore &&
-      api.viewDepth() === depthBefore2,
+    check("the panel is completely untouched by the interception",
+      api.isVisible() && api.cardCount() === wikiCards &&
+      api.viewDepth() === wikiDepth,
       "visible=" + api.isVisible() + " cards=" + api.cardCount() +
       " depth=" + api.viewDepth());
     check("the link reports the background open as 'Opened ↗'",
@@ -1210,9 +1501,63 @@
           " text=" + JSON.stringify(wiki.textContent));
       });
 
+    /* ==================================================================
+     * ?q= precedence.
+     *
+     * The one thing that cannot be re-driven in place: sidepanel.js resolves
+     * the initial query exactly once, at load. So the check boots a SECOND
+     * copy of this whole page in an iframe with ?q= set, and asserts that the
+     * deep link wins AND that the worker was never asked — the omnibox clears
+     * its pending query before taking the tab path, so a panel that asked
+     * anyway could resurrect a stale one. Needs same-origin access, i.e. the
+     * harness served over http://; on file:// it is reported as skipped.
+     * ================================================================== */
+    if (location.protocol === "file:") {
+      skip("?q= wins over the pending query and the worker is never asked",
+        "file:// blocks same-origin iframe access — serve the repo over http://");
+    } else {
+      var deepUrl = location.origin + location.pathname + "?q=" +
+        encodeURIComponent("漢字");
+      var probeFrame = document.createElement("iframe");
+      probeFrame.className = "probe-frame";
+      probeFrame.title = "?q= precedence probe";
+      var loaded = new Promise(function (resolve) {
+        probeFrame.addEventListener("load", resolve, { once: true });
+        setTimeout(resolve, 5000);
+      });
+      probeFrame.src = deepUrl;
+      document.body.appendChild(probeFrame);
+      await loaded;
+      var win = probeFrame.contentWindow;
+      var childSidebar = win && win.__okpyeonSidebar;
+      if (!childSidebar) {
+        check("?q= wins over the pending query and the worker is never asked",
+          false, "the probe frame did not boot");
+      } else {
+        var childQuery = await childSidebar.ready;
+        var childShell = win.__okpyeonSearchShell.controller();
+        if (childShell) await childShell.ready;
+        check("?q= wins over the pending query as the initial query",
+          childQuery === "漢字" &&
+          win.document.getElementById("okp-input").value === "漢字",
+          JSON.stringify(childQuery));
+        check("with ?q= present the worker is never asked, so nothing is consumed",
+          win.__pendingQuerySpy.calls() === 0 &&
+          win.__pendingQuerySpy.peek() === win.__pendingQuerySpy.bootQuery,
+          "calls=" + win.__pendingQuerySpy.calls() +
+          " pending=" + JSON.stringify(win.__pendingQuerySpy.peek()));
+        check("the deep-linked panel renders its results on its own",
+          childShell.state() === "results" && win.__hanjaHover.isVisible() &&
+          win.__hanjaHover.cardCount() === 3,
+          "state=" + childShell.state() + " cards=" + win.__hanjaHover.cardCount());
+      }
+      probeFrame.parentNode.removeChild(probeFrame);
+    }
+
     // Leave the page in a usable state for manual poking.
     tabsSpy.reset();
     shell = reinit();
+    input.focus();
     } catch (e) {
       fail++;
       lines.push("THREW  " + (e && e.message) + "  @ " +
@@ -1220,7 +1565,9 @@
     }
 
     lines.push("");
-    lines.push(fail === 0 ? ("ALL PASS (" + pass + ")") : (fail + " FAILED / " + pass + " passed"));
+    lines.push((fail === 0 ? ("ALL PASS (" + pass + ")")
+                           : (fail + " FAILED / " + pass + " passed")) +
+               (skipped ? ("  —  " + skipped + " skipped") : ""));
     out.textContent = lines.join("\n");
   });
 })();
