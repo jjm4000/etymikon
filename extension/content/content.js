@@ -1081,7 +1081,40 @@
     link.setAttribute("aria-label",
       "Wiktionary entry for " + title + " (opens in a new tab)");
     link.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
-    link.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    // EXPERIMENT (popup-survival): in embed mode inside a real extension page,
+    // browser-level link activation in an action popup dismisses the popup —
+    // even middle-click-to-background-tab does (observed). Bypassing link
+    // handling entirely (preventDefault + chrome.tabs.create({active:false}))
+    // is the one route that may keep the popup alive; whether it does is
+    // empirically version-dependent, hence this is instrumented as a trial.
+    var canBackgroundOpen =
+      IS_EMBED &&
+      typeof chrome !== "undefined" &&
+      chrome.tabs &&
+      typeof chrome.tabs.create === "function";
+    function backgroundOpen(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      chrome.tabs.create({ url: url, active: false });
+      var prior = link.textContent;
+      link.textContent = "Opened ↗";
+      setTimeout(function () { link.textContent = prior; }, 1200);
+    }
+    if (canBackgroundOpen) {
+      link.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        if (ev.button === 0 && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+          backgroundOpen(ev);
+        }
+      });
+      // Middle-click fires auxclick, not click; intercept it too so the
+      // browser's own open-in-background path (which kills the popup) never runs.
+      link.addEventListener("auxclick", function (ev) {
+        if (ev.button === 1) backgroundOpen(ev);
+      });
+    } else {
+      link.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    }
     head.appendChild(link);
     return link;
   }
