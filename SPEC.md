@@ -622,6 +622,124 @@ A typed-search surface reusing the selection popup's renderer end to end.
   chrome.runtime.getURL("popup/popup.html") + "?q=" +
   encodeURIComponent(text).
 
+## Sidebar (ADDENDUM — supersedes the action popup)
+
+User decision (2026-08-17): the sidebar (chrome.sidePanel) REPLACES the
+toolbar action popup. Clicking the extension icon toggles the sidebar. The
+popup rendered the same cards through the same embed contract and its one
+structural property (destruction on focus loss) was a liability for typed
+search; quick lookups are already served by the in-page selection popup.
+End state: exactly two user-facing surfaces — the in-page selection popup
+and the sidebar. Everything in the "Search popup (1.1 ADDENDUM)" section
+that is popup-page-specific (popup.html/popup.js/popup.css, popup sizing,
+default_popup manifest wiring, the Escape-closes-popup limitation, the
+searchUrl target) is superseded by this section. The embed contract, embed
+layout rules, search-shell contract, omnibox suggestion rules, and
+wiki-link background-open rules all stand unchanged.
+
+- Manifest: add `"permissions": ["sidePanel"]` and
+  `"side_panel": {"default_path": "sidepanel/sidepanel.html"}`. The
+  `action` key KEEPS `default_icon` but DROPS `default_popup` (the icon
+  must remain so it can toggle the panel). web_accessible_resources stays
+  absent (anti-fingerprinting stance). No other permissions.
+- Panel behavior: background.js calls
+  `chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true})` at
+  top level inside a capability guard (same pattern as the omnibox block:
+  the file must stay importable in plain Node) and again on
+  `chrome.runtime.onInstalled` — the call is idempotent and persisted by
+  Chrome, belt and suspenders.
+- File moves (the "popup/" name is retired): `popup/popup-boot.js` →
+  `sidepanel/boot.js` (still exactly one line: the embed flag);
+  `popup/search-shell.js` → `sidepanel/search-shell.js` (content
+  unchanged — its contract already forbids surface-specific references).
+  popup.html, popup.js, popup.css are DELETED and `extension/popup/` is
+  removed. Wherever earlier addenda say "popup-boot.js" or
+  "popup/search-shell.js", read the new paths.
+- sidepanel.html (extension/sidepanel/): page chrome only — header row
+  (brand wordmark "玉篇", small, Batang/serif, jade accent, aria-label
+  "Okpyeon"; right-aligned `#okp-actions` container; a nav slot for view
+  tabs), searchbar with `#okp-input`, a view container holding one child
+  container per registered view, with `#okp-results` + `#okp-status`
+  inside the search view's container. Classic scripts via src, AFTER the
+  markup, in load-bearing order: `boot.js` → `../content/content.js` →
+  `search-shell.js` → `sidepanel.js`. No inline script (extension-page
+  CSP), no type=module/defer/async (ordering).
+- sidepanel.css: full-height flex column (html/body/app at 100% height).
+  The search view's results area is the ONE scroll container
+  (`flex: 1; overflow-y: auto; overscroll-behavior: contain`) — the
+  no-nested-scrollbars rule from the embed layout addendum applies to the
+  panel page. Width is FLUID (the user drags the panel edge; no fixed
+  340px, no max-width on the app column). Carries its OWN
+  prefers-color-scheme rules with the same variable names as the panel
+  palette (the shadow root's tokens don't reach the outer page) — same
+  approach popup.css used.
+- sidepanel.js (the surface bootstrapper — the popup.js equivalent the
+  multi-surface contract reserves for each surface) owns two declarative
+  registries, mirroring the badge-registry philosophy:
+  - `SIDEBAR_VIEWS`: array of `{key, label, title, mount(container, ctx),
+    onShow(), onHide()}` (mount required; lifecycle hooks optional; `key`
+    unique, becomes a CSS modifier). Each view gets a dedicated container
+    created once; switching views hides/shows containers (display toggle)
+    and fires onHide/onShow — views are NEVER destroyed/rebuilt on switch,
+    so search state (input, results, breadcrumb trail, scroll) survives
+    visiting another view. `ctx` passes `{embedApi, shell}` so future
+    views can drive lookups. Ships with EXACTLY ONE entry, `search`, whose
+    mount wires `__okpyeonSearchShell.init` (respecting the shell's
+    per-page singleton: init once, never re-init on view switches).
+  - Nav tabs for the views render ONLY when the registry holds two or
+    more entries — with one view there is NO visible nav, and adding
+    "saved" or "settings" later means adding ONE registry entry, which
+    makes the nav appear by itself. A disabled entry renders dimmed with
+    a title; an absent entry renders nothing.
+  - `HEADER_ACTIONS`: carried over from popup.js verbatim — same entry
+    shape `{key, label, title, enabled (bool or () => bool), onClick}`,
+    same render-into-`#okp-actions` function, ships EMPTY with the
+    commented "saved" example updated to sidebar context.
+  - Boot sequence: determine the initial query as `?q=` (tab mode) OR the
+    worker's pending query (panel mode, see below) — `?q=` wins if both
+    exist — then `init({input, results, status, autofocus: true,
+    initialQuery})`. Exposes `globalThis.__okpyeonSidebar =
+    {viewRegistry, actionRegistry, renderNav, renderActions, showView}`
+    for the harness.
+- Pending-query handshake (omnibox → panel, race-free pull model, no
+  storage permission): background.js keeps a module-level `pendingQuery`
+  (string or null). New message type `{type: "getPendingQuery"}` returns
+  `{ok: true, query}` and CLEARS it (read-once). The sidepanel
+  bootstrapper sends it once at boot before shell init. The handler is a
+  pure-ish exported function like the others so Node tests can drive it.
+- Omnibox retarget: `onInputEntered(text, disposition)` now (1) sets
+  `pendingQuery = text`, (2) calls `chrome.sidePanel.open({windowId})`
+  for the current window (omnibox Enter is a user gesture). If open()
+  REJECTS (gesture edge cases, older Chrome), fall back to the previous
+  tab behavior with url = getURL("sidepanel/sidepanel.html") + "?q=..."
+  respecting disposition (currentTab → tabs.update; otherwise
+  tabs.create, active only for newForegroundTab) — and clear
+  pendingQuery first (the tab path carries the query in the URL; a stale
+  pending query must not leak into a later panel open). `searchUrl()`
+  retargets to the sidepanel path. The sidepanel page must work opened
+  as a normal tab (this fallback and dev convenience).
+- Escape: the panel is NOT closed by the browser on Escape — the old
+  popup limitation is retired with the popup. Escape during IME
+  composition must still not trigger a search (existing search-shell
+  behavior, unchanged).
+- Wiki links: no change needed — `WIKI_TABS_DIRECT` keys off IS_EMBED,
+  so the sidepanel page gets direct `chrome.tabs.create({active:false})`
+  automatically.
+- Harness: test-page/embed.html is REWORKED into the sidebar harness
+  (same fake-worker fixture block, inlined verbatim from index.html;
+  replicated sidepanel markup; real boot chain at the new paths; fake
+  runtime additionally answers `getPendingQuery`). All existing embed
+  checks are kept or ported; new checks cover: views registry (register
+  a dummy second view → nav appears; switching hides/shows containers
+  and fires onShow/onHide; search state survives a switch away and
+  back), header actions on the sidepanel page, pending-query boot pull,
+  `?q=` deep link still working, and the single-scroll-container
+  invariant. index.html (selection popup) must stay untouched and green.
+- Future-proofing (noted, NOT built): rendering in-page selection lookups
+  into an open sidebar is a later feature and needs only a new worker
+  message plus a `searchFor()` call on this page — nothing in this
+  section may be built in a way that precludes it.
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
