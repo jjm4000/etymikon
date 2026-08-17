@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import {
   buildFullCompounds,
   buildMatches,
+  buildOmniboxSuggestions,
   buildUsedIn,
   buildReadingIndex,
   buildWordParts,
@@ -25,6 +26,7 @@ import {
   segmentRun,
   maxWordLenOf,
   maxHangulLenOf,
+  MAX_OMNIBOX_SUGGESTIONS,
 } from "../extension/lookup.js";
 
 // ---------------------------------------------------------------------------
@@ -262,6 +264,10 @@ const words = {
     // --- length-metadata addendum: a 7-char headword, longer than the old
     // hardcoded segmentation cap of 6, in both scripts ---
     中華人民共和國: [{ hangul: "중화인민공화국", glosses: ["the People's Republic of China"] }],
+    // --- omnibox addendum: a gloss loaded with XML metacharacters, so the
+    // description escaping is actually exercised. No chars entry on purpose —
+    // adding 特/殊 to `hanja` would perturb the reading-index ordering tests.
+    特殊: [{ hangul: "특수", glosses: ['R&D <special> "quoted" \'odd\''] }],
   },
   byHangul: {
     국민: ["國民"],
@@ -276,6 +282,7 @@ const words = {
     우리: ["牛李", "隅籬"],
     안전: ["安全"],
     중화인민공화국: ["中華人民共和國"],
+    특수: ["特殊"],
   },
   // Length metadata addendum: the real caps for rules 3 / 3b.
   maxWordLen: 7,
@@ -1032,6 +1039,137 @@ test("prototype keys are not treated as data", () => {
   const empty = { hanja: { chars: {} }, words: { words: {} }, variants: { map: {} } };
   assert.deepEqual(buildMatches("國民", empty), []);
   assert.deepEqual(buildMatches("constructor", empty), []);
+});
+
+// --- search popup addendum: omnibox suggestions --------------------------
+
+const contentsOf = (rows) => rows.map((r) => r.content);
+/** Strip the two markup tags we emit; whatever is left must be escaped text. */
+const stripTags = (d) => d.replace(/<\/?(?:match|dim)>/g, "");
+
+test("hanja word query puts the word first, with an escaped description", () => {
+  const rows = buildOmniboxSuggestions("國民", data);
+  assert.equal(rows[0].content, "國民");
+  assert.equal(
+    rows[0].description,
+    "<match>國民</match> 국민 <dim>the people; citizens of a nation</dim>"
+  );
+  // Word first, then the component char rows.
+  assert.deepEqual(contentsOf(rows), ["國民", "國", "民"]);
+  assert.equal(
+    rows[1].description,
+    "<match>國</match> 나라 국 <dim>country; state; nation · 기초</dim>"
+  );
+});
+
+test("content is the canonical searchable string, never escaped", () => {
+  // A variant spelling resolves to the canonical one, so re-entering the
+  // suggestion finds the same record.
+  assert.deepEqual(contentsOf(buildOmniboxSuggestions("国民", data)), ["國民", "國", "民"]);
+  // Raw hanja, no entities anywhere in any content.
+  for (const query of ["國民", "특수", "사기", "국"]) {
+    for (const row of buildOmniboxSuggestions(query, data)) {
+      assert.ok(!/[&<>]/.test(row.content), `${query}: content must be plain text`);
+    }
+  }
+  assert.equal(buildOmniboxSuggestions("특수", data)[0].content, "特殊");
+});
+
+test("descriptions XML-escape every dynamic fragment", () => {
+  const [row] = buildOmniboxSuggestions("特殊", data);
+  assert.equal(
+    row.description,
+    "<match>特殊</match> 특수 " +
+      "<dim>R&amp;D &lt;special&gt; &quot;quoted&quot; &apos;odd&apos;</dim>"
+  );
+  // Only <match>/<dim> may be real markup.
+  assert.ok(!/[<>]/.test(stripTags(row.description)));
+  assert.ok(!/&(?!amp;|lt;|gt;|quot;|apos;)/.test(row.description));
+});
+
+test("hangul homograph query yields every spelling, capped at 5", () => {
+  const rows = buildOmniboxSuggestions("사기", data);
+  assert.equal(MAX_OMNIBOX_SUGGESTIONS, 5);
+  assert.equal(rows.length, 5, "7 candidates exist (5 words + 2 chars); cap applies");
+  assert.deepEqual(contentsOf(rows), ["詐欺", "士氣", "沙器", "史記", "射騎"]);
+  assert.equal(rows[1].description, "<match>士氣</match> 사기 <dim>morale</dim>");
+});
+
+test("rare-flagged words rank last across the whole query", () => {
+  // 우리 → 牛李/隅籬 (both rare) comes first in buildMatches order; the
+  // non-rare 國民 from the later span must still lead.
+  const rows = buildOmniboxSuggestions("우리 국민", data);
+  assert.deepEqual(contentsOf(rows), ["國民", "牛李", "隅籬", "牛", "李"]);
+  assert.equal(
+    rows[1].description,
+    "<match>牛李</match> 우리 <dim>the Niu-Li factional strife · rare</dim>"
+  );
+  // Within one span the non-rare spelling still leads.
+  assert.deepEqual(contentsOf(buildOmniboxSuggestions("사랑", data)).slice(0, 2), [
+    "沙羅",
+    "舍廊",
+  ]);
+});
+
+test("a single syllable yields its reading-browse candidates", () => {
+  const rows = buildOmniboxSuggestions("국", data);
+  assert.deepEqual(contentsOf(rows), ["國", "局", "菊"]);
+  assert.equal(
+    rows[0].description,
+    "<match>國</match> 나라 국 <dim>country; state; nation · 기초</dim>"
+  );
+  assert.equal(rows[1].description, "<match>局</match> 판 국 <dim>bureau; office; situation</dim>");
+  // 菊 has no hun and no gloss: no empty dim block, no stray separator.
+  assert.equal(rows[2].description, "<match>菊</match> 국");
+});
+
+test("omnibox input is trimmed and NFC-normalized", () => {
+  assert.deepEqual(
+    buildOmniboxSuggestions("  國民  ", data),
+    buildOmniboxSuggestions("國民", data)
+  );
+  // Decomposed hangul jamo normalize to the composed syllable (and only then
+  // does rule 3c see a single syllable at all).
+  const decomposed = "국";
+  assert.notEqual(decomposed, "국");
+  assert.deepEqual(
+    buildOmniboxSuggestions(decomposed, data),
+    buildOmniboxSuggestions("국", data)
+  );
+  assert.equal(buildOmniboxSuggestions(decomposed, data).length, 3);
+  // The same, written inline rather than through a variable.
+  assert.deepEqual(
+    buildOmniboxSuggestions("국", data),
+    buildOmniboxSuggestions("국", data)
+  );
+});
+
+test("empty, whitespace and no-match omnibox input yields no rows", () => {
+  for (const query of ["", "   ", "\t\n", "abc", "龘", "하늘이 파랗다", null, undefined, 42]) {
+    assert.deepEqual(buildOmniboxSuggestions(query, data), [], `query ${String(query)}`);
+  }
+});
+
+test("junk data is tolerated: no throw, just no suggestions", () => {
+  assert.deepEqual(buildOmniboxSuggestions("國民", null), []);
+  assert.deepEqual(buildOmniboxSuggestions("國民", {}), []);
+  assert.deepEqual(buildOmniboxSuggestions("國民", { words: { words: null } }), []);
+  const exploding = {
+    get hanja() {
+      throw new Error("boom");
+    },
+  };
+  assert.deepEqual(buildOmniboxSuggestions("國民", exploding), []);
+});
+
+// --- background.js: still importable without chrome globals --------------
+
+await testAsync("background.js imports cleanly in Node (guards hold)", async () => {
+  assert.equal(typeof globalThis.chrome, "undefined", "no chrome shim in the test env");
+  const bg = await import("../extension/background.js");
+  for (const fn of ["handleLookup", "handleCompounds", "handleUsedIn"]) {
+    assert.equal(typeof bg[fn], "function", `background.js should export ${fn}`);
+  }
 });
 
 // --- optional smoke test against Agent A's real corpus -------------------

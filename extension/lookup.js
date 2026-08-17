@@ -726,3 +726,138 @@ export function toErrorMessage(err) {
   if (err && typeof err.message === "string" && err.message) return err.message;
   return String(err);
 }
+
+/* ---------------------------------------------------------------------------
+ * Search popup ADDENDUM (1.1) — omnibox suggestions.
+ *
+ * Pure: background.js supplies the parsed data and hands the result straight to
+ * chrome.omnibox's suggest(). Nothing here touches chrome.*.
+ * ------------------------------------------------------------------------- */
+
+/** Omnibox shows a handful of rows; SPEC caps us at 5. */
+export const MAX_OMNIBOX_SUGGESTIONS = 5;
+
+/** Separator between the pieces of a suggestion's dimmed tail. */
+const DIM_SEPARATOR = " · ";
+
+const XML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;",
+};
+
+/**
+ * Escape dynamic text for the omnibox description's XML mini-format. The only
+ * unescaped angle brackets in a description are the <match>/<dim> tags this
+ * module emits itself; every gloss, hun, eum and spelling goes through here.
+ * `content` is NEVER escaped — it round-trips into onInputEntered as typed.
+ */
+function escapeXml(text) {
+  return typeof text === "string" ? text.replace(/[&<>"']/g, (ch) => XML_ESCAPES[ch]) : "";
+}
+
+/** ` <dim>a · b</dim>` for the non-empty pieces, or "" when there are none. */
+function dimTail(pieces) {
+  const kept = pieces.filter((p) => typeof p === "string" && p !== "");
+  return kept.length === 0 ? "" : ` <dim>${escapeXml(kept.join(DIM_SEPARATOR))}</dim>`;
+}
+
+/** `<match>頭</match> plain <dim>tail</dim>` with everything dynamic escaped. */
+function describe(head, plain, dimPieces) {
+  const mid = typeof plain === "string" && plain !== "" ? ` ${escapeXml(plain)}` : "";
+  return `<match>${escapeXml(head)}</match>${mid}${dimTail(dimPieces)}`;
+}
+
+/** edu ADDENDUM: the same 기초 label the popup badge uses, dimmed. */
+const EDU_LABEL = "기초";
+
+/** One row for a hanja character (char match or reading-browse candidate). */
+function charSuggestion(char, hun, eum, gloss, edu) {
+  const reading = [hun, eum].filter((s) => typeof s === "string" && s !== "").join(" ");
+  return {
+    content: char,
+    description: describe(char, reading, [gloss, edu === true ? EDU_LABEL : ""]),
+  };
+}
+
+/**
+ * Up to 5 omnibox suggestions for a typed query, reusing buildMatches so the
+ * omnibox and the popup always agree on what the input means.
+ *
+ * Order: word matches (non-rare first, rare last), then the reading-browse
+ * candidates of a single hangul syllable, then character matches. Each row's
+ * `content` is the candidate's own canonical searchable string — the canonical
+ * hanja spelling for a word, the canonical character for a char/reading row —
+ * so re-entering it through onInputEntered lands on the same result.
+ *
+ * Never throws: junk data yields [].
+ *
+ * @param {string} text raw omnibox input
+ * @param {{hanja?:object, words?:object, variants?:object}} data parsed data files
+ * @returns {Array<{content:string, description:string}>}
+ */
+export function buildOmniboxSuggestions(text, data) {
+  try {
+    const query = normalize(text).trim();
+    if (query === "") return [];
+
+    const matches = buildMatches(query, data);
+    const words = matches.filter((m) => m.kind === "word");
+    const rows = [
+      // Rare-flagged spellings rank last across the whole query, not just
+      // within one hangul span (buildMatches only orders within a span).
+      ...words.filter((m) => m.rare !== true),
+      ...words.filter((m) => m.rare === true),
+      ...matches.filter((m) => m.kind === "reading"),
+      ...matches.filter((m) => m.kind === "char"),
+    ];
+
+    const suggestions = [];
+    const seen = new Set();
+    const push = (suggestion) => {
+      if (suggestion === null || seen.has(suggestion.content)) return;
+      seen.add(suggestion.content);
+      suggestions.push(suggestion);
+    };
+
+    for (const match of rows) {
+      if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break;
+      if (match.kind === "word") {
+        const gloss = Array.isArray(match.glosses) ? match.glosses[0] : "";
+        push({
+          content: match.canonical,
+          description: describe(match.canonical, match.hangul, [
+            gloss,
+            match.rare === true ? "rare" : "",
+          ]),
+        });
+      } else if (match.kind === "char") {
+        const pair = Array.isArray(match.eumhun) ? match.eumhun[0] : null;
+        const gloss = Array.isArray(match.glosses) ? match.glosses[0] : "";
+        push(
+          charSuggestion(
+            match.canonical,
+            pair && typeof pair.hun === "string" ? pair.hun : "",
+            pair && typeof pair.eum === "string" ? pair.eum : "",
+            gloss,
+            match.edu
+          )
+        );
+      } else if (match.kind === "reading" && Array.isArray(match.candidates)) {
+        // The syllable itself is already the default suggestion ("search for
+        // %s" opens the browse), so the rows here are the individual hanja.
+        for (const c of match.candidates) {
+          if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break;
+          if (!c || typeof c.char !== "string" || c.char === "") continue;
+          push(charSuggestion(c.char, c.hun, c.eum, c.gloss, c.edu));
+        }
+      }
+    }
+
+    return suggestions.slice(0, MAX_OMNIBOX_SUGGESTIONS);
+  } catch {
+    return [];
+  }
+}

@@ -8,6 +8,7 @@
 
 import {
   buildFullCompounds,
+  buildOmniboxSuggestions,
   buildReadingIndex,
   buildUsedIn,
   lookup,
@@ -127,5 +128,42 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
     });
     // Keep the message channel open for the async response.
     return true;
+  });
+}
+
+/** Search popup ADDENDUM: the search page, deep-linked with the typed query. */
+function searchUrl(text) {
+  return `${chrome.runtime.getURL("popup/popup.html")}?q=${encodeURIComponent(text)}`;
+}
+
+// Search popup ADDENDUM (omnibox keyword "hj"). Guarded like the listener
+// above so this module still imports cleanly in Node.
+if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputChanged) {
+  // Set once at wiring time, not per keystroke. %s is the user's input; the
+  // surrounding text is the only markup, so nothing needs escaping here.
+  chrome.omnibox.setDefaultSuggestion({
+    description: "Search Okpyeon for <match>%s</match>",
+  });
+
+  chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+    (async () => {
+      try {
+        suggest(buildOmniboxSuggestions(text, await getData()));
+      } catch {
+        // Data unavailable (offline install, mid-update): no rows, no noise.
+        suggest([]);
+      }
+    })();
+  });
+
+  chrome.omnibox.onInputEntered.addListener((text, disposition) => {
+    const url = searchUrl(text);
+    if (disposition === "currentTab") {
+      chrome.tabs.update({ url });
+    } else {
+      // newForegroundTab (and any unknown disposition) opens focused;
+      // newBackgroundTab stays behind. Extension pages need no permission.
+      chrome.tabs.create({ url, active: disposition !== "newBackgroundTab" });
+    }
   });
 }
