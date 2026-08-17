@@ -547,10 +547,16 @@ A typed-search surface reusing the selection popup's renderer end to end.
   composing / keyCode 229), reads `?q=` for deep links (auto-search after
   mount, skipping the empty-state flash), autofocuses, and shows quiet
   empty-state / no-results states driven by searchFor's {ok, count}.
-  Popup ~360px wide; the popup page's results area is the single scroll
-  container (max-height ~520px). popup.css must carry its OWN
-  prefers-color-scheme rules matching the panel palette (the shadow root's
-  tokens don't reach the outer page). The page must also work opened as a
+  Popup sizing (REVISED per user — the popup is the SECONDARY search surface;
+  a future sidebar is the primary one): compact and unobtrusive. Width
+  ~340px. Height is CONTENT-DRIVEN (Chrome auto-sizes popups to the
+  document): empty state is just the slim input plus ONE short hint line
+  (whole popup ≈ 80px tall — no reserved empty results area); the popup
+  grows with results and only caps (~480px) with internal scroll when
+  genuinely tall. The input itself is slim (compact padding, ~13px font, no
+  heavy chrome). The results area remains the single scroll container when
+  capped. popup.css must carry its OWN prefers-color-scheme rules matching
+  the panel palette (the shadow root's tokens don't reach the outer page). The page must also work opened as a
   normal tab (the omnibox target). Known limitation (document, don't fix):
   in default_popup mode the BROWSER closes the popup on Escape, which some
   IME cancel flows may trigger — tab mode is unaffected.
