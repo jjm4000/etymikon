@@ -638,6 +638,37 @@
 })();
 </script>
 
+<!-- ------------------------------------------------------------------ -->
+<!-- Minimal chrome.tabs spy — the popup surface's background-open path.  -->
+<!--                                                                     -->
+<!-- ONLY chrome.tabs, deliberately NOT chrome.runtime. content.js probes -->
+<!-- chrome.runtime SPECIFICALLY for HAS_CHROME_RUNTIME, so a chrome      -->
+<!-- object without it leaves IS_STUB true: the fake runtime above stays  -->
+<!-- selected and the __hanjaHover test hooks stay exposed. Adding        -->
+<!-- chrome.runtime here would silently flip that and disable the whole   -->
+<!-- suite, so the checks assert the detection explicitly.                -->
+<!-- Must be installed BEFORE content.js: appendWikiLink decides which    -->
+<!-- click handling to attach at link-creation time.                      -->
+<!-- ------------------------------------------------------------------ -->
+<script>
+(function () {
+  "use strict";
+  var calls = [];
+  globalThis.chrome = {
+    tabs: {
+      create: function (props) {
+        calls.push(props);
+        return Promise.resolve({ id: calls.length });
+      }
+    }
+  };
+  globalThis.__tabsSpy = {
+    calls: calls,
+    reset: function () { calls.length = 0; }
+  };
+})();
+</script>
+
 <!-- The real popup boot chain, in the real order. -->
 <script src="../extension/popup/popup-boot.js"></script>
 <script src="../extension/content/content.js"></script>
@@ -1058,7 +1089,108 @@
       " h " + heightBefore.toFixed(1) + "→" +
       header.getBoundingClientRect().height.toFixed(1));
 
+    // --- Wiktionary links: background-open on the popup surface ----------
+    // Browser-level link activation dismisses an action popup even when it
+    // opens a background tab; an API-created background tab does not. So in
+    // embed mode with chrome.tabs present, plain left/middle clicks are
+    // intercepted and routed through tabs.create({active: false}). Modified
+    // clicks keep native behavior. The in-page selection popup is unaffected
+    // (IS_EMBED gates the whole thing) — index.html covers that side.
+    var tabsSpy = globalThis.__tabsSpy;
+
+    check("a chrome object WITHOUT .runtime still selects the fake test runtime",
+      typeof globalThis.chrome === "object" &&
+      globalThis.chrome.runtime === undefined &&
+      typeof globalThis.chrome.tabs.create === "function" &&
+      !!api && fake.__calls > 0,
+      "chrome.runtime=" + typeof globalThis.chrome.runtime +
+      " hooks=" + !!api + " stubCalls=" + fake.__calls);
+
+    await embed.searchFor("國");
+    var wiki = api.query(".wiki");
+    var wikiUrl = "https://en.wiktionary.org/wiki/%E5%9C%8B#Korean";
+    check("the card head carries a Wiktionary link",
+      !!wiki && wiki.textContent === "Wiktionary ↗" &&
+      wiki.getAttribute("href") === wikiUrl,
+      wiki && wiki.getAttribute("href"));
+
+    // The link is a real <a target="_blank">, so a synthetic click that
+    // content.js deliberately does NOT cancel would really open a tab and
+    // derail the run. This guard registers on the SAME element AFTER
+    // content.js's own listener — same phase, later registration runs later,
+    // and content.js uses stopPropagation (not stopImmediatePropagation), so
+    // siblings still fire. That lets us read its verdict and only then
+    // neutralize the navigation.
+    function fireOnLink(link, type, init) {
+      var verdict = { seen: false, prevented: null };
+      function guard(ev) {
+        verdict.seen = true;
+        verdict.prevented = ev.defaultPrevented;
+        ev.preventDefault();          // harness-only: never navigate
+      }
+      link.addEventListener(type, guard);
+      var opts = { bubbles: true, cancelable: true, button: 0 };
+      for (var k in (init || {})) {
+        if (Object.prototype.hasOwnProperty.call(init, k)) opts[k] = init[k];
+      }
+      link.dispatchEvent(new MouseEvent(type, opts));
+      link.removeEventListener(type, guard);
+      return verdict;
+    }
+
+    var cardsBefore = api.cardCount();
+    var depthBefore2 = api.viewDepth();
+
+    // --- plain left click ---
+    tabsSpy.reset();
+    var plain = fireOnLink(wiki, "click", { button: 0 });
+    check("plain left click opens a BACKGROUND tab through chrome.tabs",
+      tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
+      tabsSpy.calls[0].url === wikiUrl,
+      JSON.stringify(tabsSpy.calls));
+    check("plain left click prevents the browser's own link activation",
+      plain.seen && plain.prevented === true, "prevented=" + plain.prevented);
+    check("the popup is completely untouched by the interception",
+      api.isVisible() && api.cardCount() === cardsBefore &&
+      api.viewDepth() === depthBefore2,
+      "visible=" + api.isVisible() + " cards=" + api.cardCount() +
+      " depth=" + api.viewDepth());
+    check("the link reports the background open as 'Opened ↗'",
+      wiki.textContent === "Opened ↗", JSON.stringify(wiki.textContent));
+    await wait(1400);
+    check("the label restores itself after ~1.2s",
+      wiki.textContent === "Wiktionary ↗", JSON.stringify(wiki.textContent));
+
+    // --- middle click (auxclick, button 1) ---
+    tabsSpy.reset();
+    var middle = fireOnLink(wiki, "auxclick", { button: 1 });
+    check("middle click takes the same background-open path",
+      tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
+      tabsSpy.calls[0].url === wikiUrl,
+      JSON.stringify(tabsSpy.calls));
+    check("middle click prevents the browser's open-in-background too",
+      middle.seen && middle.prevented === true, "prevented=" + middle.prevented);
+    check("middle click also reports 'Opened ↗'", wiki.textContent === "Opened ↗");
+    await wait(1400);
+    check("the label restores after the middle click as well",
+      wiki.textContent === "Wiktionary ↗", JSON.stringify(wiki.textContent));
+
+    // --- modified clicks keep native behavior ---
+    [["ctrlKey", "ctrl"], ["metaKey", "cmd"], ["shiftKey", "shift"]]
+      .forEach(function (pair) {
+        tabsSpy.reset();
+        var init = { button: 0 };
+        init[pair[0]] = true;
+        var mod = fireOnLink(wiki, "click", init);
+        check(pair[1] + "-click keeps native behavior (no tabs.create, not cancelled)",
+          tabsSpy.calls.length === 0 && mod.seen && mod.prevented === false &&
+          wiki.textContent === "Wiktionary ↗",
+          "calls=" + tabsSpy.calls.length + " prevented=" + mod.prevented +
+          " text=" + JSON.stringify(wiki.textContent));
+      });
+
     // Leave the page in a usable state for manual poking.
+    tabsSpy.reset();
     shell = reinit();
     } catch (e) {
       fail++;
