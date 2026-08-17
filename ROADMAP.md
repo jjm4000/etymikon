@@ -61,9 +61,11 @@ privacy-policy update ("stores your display preferences locally"):
   (the full Wiktionary Korean extract is already downloaded and parsed at
   build time — this is a filter change plus roughly double words.json, and a
   product-identity decision more than a technical one)
-- Sidebar lookup: a typeable dictionary panel via Chrome's sidePanel API,
-  complementing selection lookup — pairs naturally with general dictionary
-  mode and the omnibox idea
+- Sidebar (sidePanel API): the future home for settings + saved words +
+  persistent search. Deliberately pre-wired: it will reuse the embed
+  contract (popup-boot.js + content.js + search-shell.js) verbatim, adding
+  only its own bootstrapper and page chrome — see SPEC "Multi-surface
+  contract"
 - Japanese and Chinese pronunciations on character cards, as an option
   (Unihan kMandarin / kJapaneseOn / kJapaneseKun — data is nearly free, but
   whether cross-language readings belong in a Korean-first tool is uncertain;

@@ -557,7 +557,20 @@ A typed-search surface reusing the selection popup's renderer end to end.
 - Manifest: `"action": {"default_popup": "popup/popup.html", "default_icon":
   <existing icons>}` and `"omnibox": {"keyword": "hj"}`. NO new permissions;
   web_accessible_resources stays absent (anti-fingerprinting stance).
-- Omnibox (background.js, guarded so Node import still works):
+- Multi-surface contract (ADDENDUM — future-proofing, user-directed): the
+  embed flag + __okpyeonEmbedApi IS the official interface for every current
+  and future non-content-script surface (action popup now; a sidePanel page
+  with settings/saved-words later; any other extension page). To keep the
+  search UI itself reusable across those surfaces, the input wiring lives in
+  a standalone classic script `popup/search-shell.js` exposing ONE
+  initializer (e.g. `__okpyeonSearchShell.init({input, results, status,
+  autofocus, initialQuery})`) that owns debounce/IME handling, deep-link
+  auto-search, and empty/no-result/error states by driving the embed API.
+  popup.js is a thin bootstrapper: find the popup page's elements, read ?q=,
+  call init. A future sidepanel.html reuses popup-boot.js + content.js +
+  search-shell.js unchanged and writes only its own bootstrapper and page
+  chrome. Nothing in search-shell.js may reference popup-specific layout,
+  ids beyond what init receives, or window-close behavior.
   onInputChanged → up to 5 suggestions from a pure `buildOmniboxSuggestions
   (text, data)` in lookup.js. Each suggestion: `content` = the candidate's
   own canonical spelling/syllable, PLAIN text (never escaped — it round-trips
