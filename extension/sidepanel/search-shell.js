@@ -5,8 +5,8 @@
  * behavior: mounting the renderer, debounced search-as-you-type, IME
  * handling, deep-link auto-search, and the empty / no-result / error states.
  * It owns NONE of the page: no ids, no layout, no window-close behavior. Each
- * surface (the action popup today, a sidePanel page later) supplies its own
- * markup and hands the elements in.
+ * surface (the sidePanel page today, any other extension page later) supplies
+ * its own markup and hands the elements in.
  *
  * Contract:
  *   globalThis.__okpyeonSearchShell.init({
@@ -19,7 +19,7 @@
  *     initialQuery    // optional: ?q= deep link — searched immediately
  *   }) -> controller { search, searchSoon, state, query, destroy }
  *
- * Loaded as a CLASSIC script, after popup-boot.js and content.js: it needs
+ * Loaded as a CLASSIC script, after boot.js and content.js: it needs
  * globalThis.__okpyeonEmbedApi, which content.js only exposes when the boot
  * flag was set before it evaluated.
  */

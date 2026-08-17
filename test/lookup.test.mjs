@@ -1176,9 +1176,35 @@ test("junk data is tolerated: no throw, just no suggestions", () => {
 await testAsync("background.js imports cleanly in Node (guards hold)", async () => {
   assert.equal(typeof globalThis.chrome, "undefined", "no chrome shim in the test env");
   const bg = await import("../extension/background.js");
-  for (const fn of ["handleLookup", "handleCompounds", "handleUsedIn", "handleOpenTab"]) {
+  const exported = [
+    "handleLookup",
+    "handleCompounds",
+    "handleUsedIn",
+    "handleOpenTab",
+    "handleGetPendingQuery",
+    "setPendingQuery",
+  ];
+  for (const fn of exported) {
     assert.equal(typeof bg[fn], "function", `background.js should export ${fn}`);
   }
+});
+
+// --- sidebar addendum: the omnibox -> panel pending query is read-once -----
+
+await testAsync("pending query is handed over once, then cleared", async () => {
+  const { setPendingQuery, handleGetPendingQuery } = await import("../extension/background.js");
+
+  assert.deepEqual(await handleGetPendingQuery(), { ok: true, query: null });
+
+  setPendingQuery("國民");
+  assert.deepEqual(await handleGetPendingQuery(), { ok: true, query: "國民" });
+  // Read-once: a second panel open must not re-run the old search.
+  assert.deepEqual(await handleGetPendingQuery(), { ok: true, query: null });
+
+  // The omnibox fallback path clears it the same way.
+  setPendingQuery("國");
+  setPendingQuery(null);
+  assert.deepEqual(await handleGetPendingQuery(), { ok: true, query: null });
 });
 
 // --- optional smoke test against Agent A's real corpus -------------------

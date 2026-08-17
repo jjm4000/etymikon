@@ -146,6 +146,34 @@ export async function handleOpenTab(url) {
   }
 }
 
+/**
+ * Sidebar ADDENDUM (pending-query handshake): the omnibox sets a query here,
+ * then opens the panel; the panel pulls the query once at boot. A pull model,
+ * so the panel never has to be listening at the moment the query is set, and
+ * no storage permission is needed. Module-level like the data cache: if the
+ * worker is torn down between the two halves the query is simply lost, which
+ * cannot happen in practice (the panel opens in the same gesture).
+ * @type {string|null}
+ */
+let pendingQuery = null;
+
+/** Store the query the next panel boot should search. Exported for the tests. */
+export function setPendingQuery(text) {
+  pendingQuery = typeof text === "string" && text !== "" ? text : null;
+}
+
+/**
+ * Handle a {type:"getPendingQuery"} message: hand over the query the omnibox
+ * left behind, and clear it. Read-once, so a later panel open (or a reload of
+ * the panel page) does not re-run a stale search.
+ * @returns {Promise<{ok:true, query:string|null}>}
+ */
+export async function handleGetPendingQuery() {
+  const query = pendingQuery;
+  pendingQuery = null;
+  return { ok: true, query };
+}
+
 // Guarded so this module can also be imported by Node (tests) without chrome.
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -158,7 +186,9 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
             ? handleUsedIn(message.word)
             : message && message.type === "openTab"
               ? handleOpenTab(message.url)
-              : null;
+              : message && message.type === "getPendingQuery"
+                ? handleGetPendingQuery()
+                : null;
     if (handler === null) return false;
     handler.then(sendResponse, (err) => {
       sendResponse({ ok: false, error: toErrorMessage(err) });
@@ -168,9 +198,40 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
-/** Search popup ADDENDUM: the search page, deep-linked with the typed query. */
+// Sidebar ADDENDUM: clicking the toolbar icon toggles the panel. The call is
+// idempotent and Chrome persists the setting, so it runs both at top level
+// (covers a plain worker restart) and on install/update. Guarded like the
+// listener above so this module still imports cleanly in Node.
+if (typeof chrome !== "undefined" && chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+  const enableActionToggle = () => {
+    // A rejection here costs the icon-click toggle, nothing else — the panel
+    // is still reachable from Chrome's own side-panel menu.
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+  };
+  enableActionToggle();
+  if (chrome.runtime && chrome.runtime.onInstalled) {
+    chrome.runtime.onInstalled.addListener(enableActionToggle);
+  }
+}
+
+/** Sidebar ADDENDUM: the panel page as a TAB, deep-linked with the typed query. */
 function searchUrl(text) {
-  return `${chrome.runtime.getURL("popup/popup.html")}?q=${encodeURIComponent(text)}`;
+  return `${chrome.runtime.getURL("sidepanel/sidepanel.html")}?q=${encodeURIComponent(text)}`;
+}
+
+/**
+ * Omnibox fallback: open the panel page in a tab, respecting the disposition.
+ * Used when the side panel cannot be opened (gesture edge cases, older Chrome).
+ */
+function openSearchTab(text, disposition) {
+  const url = searchUrl(text);
+  if (disposition === "currentTab") {
+    chrome.tabs.update({ url });
+  } else {
+    // newForegroundTab (and any unknown disposition) opens focused;
+    // newBackgroundTab stays behind. Extension pages need no permission.
+    chrome.tabs.create({ url, active: disposition !== "newBackgroundTab" });
+  }
 }
 
 // Search popup ADDENDUM (omnibox keyword "hj"). Guarded like the listener
@@ -193,14 +254,26 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
     })();
   });
 
+  // Sidebar ADDENDUM: Enter on an omnibox row opens the PANEL and leaves the
+  // query for it to pull at boot. Only if the panel refuses to open does the
+  // old tab behavior stand in — and then the pending query is dropped, since
+  // the tab path carries the query in its URL and a leftover would re-run this
+  // search the next time the panel opens for any other reason.
   chrome.omnibox.onInputEntered.addListener((text, disposition) => {
-    const url = searchUrl(text);
-    if (disposition === "currentTab") {
-      chrome.tabs.update({ url });
-    } else {
-      // newForegroundTab (and any unknown disposition) opens focused;
-      // newBackgroundTab stays behind. Extension pages need no permission.
-      chrome.tabs.create({ url, active: disposition !== "newBackgroundTab" });
+    if (!chrome.sidePanel || !chrome.sidePanel.open) {
+      openSearchTab(text, disposition);
+      return;
     }
+    setPendingQuery(text);
+    (async () => {
+      try {
+        // chrome.windows needs no permission; omnibox Enter is a user gesture.
+        const { id: windowId } = await chrome.windows.getCurrent();
+        await chrome.sidePanel.open({ windowId });
+      } catch {
+        setPendingQuery(null);
+        openSearchTab(text, disposition);
+      }
+    })();
   });
 }
