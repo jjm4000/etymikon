@@ -295,7 +295,12 @@
         input: document.getElementById("okp-input"),
         results: container.querySelector("#okp-results"),
         status: container.querySelector("#okp-status"),
-        autofocus: true,
+        // Focus rules: the input is focused ONLY on an empty boot — the
+        // icon-click open, where typing into the panel is the next thing the
+        // user does. A boot that already has a query came from somewhere the
+        // user was just typing (the omnibox, or a ?q= link they followed), and
+        // grabbing focus there steals the keystrokes meant for that place.
+        autofocus: !bootQuery,
         initialQuery: bootQuery
       });
     }
@@ -463,6 +468,10 @@
   // deliberately does not touch input.value, so the input is set here — the
   // same programmatic set the boot path does, and like it, it is not a typing
   // event, so nothing about IME composition is being interrupted.
+  //
+  // Value only: no focus, no selection. The user typed this in the omnibox and
+  // is still there, so a panel that grabbed focus (or moved a caret in an input
+  // that happens to be focused) would take the keystrokes meant for it.
   function applyPendingQuery(query) {
     var shellModule = globalThis.__okpyeonSearchShell;
     var controller = shellModule && typeof shellModule.controller === "function"
@@ -470,15 +479,7 @@
       : null;
     if (!controller) return Promise.resolve({ applied: false, reason: "no-shell" });
     var inputEl = document.getElementById("okp-input");
-    if (inputEl) {
-      inputEl.value = query;
-      try {
-        var end = inputEl.value.length;
-        if (typeof inputEl.setSelectionRange === "function") {
-          inputEl.setSelectionRange(end, end);
-        }
-      } catch (e) { /* caret placement is a nicety, never a failure */ }
-    }
+    if (inputEl) inputEl.value = query;
     return Promise.resolve(controller.search(query)).then(function () {
       return { applied: true, query: query };
     }, function () {

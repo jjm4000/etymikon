@@ -712,7 +712,11 @@
 (function () {
   "use strict";
 
-  var BOOT_QUERY = "學生";
+  // Primed by default — that is what an omnibox-opened panel sees. The
+  // ?nopending=1 flag boots it EMPTY, which is the icon-click open: the one
+  // case where the panel is allowed to take focus. A page can only boot one
+  // way, so the checks load a second copy with the flag (see the probe frames).
+  var BOOT_QUERY = /[?&]nopending=1/.test(location.search) ? null : "學生";
 
   var fake = globalThis.__hanjaHoverTestRuntime;
   var inner = fake.sendMessage;
@@ -854,6 +858,19 @@
 
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
 
+  // Focus rules: whether BOOT took the focus can only be seen at boot — by the
+  // time the run button is clicked, the click owns the focus. sidepanel.js
+  // resolves its initial query asynchronously, so the sample hangs off `ready`;
+  // this handler is attached after the bootstrapper's own, so it runs after the
+  // search view has mounted and made its focus decision.
+  var bootFocus = { sampled: false, tookFocus: null };
+  if (globalThis.__okpyeonSidebar && globalThis.__okpyeonSidebar.ready) {
+    globalThis.__okpyeonSidebar.ready.then(function () {
+      bootFocus.sampled = true;
+      bootFocus.tookFocus = document.activeElement === input;
+    });
+  }
+
   document.getElementById("run").addEventListener("click", async function () {
     var api = globalThis.__hanjaHover;                 // renderer test hooks
     var embed = globalThis.__okpyeonEmbedApi;          // the embed API itself
@@ -932,6 +949,9 @@
     check("the pending query renders results with nothing typed",
       shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
       "state=" + shell.state() + " cards=" + api.cardCount());
+    check("a boot WITH a pending query does not take the focus",
+      bootFocus.sampled === true && bootFocus.tookFocus === false,
+      "sampled=" + bootFocus.sampled + " tookFocus=" + bootFocus.tookFocus);
     var secondPull = await new Promise(function (r) {
       fake.sendMessage({ type: "getPendingQuery" }, r);
     });
@@ -1217,12 +1237,23 @@
       seenStates.indexOf("empty") < 0 && seenStates[0] === "loading",
       seenStates.join(","));
     check("the deep-link query is prefilled into the input", input.value === "國民");
-    check("the input is focused for immediate typing",
+    // The shell's autofocus is an OPTION, and this asserts the option works.
+    // Which way the side panel sets it is a separate decision, checked with
+    // the boot and probe-frame focus rules — sidepanel.js passes true only for
+    // an empty boot.
+    check("the shell focuses the input when the surface asks it to",
       document.activeElement === input);
     await shell.ready;
     check("the deep link renders results without any typing",
       shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
       seenStates.join(",") + " cards=" + api.cardCount());
+
+    input.blur();
+    shell = reinit({ initialQuery: "國民" });
+    check("the shell leaves the focus alone when autofocus is not asked for",
+      document.activeElement !== input,
+      "active=" + (document.activeElement && document.activeElement.tagName));
+    await shell.ready;
 
     /* ==================================================================
      * Side panel page chrome — header, actions registry, view registry.
@@ -1601,9 +1632,18 @@
     shell = reinit();
     var pokeQuery = "국민";
     var callsBefore = pendingSpy.calls();
+    // Focus parked somewhere else on purpose: in the real case it sits in the
+    // omnibox, which no page can see, so the check stands in for it with the
+    // run button — the poke must leave whatever holds focus holding it.
+    document.getElementById("run").focus();
+    var focusBeforePoke = document.activeElement;
     pendingSpy.set(pokeQuery);
     var poked = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
     await wait(TAIL);
+    check("the poke leaves the focus exactly where it was",
+      document.activeElement === focusBeforePoke && document.activeElement !== input,
+      "before=" + (focusBeforePoke && focusBeforePoke.id) +
+      " after=" + (document.activeElement && document.activeElement.id));
     check("a poke with a query pending pulls it and searches it",
       poked && poked.applied === true && input.value === pokeQuery &&
       shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
@@ -1694,6 +1734,48 @@
           " calls=" + wwin.__pendingQuerySpy.calls());
       }
       winFrame.parentNode.removeChild(winFrame);
+    }
+
+    /* ==================================================================
+     * The other half of the focus rule: an EMPTY boot.
+     *
+     * This page always boots primed, so the icon-click open — no query, and
+     * the one case where the panel SHOULD take the focus — needs its own page
+     * instance: the ?nopending=1 flag the decorator reads. Same iframe trick,
+     * same file:// limitation. Booted last, since a focus() inside a frame
+     * pulls the focus out of this document.
+     * ================================================================== */
+    if (location.protocol === "file:") {
+      skip("an empty boot autofocuses the input",
+        "file:// blocks same-origin iframe access — serve the repo over http://");
+    } else {
+      var emptyFrame = document.createElement("iframe");
+      emptyFrame.className = "probe-frame";
+      emptyFrame.title = "empty-boot focus probe";
+      var emptyLoaded = new Promise(function (resolve) {
+        emptyFrame.addEventListener("load", resolve, { once: true });
+        setTimeout(resolve, 5000);
+      });
+      emptyFrame.src = location.origin + location.pathname + "?nopending=1";
+      document.body.appendChild(emptyFrame);
+      await emptyLoaded;
+      var ewin = emptyFrame.contentWindow;
+      var emptySidebar = ewin && ewin.__okpyeonSidebar;
+      if (!emptySidebar) {
+        check("an empty boot autofocuses the input", false,
+          "the probe frame did not boot");
+      } else {
+        var emptyQuery = await emptySidebar.ready;
+        await wait(TAIL);
+        var emptyInput = ewin.document.getElementById("okp-input");
+        check("an empty boot autofocuses the input, ready to be typed in",
+          emptyQuery === "" && emptyInput.value === "" &&
+          ewin.document.activeElement === emptyInput,
+          "query=" + JSON.stringify(emptyQuery) +
+          " active=" + (ewin.document.activeElement &&
+                        ewin.document.activeElement.id));
+      }
+      emptyFrame.parentNode.removeChild(emptyFrame);
     }
 
     // Leave the page in a usable state for manual poking.
