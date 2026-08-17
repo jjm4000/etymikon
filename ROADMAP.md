@@ -73,10 +73,14 @@ privacy-policy update ("stores your display preferences locally"):
   build time — this is a filter change plus roughly double words.json, and a
   product-identity decision more than a technical one)
 - Sidebar (sidePanel API): the future home for settings + saved words +
-  persistent search. Deliberately pre-wired: it will reuse the embed
-  contract (popup-boot.js + content.js + search-shell.js) verbatim, adding
-  only its own bootstrapper and page chrome — see SPEC "Multi-surface
-  contract"
+  persistent search. Deliberately pre-wired: it reuses the embed contract
+  (popup-boot.js + content.js + search-shell.js) verbatim, adding only its
+  own bootstrapper and page chrome — see SPEC "Multi-surface contract".
+  Its case hardened 2026-08-17: action popups are destroyed on any focus
+  loss (tab switches included — browser design, unfixable), so persistent
+  dictionary sessions are only possible in the side panel, which natively
+  survives tab switches and navigation. The popup's header-actions registry
+  gets an "open sidebar" entry when this lands.
 - Japanese and Chinese pronunciations on character cards, as an option
   (Unihan kMandarin / kJapaneseOn / kJapaneseKun — data is nearly free, but
   whether cross-language readings belong in a Korean-first tool is uncertain;

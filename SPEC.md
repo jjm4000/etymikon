@@ -571,6 +571,16 @@ A typed-search surface reusing the selection popup's renderer end to end.
   normal tab (the omnibox target). Known limitation (document, don't fix):
   in default_popup mode the BROWSER closes the popup on Escape, which some
   IME cancel flows may trigger — tab mode is unaffected.
+- Wiktionary links in the popup surface (ADDENDUM — verified fix): plain
+  left- and middle-clicks on wiki links are intercepted in embed mode when
+  chrome.tabs is available (preventDefault + tabs.create({active:false})):
+  browser-level link activation dismisses action popups even for background
+  tabs, while API-created background tabs do NOT (verified on real Chrome,
+  2026-08-17). Brief "Opened ↗" feedback; modified clicks (ctrl/cmd/shift)
+  keep native behavior; the in-page selection popup keeps plain links.
+  Second known limitation (browser design, unfixable): the action popup is
+  destroyed on ANY focus loss including tab switches — the future sidePanel
+  is the persistence answer, not the popup.
 - Manifest: `"action": {"default_popup": "popup/popup.html", "default_icon":
   <existing icons>}` and `"omnibox": {"keyword": "hj"}`. NO new permissions;
   web_accessible_resources stays absent (anti-fingerprinting stance).
