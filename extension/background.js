@@ -111,6 +111,41 @@ export async function handleUsedIn(word) {
   }
 }
 
+/**
+ * Wiktionary links ADDENDUM (background-open on every surface): the only URL
+ * prefix a content script may ask the worker to open. Anything else is
+ * refused — a content script runs in a page the extension does not trust, so
+ * "open this url" is never taken at face value.
+ */
+export const WIKI_URL_PREFIX = "https://en.wiktionary.org/wiki/";
+
+/** True only for a Wiktionary article URL. Pure; exported for the tests. */
+export function isAllowedTabUrl(url) {
+  return typeof url === "string" && url.startsWith(WIKI_URL_PREFIX);
+}
+
+/**
+ * Handle a {type:"openTab", url} message: open a Wiktionary article in a
+ * BACKGROUND tab (the in-page popup cannot call chrome.tabs itself). Rejects
+ * anything that is not a Wiktionary article, and any environment without
+ * chrome.tabs, with {ok:false}.
+ * @returns {Promise<{ok:boolean, error?:string}>}
+ */
+export async function handleOpenTab(url) {
+  if (!isAllowedTabUrl(url)) {
+    return { ok: false, error: "refused: not a Wiktionary URL" };
+  }
+  if (typeof chrome === "undefined" || !chrome.tabs || !chrome.tabs.create) {
+    return { ok: false, error: "tabs unavailable" };
+  }
+  try {
+    await chrome.tabs.create({ url, active: false });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) };
+  }
+}
+
 // Guarded so this module can also be imported by Node (tests) without chrome.
 if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -121,7 +156,9 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
           ? handleCompounds(message.char)
           : message && message.type === "usedIn"
             ? handleUsedIn(message.word)
-            : null;
+            : message && message.type === "openTab"
+              ? handleOpenTab(message.url)
+              : null;
     if (handler === null) return false;
     handler.then(sendResponse, (err) => {
       sendResponse({ ok: false, error: toErrorMessage(err) });

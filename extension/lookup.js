@@ -55,6 +55,14 @@ export const MAX_PART_GLOSSES = 2;
  */
 export const CHAR_CARD_SELECTION_LIMIT = 4;
 
+/** lvl ADDENDUM: the four character levels, curriculum first, then usage. */
+export const LEVELS = ["m", "h", "a", "r"];
+
+/** True for a valid `lvl` value. */
+export function isLevel(v) {
+  return v === "m" || v === "h" || v === "a" || v === "r";
+}
+
 const HAN_CHAR = /\p{Script=Han}/u;
 const HANGUL_CHAR = /\p{Script=Hangul}/u;
 
@@ -344,11 +352,9 @@ function buildCharMatch(item, entry) {
   if (Array.isArray(entry.cw) && entry.cw.length > 0) {
     match.cwCount = entry.cw.length;
   }
-  // edu ADDENDUM: MOE basic-education hanja badge. Omitted when false.
-  if (entry.edu === true) match.edu = true;
-  // eduT ADDENDUM: MOE middle/high tier badge. Only ever set alongside edu
-  // (the build guarantees that); omitted when the tier is unknown.
-  if (entry.eduT === "m" || entry.eduT === "h") match.eduT = entry.eduT;
+  // lvl ADDENDUM: character level taxonomy (m/h/a/r), one value per char.
+  // Always present in real data; guarded so a placeholder bundle stays safe.
+  if (isLevel(entry.lvl)) match.lvl = entry.lvl;
   return match;
 }
 
@@ -515,10 +521,8 @@ export function buildReadingIndex(hanjaData) {
     for (const [eum, hun] of eums) {
       if (index[eum] === undefined) index[eum] = [];
       const candidate = { char, hun, eum, gloss };
-      // edu ADDENDUM: badge school-curriculum characters in the browse list.
-      if (entry.edu === true) candidate.edu = true;
-      // eduT ADDENDUM: tier badge on reading-list rows too.
-      if (entry.eduT === "m" || entry.eduT === "h") candidate.eduT = entry.eduT;
+      // lvl ADDENDUM: the level chip renders on browse rows too.
+      if (isLevel(entry.lvl)) candidate.lvl = entry.lvl;
       index[eum].push(candidate);
     }
   }
@@ -573,8 +577,7 @@ export function buildMatches(text, data) {
         eum,
         candidates: candidates.map((c) => {
           const out = { char: c.char, hun: c.hun, eum: c.eum, gloss: c.gloss };
-          if (c.edu === true) out.edu = true;
-          if (c.eduT === "m" || c.eduT === "h") out.eduT = c.eduT;
+          if (isLevel(c.lvl)) out.lvl = c.lvl;
           return out;
         }),
       },
@@ -770,15 +773,19 @@ function describe(head, plain, dimPieces) {
   return `<match>${escapeXml(head)}</match>${mid}${dimTail(dimPieces)}`;
 }
 
-/** edu ADDENDUM: the same 기초 label the popup badge uses, dimmed. */
-const EDU_LABEL = "기초";
+/**
+ * lvl ADDENDUM: short school-level labels for the dimmed omnibox tail. Only
+ * the curriculum levels say anything useful in one word here; `a` and `r`
+ * contribute nothing (the popup's level chip carries the full taxonomy).
+ */
+const OMNIBOX_LEVEL_LABEL = { m: "중학", h: "고교" };
 
 /** One row for a hanja character (char match or reading-browse candidate). */
-function charSuggestion(char, hun, eum, gloss, edu) {
+function charSuggestion(char, hun, eum, gloss, lvl) {
   const reading = [hun, eum].filter((s) => typeof s === "string" && s !== "").join(" ");
   return {
     content: char,
-    description: describe(char, reading, [gloss, edu === true ? EDU_LABEL : ""]),
+    description: describe(char, reading, [gloss, OMNIBOX_LEVEL_LABEL[lvl] || ""]),
   };
 }
 
@@ -842,7 +849,7 @@ export function buildOmniboxSuggestions(text, data) {
             pair && typeof pair.hun === "string" ? pair.hun : "",
             pair && typeof pair.eum === "string" ? pair.eum : "",
             gloss,
-            match.edu
+            match.lvl
           )
         );
       } else if (match.kind === "reading" && Array.isArray(match.candidates)) {
@@ -851,7 +858,7 @@ export function buildOmniboxSuggestions(text, data) {
         for (const c of match.candidates) {
           if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break;
           if (!c || typeof c.char !== "string" || c.char === "") continue;
-          push(charSuggestion(c.char, c.hun, c.eum, c.gloss, c.edu));
+          push(charSuggestion(c.char, c.hun, c.eum, c.gloss, c.lvl));
         }
       }
     }

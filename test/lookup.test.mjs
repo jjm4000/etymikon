@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Unit tests for the pure lookup logic in extension/lookup.js.
  * Plain Node, no dependencies, no chrome globals.
  *
@@ -52,8 +52,8 @@ const hanja = {
       // cw addendum: complete ranked index — superset of `compounds`, may
       // reference spellings the words fixture lacks (skipped on join).
       cw: ["國民", "國家", "大韓民國", "不在words"],
-      // edu addendum: MOE basic-education list membership.
-      edu: true,
+      // lvl addendum: character level taxonomy. 國 is middle school.
+      lvl: "m",
     },
     民: {
       eumhun: [{ hun: "백성", eum: "민" }],
@@ -69,9 +69,7 @@ const hanja = {
       // ranked index for the used-in tests: 學生 is contained by 學生會 and
       // 民主主義國家 is not; 不明 isn't a words key and must be skipped.
       cw: ["學生", "學生會", "不明學生"],
-      // eduT addendum: MOE tier. Never present without edu.
-      edu: true,
-      eduT: "m",
+      lvl: "m",
     },
     生: {
       eumhun: [{ hun: "날", eum: "생" }],
@@ -109,6 +107,8 @@ const hanja = {
       readings: ["국"],
       glosses: ["bureau; office; situation"],
       compounds: [{ hangul: "약국", hanja: "藥局", gloss: "pharmacy" }],
+      // lvl addendum: outside the curriculum but attested -> advanced.
+      lvl: "a",
     },
     菊: {
       // No eumhun at all: the eum comes from `readings`, so hun must be "".
@@ -116,6 +116,8 @@ const hanja = {
       readings: ["국"],
       glosses: [],
       compounds: [],
+      // lvl addendum: the reading-only dictionary tail -> rare.
+      lvl: "r",
     },
     詐: {
       eumhun: [{ hun: "속일", eum: "사" }],
@@ -562,38 +564,45 @@ test("a spelling is rare only when every contributing sense-set is rare", () => 
   assert.deepEqual(saranng.glosses, ["obscure sense", "an attested sense"]);
 });
 
-test("edu flag: on char matches and reading candidates, absent otherwise", () => {
+test("lvl: propagated onto char matches, one value per char", () => {
   const guk = charsOf(lookup("國", data).matches)[0];
-  assert.equal(guk.edu, true);
+  assert.equal(guk.lvl, "m");
+  const hak = charsOf(lookup("學", data).matches)[0];
+  assert.equal(hak.lvl, "m");
+  const guk2 = charsOf(lookup("局", data).matches)[0];
+  assert.equal(guk2.lvl, "a");
+  const guk3 = charsOf(lookup("菊", data).matches)[0];
+  assert.equal(guk3.lvl, "r");
+  // the legacy fields are gone for good
+  assert.equal("edu" in guk, false);
+  assert.equal("eduT" in guk, false);
+  // a fixture char without lvl (placeholder data) simply carries none
   const min = charsOf(lookup("民", data).matches)[0];
-  assert.equal("edu" in min, false);
-  const reading = lookup("국", data).matches[0];
-  const cGuk = reading.candidates.find((c) => c.char === "國");
-  const cGug = reading.candidates.find((c) => c.char === "局");
-  assert.equal(cGuk.edu, true);
-  assert.equal("edu" in cGug, false);
+  assert.equal("lvl" in min, false);
 });
 
-test("eduT: on char matches and reading candidates, absent otherwise", () => {
-  const hak = charsOf(lookup("學", data).matches)[0];
-  assert.equal(hak.edu, true);
-  assert.equal(hak.eduT, "m");
-  // 國 is edu but has no tier in the fixture; 民 has neither.
-  const guk = charsOf(lookup("國", data).matches)[0];
-  assert.equal(guk.edu, true);
-  assert.equal("eduT" in guk, false);
-  const min = charsOf(lookup("民", data).matches)[0];
-  assert.equal("eduT" in min, false);
-
-  // the kind:"reading" path rebuilds candidates through an explicit field
-  // list — the tier has to survive that rebuild.
-  const reading = lookup("학", data).matches[0];
+test("lvl: survives the kind:\"reading\" candidate rebuild", () => {
+  // The reading path rebuilds candidates through an explicit field list —
+  // the site that silently dropped the level field once before.
+  const reading = lookup("국", data).matches[0];
   assert.equal(reading.kind, "reading");
-  const cHak = reading.candidates.find((c) => c.char === "學");
-  assert.equal(cHak.eduT, "m");
-  assert.equal(cHak.edu, true);
-  const cGuk = lookup("국", data).matches[0].candidates.find((c) => c.char === "國");
-  assert.equal("eduT" in cGuk, false, "edu without a known tier stays bare");
+  assert.equal(reading.candidates.find((c) => c.char === "國").lvl, "m");
+  assert.equal(reading.candidates.find((c) => c.char === "局").lvl, "a");
+  assert.equal(reading.candidates.find((c) => c.char === "菊").lvl, "r");
+  const hak = lookup("학", data).matches[0].candidates.find((c) => c.char === "學");
+  assert.equal(hak.lvl, "m");
+});
+
+test("lvl: junk values are not propagated", () => {
+  const junk = {
+    ...data,
+    hanja: {
+      version: 1,
+      chars: { 國: { ...hanja.chars.國, lvl: "x" } },
+    },
+  };
+  const m = charsOf(lookup("國", junk).matches)[0];
+  assert.equal("lvl" in m, false);
 });
 
 // --- length metadata: segmentation caps come from the data ---------------
@@ -876,7 +885,7 @@ test('lookup("국") returns a reading match including 國 with hun 나라', () =
     hun: "나라",
     eum: "국",
     gloss: "country; state; nation",
-    edu: true,
+    lvl: "m",
   });
 });
 
@@ -892,7 +901,7 @@ test("reading candidates are ranked by compound count, descending", () => {
 test("reading candidates are uncapped and expose hun \"\" when readings-only", () => {
   const { matches } = lookup("국", data);
   const guk = matches[0].candidates.find((c) => c.char === "菊");
-  assert.deepEqual(guk, { char: "菊", hun: "", eum: "국", gloss: "" });
+  assert.deepEqual(guk, { char: "菊", hun: "", eum: "국", gloss: "", lvl: "r" });
   assert.equal(matches[0].candidates.length, 3, "every homophone is listed");
 });
 
@@ -1058,7 +1067,7 @@ test("hanja word query puts the word first, with an escaped description", () => 
   assert.deepEqual(contentsOf(rows), ["國民", "國", "民"]);
   assert.equal(
     rows[1].description,
-    "<match>國</match> 나라 국 <dim>country; state; nation · 기초</dim>"
+    "<match>國</match> 나라 국 <dim>country; state; nation · 중학</dim>"
   );
 });
 
@@ -1116,7 +1125,7 @@ test("a single syllable yields its reading-browse candidates", () => {
   assert.deepEqual(contentsOf(rows), ["國", "局", "菊"]);
   assert.equal(
     rows[0].description,
-    "<match>國</match> 나라 국 <dim>country; state; nation · 기초</dim>"
+    "<match>國</match> 나라 국 <dim>country; state; nation · 중학</dim>"
   );
   assert.equal(rows[1].description, "<match>局</match> 판 국 <dim>bureau; office; situation</dim>");
   // 菊 has no hun and no gloss: no empty dim block, no stray separator.
@@ -1167,7 +1176,7 @@ test("junk data is tolerated: no throw, just no suggestions", () => {
 await testAsync("background.js imports cleanly in Node (guards hold)", async () => {
   assert.equal(typeof globalThis.chrome, "undefined", "no chrome shim in the test env");
   const bg = await import("../extension/background.js");
-  for (const fn of ["handleLookup", "handleCompounds", "handleUsedIn"]) {
+  for (const fn of ["handleLookup", "handleCompounds", "handleUsedIn", "handleOpenTab"]) {
     assert.equal(typeof bg[fn], "function", `background.js should export ${fn}`);
   }
 });
@@ -1268,29 +1277,50 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
     }
   }
 
-  // eduT addendum: the tier may only ever appear alongside edu, and only with
-  // the two documented values. Checked over every char in the real corpus.
-  let eduNote = "no eduT in corpus yet";
-  const tiered = Object.entries(real.hanja.chars).filter(([, e]) => e && e.eduT);
-  if (tiered.length > 0) {
-    const bad = tiered.filter(([, e]) => e.eduT !== "m" && e.eduT !== "h");
-    assert.deepEqual(bad.map(([c]) => c), [], `${kind} data: eduT must be "m" or "h"`);
-    const orphans = tiered.filter(([, e]) => e.edu !== true);
-    assert.deepEqual(
-      orphans.map(([c]) => c),
-      [],
-      `${kind} data: eduT must never appear without edu`
+  // lvl addendum: EVERY char carries exactly one valid level, the zones sit
+  // in their expected bands, and the boundary anchors hold.
+  let eduNote = "no lvl in corpus yet";
+  const levelled = Object.entries(real.hanja.chars).filter(([, e]) => e && e.lvl);
+  if (levelled.length > 0) {
+    const zones = { m: 0, h: 0, a: 0, r: 0 };
+    const bad = [];
+    for (const [c, e] of Object.entries(real.hanja.chars)) {
+      if (e && (e.lvl === "m" || e.lvl === "h" || e.lvl === "a" || e.lvl === "r")) {
+        zones[e.lvl] += 1;
+      } else {
+        bad.push(c);
+      }
+      if (e && ("edu" in e || "eduT" in e)) bad.push(c);
+    }
+    assert.deepEqual(bad.slice(0, 5), [], `${kind} data: ${bad.length} chars without exactly one lvl`);
+    assert.equal(
+      zones.m + zones.h + zones.a + zones.r,
+      Object.keys(real.hanja.chars).length
     );
-    const m = tiered.filter(([, e]) => e.eduT === "m").length;
-    eduNote = `eduT ${m}m/${tiered.length - m}h`;
-    // and it must reach the matches, char cards and reading rows alike
-    const [sample, sampleEntry] = tiered[0];
+    assert.ok(zones.m > 700 && zones.m <= 900, `${kind} data: m=${zones.m}`);
+    assert.ok(zones.h > 700 && zones.h <= 900, `${kind} data: h=${zones.h}`);
+    assert.ok(zones.a >= 1000 && zones.a <= 3500, `${kind} data: a=${zones.a}`);
+    assert.ok(zones.r > zones.a, `${kind} data: r=${zones.r} should be the largest zone`);
+    eduNote = `lvl ${zones.m}m/${zones.h}h/${zones.a}a/${zones.r}r`;
+
+    // Boundary anchors: curriculum, attested, and dictionary-tail.
+    for (const [ch, want] of [
+      ["學", "m"], ["國", "m"], ["民", "m"],
+      ["雰", "a"], ["癌", "a"], ["膵", "a"],
+      ["㔏", "r"], ["朞", "r"],
+    ]) {
+      const e = real.hanja.chars[ch];
+      if (e) assert.equal(e.lvl, want, `${kind} data: ${ch} should be lvl ${want}`);
+    }
+
+    // and it must reach the matches: char cards and reading rows alike
+    const [sample, sampleEntry] = levelled[0];
     const card = charsOf(lookup(sample, real).matches)[0];
-    assert.equal(card.eduT, sampleEntry.eduT, `${kind} data: ${sample} card carries eduT`);
+    assert.equal(card.lvl, sampleEntry.lvl, `${kind} data: ${sample} card carries lvl`);
     const row = lookup(sampleEntry.readings[0], real).matches[0];
     if (row && row.kind === "reading") {
       const c = row.candidates.find((x) => x.char === sample);
-      if (c) assert.equal(c.eduT, sampleEntry.eduT, `${kind} data: reading row carries eduT`);
+      if (c) assert.equal(c.lvl, sampleEntry.lvl, `${kind} data: reading row carries lvl`);
     }
   }
 

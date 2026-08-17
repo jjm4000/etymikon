@@ -61,7 +61,7 @@ the extension shows comes from the Korean hanja entry of the *canonical*
 character, which the "canonical must exist in hanja.json" rule guarantees. The
 Japanese file is read with `gzip` and never decompressed to disk.
 
-### Provenance of the MOE tier table (`eduT`)
+### Provenance of the MOE tier table (`lvl` = `m` / `h`)
 
 The 중학교용 / 고등학교용 split of the Ministry of Education's 1,800 기초한자 comes
 from the Korean Wikipedia article 「대한민국 중고등학교 기초한자 목록」, fetched as
@@ -77,14 +77,16 @@ The page is a single `wikitable`: one row per 음, two data columns
 900 + 900 = 1,800 tiers.
 
 **Unihan stays authoritative for membership.** `kKoreanEducationHanja` decides
-`edu`; the wiki table only decides `eduT`, and a tier is kept only for a
-character Unihan already lists, so `eduT` can never appear without `edu`. The
-two sets disagree on exactly four glyphs — the wiki table prints the pre-2007
-forms 戱/晩/玆/產 where Unihan uses the forms fixed by 교육인적자원부 고시
-제2007-79호 (자형 corrections only, no membership change): 戲/晚/茲/産. That
-four-entry map is hardcoded in `build.py` (`EDU_TIER_GLYPH_FIX`); after it, the
-intersection is a clean 1,800 with 0 untiered. The build verifies the counts,
-the m/h-only value domain, the eduT⇒edu invariant, and 學/國/民 = middle school.
+who is in the 1,800; the wiki table only decides middle vs high. A tier is kept
+only for a character Unihan already lists, so the curriculum zones can never be
+inflated by the wiki. The two sets disagree on exactly four glyphs — the wiki
+table prints the pre-2007 forms 戱/晩/玆/產 where Unihan uses the forms fixed by
+교육인적자원부 고시 제2007-79호 (자형 corrections only, no membership change):
+戲/晚/茲/産. That four-entry map is hardcoded in `build.py`
+(`EDU_TIER_GLYPH_FIX`); after it, the intersection is a clean 1,800 with 0
+untiered. If the sources ever diverge, an in-membership character with no tier
+is emitted as `a` and a verify anchor fails, so the divergence gets looked at
+rather than silently absorbed.
 
 Unlike the other sources, this one is a live wiki page that can be edited, so it
 is fetched **without** `curl -C -` resume (a grown page would corrupt a resumed
@@ -289,6 +291,61 @@ also go unflagged, because `alt_inbound` is too sparse to tell them apart from
 `byHangul` lists all non-rare spellings before rare ones, so a reverse lookup
 leads with a confident match; ordering within each group is unchanged.
 
+## The character level taxonomy (`lvl`)
+
+Every `hanja.json` entry carries exactly one of four levels. There is no
+"unflagged" state — the field is universal, which is what lets the UI render
+one chip per character instead of a badge that is sometimes absent.
+
+| `lvl` | zone | source |
+| --- | --- | --- |
+| `m` | MOE curriculum, middle school (중학교용) | Unihan membership ∩ wiki tier table |
+| `h` | MOE curriculum, high school (고등학교용) | same |
+| `a` | Advanced — outside the curriculum, genuinely in use | calibrated predicate |
+| `r` | Rare — the archaic / specialist / reading-only tail | calibrated predicate |
+
+Current distribution: **m 899, h 895, a 1,840, r 5,835** of 9,469 characters.
+(The curriculum zones are 899/895 rather than 900/900 because six of the 1,800
+have no Wiktionary or Unihan entry at all and so never enter the corpus.)
+
+### The a/r predicate, and why it is shaped this way
+
+`classify_level()` in `build.py` is the whole boundary; its two thresholds sit
+directly above it for recalibration. School membership wins first and is never
+overridden by usage. For everything else:
+
+1. **Attested in a real word** — the character occurs in at least one
+   `words.json` spelling that is not flagged `rare`. → `a`
+2. **Own Wiktionary entry plus real compounds** — its glosses did *not* come
+   from the Unihan `kDefinition` gap-fill, it has a native hun, and it appears
+   in ≥ 2 words. → `a`
+3. Otherwise → `r`
+
+Rule 1 does the work (1,837 of the 1,840); rule 2 rescues exactly three
+characters the corpus cannot vouch for but Wiktionary plainly can — 丕, 彬, 耀,
+all common in personal names.
+
+The reasoning behind rule 1 is that a character's own entry says very little
+about whether the language *uses* it. The obvious predicates — "has a native
+hun", "has ≥ 2 compounds" — promote dead CJK-Ext-A characters such as 㔏 ("to
+divide; cut into pieces", zero words, zero corpus evidence) straight into `a`,
+which is precisely what `a` must not contain. Usage is the discriminator, and
+the pipeline already has a calibrated usage judgement: the `rare` flag on
+words.json sense-sets. So the taxonomy reuses that decision wholesale rather
+than inventing a second, unvalidated scale — which is also why the rare pass
+now runs *before* `hanja.json` is built.
+
+**Gloss provenance is tracked, never emitted.** The Unihan gap-fill records
+which characters had to borrow their English gloss from `kDefinition`
+(`unihan_only_gloss`); having no Korean Wiktionary entry of one's own is the
+strongest single tail signal available, and it is what keeps rule 2 narrow.
+The set stays internal to the build.
+
+Anchors checked every run: 學/國/民 are `m`; 雰 (분위기), 祠 (사당), 娑 (娑婆),
+膵, 腺, 癌, 鰐, 醬 are `a`; 㔏, 朞, 柶, 刋, 俴 are `r`. The build also prints a
+fixed-seed 10 + 10 sample of the `a` and `r` zones on every run, so a
+recalibration can be eyeballed without extra tooling.
+
 ## Canonical words keys, and how long a key can be
 
 The service worker NFC-normalizes a selection and maps every character through
@@ -357,6 +414,9 @@ Every run ends with counts, output sizes, and spot-checks:
   canonical too, and the two re-keyed anchors survive: 中腦→中匘 keeps 중뇌 and
   一舉兩得 exists only as 一擧兩得.
 * `maxWordLen` / `maxHangulLen` match a recomputation over the shipped keys.
+* Every character has exactly one valid `lvl` and no legacy `edu`/`eduT`
+  field; the zone sizes sit in their expected bands; the a/r boundary anchors
+  hold; 學/國/民 are middle school.
 * 20 very common characters are present, including 文/金/小/中/時, which use an
   older template shape (`alt-of` senses pointing at a hangul reading) that a
   naive parser silently drops.

@@ -30,6 +30,7 @@ import io
 import json
 import math
 import os
+import random
 import re
 import subprocess
 import sys
@@ -1130,37 +1131,57 @@ def verify(hanja_obj, words_obj, variants_obj):
 
     # SPEC eumhun normalization addendum
     han_eumhun = [(x["hun"], x["eum"]) for x in (chars_out.get("韓") or {}).get("eumhun", [])]
-    edu_n = sum(1 for e in chars_out.values() if e.get("edu"))
-    add("edu flag: 國/學 marked, sane coverage of the MOE 1800",
-        (chars_out.get("國") or {}).get("edu") is True
-        and (chars_out.get("學") or {}).get("edu") is True
-        and 1500 <= edu_n <= 1800
-        and edu_n < len(chars_out),
-        "%d edu chars in corpus (of %d)" % (edu_n, len(chars_out)))
-    # eduT ADDENDUM: MOE middle/high tier.
-    tier_m = [c for c, e in chars_out.items() if e.get("eduT") == "m"]
-    tier_h = [c for c, e in chars_out.items() if e.get("eduT") == "h"]
-    bad_tier = [c for c, e in chars_out.items()
-                if e.get("eduT") not in (None, "m", "h")]
-    add("eduT: both tiers present in bulk, values are m/h only",
-        len(tier_m) >= 700 and len(tier_h) >= 700
-        and len(tier_m) + len(tier_h) <= 1800 and not bad_tier,
-        "%d middle + %d high = %d tiered of %d edu chars%s" % (
-            len(tier_m), len(tier_h), len(tier_m) + len(tier_h), edu_n,
-            "" if not bad_tier else "; BAD VALUES %s" % bad_tier[:5]))
-    orphan = [c for c, e in chars_out.items() if e.get("eduT") and not e.get("edu")]
-    add("eduT never without edu", not orphan,
-        "checked %d chars; %d orphans%s" % (
-            len(chars_out), len(orphan),
-            "" if not orphan else " e.g. " + " ".join(orphan[:5])))
-    no_tier = sorted(c for c, e in chars_out.items()
-                     if e.get("edu") and not e.get("eduT"))
-    add("edu chars in corpus lacking a tier (informational, ≤ 6 expected)",
-        len(no_tier) <= 6,
-        "%d untiered%s" % (len(no_tier),
-                           (": " + " ".join(no_tier)) if no_tier else ""))
-    spot = {c: (chars_out.get(c) or {}).get("eduT") for c in ("學", "國", "民")}
-    add("eduT spot-check 學/國/民 = middle school",
+    # lvl ADDENDUM: the character level taxonomy. Exactly one value per char.
+    zones = collections.Counter()
+    missing_lvl = []
+    bad_lvl = []
+    for c, e in chars_out.items():
+        v = e.get("lvl")
+        if v is None:
+            missing_lvl.append(c)
+        elif v not in ("m", "h", "a", "r"):
+            bad_lvl.append(c)
+        else:
+            zones[v] += 1
+    legacy = [c for c, e in chars_out.items() if "edu" in e or "eduT" in e]
+    add("lvl: every char carries exactly one of m/h/a/r (and no legacy field)",
+        not missing_lvl and not bad_lvl and not legacy
+        and sum(zones.values()) == len(chars_out),
+        "%d chars: m=%d h=%d a=%d r=%d%s%s%s" % (
+            len(chars_out), zones["m"], zones["h"], zones["a"], zones["r"],
+            "" if not missing_lvl else "; MISSING %s" % missing_lvl[:5],
+            "" if not bad_lvl else "; BAD %s" % bad_lvl[:5],
+            "" if not legacy else "; LEGACY edu/eduT on %s" % legacy[:5]))
+    # The school zones come straight from the MOE sources: their size is fixed
+    # by the 900/900 table intersected with the corpus, not by calibration.
+    add("lvl school zones match the MOE tier table (m+h = the 1800 in corpus)",
+        700 <= zones["m"] <= 900 and 700 <= zones["h"] <= 900,
+        "m=%d h=%d (table ships 900/900; the rest are chars with no "
+        "Wiktionary/Unihan entry at all)" % (zones["m"], zones["h"]))
+    # If MOE membership ever gains a character the wiki tier table lacks, the
+    # predicate emits `a` for it — this anchor is what makes that visible.
+    add("no MOE-membership char fell through to `a` (sources still agree)",
+        zones["a"] + zones["r"] + zones["m"] + zones["h"] == len(chars_out)
+        and zones["m"] + zones["h"] >= 1700,
+        "%d school chars total" % (zones["m"] + zones["h"]))
+    add("lvl a/r calibration: `a` is a low-thousands zone, `r` the remainder",
+        1000 <= zones["a"] <= 3500 and zones["r"] > zones["a"],
+        "a=%d, r=%d" % (zones["a"], zones["r"]))
+    # Boundary anchors, per SPEC. Attested-but-uncurricular characters must be
+    # `a`; the dictionary tail (Ext-A reading-only, kDefinition-only) must be
+    # `r`. 雰 lives in 분위기, 祠 in 사당, 娑 in 娑婆.
+    want_a = ("雰", "祠", "娑", "膵", "腺", "癌", "鰐", "醬")
+    want_r = ("㔏", "朞", "柶", "刋", "俴")
+    got_a = {c: (chars_out.get(c) or {}).get("lvl") for c in want_a}
+    got_r = {c: (chars_out.get(c) or {}).get("lvl") for c in want_r}
+    add("lvl anchors: attested non-curricular chars are `a`",
+        all(v in ("a", "m", "h") for v in got_a.values() if v is not None),
+        json.dumps(got_a, ensure_ascii=False))
+    add("lvl anchors: the dictionary tail is `r`",
+        all(v == "r" for v in got_r.values() if v is not None),
+        json.dumps(got_r, ensure_ascii=False))
+    spot = {c: (chars_out.get(c) or {}).get("lvl") for c in ("學", "國", "民")}
+    add("lvl spot-check 學/國/民 = middle school",
         all(v == "m" for v in spot.values()),
         json.dumps(spot, ensure_ascii=False))
     ok_glosses = (chars_out.get("玉") or {}).get("glosses", [])
@@ -1387,6 +1408,12 @@ def main(argv):
     with zipfile.ZipFile(UNIHAN_FILE) as z:
         uni_defs, uni_hangul = parse_unihan_readings(
             z.read("Unihan_Readings.txt").decode("utf-8"))
+    # Provenance is TRACKED (not emitted): a character whose only English gloss
+    # had to come from kDefinition has no usable Korean Wiktionary entry of its
+    # own, which is the single strongest "this is a dictionary-tail character"
+    # signal available. Used by the lvl a/r predicate below.
+    unihan_only_gloss = set()
+    unihan_only_reading = set()
     filled_g = filled_r = 0
     for c, e in chars.items():
         if not e["glosses"]:
@@ -1396,11 +1423,13 @@ def main(argv):
                     push_gloss(e["glosses"], clean_gloss(piece), 6)
                 if e["glosses"]:
                     filled_g += 1
+                    unihan_only_gloss.add(c)
         if not e["readings"]:
             for r in uni_hangul.get(c, ())[:4]:
                 push_unique(e["readings"], r, 8)
             if e["readings"]:
                 filled_r += 1
+                unihan_only_reading.add(c)
     log("  Unihan gap-fill: %s glosses, %s readings"
         % (format(filled_g, ","), format(filled_r, ",")))
 
@@ -1587,6 +1616,47 @@ def main(argv):
         for x in lst:
             by_hangul_tmp.setdefault(x["hangul"], []).append((sp, x["score"]))
 
+    # ---- rare flag (SPEC addendum) -----------------------------------
+    # Computed here, before hanja.json, because the character-level taxonomy
+    # (`lvl`) is defined in terms of it: a character is "attested" when it
+    # occurs in at least one word the frequency proxy can vouch for.
+    # A sense-set is rare when the frequency proxy shows no attestation that
+    # can be credited to THIS hanja spelling. ngram_freq/inbound are keyed by
+    # hangul, so they are only usable when the hangul is not shared with a
+    # native word and this spelling is the dominant one for that reading;
+    # alt_inbound is keyed by the spelling itself and is always usable.
+    # Deliberately conservative: a false positive (hedging a correct, common
+    # match) is worse than a false negative. An earlier draft also flagged any
+    # minority homograph lacking its own alt_inbound, which wrongly caught
+    # common secondary readings - 監査 "audit", 士氣 "morale", 修道 - because
+    # alt_inbound is sparse. Only the two unambiguous cases are flagged now.
+    def is_rare(sp, hangul):
+        a = canon_alt_inbound.get(sp, 0)
+        if hangul in native_hangul:
+            # 사랑/우리: the hangul's counts belong to the native word, so a
+            # lone passing mention is not enough to call the spelling attested.
+            # The external list is hangul-keyed and so is useless here for the
+            # same reason - it is deliberately NOT consulted on this branch.
+            return a < 2
+        # nothing at all, from any signal, including the external corpus
+        return (a == 0
+                and ngram_freq.get(hangul, 0) == 0
+                and inbound.get(hangul, 0) == 0
+                and ext_freq.get(hangul, 0) == 0)
+
+    n_rare = 0
+    for sp, lst in words_out.items():
+        for sense in lst:
+            if is_rare(sp, sense["hangul"]):
+                sense["rare"] = True
+                n_rare += 1
+    n_sets = sum(len(l) for l in words_out.values())
+    log("  rare flag: %s of %s sense-sets (%.1f%%), %s native-contested hangul"
+        % (format(n_rare, ","), format(n_sets, ","),
+           100.0 * n_rare / max(n_sets, 1), format(len(native_hangul), ",")))
+    attested_words = {sp for sp, lst in words_out.items()
+                      if not all(s.get("rare") for s in lst)}
+
     # ---- hanja.json -------------------------------------------------
     log("[5/5] building hanja.json (reverse index + compound ranking)")
     char_to_words = {}
@@ -1610,6 +1680,46 @@ def main(argv):
     for e in chars.values():
         for sp in {canon_sp(d["hanja"]) for d in e["derived"]}:
             cross_derived[sp] += 1
+
+    # ------------------------------------------------------------------
+    # LEVEL TAXONOMY (SPEC `lvl`): the a/r boundary.
+    #
+    # Tunable thresholds live here; the predicate is deliberately one small
+    # function so a recalibration is a one-line change plus a rebuild.
+    #
+    # Rationale for the shape. The naive predicates (has a native hun, or has
+    # >= 2 compounds) fail: they promote dead CJK-Ext-A characters like 㔏
+    # ("to divide; cut into pieces" — a kDefinition gloss, zero words, zero
+    # corpus evidence) into `a`, which is exactly what `a` must not contain.
+    # What separates a live character from a dictionary-tail one is not its
+    # own entry at all, it is whether the language uses it: does it occur in a
+    # word that the frequency proxy can attest? That proxy is already
+    # calibrated — it is the same `rare` decision words.json ships — so the
+    # primary rule reuses it wholesale instead of inventing a second scale.
+    #
+    # A second, deliberately narrow rule keeps a character that the corpus
+    # cannot vouch for but Wiktionary clearly can: it must have a Korean
+    # entry of its OWN (glosses that did not come from the kDefinition
+    # gap-fill), a native hun, and still take part in real compounds. Both
+    # halves are needed — provenance alone would admit 㔏's neighbours,
+    # compounds alone would admit any character sitting in one unattested
+    # spelling.
+    LVL_MIN_ATTESTED_WORDS = 1      # words the corpus vouches for -> advanced
+    LVL_MIN_WORDS_OWN_ENTRY = 2     # compounds required on the entry-quality path
+
+    def classify_level(c, n_attested, n_words, has_hun):
+        """-> "m" | "h" | "a" | "r" for one character. School tiers first:
+        MOE membership is authoritative and never overridden by usage."""
+        if c in edu_set:
+            # An in-membership character with no tier should not exist; if the
+            # two sources ever diverge it lands in `a` and verify() fails.
+            return edu_tier.get(c, "a")
+        if n_attested >= LVL_MIN_ATTESTED_WORDS:
+            return "a"
+        if (c not in unihan_only_gloss and has_hun
+                and n_words >= LVL_MIN_WORDS_OWN_ENTRY):
+            return "a"
+        return "r"
 
     def compound_score(sp, curated):
         # Frequency-first ranking. The curated bonus is deliberately modest so
@@ -1663,12 +1773,13 @@ def main(argv):
             "glosses": e["glosses"][:6],
             "compounds": compounds,
         }
-        if c in edu_set:
-            chars_out[c]["edu"] = True
-            # eduT ADDENDUM: MOE middle/high tier, emitted only when known and
-            # only alongside edu (see the intersection above).
-            if c in edu_tier:
-                chars_out[c]["eduT"] = edu_tier[c]
+        # lvl ADDENDUM: exactly one level per character, always present.
+        sp_here = char_to_words.get(c, ())
+        chars_out[c]["lvl"] = classify_level(
+            c,
+            sum(1 for sp in sp_here if sp in attested_words),
+            len(sp_here),
+            any(x["hun"] for x in eumhun))
         # cw ADDENDUM: the COMPLETE compound index, spellings only, ranked by
         # the same score as the curated list (ranking baked into array order —
         # no scores shipped). Unlike the curated list, gloss-less words are
@@ -1694,42 +1805,6 @@ def main(argv):
                 picked.append(sp)
         if picked:
             by_hangul[hangul] = picked
-
-    # ---- rare flag (SPEC addendum) -----------------------------------
-    # A sense-set is rare when the frequency proxy shows no attestation that
-    # can be credited to THIS hanja spelling. ngram_freq/inbound are keyed by
-    # hangul, so they are only usable when the hangul is not shared with a
-    # native word and this spelling is the dominant one for that reading;
-    # alt_inbound is keyed by the spelling itself and is always usable.
-    # Deliberately conservative: a false positive (hedging a correct, common
-    # match) is worse than a false negative. An earlier draft also flagged any
-    # minority homograph lacking its own alt_inbound, which wrongly caught
-    # common secondary readings - 監査 "audit", 士氣 "morale", 修道 - because
-    # alt_inbound is sparse. Only the two unambiguous cases are flagged now.
-    def is_rare(sp, hangul):
-        a = canon_alt_inbound.get(sp, 0)
-        if hangul in native_hangul:
-            # 사랑/우리: the hangul's counts belong to the native word, so a
-            # lone passing mention is not enough to call the spelling attested.
-            # The external list is hangul-keyed and so is useless here for the
-            # same reason - it is deliberately NOT consulted on this branch.
-            return a < 2
-        # nothing at all, from any signal, including the external corpus
-        return (a == 0
-                and ngram_freq.get(hangul, 0) == 0
-                and inbound.get(hangul, 0) == 0
-                and ext_freq.get(hangul, 0) == 0)
-
-    n_rare = 0
-    for sp, lst in words_out.items():
-        for sense in lst:
-            if is_rare(sp, sense["hangul"]):
-                sense["rare"] = True
-                n_rare += 1
-    n_sets = sum(len(l) for l in words_out.values())
-    log("  rare flag: %s of %s sense-sets (%.1f%%), %s native-contested hangul"
-        % (format(n_rare, ","), format(n_sets, ","),
-           100.0 * n_rare / max(n_sets, 1), format(len(native_hangul), ",")))
 
     # non-rare spellings first in byHangul, so a reverse lookup leads with a
     # confident match; ordering within each group is unchanged.
@@ -1768,6 +1843,18 @@ def main(argv):
     log("variants   : %-9s (expect >= 1000)" % format(len(variant_map), ","))
     log("  variant sources: " + ", ".join(
         "%s=%d" % (PRIO_NAMES[k], v) for k, v in sorted(src_counts.items())))
+    zones = collections.Counter(e["lvl"] for e in chars_out.values())
+    log("levels     : m=%s h=%s a=%s r=%s"
+        % (format(zones["m"], ","), format(zones["h"], ","),
+           format(zones["a"], ","), format(zones["r"], ",")))
+    # A fixed-seed eyeball sample of the calibrated boundary, printed every
+    # build so a recalibration can be judged without extra tooling.
+    rng = random.Random(20260817)
+    for z in ("a", "r"):
+        pool = sorted(c for c, e in chars_out.items() if e["lvl"] == z)
+        pick = rng.sample(pool, min(10, len(pool)))
+        log("  %s sample: %s" % (z, "  ".join(
+            "%s(%s)" % (c, (chars_out[c]["glosses"] or ["-"])[0][:24]) for c in pick)))
     log("================= SIZES ====================")
     log("hanja.json    : %s" % mb(s_h))
     log("words.json    : %s" % mb(s_w))
