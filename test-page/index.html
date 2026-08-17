@@ -294,18 +294,28 @@
     "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
   };
 
-  // MOE basic-education membership (Unihan kKoreanEducationHanja). These
-  // five match the real data: among the 국 homophones 國/局/菊 are in the
-  // list and 鞠/麴 are not, so the reading list badges selectively.
-  ["國", "學", "民", "局", "菊"].forEach(function (c) {
-    if (CHARS[c]) CHARS[c].edu = true;
-  });
-  // MOE tier (phase 2), emitted only where the tier is known: 學 is a
-  // middle-school character, 局 a high-school one; 國/民/菊 stand in for the
-  // variant-gap set that has membership but no tier. eduT never without edu.
-  var EDU_TIER = { "學": "m", "局": "h" };
-  Object.keys(EDU_TIER).forEach(function (c) {
-    if (CHARS[c] && CHARS[c].edu === true) CHARS[c].eduT = EDU_TIER[c];
+  // Character level taxonomy (`lvl`, one of m/h/a/r) — replaces the old
+  // edu/eduT pair. In the real corpus EVERY char has exactly one; the fixture
+  // deliberately leaves ONE char (朞) without, to stand in for pre-migration
+  // data and prove the UI renders no chip rather than guessing a zone.
+  //
+  // The 국 homophone list is arranged to cover all four zones in one view
+  // (國 m, 局 h, 菊 a, 鞠/麴 r), and 廊 is `r` so the rare WORD 舍廊 puts the
+  // word-level RARE marker and a char-level "Rare" chip in the same popup.
+  var LVL = {
+    "國": "m", "民": "m", "學": "m", "生": "m", "韓": "m", "漢": "m",
+    "字": "m", "文": "m", "大": "m", "事": "m", "社": "m", "士": "m",
+    "使": "m", "史": "m", "死": "m", "四": "m", "師": "m", "氣": "m",
+    "器": "m", "武": "m", "本": "m", "主": "m", "天": "m", "外": "m",
+    "活": "m", "會": "m", "者": "m", "海": "m",
+    "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
+    "沙": "h", "舍": "h",
+    "菊": "a", "欺": "a", "衝": "a",
+    "鞠": "r", "麴": "r", "廊": "r"
+    // 朞: intentionally absent — see above.
+  };
+  Object.keys(LVL).forEach(function (c) {
+    if (CHARS[c]) CHARS[c].lvl = LVL[c];
   });
 
   var WORDS = {
@@ -536,9 +546,8 @@
     // Total size of the char's cw index — the UI needs it to label
     // "Show 5 more (N)" before it has fetched anything. Omitted when 0.
     if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
-    // MOE basic-education membership; omitted when false.
-    if (d.edu === true) m.edu = true;
-    if (d.eduT) m.eduT = d.eduT;           // tier, only when known
+    // Character level; omitted only for pre-migration entries (see LVL).
+    if (d.lvl) m.lvl = d.lvl;
     return m;
   }
 
@@ -554,8 +563,7 @@
           char: ch, hun: hun, eum: syllable,
           gloss: (d.glosses && d.glosses[0]) || ""
         };
-        if (d.edu === true) cand.edu = true;   // propagated onto candidates
-        if (d.eduT) cand.eduT = d.eduT;        // …and the tier with it
+        if (d.lvl) cand.lvl = d.lvl;   // propagated onto reading candidates
         return cand;
       })
     };
@@ -642,6 +650,13 @@
     __usedInCalls: 0,    // {type:"usedIn"} only
     __lastWord: null,
     __failUsedIn: false,
+    // {type:"openTab"} — the in-page popup's route to a background tab, since
+    // a content script cannot reach chrome.tabs itself. The real worker
+    // validates the url against the Wiktionary base; flip __failOpenTab to
+    // stand in for an old worker or a rejected url and exercise the fallback.
+    __openTabCalls: 0,
+    __lastOpenTabUrl: null,
+    __failOpenTab: false,
     sendMessage: function (msg, cb) {
       this.__calls++;
       var resp;
@@ -661,6 +676,12 @@
           resp = this.__failUsedIn
             ? { ok: false, error: "simulated failure" }
             : { ok: true, words: buildUsedIn(msg.word) };
+        } else if (msg && msg.type === "openTab") {
+          this.__openTabCalls++;
+          this.__lastOpenTabUrl = msg.url;
+          resp = this.__failOpenTab
+            ? { ok: false, error: "url rejected" }
+            : { ok: true };
         } else {
           resp = { ok: false, error: "unknown message type" };
         }
@@ -1571,17 +1592,127 @@
 
     // Clicking the link must not be swallowed, and must not navigate the popup.
     var depthBeforeLink = api.viewDepth();
-    var callsBeforeLink = fake.__calls;
+    var lastTextBeforeLink = fake.__lastText;
     api.query(".wiki").dispatchEvent(new MouseEvent("mousedown",
       { bubbles: true, composed: true }));
     check("mousedown on the link does not dismiss the popup", api.isVisible());
     clickInert(api.query(".wiki"));
     await wait(60);
-    check("clicking the link does not navigate or re-query",
-      api.viewDepth() === depthBeforeLink && fake.__calls === callsBeforeLink &&
-      api.isVisible(),
+    // (The click DOES now send an openTab message — see the section below —
+    // so this asserts no LOOKUP re-query rather than no traffic at all.)
+    check("clicking the link does not navigate the popup or re-query the entry",
+      api.viewDepth() === depthBeforeLink &&
+      fake.__lastText === lastTextBeforeLink && api.isVisible(),
       "depth " + depthBeforeLink + " → " + api.viewDepth() +
-      ", calls " + callsBeforeLink + " → " + fake.__calls);
+      ", lastText " + lastTextBeforeLink + " → " + fake.__lastText);
+
+    // --- ADDENDUM: wiki links open in the background on EVERY surface -----
+    // A content script cannot reach chrome.tabs, so the in-page popup asks the
+    // worker via {type:"openTab", url} and the worker (which validates the url
+    // against the Wiktionary base) opens the background tab. Same UX as the
+    // embed surfaces, which call chrome.tabs directly — test-page/embed.html
+    // covers that half.
+    //
+    // The links are real <a target="_blank">, so a synthetic MODIFIED click —
+    // which content.js correctly does NOT cancel — would really open a tab.
+    // This guard registers on the SAME element AFTER content.js's listener
+    // (same phase, later registration runs later; content.js uses
+    // stopPropagation, not stopImmediatePropagation, so siblings still fire),
+    // reads the verdict, and only then neutralizes the navigation.
+    function fireOnLink(link, type, init) {
+      var verdict = { seen: false, prevented: null };
+      function guard(ev) {
+        verdict.seen = true;
+        verdict.prevented = ev.defaultPrevented;
+        ev.preventDefault();
+      }
+      link.addEventListener(type, guard);
+      var opts = { bubbles: true, cancelable: true, composed: true, button: 0 };
+      for (var k in (init || {})) {
+        if (Object.prototype.hasOwnProperty.call(init, k)) opts[k] = init[k];
+      }
+      link.dispatchEvent(new MouseEvent(type, opts));
+      link.removeEventListener(type, guard);
+      return verdict;
+    }
+
+    api.showAt(anchor, fake.__lookup("國").matches, "國");
+    var wikiLink = api.query(".wiki");
+    var wikiUrl = WIKI + "%E5%9C%8B#Korean";
+    var openBefore = fake.__openTabCalls;
+    var linkDepthBefore = api.viewDepth();
+    var linkCardsBefore = api.cardCount();
+
+    var plainClick = fireOnLink(wikiLink, "click", { button: 0 });
+    check("plain left click asks the worker for a background tab",
+      fake.__openTabCalls === openBefore + 1 && fake.__lastOpenTabUrl === wikiUrl,
+      "calls=" + (fake.__openTabCalls - openBefore) +
+      " url=" + fake.__lastOpenTabUrl);
+    check("plain left click prevents the browser's own link activation",
+      plainClick.seen && plainClick.prevented === true,
+      "prevented=" + plainClick.prevented);
+    check("the popup is completely untouched by the interception",
+      api.isVisible() && api.cardCount() === linkCardsBefore &&
+      api.viewDepth() === linkDepthBefore,
+      "visible=" + api.isVisible() + " cards=" + api.cardCount() +
+      " depth=" + api.viewDepth());
+    check("the link reports the background open as 'Opened ↗'",
+      wikiLink.textContent === "Opened ↗", JSON.stringify(wikiLink.textContent));
+    await wait(1400);
+    check("the label restores itself after ~1.2s",
+      wikiLink.textContent === "Wiktionary ↗", JSON.stringify(wikiLink.textContent));
+
+    openBefore = fake.__openTabCalls;
+    var middleClick = fireOnLink(wikiLink, "auxclick", { button: 1 });
+    check("middle click takes the same worker-mediated path",
+      fake.__openTabCalls === openBefore + 1 && fake.__lastOpenTabUrl === wikiUrl,
+      "calls=" + (fake.__openTabCalls - openBefore) +
+      " url=" + fake.__lastOpenTabUrl);
+    check("middle click prevents the browser's open-in-background too",
+      middleClick.seen && middleClick.prevented === true,
+      "prevented=" + middleClick.prevented);
+    check("middle click also reports 'Opened ↗'",
+      wikiLink.textContent === "Opened ↗");
+    await wait(1400);
+    check("the label restores after the middle click as well",
+      wikiLink.textContent === "Wiktionary ↗");
+
+    [["ctrlKey", "ctrl"], ["metaKey", "cmd"], ["shiftKey", "shift"]]
+      .forEach(function (pair) {
+        var before = fake.__openTabCalls;
+        var init = { button: 0 };
+        init[pair[0]] = true;
+        var mod = fireOnLink(wikiLink, "click", init);
+        check(pair[1] + "-click keeps native behavior (no openTab, not cancelled)",
+          fake.__openTabCalls === before && mod.seen && mod.prevented === false &&
+          wikiLink.textContent === "Wiktionary ↗",
+          "calls=" + (fake.__openTabCalls - before) +
+          " prevented=" + mod.prevented +
+          " text=" + JSON.stringify(wikiLink.textContent));
+      });
+
+    // Fallback: an old worker with no handler, or a url the worker rejects.
+    // The link still has to work, so the ordinary browser route takes over.
+    var openedWindows = [];
+    var realWindowOpen = window.open;
+    window.open = function (u, t, f) {
+      openedWindows.push({ url: u, target: t, features: f });
+      return {};
+    };
+    fake.__failOpenTab = true;
+    openBefore = fake.__openTabCalls;
+    fireOnLink(wikiLink, "click", { button: 0 });
+    await wait(80);
+    fake.__failOpenTab = false;
+    window.open = realWindowOpen;
+    check("a worker that refuses falls back to window.open, so the link works",
+      fake.__openTabCalls === openBefore + 1 && openedWindows.length === 1 &&
+      openedWindows[0].url === wikiUrl && openedWindows[0].target === "_blank" &&
+      /noopener/.test(openedWindows[0].features || ""),
+      JSON.stringify(openedWindows));
+    check("the fallback still never navigates the popup away",
+      api.isVisible() && api.viewDepth() === linkDepthBefore);
+    await wait(1400);
 
     // Homograph chip swap re-points the link at the new spelling's hangul.
     var wikiSynth = [
@@ -2817,45 +2948,111 @@
       "scrollTop=" + api.scrollTop() + " flash=" + api.queryAll(".flash").length);
     window.matchMedia = realMM2;
 
-    // --- ADDENDUM: MOE basic-education badge -----------------------------
-    var EDU_TITLE = "MOE basic education hanja (1,800)";
-    check("fixture: 國 carries edu, the obscure 麴 does not",
-      fake.__lookup("國").matches[0].edu === true &&
-      fake.__lookup("麴").matches[0].edu === undefined,
-      "國=" + fake.__lookup("國").matches[0].edu +
-      " 麴=" + fake.__lookup("麴").matches[0].edu);
+    // --- ADDENDUM: level chips (lvl m/h/a/r) ------------------------------
+    var LVL_TITLE = {
+      m: "MOE curriculum, middle school (중학교용)",
+      h: "MOE curriculum, high school (고등학교용)",
+      a: "Beyond the school curriculum; attested in real vocabulary " +
+         "(Okpyeon's classification)",
+      r: "Archaic, specialist, or reading-only (Okpyeon's classification)"
+    };
+    check("fixture: every zone is represented, and 朞 has no lvl at all",
+      fake.__lookup("國").matches[0].lvl === "m" &&
+      fake.__lookup("局").matches[0].lvl === "h" &&
+      fake.__lookup("菊").matches[0].lvl === "a" &&
+      fake.__lookup("麴").matches[0].lvl === "r" &&
+      fake.__lookup("朞").matches[0].lvl === undefined,
+      "國=" + fake.__lookup("國").matches[0].lvl +
+      " 局=" + fake.__lookup("局").matches[0].lvl +
+      " 菊=" + fake.__lookup("菊").matches[0].lvl +
+      " 麴=" + fake.__lookup("麴").matches[0].lvl +
+      " 朞=" + fake.__lookup("朞").matches[0].lvl);
 
     api.hide();
     api.resetPanelSize();
     api.showAt(anchor, fake.__lookup("國").matches);
-    var eduBadge = api.query(".edu-badge");
-    check("a flagged char card renders the badge", !!eduBadge &&
-      eduBadge.textContent === "Basic-1800 (기초)",
-      eduBadge ? eduBadge.textContent : "none");
-    check("the badge sits on the eumhun line, not beside the wiki link",
-      eduBadge.parentNode.classList.contains("eumhun"),
-      eduBadge.parentNode.className);
-    check("the badge is described for assistive tech",
-      eduBadge.getAttribute("aria-label") === EDU_TITLE &&
-      eduBadge.title === EDU_TITLE,
-      eduBadge.getAttribute("aria-label"));
-    check("the badge is muted, not loud",
-      getComputedStyle(eduBadge).color !==
+    var lvlChip = api.query(".edu-badge");
+    check("a char card renders EXACTLY ONE level chip", !!lvlChip &&
+      api.queryAll(".edu-badge").length === 1 &&
+      lvlChip.textContent === "Middle school",
+      lvlChip ? lvlChip.textContent : "none");
+    check("the chip sits on the eumhun line, not beside the wiki link",
+      lvlChip.parentNode.classList.contains("eumhun"),
+      lvlChip.parentNode.className);
+    check("the chip is described for assistive tech, in Korean",
+      lvlChip.getAttribute("aria-label") === LVL_TITLE.m &&
+      lvlChip.title === LVL_TITLE.m,
+      lvlChip.getAttribute("aria-label"));
+    check("the chip is quiet, not loud",
+      getComputedStyle(lvlChip).color !==
         getComputedStyle(api.query(".eumhun")).color &&
-      parseFloat(getComputedStyle(eduBadge).fontSize) <= 10,
-      getComputedStyle(eduBadge).color + " " + getComputedStyle(eduBadge).fontSize);
+      parseFloat(getComputedStyle(lvlChip).fontSize) <= 10,
+      getComputedStyle(lvlChip).color + " " + getComputedStyle(lvlChip).fontSize);
 
-    api.showAt(anchor, fake.__lookup("麴").matches);
-    check("an unflagged char card renders NO badge",
+    // Every zone: label, per-key modifier class, tooltip, and a tint that is
+    // actually distinct from its neighbours.
+    var zoneStyle = {};
+    [["m", "國", "Middle school"], ["h", "局", "High school"],
+     ["a", "菊", "Advanced"], ["r", "麴", "Rare"]].forEach(function (row) {
+      var zone = row[0];
+      api.showAt(anchor, fake.__lookup(row[1]).matches, row[1]);
+      var chip = api.query(".edu-badge");
+      check("lvl " + zone + " → exactly one “" + row[2] + "” chip, correctly classed",
+        api.queryAll(".edu-badge").length === 1 && !!chip &&
+        chip.textContent === row[2] &&
+        chip.classList.contains("edu-badge") &&
+        chip.classList.contains("edu-badge--lvl" + zone.toUpperCase()),
+        chip ? chip.textContent + " / " + chip.className : "none");
+      check("lvl " + zone + " tooltip is the spec wording",
+        chip.title === LVL_TITLE[zone] &&
+        chip.getAttribute("aria-label") === LVL_TITLE[zone],
+        JSON.stringify(chip.title));
+      var cs = getComputedStyle(chip);
+      zoneStyle[zone] = {
+        fg: cs.color, bg: cs.backgroundColor, edge: cs.borderTopColor,
+        size: parseFloat(cs.fontSize)
+      };
+      check("lvl " + zone + " text stays legible against its own fill",
+        cs.color !== cs.backgroundColor, cs.color + " on " + cs.backgroundColor);
+    });
+    check("all four zones are visually distinct from each other",
+      (function () {
+        var seen = {}, dup = "";
+        ["m", "h", "a", "r"].forEach(function (z) {
+          var k = zoneStyle[z].fg + "|" + zoneStyle[z].bg;
+          if (seen[k]) dup = z + "=" + seen[k];
+          seen[k] = z;
+        });
+        return !dup;
+      })(),
+      ["m", "h", "a", "r"].map(function (z) {
+        return z + ":" + zoneStyle[z].fg;
+      }).join("  "));
+    check("all four zones share ONE chip shape — only the tint differs",
+      ["h", "a", "r"].every(function (z) {
+        return zoneStyle[z].size === zoneStyle.m.size;
+      }),
+      ["m", "h", "a", "r"].map(function (z) {
+        return z + ":" + zoneStyle[z].size;
+      }).join(" "));
+
+    // The migration guard: no lvl means no chip, never a guessed one.
+    api.showAt(anchor, fake.__lookup("朞").matches, "朞");
+    check("a char with NO lvl renders no chip at all (old-corpus safety)",
       api.queryAll(".edu-badge").length === 0,
-      "badges=" + api.queryAll(".edu-badge").length);
+      "chips=" + api.queryAll(".edu-badge").length);
+    api.showAt(anchor, [{ kind: "char", surface: "㐀", canonical: "㐀",
+      eumhun: [{ hun: "", eum: "구" }], readings: ["구"], glosses: [], lvl: "zzz" }], "㐀");
+    check("an UNRECOGNISED lvl also renders no chip, rather than guessing",
+      api.queryAll(".edu-badge").length === 0,
+      "chips=" + api.queryAll(".edu-badge").length);
 
     // Nested component cards, at their smaller scale.
     api.showAt(anchor, fake.__lookup("국민").matches);
     var nestedBadges = api.queryAll(".component-list > .card.component .edu-badge");
-    check("nested component cards carry the badge too",
-      nestedBadges.length === 2, "badges=" + nestedBadges.length);
-    check("the nested badge is a step smaller",
+    check("nested component cards carry one chip each",
+      nestedBadges.length === 2, "chips=" + nestedBadges.length);
+    check("the nested chip is a step smaller",
       (function () {
         api.showAt(anchor, fake.__lookup("國").matches);
         var top = parseFloat(getComputedStyle(api.query(".edu-badge")).fontSize);
@@ -2865,29 +3062,91 @@
         return nested < top;
       })());
 
-    // Reading-list rows.
+    // Reading-list rows: 국 covers all four zones in one list.
     api.showAt(anchor, fake.__lookup("국").matches);
     var readingBadges = api.queryAll(".reading-row .edu-badge");
-    check("reading rows badge only the flagged candidates",
-      readingBadges.length === 3 &&
-      api.queryAll(".reading-row").filter(function (r) {
-        return !!r.querySelector(".edu-badge");
-      }).map(function (r) {
-        return r.querySelector(".r-glyph").textContent;
-      }).join("") === "國局菊",
-      "badges=" + readingBadges.length + " on " +
-      api.queryAll(".reading-row").filter(function (r) {
-        return !!r.querySelector(".edu-badge");
-      }).map(function (r) { return r.querySelector(".r-glyph").textContent; }).join(""));
-    check("the obscure tail of the reading list stays unbadged",
-      api.queryAll(".reading-row").slice(3).every(function (r) {
-        return !r.querySelector(".edu-badge");
-      }));
-    check("the reading-row badge follows the eumhun",
+    check("every reading row carries exactly one chip",
+      readingBadges.length === api.queryAll(".reading-row").length &&
+      api.queryAll(".reading-row").every(function (r) {
+        return r.querySelectorAll(".edu-badge").length === 1;
+      }),
+      "chips=" + readingBadges.length +
+      " rows=" + api.queryAll(".reading-row").length);
+    check("the 국 list shows all four zones at once",
+      readingBadges.map(function (b) { return b.textContent; }).join(",") ===
+        "Middle school,High school,Advanced,Rare,Rare",
+      readingBadges.map(function (b) { return b.textContent; }).join(","));
+    check("the reading-row chip follows the eumhun",
       readingBadges[0].previousSibling &&
       readingBadges[0].previousSibling.classList.contains("r-eumhun"),
       readingBadges[0].previousSibling ?
         readingBadges[0].previousSibling.className : "none");
+    // A reading list mixing chipped and pre-migration candidates.
+    api.showAt(anchor, fake.__lookup("기").matches, "기");
+    check("a reading row for a char with no lvl stays bare, its neighbours don't",
+      (function () {
+        var bare = api.queryAll(".reading-row").filter(function (r) {
+          return !r.querySelector(".edu-badge");
+        }).map(function (r) { return r.querySelector(".r-glyph").textContent; });
+        return bare.join("") === "朞";
+      })(),
+      api.queryAll(".reading-row").map(function (r) {
+        var b = r.querySelector(".edu-badge");
+        return r.querySelector(".r-glyph").textContent + "=" + (b ? b.textContent : "—");
+      }).join(" "));
+
+    // --- the char-level "Rare" chip vs the word-level RARE marker ---------
+    // 사랑 matches only the obscure spelling 舍廊, so the card is hedged AND
+    // its component 廊 is lvl r: both markers in one popup, and they must
+    // read as different KINDS of statement, not a repetition.
+    api.showAt(anchor, fake.__lookup("사랑").matches, "사랑");
+    var rareChip = api.queryAll(".edu-badge").filter(function (b) {
+      return b.textContent === "Rare";
+    })[0];
+    var wordRare = api.query(".hedge .label");
+    check("both rare markers appear together: word hedge + char “Rare” chip",
+      !!wordRare && /rare hanja homograph/i.test(wordRare.textContent) &&
+      !!rareChip && rareChip.classList.contains("edu-badge--lvlR"),
+      "hedge=" + (wordRare && wordRare.textContent) +
+      " chip=" + (rareChip && rareChip.textContent));
+    check("the two live in different places: hedge above, chip on 廊's card",
+      !!wordRare && !!rareChip &&
+      rareChip.closest(".card.component") !== null &&
+      wordRare.closest(".hedge") !== null &&
+      !wordRare.closest(".card.component"),
+      "chipCard=" + (rareChip && !!rareChip.closest(".card.component")));
+    check("the char chip is a filled, bordered, sentence-case pill",
+      (function () {
+        var cs = getComputedStyle(rareChip);
+        return parseFloat(cs.borderTopWidth) >= 1 &&
+          cs.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+          cs.textTransform !== "uppercase" &&
+          cs.verticalAlign !== "super";
+      })(),
+      "border=" + getComputedStyle(rareChip).borderTopWidth +
+      " bg=" + getComputedStyle(rareChip).backgroundColor +
+      " transform=" + getComputedStyle(rareChip).textTransform);
+    check("the hedge is a headed note, not a chip — no badge inside it",
+      api.queryAll(".hedge .edu-badge").length === 0);
+    // The other word-level rare marker: the superscript on a homograph chip.
+    // 사기 mixes a rare spelling with common ones, so both exist there.
+    api.showAt(anchor, fake.__lookup("사기").matches, "사기");
+    check("the word-level rare marker is the opposite family — bare superscript",
+      (function () {
+        var sup = api.query(".chip-rare");
+        if (!sup) return false;
+        var cs = getComputedStyle(sup);
+        return cs.textTransform === "uppercase" &&
+          cs.verticalAlign === "super" &&
+          parseFloat(cs.borderTopWidth || 0) === 0 &&
+          cs.backgroundColor === "rgba(0, 0, 0, 0)";
+      })(),
+      (function () {
+        var sup = api.query(".chip-rare");
+        return sup ? getComputedStyle(sup).textTransform + " / " +
+          getComputedStyle(sup).verticalAlign + " / bg=" +
+          getComputedStyle(sup).backgroundColor : "no .chip-rare";
+      })());
 
     // At the narrowest the panel can get, the badge must not run into the link.
     api.showAt(anchor, fake.__lookup("國").matches);
@@ -2961,9 +3220,7 @@
     check("a canonical-only view has nothing to note",
       noteTexts().length === 0, noteTexts().join(" | "));
 
-    // --- ADDENDUM: MOE tier badge, via the badge registry ----------------
-    var TIER_M = "MOE tier: middle school (중학교용)";
-    var TIER_H = "MOE tier: high school (고등학교용)";
+    // --- ADDENDUM: the badge registry itself ------------------------------
     function badgesIn(root) {
       var scope = root || null;
       var list = scope ? Array.prototype.slice.call(scope.querySelectorAll(".edu-badge"))
@@ -2980,133 +3237,64 @@
       })[0];
     }
 
-    check("fixture: 學 is tiered m, 局 tiered h, 民 edu with no tier",
-      fake.__lookup("學").matches[0].eduT === "m" &&
-      fake.__lookup("局").matches[0].eduT === "h" &&
-      fake.__lookup("民").matches[0].edu === true &&
-      fake.__lookup("民").matches[0].eduT === undefined,
-      "學=" + fake.__lookup("學").matches[0].eduT +
-      " 局=" + fake.__lookup("局").matches[0].eduT +
-      " 民=" + fake.__lookup("民").matches[0].eduT);
-    check("fixture: eduT never rides without edu",
-      Object.keys(fake.__lookup("國").matches[0]).indexOf("eduT") === -1 &&
-      fake.__lookup("麴").matches[0].eduT === undefined);
-
     api.hide();
     api.resetPanelSize();
-    api.showAt(anchor, fake.__lookup("學").matches, "學");
-    var tierBadge = api.query(".edu-badge");
-    check("a middle-school char shows the tier badge",
-      badgeLabels().indexOf("Middle school") !== -1,
-      badgeLabels().join(" | ") || "(none)");
-    check("the tier badge carries its key modifier class",
-      tierBadge.classList.contains("edu-badge") &&
-      tierBadge.classList.contains("edu-badge--moeTier"),
-      tierBadge.className);
-    check("the tier badge is described for assistive tech, in Korean",
-      tierBadge.title === TIER_M && tierBadge.getAttribute("aria-label") === TIER_M,
-      tierBadge.title);
-    // Mutual exclusion is between the two EDU-FAMILY entries only — the
-    // registry stays multi-badge (see the probe checks below).
-    check("the tier badge REPLACES Basic-1800: the two never co-render",
-      api.queryAll(".edu-badge--basic1800").length === 0 &&
-      api.queryAll(".edu-badge--moeTier").length === 1,
-      "basic=" + api.queryAll(".edu-badge--basic1800").length +
-      " tier=" + api.queryAll(".edu-badge--moeTier").length);
-    check("the tier badge sits on the eumhun line",
-      tierBadge.parentNode.classList.contains("eumhun"),
-      tierBadge.parentNode.className);
-    var tierFontSize = parseFloat(getComputedStyle(tierBadge).fontSize);
-    var tierColor = getComputedStyle(tierBadge).color;
 
-    api.showAt(anchor, fake.__lookup("局").matches, "局");
-    check("a high-school char shows the high-school label",
-      badgeLabels().join("") === "High school", badgeLabels().join(" | "));
-    check("the high-school tooltip names the Korean tier",
-      api.query(".edu-badge").title === TIER_H, api.query(".edu-badge").title);
-
-    api.showAt(anchor, fake.__lookup("民").matches, "民");
-    var basicBadge = api.query(".edu-badge");
-    check("an edu char with no known tier keeps the Basic-1800 badge alone",
-      badgeLabels().join(",") === "Basic-1800 (기초)" &&
-      api.queryAll(".edu-badge--moeTier").length === 0 &&
-      basicBadge.classList.contains("edu-badge--basic1800"),
-      badgeLabels().join(" | ") + " " + basicBadge.className);
-    check("both registry badges share the .edu-badge look",
-      parseFloat(getComputedStyle(basicBadge).fontSize) === tierFontSize &&
-      getComputedStyle(basicBadge).color === tierColor &&
-      getComputedStyle(basicBadge).borderTopWidth ===
-        getComputedStyle(basicBadge).borderTopWidth,
-      getComputedStyle(basicBadge).fontSize + " vs " + tierFontSize);
-    check("badge text stays legible against the card, not invisible",
-      getComputedStyle(basicBadge).color !==
-        getComputedStyle(basicBadge).backgroundColor,
-      getComputedStyle(basicBadge).color + " on " +
-        getComputedStyle(basicBadge).backgroundColor);
-
-    api.showAt(anchor, fake.__lookup("麴").matches, "麴");
-    check("a char with neither flag renders no badge at all",
-      badgeLabels().length === 0, badgeLabels().join(" | "));
-
-    // Site 2: nested component cards, at their smaller scale.
-    api.showAt(anchor, fake.__lookup("학생").matches, "학생");
-    var nestedTier = cardFor("學") && cardFor("學").querySelector(".edu-badge");
-    check("nested component cards render the tier badge too",
-      !!nestedTier && nestedTier.textContent === "Middle school" &&
-      nestedTier.classList.contains("edu-badge--moeTier"),
-      nestedTier ? nestedTier.textContent : "none");
-    check("the nested tier badge is a step smaller than a top-level one",
-      parseFloat(getComputedStyle(nestedTier).fontSize) < tierFontSize,
-      getComputedStyle(nestedTier).fontSize + " < " + tierFontSize + "px");
-
-    // Site 3: reading-list rows.
-    api.showAt(anchor, fake.__lookup("국").matches, "국");
-    check("a tiered reading candidate shows its tier, not Basic-1800",
-      badgeLabels(readingRowFor("局")).join("") === "High school",
-      badgeLabels(readingRowFor("局")).join(" | ") || "(none)");
-    check("an untiered reading candidate still shows Basic-1800",
-      badgeLabels(readingRowFor("國")).join("") === "Basic-1800 (기초)",
-      badgeLabels(readingRowFor("國")).join(" | ") || "(none)");
-    check("unflagged reading candidates stay bare",
-      badgeLabels(readingRowFor("鞠")).length === 0);
-    api.showAt(anchor, fake.__lookup("학").matches, "학");
-    check("the middle-school tier reaches reading rows as well",
-      badgeLabels(readingRowFor("學")).join("") === "Middle school",
-      badgeLabels(readingRowFor("學")).join(" | ") || "(none)");
-
-    // The registry itself: a third badge must cost ONE entry and nothing else.
     check("the registry is the declarative badge definition, in render order",
       Array.isArray(api.badgeRegistry) &&
       api.badgeRegistry.map(function (b) { return b.key; }).join(",") ===
-        "basic1800,moeTier",
+        "lvlM,lvlH,lvlA,lvlR",
       (api.badgeRegistry || []).map(function (b) { return b.key; }).join(","));
+    check("the four level entries are mutually exclusive by construction",
+      ["m", "h", "a", "r"].every(function (zone) {
+        var applied = api.badgeRegistry.filter(function (b) {
+          return !!b.when({ lvl: zone });
+        });
+        return applied.length === 1;
+      }) &&
+      api.badgeRegistry.every(function (b) { return !b.when({}); }),
+      "exclusive per zone, and nothing matches a match with no lvl");
 
+    // The registry stays MULTI-badge: exclusivity is inside the level entries'
+    // own conditions, never a global cap. A future non-level badge must
+    // co-render beside whichever level chip applies, for one entry and no
+    // other change.
     api.badgeRegistry.push({
       key: "dummyProbe",
       when: function (m) {
-        return m.edu === true && { label: "Probe", title: "Probe badge" };
+        return m.lvl === "m" && { label: "Probe", title: "Probe badge" };
       }
     });
     api.showAt(anchor, fake.__lookup("民").matches, "民");
-    check("a newly registered badge appears on card heads with no other change",
-      badgeLabels().join(",") === "Basic-1800 (기초),Probe", badgeLabels().join(","));
+    check("a newly registered badge co-renders beside the level chip",
+      badgeLabels().join(",") === "Middle school,Probe", badgeLabels().join(","));
     check("the probe badge gets its own modifier class",
       !!api.query(".edu-badge--dummyProbe"));
-    api.showAt(anchor, fake.__lookup("學").matches, "學");
-    check("a third badge co-renders next to the tier badge, in registry order",
-      badgeLabels().join(",") === "Middle school,Probe", badgeLabels().join(","));
+    check("the probe keeps the NEUTRAL base look — only level chips re-tint",
+      (function () {
+        var probe = api.query(".edu-badge--dummyProbe");
+        var chip = api.query(".edu-badge--lvlM");
+        return getComputedStyle(probe).color !== getComputedStyle(chip).color &&
+          parseFloat(getComputedStyle(probe).fontSize) ===
+            parseFloat(getComputedStyle(chip).fontSize);
+      })(),
+      getComputedStyle(api.query(".edu-badge--dummyProbe")).color + " vs " +
+      getComputedStyle(api.query(".edu-badge--lvlM")).color);
     api.showAt(anchor, fake.__lookup("학생").matches, "학생");
     check("the new badge reaches nested component cards for free",
       badgeLabels(cardFor("學")).join(",") === "Middle school,Probe",
       badgeLabels(cardFor("學")).join(","));
     api.showAt(anchor, fake.__lookup("국").matches, "국");
     check("the new badge reaches reading rows for free",
-      badgeLabels(readingRowFor("國")).join(",") === "Basic-1800 (기초),Probe",
+      badgeLabels(readingRowFor("國")).join(",") === "Middle school,Probe",
       badgeLabels(readingRowFor("國")).join(","));
+    check("a row in another zone gets its own chip plus nothing extra",
+      badgeLabels(readingRowFor("菊")).join(",") === "Advanced",
+      badgeLabels(readingRowFor("菊")).join(","));
     api.badgeRegistry.pop();
     api.showAt(anchor, fake.__lookup("民").matches, "民");
     check("removing the entry removes the badge everywhere",
-      badgeLabels().join(",") === "Basic-1800 (기초)" &&
+      badgeLabels().join(",") === "Middle school" &&
       api.queryAll(".edu-badge--dummyProbe").length === 0,
       badgeLabels().join(","));
 

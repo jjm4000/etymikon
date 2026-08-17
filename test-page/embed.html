@@ -255,18 +255,28 @@
     "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
   };
 
-  // MOE basic-education membership (Unihan kKoreanEducationHanja). These
-  // five match the real data: among the 국 homophones 國/局/菊 are in the
-  // list and 鞠/麴 are not, so the reading list badges selectively.
-  ["國", "學", "民", "局", "菊"].forEach(function (c) {
-    if (CHARS[c]) CHARS[c].edu = true;
-  });
-  // MOE tier (phase 2), emitted only where the tier is known: 學 is a
-  // middle-school character, 局 a high-school one; 國/民/菊 stand in for the
-  // variant-gap set that has membership but no tier. eduT never without edu.
-  var EDU_TIER = { "學": "m", "局": "h" };
-  Object.keys(EDU_TIER).forEach(function (c) {
-    if (CHARS[c] && CHARS[c].edu === true) CHARS[c].eduT = EDU_TIER[c];
+  // Character level taxonomy (`lvl`, one of m/h/a/r) — replaces the old
+  // edu/eduT pair. In the real corpus EVERY char has exactly one; the fixture
+  // deliberately leaves ONE char (朞) without, to stand in for pre-migration
+  // data and prove the UI renders no chip rather than guessing a zone.
+  //
+  // The 국 homophone list is arranged to cover all four zones in one view
+  // (國 m, 局 h, 菊 a, 鞠/麴 r), and 廊 is `r` so the rare WORD 舍廊 puts the
+  // word-level RARE marker and a char-level "Rare" chip in the same popup.
+  var LVL = {
+    "國": "m", "民": "m", "學": "m", "生": "m", "韓": "m", "漢": "m",
+    "字": "m", "文": "m", "大": "m", "事": "m", "社": "m", "士": "m",
+    "使": "m", "史": "m", "死": "m", "四": "m", "師": "m", "氣": "m",
+    "器": "m", "武": "m", "本": "m", "主": "m", "天": "m", "外": "m",
+    "活": "m", "會": "m", "者": "m", "海": "m",
+    "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
+    "沙": "h", "舍": "h",
+    "菊": "a", "欺": "a", "衝": "a",
+    "鞠": "r", "麴": "r", "廊": "r"
+    // 朞: intentionally absent — see above.
+  };
+  Object.keys(LVL).forEach(function (c) {
+    if (CHARS[c]) CHARS[c].lvl = LVL[c];
   });
 
   var WORDS = {
@@ -497,9 +507,8 @@
     // Total size of the char's cw index — the UI needs it to label
     // "Show 5 more (N)" before it has fetched anything. Omitted when 0.
     if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
-    // MOE basic-education membership; omitted when false.
-    if (d.edu === true) m.edu = true;
-    if (d.eduT) m.eduT = d.eduT;           // tier, only when known
+    // Character level; omitted only for pre-migration entries (see LVL).
+    if (d.lvl) m.lvl = d.lvl;
     return m;
   }
 
@@ -515,8 +524,7 @@
           char: ch, hun: hun, eum: syllable,
           gloss: (d.glosses && d.glosses[0]) || ""
         };
-        if (d.edu === true) cand.edu = true;   // propagated onto candidates
-        if (d.eduT) cand.eduT = d.eduT;        // …and the tier with it
+        if (d.lvl) cand.lvl = d.lvl;   // propagated onto reading candidates
         return cand;
       })
     };
@@ -603,6 +611,13 @@
     __usedInCalls: 0,    // {type:"usedIn"} only
     __lastWord: null,
     __failUsedIn: false,
+    // {type:"openTab"} — the in-page popup's route to a background tab, since
+    // a content script cannot reach chrome.tabs itself. The real worker
+    // validates the url against the Wiktionary base; flip __failOpenTab to
+    // stand in for an old worker or a rejected url and exercise the fallback.
+    __openTabCalls: 0,
+    __lastOpenTabUrl: null,
+    __failOpenTab: false,
     sendMessage: function (msg, cb) {
       this.__calls++;
       var resp;
@@ -622,6 +637,12 @@
           resp = this.__failUsedIn
             ? { ok: false, error: "simulated failure" }
             : { ok: true, words: buildUsedIn(msg.word) };
+        } else if (msg && msg.type === "openTab") {
+          this.__openTabCalls++;
+          this.__lastOpenTabUrl = msg.url;
+          resp = this.__failOpenTab
+            ? { ok: false, error: "url rejected" }
+            : { ok: true };
         } else {
           resp = { ok: false, error: "unknown message type" };
         }

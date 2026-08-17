@@ -131,14 +131,27 @@
   var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
   var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
   var FLASH_MS = 600;        // eumhun chip → component card orientation flash
-  var EDU_LABEL = "Basic-1800 (기초)";
-  var EDU_TITLE = "MOE basic education hanja (1,800)";
-  // MOE tier (phase 2): a second, separate badge — Naver-style, one badge per
-  // classification. Plain-English label; the Korean lives in the tooltip.
-  var TIER_LABEL = { m: "Middle school", h: "High school" };
-  var TIER_TITLE = {
-    m: "MOE tier: middle school (중학교용)",
-    h: "MOE tier: high school (고등학교용)"
+  // Character level taxonomy: every char entry carries exactly one `lvl`, and
+  // every char card head / reading row shows exactly one chip for it. Plain
+  // English on the chip; the Korean and the provenance live in the tooltip.
+  // The a/r titles name Okpyeon as the classifier on purpose — that boundary
+  // is our editorial judgment, not a ministry's, and the tooltip should say so.
+  var LVL_ORDER = ["m", "h", "a", "r"];
+  var LVL_LABEL = {
+    m: "Middle school",
+    h: "High school",
+    a: "Advanced",
+    r: "Rare"
+  };
+  var LVL_TITLE = {
+    m: "MOE curriculum, middle school (중학교용)",
+    h: "MOE curriculum, high school (고등학교용)",
+    // "attested", not "common": the build-time predicate admits a character
+    // on a single attested compound, so "common" would overclaim what was
+    // actually measured.
+    a: "Beyond the school curriculum; attested in real vocabulary " +
+       "(Okpyeon's classification)",
+    r: "Archaic, specialist, or reading-only (Okpyeon's classification)"
   };
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
 
@@ -166,6 +179,15 @@
     "  --scroll: rgba(0, 0, 0, 0.22);",
     "  --grip: rgba(0, 0, 0, 0.3);",
     "  --flash: rgba(47, 87, 201, 0.16);",
+    /* Level-chip tints. Quiet enough to sit at the end of an eumhun line
+       without competing with the glyph, but the two SCHOOL zones carry more
+       saturation and a stronger edge than advanced/rare — those are the ones
+       a learner is scanning for. Rare is deliberately the flattest: it is
+       information, not a warning. */
+    "  --lvl-m-bg: #e2f1e9; --lvl-m-fg: #1f6b4d; --lvl-m-edge: rgba(31, 107, 77, 0.26);",
+    "  --lvl-h-bg: #e5ecfb; --lvl-h-fg: #2a4ea6; --lvl-h-edge: rgba(42, 78, 166, 0.26);",
+    "  --lvl-a-bg: #fbf1de; --lvl-a-fg: #8a5810; --lvl-a-edge: rgba(138, 88, 16, 0.20);",
+    "  --lvl-r-bg: #f0f0f3; --lvl-r-fg: #74747e; --lvl-r-edge: rgba(0, 0, 0, 0.10);",
     "  width: 340px;",
     "  max-height: 360px;",
     "  overflow-y: auto;",
@@ -215,6 +237,16 @@
     "    --scroll: rgba(255, 255, 255, 0.24);",
     "    --grip: rgba(255, 255, 255, 0.34);",
     "    --flash: rgba(150, 180, 255, 0.2);",
+    /* Dark: the light tints go muddy on #23232a, so the fills become low-alpha
+       washes of the same hue and the text carries the colour instead. */
+    "    --lvl-m-bg: rgba(88, 190, 148, 0.15); --lvl-m-fg: #7fd2ab;",
+    "    --lvl-m-edge: rgba(127, 210, 171, 0.30);",
+    "    --lvl-h-bg: rgba(120, 160, 255, 0.15); --lvl-h-fg: #9fbcff;",
+    "    --lvl-h-edge: rgba(159, 188, 255, 0.30);",
+    "    --lvl-a-bg: rgba(230, 170, 70, 0.13); --lvl-a-fg: #e0b271;",
+    "    --lvl-a-edge: rgba(224, 178, 113, 0.24);",
+    "    --lvl-r-bg: rgba(255, 255, 255, 0.06); --lvl-r-fg: #9a9aa4;",
+    "    --lvl-r-edge: rgba(255, 255, 255, 0.13);",
     "  }",
     "}",
     /* ---- embed mode: in-flow, flat, and NOT a scroll container ----
@@ -434,6 +466,21 @@
     ".card.component .edu-badge { font-size: 8px; margin-left: 5px; }",
     // Registry badges sit side by side when more than one applies.
     ".edu-badge + .edu-badge { margin-left: 4px; }",
+    /* Level chips. The base .edu-badge look above stays the neutral default
+       for any FUTURE non-level badge; these four only re-tint. */
+    ".edu-badge--lvlM { color: var(--lvl-m-fg); background: var(--lvl-m-bg);",
+    "  border-color: var(--lvl-m-edge); }",
+    ".edu-badge--lvlH { color: var(--lvl-h-fg); background: var(--lvl-h-bg);",
+    "  border-color: var(--lvl-h-edge); }",
+    ".edu-badge--lvlA { color: var(--lvl-a-fg); background: var(--lvl-a-bg);",
+    "  border-color: var(--lvl-a-edge); }",
+    /* The char-level "Rare" chip must never be mistaken for the WORD-level
+       rare-homograph marker (.chip-rare / .cpd-rare: a superscript, uppercase,
+       borderless, no fill). Different style family entirely — a bordered,
+       filled, sentence-case pill — so the two read as different kinds of
+       statement even when they appear in the same popup. */
+    ".edu-badge--lvlR { color: var(--lvl-r-fg); background: var(--lvl-r-bg);",
+    "  border-color: var(--lvl-r-edge); }",
     ".chip-rare {",
     "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
     "  text-transform: uppercase; margin-left: 3px; vertical-align: super;",
@@ -1067,56 +1114,91 @@
     return t ? WIKI_BASE + encodeURIComponent(t) + "#Korean" : "";
   }
 
+  var WIKI_IDLE_LABEL = "Wiktionary ↗";
+  var WIKI_OPENED_LABEL = "Opened ↗";
+  var WIKI_FLASH_MS = 1200;
+
+  // Plain clicks never switch tabs, on ANY surface. Two reasons converge:
+  // in an action popup, browser-level link activation dismisses the popup —
+  // even middle-click-to-background-tab does — while an API-created background
+  // tab does not (verified on real Chrome 2026-08-17); and a link that
+  // silently stole focus was simply inconsistent between the two surfaces.
+  //
+  // The surfaces differ ONLY in transport. An extension page can call
+  // chrome.tabs itself; a content script cannot, so it asks the worker, which
+  // validates the url against the Wiktionary base before opening anything.
+  // Decided once: IS_EMBED is fixed at load and chrome.tabs does not appear
+  // later on a surface that lacks it.
+  var WIKI_TABS_DIRECT =
+    IS_EMBED &&
+    typeof chrome !== "undefined" &&
+    chrome.tabs &&
+    typeof chrome.tabs.create === "function";
+
   // Appends the small top-right link to a card head. Clicks are isolated from
   // the popup's own click handling the same way the "more" expander does it.
-  // In the in-page selection popup the browser follows the link natively; in
-  // embed mode plain clicks background-open via chrome.tabs instead (see the
-  // popup-survival fix below).
   function appendWikiLink(head, title) {
     var url = wiktionaryUrl(title);
     if (!url) return null;
-    var link = el("a", "wiki", "Wiktionary ↗");
+    var link = el("a", "wiki", WIKI_IDLE_LABEL);
+    // The href/target/rel stay real: a MODIFIED click is still handled by the
+    // browser, and the link must remain a link for middle-click-paste, "copy
+    // link address", and assistive tech.
     link.href = url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.setAttribute("aria-label",
       "Wiktionary entry for " + title + " (opens in a new tab)");
     link.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
-    // Popup-survival fix (SPEC "Wiktionary links in the popup surface",
-    // verified on real Chrome 2026-08-17): browser-level link activation in an
-    // action popup dismisses the popup — even middle-click-to-background-tab
-    // does — but an API-created background tab does not. So in embed mode we
-    // bypass link handling entirely (preventDefault +
-    // chrome.tabs.create({active:false})). Modified clicks keep native
-    // behavior; the in-page selection popup keeps plain links.
-    var canBackgroundOpen =
-      IS_EMBED &&
-      typeof chrome !== "undefined" &&
-      chrome.tabs &&
-      typeof chrome.tabs.create === "function";
-    function backgroundOpen(ev) {
+
+    // Restoring to a CAPTURED previous label would latch on "Opened ↗"
+    // permanently if a second click landed inside the flash window; the idle
+    // label is a constant, so restore to that and let a re-click just extend.
+    var restoreTimer = null;
+    function flashOpened() {
+      link.textContent = WIKI_OPENED_LABEL;
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(function () {
+        restoreTimer = null;
+        link.textContent = WIKI_IDLE_LABEL;
+      }, WIKI_FLASH_MS);
+    }
+
+    function openInBackground() {
+      if (WIKI_TABS_DIRECT) {
+        chrome.tabs.create({ url: url, active: false });
+        return;
+      }
+      sendToWorker({ type: "openTab", url: url }).then(function (response) {
+        if (response && response.ok === true) return;
+        // No handler (a worker from before this shipped) or the url failed
+        // validation. The link must still work, so fall back to the ordinary
+        // browser route. Note this runs after an await, so the user-gesture
+        // token may have lapsed and a popup blocker could refuse it — an
+        // acceptable risk on a path that only opens when the worker is broken.
+        window.open(url, "_blank", "noopener");
+      });
+    }
+
+    function intercept(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      chrome.tabs.create({ url: url, active: false });
-      var prior = link.textContent;
-      link.textContent = "Opened ↗";
-      setTimeout(function () { link.textContent = prior; }, 1200);
+      openInBackground();
+      flashOpened();
     }
-    if (canBackgroundOpen) {
-      link.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        if (ev.button === 0 && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
-          backgroundOpen(ev);
-        }
-      });
-      // Middle-click fires auxclick, not click; intercept it too so the
-      // browser's own open-in-background path (which kills the popup) never runs.
-      link.addEventListener("auxclick", function (ev) {
-        if (ev.button === 1) backgroundOpen(ev);
-      });
-    } else {
-      link.addEventListener("click", function (ev) { ev.stopPropagation(); });
-    }
+
+    link.addEventListener("click", function (ev) {
+      ev.stopPropagation();  // never reaches the popup's own click handling
+      // Modified clicks keep native browser behavior, everywhere.
+      if (ev.button === 0 && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey) {
+        intercept(ev);
+      }
+    });
+    // Middle-click fires auxclick, not click.
+    link.addEventListener("auxclick", function (ev) {
+      if (ev.button === 1) intercept(ev);
+    });
+
     head.appendChild(link);
     return link;
   }
@@ -1491,26 +1573,26 @@
   // badge is one more entry here and nothing else: the renderer below is the
   // only badge-drawing code and every site calls it. (Inline semantic markers
   // like RARE are a different animal and stay where they are.)
-  var BADGES = [
-    {
-      key: "basic1800",
+  // One entry per level zone. Exclusivity lives HERE, in the when() conditions
+  // — each tests one exact `lvl` value, so at most one can ever match — and
+  // NOT as a global cap on how many badges may render. The registry stays
+  // multi-badge by design: a future non-level badge co-renders beside
+  // whichever level chip applies, with no change to this code.
+  function levelEntry(zone) {
+    return {
+      key: "lvl" + zone.toUpperCase(),
       when: function (m) {
-        // A known tier already implies membership, so the tier badge REPLACES
-        // this one; Basic-1800 is left for edu chars whose tier is unknown.
-        // (Keyed off a tier we can actually render, so an unrecognised eduT
-        // value can never leave the char with no badge at all.)
-        return m.edu === true && !TIER_LABEL[m.eduT] &&
-          { label: EDU_LABEL, title: EDU_TITLE };
+        // An absent or unrecognised lvl renders NO chip. Guessing a zone would
+        // be worse than silence, and it keeps the UI honest against an
+        // old corpus during the edu/eduT → lvl migration: pre-migration data
+        // simply shows no chips rather than wrong ones.
+        return m.lvl === zone &&
+          { label: LVL_LABEL[zone], title: LVL_TITLE[zone] };
       }
-    },
-    {
-      key: "moeTier",
-      when: function (m) {
-        var t = m.eduT;
-        return !!TIER_LABEL[t] && { label: TIER_LABEL[t], title: TIER_TITLE[t] };
-      }
-    }
-  ];
+    };
+  }
+
+  var BADGES = LVL_ORDER.map(levelEntry);
 
   // The one badge renderer, in registry order. `m` is a char match or a
   // reading-list candidate — anything carrying the classification flags.
