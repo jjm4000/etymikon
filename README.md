@@ -2,7 +2,7 @@
 
 A study tool for Korean learners. Highlight hanja, hanzi, or kanji on any page
 to read them in Korean, or highlight a Korean (hangul) word to see its hanja.
-Nothing to highlight? Type into the toolbar search popup instead.
+You can also type a query into the toolbar popup or the address bar.
 
 옥편 (玉篇) is the traditional Korean word for a hanja dictionary.
 
@@ -10,53 +10,54 @@ Nothing to highlight? Type into the toolbar search popup instead.
 
 ## What it does
 
-- **Characters into Korean** — select a hanja to get its eumhun (나라 국 for
-  國), readings, numbered English senses, and its most common compounds.
-  Simplified Chinese forms and Japanese shinjitai (国, 学, 気, 図) resolve to
-  the same entries, so Chinese and Japanese pages work as well as Korean ones.
-- **Korean words into hanja** — highlight a Sino-Korean word written in hangul
-  (국민) to see the hanja behind it (國民), its meaning, and each component
-  character. Grammatical endings are handled: 자본주의는 still finds 자본주의.
-- **Recursive breakdown** — long compounds split into component words
-  (자본주의 → 資本 + 主義), character cards list their compounds five at a time
-  ("Show 5 more"), and word cards offer "Used in N larger words". Every row is
-  clickable; a breadcrumb trail records the descent and jumps back.
-- **Browse by sound** — highlight a single hangul syllable (국) to list every
-  hanja read that way, sorted from schoolbook characters down to the obscure
-  ones.
-- **How common a character is** — every character carries one level chip:
-  *Middle school* and *High school* follow the Korean MOE curriculum lists;
-  *Advanced* and *Rare* are our own editorial split of everything past them,
-  and the chip tooltips say so.
-- **Search without selecting** — the toolbar button opens a search popup, and
-  the omnibox keyword `hj` searches from the address bar. Same cards as the
-  selection popup, so nothing behaves differently.
-- **Wiktionary when you want more** — each card links to its Wiktionary entry,
-  opened in a background tab so the popup and the page you were reading stay put.
-- **Resizable** — drag the popup's corner; the size holds for the rest of the
-  page visit.
-- **Honest edges** — native Korean words show nothing rather than a forced
-  match; obscure hanja homographs of common native words (사랑 → 舍廊) are
-  labelled as rare instead of being presented as etymology.
-- **Private and offline** — the whole dictionary ships inside the extension.
-  No network requests, no data collection, no permissions beyond the content
-  script itself. See [privacy-policy.html](privacy-policy.html).
+- **Characters into Korean.** Select a hanja to see its eumhun (나라 국 for
+  國), its readings, English definitions, and the compounds it appears in.
+  Simplified Chinese and Japanese shinjitai forms (国, 学, 気, 図) resolve to
+  the same entries, so the extension works on Chinese and Japanese pages too.
+- **Korean words into hanja.** Highlight a Sino-Korean word written in hangul
+  (국민) to see the hanja behind it (國民) along with its meaning and its
+  component characters. Grammatical endings are handled: 자본주의는 still
+  finds 자본주의.
+- **Word breakdown.** Long compounds split into component words (자본주의 →
+  資本 + 主義). Character cards list their compounds five at a time, and word
+  cards can list the larger words that contain them. Every entry is clickable,
+  and a breadcrumb trail takes you back to any earlier step.
+- **Browse by sound.** Highlight a single hangul syllable (국) to list every
+  hanja with that reading, with schoolbook characters at the top.
+- **Character levels.** Every character is marked Middle school, High school,
+  Advanced, or Rare. The first two follow the Korean Ministry of Education
+  curriculum lists. Advanced and Rare are Okpyeon's own classification, and
+  the tooltips state that.
+- **Search.** The toolbar button opens a small search popup, and typing `hj`
+  in the address bar searches from there. Both show the same cards as
+  highlighting does.
+- **Wiktionary links.** Each card links to its Wiktionary entry. Links open
+  in a background tab, so the popup stays open.
+- **Resizable.** Drag the popup's corner to resize it. The size is kept for
+  the rest of the page visit.
+- **Native words.** Native Korean words show nothing rather than a forced
+  match. When a common native word shares its sound with an obscure hanja
+  spelling (사랑 and 舍廊), the entry is labelled a rare homograph instead of
+  being presented as the word's origin.
+- **Private and offline.** The whole dictionary ships inside the extension.
+  It makes no network requests and collects no data. See
+  [privacy-policy.html](privacy-policy.html).
 
 ![Homophone browse](screenshots/4-homophone-browse.png)
 
-*One syllable, every hanja read that way, level chips first.*
+*Browsing every hanja read 국.*
 
 ![Search popup](screenshots/5-search-popup.png)
 
-*The toolbar search popup — the same cards, typed instead of selected.*
+*The toolbar search popup.*
 
 ## Install
 
 From the Chrome Web Store: (pending review)
 
 From source: clone this repo, open `chrome://extensions`, enable Developer
-mode, and **Load unpacked** → the `extension/` folder. The dictionary data is
-committed, so no build step is needed just to run it.
+mode, and use **Load unpacked** on the `extension/` folder. The dictionary
+data is committed, so no build step is needed just to run it.
 
 ## Repository layout
 
@@ -94,6 +95,7 @@ UI self-checks: open `test-page/index.html` in a browser and press
 
 - **Code**: [GPL-3.0](LICENSE).
 - **Dictionary data** (`extension/data/*.json`): CC BY-SA 4.0, derived from
-  English Wiktionary (via kaikki.org) and the Unicode Unihan database — see
+  English Wiktionary (via kaikki.org), the Unicode Unihan database, and the
+  Korean Wikipedia curriculum table. See
   [extension/data/DATA-LICENSE.md](extension/data/DATA-LICENSE.md) for full
   attribution.
