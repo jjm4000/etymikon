@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Okpyeon — embed mode / search shell harness</title>
+
+<!--
+  The REAL popup stylesheet drives the shell below, so this page also serves
+  as the light/dark visual check for popup.css. The inline block after it only
+  widens the harness page itself (popup.css pins the body to 360px, which is
+  right for the action popup and wrong for a test page) and styles the parts
+  that belong to the harness, never to the popup.
+-->
+<link rel="stylesheet" href="../extension/popup/popup.css">
+<style>
+  body {
+    width: auto;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  h2 { font-size: 13px; margin: 26px 0 8px; text-transform: uppercase;
+       letter-spacing: .06em; color: var(--page-muted); }
+  p.note { margin: 0 0 12px; color: var(--page-muted); font-size: 13.5px; }
+  code { font-size: .92em; }
+
+  /* The replicated popup shell: same markup and ids popup.html uses, so the
+     real popup.js bootstrapper runs against it verbatim. */
+  .app {
+    width: 340px;
+    border: 1px solid var(--page-edge);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--page-bg);
+  }
+
+  button { font: inherit; font-size: 14px; padding: 5px 11px; border-radius: 6px;
+           border: 1px solid var(--page-edge); background: var(--field-bg);
+           color: var(--page-fg); cursor: pointer; }
+  pre#out { font-size: 12.5px; line-height: 1.5; background: #12121a; color: #d8d8e2;
+            padding: 12px; border-radius: 8px; overflow: auto; white-space: pre-wrap;
+            min-height: 40px; }
+</style>
+</head>
+<body>
+
+<h1>Okpyeon — embed mode / search shell harness</h1>
+<p class="note">
+  This page sets <code>__hanjaHoverTestRuntime</code> (the same fake service worker
+  the selection test page uses) <em>and</em> loads the real
+  <code>popup-boot.js → content.js → search-shell.js → popup.js</code> against the
+  replicated popup shell below. Type in the field to drive the real search shell;
+  append <code>?q=國民</code> to the URL to exercise the deep link by hand.
+</p>
+
+<div class="app">
+  <div class="searchbar">
+    <input id="okp-input" type="text" class="query"
+           placeholder="한자 · 한글 · 음절"
+           aria-label="Search hanja, a sino-Korean word, or a single syllable"
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+  <div id="okp-results" class="results">
+    <p id="okp-status" class="status"></p>
+  </div>
+</div>
+
+<h2>Automated checks</h2>
+<p class="note">
+  Embed layout, inert dismissal, the drill-down surface inside embed, and the
+  shell's debounce / IME / deep-link / no-result wiring.
+</p>
+<p><button id="run">Run embed self-checks</button></p>
+<pre id="out">not run yet</pre>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Fake service worker — inlined verbatim from index.html so both       -->
+<!-- harnesses exercise identical fixture data. Must be installed BEFORE  -->
+<!-- content.js loads.                                                    -->
+<!-- ------------------------------------------------------------------ -->
+<script>
+(function () {
+  "use strict";
+
+  var VARIANTS = { "国": "國", "学": "學", "汉": "漢" };
+
+  // Compact constructor for the long tail of fixture characters.
+  function C(hun, eum, gloss, compounds) {
+    return {
+      eumhun: [{ hun: hun, eum: eum }],
+      readings: [eum],
+      glosses: gloss ? [gloss] : [],
+      compounds: compounds || []
+    };
+  }
+
+  var CHARS = {
+    "國": { eumhun: [{ hun: "나라", eum: "국" }], readings: ["국"],
+            glosses: ["country; state; nation"],
+            compounds: [
+              { hangul: "국민", hanja: "國民", gloss: "the people of a nation" },
+              { hangul: "한국", hanja: "韓國", gloss: "Korea" },
+              { hangul: "국가", hanja: "國家", gloss: "state; nation" },
+              { hangul: "외국", hanja: "外國", gloss: "foreign country" },
+              { hangul: "국어", hanja: "國語", gloss: "national language" },
+              { hangul: "국제", hanja: "國際", gloss: "international (bound form)" }
+            ] },
+    "民": { eumhun: [{ hun: "백성", eum: "민" }], readings: ["민"],
+            glosses: ["people; populace; subjects"],
+            compounds: [
+              { hangul: "국민", hanja: "國民", gloss: "the people of a nation" },
+              { hangul: "민족", hanja: "民族", gloss: "ethnic group; people" },
+              { hangul: "시민", hanja: "市民", gloss: "citizen" }
+            ] },
+    // Five inline compounds, the last of them deliberately HANGUL-ONLY (no
+    // hanja spelling — those exist in the real data): that row must render
+    // without a chevron and must not navigate.
+    "學": { eumhun: [{ hun: "배울", eum: "학" }], readings: ["학"],
+            glosses: ["to learn; study", "school; learning"],
+            compounds: [
+              { hangul: "학생", hanja: "學生", gloss: "student" },
+              { hangul: "대학", hanja: "大學", gloss: "university" },
+              { hangul: "학교", hanja: "學校", gloss: "school" },
+              { hangul: "과학", hanja: "科學", gloss: "science" },
+              { hangul: "학벌", gloss: "academic clique" }
+            ] },
+    "生": { eumhun: [{ hun: "날", eum: "생" }], readings: ["생"],
+            glosses: ["to be born; to live", "raw; fresh"],
+            compounds: [
+              { hangul: "학생", hanja: "學生", gloss: "student" },
+              { hangul: "생일", hanja: "生日", gloss: "birthday" }
+            ] },
+    "韓": { eumhun: [{ hun: "나라", eum: "한" }], readings: ["한"],
+            glosses: ["Korea (bound form)"],
+            compounds: [{ hangul: "한국", hanja: "韓國", gloss: "Korea" }] },
+    "漢": { eumhun: [{ hun: "한수", eum: "한" }, { hun: "한나라", eum: "한" }],
+            readings: ["한"],
+            glosses: ["Han China; Chinese", "the Han river"],
+            compounds: [{ hangul: "한자", hanja: "漢字", gloss: "Chinese character" }] },
+    "字": { eumhun: [{ hun: "글자", eum: "자" }], readings: ["자"],
+            glosses: ["letter; character; graph"],
+            compounds: [
+              { hangul: "한자", hanja: "漢字", gloss: "Chinese character" },
+              { hangul: "문자", hanja: "文字", gloss: "writing system; character" }
+            ] },
+    "文": { eumhun: [{ hun: "글월", eum: "문" }], readings: ["문"],
+            glosses: ["writing; text; literature"],
+            compounds: [{ hangul: "문자", hanja: "文字", gloss: "writing system" }] },
+    "大": { eumhun: [{ hun: "큰", eum: "대" }], readings: ["대"],
+            glosses: ["big; great"],
+            compounds: [{ hangul: "대한", hanja: "大韓", gloss: "Great Han (Korea)" }] },
+    // eumhun deliberately missing → exercises the readings fallback path
+    "法": { eumhun: [], readings: ["법"], glosses: ["law; rule; method"], compounds: [] },
+
+    // --- homophones of 국 (ranked by compound count in the reading list) ---
+    "局": C("판", "국", "bureau; office; situation", [
+      { hangul: "결국", hanja: "結局", gloss: "in the end" },
+      { hangul: "약국", hanja: "藥局", gloss: "pharmacy" },
+      { hangul: "방송국", hanja: "放送局", gloss: "broadcasting station" }
+    ]),
+    "菊": C("국화", "국", "chrysanthemum", [
+      { hangul: "국화", hanja: "菊花", gloss: "chrysanthemum" }
+    ]),
+    "鞠": C("공", "국", "leather ball; to rear"),
+    "麴": C("누룩", "국", "yeast; malt"),
+
+    // --- homophones of 사 (long list → exercises list scrolling) ---
+    "事": C("일", "사", "affair; matter; work", [
+      { hangul: "사건", hanja: "事件", gloss: "incident; case" },
+      { hangul: "사업", hanja: "事業", gloss: "business; enterprise" },
+      { hangul: "식사", hanja: "食事", gloss: "a meal" }
+    ]),
+    "社": C("모일", "사", "society; company; shrine", [
+      { hangul: "회사", hanja: "會社", gloss: "company" },
+      { hangul: "사회", hanja: "社會", gloss: "society" }
+    ]),
+    "士": C("선비", "사", "scholar; gentleman; soldier", [
+      { hangul: "사기", hanja: "士氣", gloss: "morale" },
+      { hangul: "박사", hanja: "博士", gloss: "doctorate" }
+    ]),
+    "使": C("하여금", "사", "to use; envoy", [
+      { hangul: "사용", hanja: "使用", gloss: "use" }
+    ]),
+    "史": C("사기", "사", "history", [
+      { hangul: "역사", hanja: "歷史", gloss: "history" }
+    ]),
+    "死": C("죽을", "사", "to die; death", [
+      { hangul: "사망", hanja: "死亡", gloss: "death" }
+    ]),
+    "四": C("넉", "사", "four"),
+    "師": C("스승", "사", "teacher; master"),
+    "詐": C("속일", "사", "to deceive; fraud", [
+      { hangul: "사기", hanja: "詐欺", gloss: "fraud" }
+    ]),
+    "沙": C("모래", "사", "sand"),
+    "寺": C("절", "사", "Buddhist temple"),
+
+    // --- remaining components of the 사기 homographs ---
+    "欺": C("속일", "기", "to deceive; cheat", [
+      { hangul: "사기", hanja: "詐欺", gloss: "fraud" }
+    ]),
+    "氣": C("기운", "기", "energy; spirit; air", [
+      { hangul: "기분", hanja: "氣分", gloss: "mood" },
+      { hangul: "사기", hanja: "士氣", gloss: "morale" }
+    ]),
+    "器": C("그릇", "기", "vessel; instrument", [
+      { hangul: "무기", hanja: "武器", gloss: "weapon" }
+    ]),
+    "武": C("호반", "무", "military; martial"),
+    "資": C("재물", "자", "resources; capital", [
+      { hangul: "자본", hanja: "資本", gloss: "capital" }
+    ]),
+    "本": C("근본", "본", "root; origin; book", [
+      { hangul: "자본", hanja: "資本", gloss: "capital" },
+      { hangul: "본질", hanja: "本質", gloss: "essence" }
+    ]),
+    "主": C("주인", "주", "master; main; lord", [
+      { hangul: "주의", hanja: "主義", gloss: "-ism" },
+      { hangul: "주인", hanja: "主人", gloss: "owner" }
+    ]),
+    "義": C("옳을", "의", "righteousness; meaning", [
+      { hangul: "주의", hanja: "主義", gloss: "-ism" }
+    ]),
+    "衝": C("찌를", "충", "to rush; collide"),
+    "會": C("모일", "회", "to meet; assembly", [
+      { hangul: "사회", hanja: "社會", gloss: "society" }
+    ]),
+    "者": C("놈", "자", "person; one who"),
+    "海": C("바다", "해", "sea; ocean", [
+      { hangul: "해외", hanja: "海外", gloss: "overseas" }
+    ]),
+    "外": C("바깥", "외", "outside; external", [
+      { hangul: "외국", hanja: "外國", gloss: "foreign country" }
+    ]),
+    "活": C("살", "활", "to live; lively", [
+      { hangul: "생활", hanja: "生活", gloss: "life; living" }
+    ]),
+    "舍": C("집", "사", "house; lodging"),
+    "廊": C("행랑", "랑", "corridor; veranda"),
+    "天": C("하늘", "천", "sky; heaven", [
+      { hangul: "천지", hanja: "天地", gloss: "heaven and earth" }
+    ]),
+
+    // Reading-only character: hun is "" AND glosses is [] (Agent A reports
+    // these exist in the real data). Must render as just the eum, no blanks.
+    "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
+  };
+
+  // MOE basic-education membership (Unihan kKoreanEducationHanja). These
+  // five match the real data: among the 국 homophones 國/局/菊 are in the
+  // list and 鞠/麴 are not, so the reading list badges selectively.
+  ["國", "學", "民", "局", "菊"].forEach(function (c) {
+    if (CHARS[c]) CHARS[c].edu = true;
+  });
+  // MOE tier (phase 2), emitted only where the tier is known: 學 is a
+  // middle-school character, 局 a high-school one; 國/民/菊 stand in for the
+  // variant-gap set that has membership but no tier. eduT never without edu.
+  var EDU_TIER = { "學": "m", "局": "h" };
+  Object.keys(EDU_TIER).forEach(function (c) {
+    if (CHARS[c] && CHARS[c].edu === true) CHARS[c].eduT = EDU_TIER[c];
+  });
+
+  var WORDS = {
+    // Deliberately listed BEFORE 詐欺 so the non-rare-first ordering has to
+    // actually reorder it (Agent B does this in the service worker).
+    "沙器": [{ hangul: "사기", glosses: ["porcelain; chinaware"], rare: true }],
+    // Highlighting the native word 사랑 ("love") turns up only this obscure
+    // spelling — the canonical hedging case.
+    "舍廊": [{ hangul: "사랑", glosses: ["a detached building; men's quarters"], rare: true }],
+    "國民": [{ hangul: "국민", glosses: ["the people; citizens of a nation"] }],
+    "學生": [{ hangul: "학생", glosses: ["student; pupil"] }],
+    "韓國": [{ hangul: "한국", glosses: ["Korea; South Korea"] }],
+    "漢字": [{ hangul: "한자", glosses: ["hanja; Chinese character"] }],
+    "文字": [{ hangul: "문자", glosses: ["character; letter", "text message"] }],
+    "大韓民國": [{ hangul: "대한민국", glosses: ["the Republic of Korea"] }],
+    "詐欺": [{ hangul: "사기", glosses: ["fraud; swindle; confidence trick"] }],
+    "士氣": [{ hangul: "사기", glosses: ["morale; fighting spirit"] }],
+    // Reference-only word: ~9,600 of the real 27,759 words have no glosses.
+    "武器": [{ hangul: "무기", glosses: [] }],
+    // ≥3 chars → gets a `parts` field (see the protocol addendum).
+    "資本": [{ hangul: "자본", glosses: ["capital; funds"] }],
+    "主義": [{ hangul: "주의", glosses: ["-ism; doctrine; principle"] }],
+    "資本主義": [{ hangul: "자본주의", glosses: ["capitalism"] }],
+    "民主主義": [{ hangul: "민주주의", glosses: ["democracy"] }],
+    "民主": [{ hangul: "민주", glosses: ["democracy; democratic"] }],
+    "士氣衝天": [{ hangul: "사기충천", glosses: ["morale running high"] }],
+    "社會": [{ hangul: "사회", glosses: ["society"] }],
+    "社會民主主義": [{ hangul: "사회민주주의", glosses: ["social democracy"] }],
+    // A nesting chain where each level is a greedy part of the one above, deep
+    // enough to exercise breadcrumb truncation (4 views):
+    // 해외대학생활 → 大學生活 → 大學生 → 大學
+    "海外": [{ hangul: "해외", glosses: ["overseas; abroad"] }],
+    "大學": [{ hangul: "대학", glosses: ["university; college"] }],
+    "大學生": [{ hangul: "대학생", glosses: ["a university student"] }],
+    "大學生活": [{ hangul: "대학생활", glosses: ["university life"] }],
+    "海外大學生活": [{ hangul: "해외대학생활", glosses: ["university life abroad"] }],
+    // --- the long tail of 學 compounds, so the `cw` index below can be joined
+    //     against `words` exactly as the service worker does it -------------
+    "學校": [{ hangul: "학교", glosses: ["school"] }],
+    "科學": [{ hangul: "과학", glosses: ["science"] }],
+    "數學": [{ hangul: "수학", glosses: ["mathematics"] }],
+    "文學": [{ hangul: "문학", glosses: ["literature"] }],
+    "哲學": [{ hangul: "철학", glosses: ["philosophy"] }],
+    "醫學": [{ hangul: "의학", glosses: ["medical science"] }],
+    "化學": [{ hangul: "화학", glosses: ["chemistry"] }],
+    "學者": [{ hangul: "학자", glosses: ["scholar"] }],
+    "學問": [{ hangul: "학문", glosses: ["learning; scholarship"] }],
+    "學院": [{ hangul: "학원", glosses: ["private academy"] }],
+    "學術": [{ hangul: "학술", glosses: ["academic study"] }],
+    "留學": [{ hangul: "유학", glosses: ["studying abroad"] }],
+    "入學": [{ hangul: "입학", glosses: ["entering a school"] }],
+    // The one rare entry in the index: revealed rows must render it muted.
+    "晩學": [{ hangul: "만학", glosses: ["taking up study late in life"], rare: true }],
+    // --- larger words containing 學生, for the used-in disclosure ---------
+    "中學生": [{ hangul: "중학생", glosses: ["middle school student"] }],
+    "女學生": [{ hangul: "여학생", glosses: ["female student"] }],
+    "留學生": [{ hangul: "유학생", glosses: ["an exchange student"] }],
+    "小學生": [{ hangul: "소학생", glosses: ["elementary school pupil"] }],
+    "苦學生": [{ hangul: "고학생", glosses: ["a working student"], rare: true }]
+  };
+
+  // ADDENDUM `cw`: EVERY words.json spelling containing the char, ranked, as a
+  // bare array. Superset of `compounds` (which is why revealing has to skip
+  // spellings already on screen). 學 has 17 entries; 4 of the 5 inline rows
+  // are in it (the fifth is hangul-only), so 13 remain.
+  var CW = {
+    "學": [
+      "學生", "大學", "學校", "科學", "數學", "文學", "哲學", "醫學", "化學",
+      "學者", "學問", "學院", "學術", "留學", "入學", "大學生", "晩學"
+    ]
+  };
+
+  // ADDENDUM used-in: the words.json spellings that STRICTLY contain a word
+  // (self excluded), ranked. The worker derives these from the first char's cw
+  // index; the fixture pins an explicit ranked list for 學生 and falls back to
+  // a scan over `words` for everything else, which is the same contract.
+  var USED_IN = {
+    "學生": ["大學生", "中學生", "女學生", "留學生", "小學生", "苦學生"]
+  };
+
+  function usedInSpellings(word) {
+    if (typeof word !== "string" || word.length < 2) return [];
+    if (USED_IN[word]) {
+      return USED_IN[word].filter(function (sp) { return !!WORDS[sp]; });
+    }
+    return Object.keys(WORDS).filter(function (sp) {
+      return sp !== word && sp.indexOf(word) >= 0;
+    });
+  }
+
+  function buildUsedIn(word) {
+    return usedInSpellings(canonicalize(String(word || "").normalize("NFC")))
+      .map(function (spelling) {
+        var sense = (WORDS[spelling] || [])[0] || {};
+        var entry = {
+          hanja: spelling,
+          hangul: sense.hangul || "",
+          gloss: (sense.glosses || [])[0] || ""
+        };
+        if (sense.rare === true) entry.rare = true;
+        return entry;
+      });
+  }
+
+  // The service worker's `buildFullCompounds`: join each cw spelling against
+  // `words` (first sense: hangul, first gloss or "", rare only when true),
+  // preserving cw order.
+  function fullCompounds(char) {
+    var canon = canonicalize(String(char || "").normalize("NFC"));
+    return (CW[canon] || []).map(function (spelling) {
+      var sense = (WORDS[spelling] || [])[0] || {};
+      var entry = {
+        hanja: spelling,
+        hangul: sense.hangul || "",
+        gloss: (sense.glosses || [])[0] || ""
+      };
+      if (sense.rare === true) entry.rare = true;
+      return entry;
+    });
+  }
+
+  // byHangul: hangul spelling → every hanja spelling, no cap.
+  var BY_HANGUL = {};
+  Object.keys(WORDS).forEach(function (hanja) {
+    WORDS[hanja].forEach(function (sense) {
+      (BY_HANGUL[sense.hangul] = BY_HANGUL[sense.hangul] || []).push(hanja);
+    });
+  });
+
+  // eum → chars, derived at runtime from readings/eumhun, ranked by how many
+  // compounds the entry has (descending), exactly as the SPEC addendum says.
+  var BY_EUM = {};
+  Object.keys(CHARS).forEach(function (ch) {
+    var d = CHARS[ch];
+    var eums = {};
+    (d.readings || []).forEach(function (r) { if (r) eums[r] = true; });
+    (d.eumhun || []).forEach(function (e) { if (e && e.eum) eums[e.eum] = true; });
+    Object.keys(eums).forEach(function (eum) {
+      (BY_EUM[eum] = BY_EUM[eum] || []).push(ch);
+    });
+  });
+  Object.keys(BY_EUM).forEach(function (eum) {
+    BY_EUM[eum].sort(function (a, b) {
+      return (CHARS[b].compounds || []).length - (CHARS[a].compounds || []).length;
+    });
+  });
+
+  var HAN = /\p{Script=Han}/u;
+  var HANGUL = /[가-힣]/;
+  var MAX_WORD = 6;
+
+  function runs(text) {
+    var out = [], cur = null;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      var kind = HAN.test(ch) ? "han" : (HANGUL.test(ch) ? "hangul" : null);
+      if (!kind) { cur = null; continue; }
+      if (!cur || cur.kind !== kind) { cur = { kind: kind, s: "" }; out.push(cur); }
+      cur.s += ch;
+    }
+    return out;
+  }
+
+  function canonicalize(s) {
+    var out = "";
+    for (var i = 0; i < s.length; i++) {
+      var ch = s.charAt(i);
+      out += VARIANTS[ch] || ch;
+    }
+    return out;
+  }
+
+  // Protocol addendum: word matches ≥3 chars carry `parts` — the interior
+  // re-segmented against `words` (the full span excluded), covering it in order.
+  function computeParts(hanja) {
+    if (hanja.length < 3) return null;
+    var out = [], i = 0, sawWord = false;
+    while (i < hanja.length) {
+      var hit = null, hitLen = 0;
+      for (var len = Math.min(MAX_WORD, hanja.length - i); len >= 2; len--) {
+        if (len === hanja.length) continue;          // exclude the whole span
+        var cand = hanja.substr(i, len);
+        if (WORDS[cand]) { hit = cand; hitLen = len; break; }
+      }
+      if (hit) {
+        out.push({
+          type: "word", hanja: hit, hangul: WORDS[hit][0].hangul,
+          glosses: (WORDS[hit][0].glosses || []).slice(0, 2)
+        });
+        sawWord = true;
+        i += hitLen;
+      } else {
+        out.push({ type: "char", char: hanja.charAt(i) });
+        i += 1;
+      }
+    }
+    return sawWord ? out : null;
+  }
+
+  function isRare(hanja) {
+    return (WORDS[hanja] || [])[0] ? (WORDS[hanja][0].rare === true) : false;
+  }
+
+  function wordMatch(surface, hanja, hangul) {
+    var m = {
+      kind: "word", surface: surface, canonical: hanja, hangul: hangul,
+      glosses: (WORDS[hanja][0] || {}).glosses || [],
+      chars: hanja.split("")
+    };
+    if (isRare(hanja)) m.rare = true;   // flag omitted when false
+    // ADDENDUM used-in: how many larger words contain this spelling. Omitted
+    // when 0, so the UI knows to render no disclosure row at all.
+    var usedIn = usedInSpellings(hanja).length;
+    if (usedIn > 0) m.usedInCount = usedIn;
+    var parts = computeParts(hanja);
+    if (parts) m.parts = parts;
+    return m;
+  }
+
+  function charMatch(canon, surface) {
+    var d = CHARS[canon];
+    if (!d) return null;
+    var m = {
+      kind: "char", surface: surface, canonical: canon,
+      eumhun: d.eumhun, readings: d.readings, glosses: d.glosses,
+      compounds: d.compounds
+    };
+    // Total size of the char's cw index — the UI needs it to label
+    // "Show 5 more (N)" before it has fetched anything. Omitted when 0.
+    if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
+    // MOE basic-education membership; omitted when false.
+    if (d.edu === true) m.edu = true;
+    if (d.eduT) m.eduT = d.eduT;           // tier, only when known
+    return m;
+  }
+
+  function readingMatch(syllable) {
+    var chars = BY_EUM[syllable] || [];
+    if (!chars.length) return null;
+    return {
+      kind: "reading", surface: syllable, eum: syllable,
+      candidates: chars.map(function (ch) {
+        var d = CHARS[ch];
+        var hun = (d.eumhun && d.eumhun[0] && d.eumhun[0].hun) || "";
+        var cand = {
+          char: ch, hun: hun, eum: syllable,
+          gloss: (d.glosses && d.glosses[0]) || ""
+        };
+        if (d.edu === true) cand.edu = true;   // propagated onto candidates
+        if (d.eduT) cand.eduT = d.eduT;        // …and the tier with it
+        return cand;
+      })
+    };
+  }
+
+  function lookup(text) {
+    var words = [], chars = [], seenChar = {};
+    function pushChar(canon, surface) {
+      if (seenChar[canon]) return;
+      var m = charMatch(canon, surface);
+      if (!m) return;
+      seenChar[canon] = true;
+      chars.push(m);
+    }
+
+    var segments = runs(text.normalize("NFC"));
+
+    // 3c: the whole extracted selection is exactly one hangul syllable.
+    if (segments.length === 1 && segments[0].kind === "hangul" && segments[0].s.length === 1) {
+      var rm = readingMatch(segments[0].s);
+      return { ok: true, matches: rm ? [rm] : [] };
+    }
+
+    var hanTotal = 0;
+    segments.forEach(function (r) { if (r.kind === "han") hanTotal += r.s.length; });
+
+    segments.forEach(function (run) {
+      if (run.kind === "han") {
+        var canon = canonicalize(run.s);
+        var i = 0;
+        while (i < canon.length) {
+          var hit = null, hitLen = 0;
+          for (var len = Math.min(MAX_WORD, canon.length - i); len >= 2; len--) {
+            var cand = canon.substr(i, len);
+            if (WORDS[cand]) { hit = cand; hitLen = len; break; }
+          }
+          if (hit) {
+            words.push(wordMatch(run.s.substr(i, hitLen), hit, WORDS[hit][0].hangul));
+            // Han-char count only — hangul doesn't count toward the threshold.
+            if (hanTotal <= 4) {
+              for (var k = 0; k < hit.length; k++) pushChar(hit.charAt(k), run.s.charAt(i + k));
+            }
+            i += hitLen;
+          } else {
+            pushChar(canon.charAt(i), run.s.charAt(i));
+            i += 1;
+          }
+        }
+      } else {
+        var h = run.s, j = 0;
+        while (j < h.length) {
+          var found = null, foundLen = 0;
+          for (var l = Math.min(MAX_WORD, h.length - j); l >= 2; l--) {
+            var c = h.substr(j, l);
+            if (BY_HANGUL[c]) { found = c; foundLen = l; break; }
+          }
+          if (!found) { j += 1; continue; }
+          // ALL hanja spellings, no cap — the UI renders a selector. Non-rare
+          // spellings order first; the first of them contributes the char cards.
+          var spellings = BY_HANGUL[found].filter(function (h) { return !isRare(h); })
+            .concat(BY_HANGUL[found].filter(isRare));
+          spellings.forEach(function (hanja, idx) {
+            words.push(wordMatch(found, hanja, found));
+            // Hangul-sourced matches ALWAYS get component char cards (first only).
+            if (idx === 0) {
+              for (var k2 = 0; k2 < hanja.length; k2++) pushChar(hanja.charAt(k2), hanja.charAt(k2));
+            }
+          });
+          j += foundLen;
+        }
+      }
+    });
+
+    return { ok: true, matches: words.concat(chars) };
+  }
+
+  globalThis.__hanjaHoverTestRuntime = {
+    __isStub: true,
+    __calls: 0,          // every sendMessage — lets tests prove "back" doesn't re-query
+    __lastText: null,
+    __compoundCalls: 0,  // {type:"compounds"} only
+    __lastChar: null,
+    __failCompounds: false,  // flip on to exercise the retry path
+    __usedInCalls: 0,    // {type:"usedIn"} only
+    __lastWord: null,
+    __failUsedIn: false,
+    sendMessage: function (msg, cb) {
+      this.__calls++;
+      var resp;
+      try {
+        if (msg && msg.type === "lookup") {
+          this.__lastText = msg.text;
+          resp = lookup(String(msg.text || ""));
+        } else if (msg && msg.type === "compounds") {
+          this.__compoundCalls++;
+          this.__lastChar = msg.char;
+          resp = this.__failCompounds
+            ? { ok: false, error: "simulated failure" }
+            : { ok: true, compounds: fullCompounds(msg.char) };
+        } else if (msg && msg.type === "usedIn") {
+          this.__usedInCalls++;
+          this.__lastWord = msg.word;
+          resp = this.__failUsedIn
+            ? { ok: false, error: "simulated failure" }
+            : { ok: true, words: buildUsedIn(msg.word) };
+        } else {
+          resp = { ok: false, error: "unknown message type" };
+        }
+      } catch (e) {
+        resp = { ok: false, error: String(e) };
+      }
+      if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
+      return Promise.resolve(resp);
+    },
+    __lookup: lookup,
+    __fullCompounds: fullCompounds,
+    __usedIn: buildUsedIn
+  };
+})();
+</script>
+
+<!-- The real popup boot chain, in the real order. -->
+<script src="../extension/popup/popup-boot.js"></script>
+<script src="../extension/content/content.js"></script>
+<script src="../extension/popup/search-shell.js"></script>
+<script src="../extension/popup/popup.js"></script>
+
+<!-- Self-checks. -->
+<script>
+(function () {
+  "use strict";
+
+  var out = document.getElementById("out");
+  var input = document.getElementById("okp-input");
+  var results = document.getElementById("okp-results");
+  var status = document.getElementById("okp-status");
+  var fake = globalThis.__hanjaHoverTestRuntime;
+
+  // A failure switch for lookups, which the shared fixture does not have
+  // (it only simulates compounds/usedIn failures). Patched onto the object
+  // content.js already holds a reference to, so the swap takes effect live.
+  var innerSend = fake.sendMessage;
+  fake.__failLookup = false;
+  fake.sendMessage = function (msg, cb) {
+    if (this.__failLookup && msg && msg.type === "lookup") {
+      this.__calls++;
+      var resp = { ok: false, error: "simulated lookup failure" };
+      if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
+      return Promise.resolve(resp);
+    }
+    return innerSend.apply(this, arguments);
+  };
+
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
+
+  document.getElementById("run").addEventListener("click", async function () {
+    var api = globalThis.__hanjaHover;                 // renderer test hooks
+    var embed = globalThis.__okpyeonEmbedApi;          // the embed API itself
+    var shellApi = globalThis.__okpyeonSearchShell;
+    var lines = [], pass = 0, fail = 0;
+    function check(name, cond, detail) {
+      (cond ? pass++ : fail++);
+      lines.push((cond ? "PASS  " : "FAIL  ") + name + (detail ? "   [" + detail + "]" : ""));
+    }
+
+    if (!embed || !shellApi) {
+      out.textContent = "FAIL: embed API / search shell missing — did popup-boot.js run first?";
+      return;
+    }
+
+    // The shell popup.js started at load. Re-created from scratch here so the
+    // suite is independent of whatever the page was left in.
+    var shell = shellApi.controller();
+    function reinit(extra) {
+      var live = shellApi.controller();
+      if (live) live.destroy();
+      var opts = { input: input, results: results, status: status };
+      for (var k in (extra || {})) {
+        if (Object.prototype.hasOwnProperty.call(extra, k)) opts[k] = extra[k];
+      }
+      input.value = "";
+      return shellApi.init(opts);
+    }
+
+    // Debounce settle: the shell's own delay plus room for the stub's setTimeout.
+    var SETTLE = shellApi.DEBOUNCE_MS + 140;
+    var TAIL = 90;
+
+    function hostEl() { return results.querySelector("[data-hanja-hover]"); }
+    function cpdRows() { return api.queryAll(".compounds > .compound-row"); }
+
+    try {
+    shell = reinit();
+
+    // --- wiring ---------------------------------------------------------
+    check("embed API exposes mount/searchFor/clear",
+      typeof embed.mount === "function" && typeof embed.searchFor === "function" &&
+      typeof embed.clear === "function");
+    check("renderer test hooks are available alongside the embed API (both gates)",
+      !!api && typeof api.cardCount === "function");
+    check("host is mounted INSIDE the supplied container, not on documentElement",
+      !!hostEl() && hostEl().parentNode === results &&
+      !document.documentElement.querySelector(":scope > [data-hanja-hover]"));
+    check("mount() is single-mount: a second call is a no-op",
+      embed.mount(results) === false);
+    var mountThrew = false;
+    try { embed.mount(document.createElement("div")); } catch (e) { mountThrew = true; }
+    check("mount() rejects a container that is not in the document", mountThrew);
+
+    // --- rendering into the container -----------------------------------
+    var res = await embed.searchFor("국민");
+    check("searchFor resolves {ok, count}",
+      res && res.ok === true && res.count === 3, JSON.stringify(res));
+    check("cards render into the supplied container",
+      api.isVisible() && api.cardCount() === 3, "cards=" + api.cardCount());
+    check("the rendered cards live inside the results container",
+      results.contains(hostEl()) && hostEl().getBoundingClientRect().height > 0);
+    check("big text is the hanja word 國民",
+      api.panelText().indexOf("國民") === 0, JSON.stringify(api.panelText().slice(0, 12)));
+
+    // --- embed layout ----------------------------------------------------
+    check("host is in flow (position: static), not fixed",
+      getComputedStyle(hostEl()).position === "static",
+      getComputedStyle(hostEl()).position);
+    check("panel is NOT a scroll container (overflow: visible)",
+      api.panelStyle("overflow-y").trim() === "visible" &&
+      api.panelStyle("overflow-x").trim() === "visible",
+      api.panelStyle("overflow-y") + "/" + api.panelStyle("overflow-x"));
+    check("panel drops its own height cap (max-height: none)",
+      api.panelStyle("max-height").trim() === "none", api.panelStyle("max-height"));
+    check("panel drops the resize affordance (resize: none)",
+      api.panelStyle("resize").trim() === "none", api.panelStyle("resize"));
+    check("panel drops the floating card chrome (no shadow, no radius)",
+      api.panelStyle("box-shadow").trim() === "none" &&
+      parseFloat(api.panelStyle("border-radius")) === 0,
+      api.panelStyle("box-shadow") + " / " + api.panelStyle("border-radius"));
+    check("panel fills the container width instead of the fixed 340px",
+      Math.abs(api.panelSize().width - results.clientWidth) <= 1,
+      api.panelSize().width + " vs " + results.clientWidth);
+    // 大韓民國 renders four char cards — comfortably taller than the results box.
+    await embed.searchFor("大韓民國");
+    check("tall content makes the panel outgrow the results box",
+      api.panelSize().height > results.clientHeight &&
+      results.scrollHeight > results.clientHeight,
+      "panel=" + Math.round(api.panelSize().height) + " box=" + results.clientHeight);
+    check("the results box is the element that actually scrolls",
+      (function () { results.scrollTop = 60; return results.scrollTop === 60; })(),
+      "scrollTop=" + results.scrollTop);
+    check("the panel refuses to scroll — there is no nested scroller",
+      api.scrollTop(60) === 0, "panelScrollTop=" + api.scrollTop());
+    results.scrollTop = 0;
+    await embed.searchFor("국민");
+
+    // --- dismissal is inert ---------------------------------------------
+    var cardsBefore = api.cardCount();
+    results.scrollTop = 40;
+    results.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new Event("scroll"));
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    window.dispatchEvent(new Event("resize"));
+    window.dispatchEvent(new Event("pagehide"));
+    await wait(30);
+    check("scroll / mousedown / Escape / resize / pagehide do NOT dismiss",
+      api.isVisible() && api.cardCount() === cardsBefore,
+      "visible=" + api.isVisible() + " cards=" + api.cardCount());
+    check("a page selection change does not trigger a lookup either",
+      typeof api.handleSelection === "function" && (function () {
+        var before = fake.__calls;
+        document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        return fake.__calls === before;
+      })());
+    results.scrollTop = 0;
+
+    // --- the resize gesture must not exist ------------------------------
+    var sizeBefore = api.panelSize();
+    var corner = api.resizeCorner();
+    api.dragResize(corner.x, corner.y, [[60, 60]]);
+    check("mousedown in the resize corner does not enter drag state",
+      api.isResizing() === false && api.isUserSized() === false,
+      "resizing=" + api.isResizing() + " userSized=" + api.isUserSized());
+    check("the panel was not resized by the drag",
+      api.panelInlineSize().width === "" && api.panelInlineSize().height === "" &&
+      Math.abs(api.panelSize().width - sizeBefore.width) <= 1,
+      JSON.stringify(api.panelInlineSize()));
+    api.endDragResize();
+
+    // --- drill-down surface inside embed --------------------------------
+    await embed.searchFor("學");
+    check("compound rows render on a char card in embed",
+      cpdRows().length === 5, "rows=" + cpdRows().length);
+    check("show-more control renders with the remaining count",
+      !!api.query(".cpd-more") &&
+      api.query(".cpd-more").textContent === "Show 5 more (13)",
+      api.query(".cpd-more") && api.query(".cpd-more").textContent);
+    api.query(".cpd-more").click();
+    await wait(TAIL);
+    check("show-more reveals 5 more rows in embed",
+      cpdRows().length === 10, "rows=" + cpdRows().length);
+
+    var depthBefore = api.viewDepth();
+    cpdRows()[0].click();
+    await wait(TAIL);
+    check("a compound row drills down and grows the breadcrumb",
+      api.viewDepth() === depthBefore + 1 && api.crumbLabels().length >= 2,
+      "depth=" + api.viewDepth() + " crumbs=" + api.crumbLabels().join(" › "));
+    api.query(".crumb").click();
+    await wait(TAIL);
+    check("the first crumb jumps back to the root view",
+      api.viewDepth() === 1, "depth=" + api.viewDepth());
+
+    await embed.searchFor("학생");
+    check("used-in disclosure renders in embed", !!api.query(".usedin-row"),
+      api.query(".usedin-row") && api.query(".usedin-row").textContent);
+    api.query(".usedin-row").click();
+    await wait(TAIL);
+    check("used-in opens its dedicated list view in embed",
+      !!api.query(".card.usedin") && api.viewDepth() === 2,
+      "depth=" + api.viewDepth());
+
+    await embed.searchFor("사기");
+    var chips = api.queryAll(".spell-chip");
+    check("homograph chips render in embed", chips.length >= 2, "chips=" + chips.length);
+    var firstSurface = api.query(".surface").textContent;
+    chips[1].click();
+    await wait(TAIL);
+    check("clicking a homograph chip swaps the spelling",
+      api.query(".surface").textContent !== firstSurface,
+      firstSurface + " → " + api.query(".surface").textContent);
+
+    // --- clear() ---------------------------------------------------------
+    embed.clear();
+    check("clear() hides the panel", !api.isVisible());
+
+    // --- shell: debounce -------------------------------------------------
+    shell = reinit();
+    await shell.search("");
+    var callsBefore = fake.__calls;
+    ["국", "국민", "국민이", "국민", "국민"].forEach(function (v) {
+      input.value = v;
+      input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    });
+    check("rapid input events do not fire immediately",
+      fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
+    await wait(SETTLE);
+    check("a burst of keystrokes collapses into ONE lookup",
+      fake.__calls === callsBefore + 1 && fake.__lastText === "국민",
+      "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
+    check("the collapsed search rendered results", api.isVisible() && api.cardCount() === 3);
+
+    // --- shell: IME ------------------------------------------------------
+    // Synthetic composition events only. Real IME timing (and the Chromium
+    // trailing-input quirk compositionend covers) is MANUAL QA — this proves
+    // the branch, not the browser.
+    await shell.search("");
+    var composing = new InputEvent("input", { bubbles: true, isComposing: true });
+    check("fixture sanity: InputEvent.isComposing is settable here",
+      composing.isComposing === true);
+    callsBefore = fake.__calls;
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    input.value = "구";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+    input.value = "국";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+    await wait(SETTLE);
+    check("mid-composition input events never trigger a search",
+      fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
+
+    var composingEnter = new KeyboardEvent("keydown", {
+      key: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true
+    });
+    check("fixture sanity: KeyboardEvent.isComposing/keyCode are settable here",
+      composingEnter.isComposing === true && composingEnter.keyCode === 229);
+    input.dispatchEvent(composingEnter);
+    await wait(TAIL);
+    check("Enter while composing is a no-op",
+      fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
+
+    input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "국" }));
+    await wait(SETTLE);
+    check("compositionend triggers exactly one search",
+      fake.__calls === callsBefore + 1 && fake.__lastText === "국",
+      "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
+
+    // --- shell: Enter ----------------------------------------------------
+    await shell.search("");
+    callsBefore = fake.__calls;
+    input.value = "학생";
+    input.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", bubbles: true, cancelable: true
+    }));
+    await wait(TAIL);
+    check("plain Enter searches immediately, without waiting out the debounce",
+      fake.__calls === callsBefore + 1 && fake.__lastText === "학생" && api.isVisible(),
+      "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
+
+    // --- shell: states ---------------------------------------------------
+    await shell.search("");
+    check("empty query shows the quiet empty state, no panel",
+      shell.state() === "empty" && !status.hasAttribute("hidden") &&
+      status.getAttribute("data-state") === "empty" && !api.isVisible(),
+      JSON.stringify(status.textContent));
+
+    await shell.search("하늘");
+    check("a query with no matches shows the no-results state",
+      shell.state() === "none" && !api.isVisible() &&
+      status.textContent.indexOf("하늘") >= 0,
+      JSON.stringify(status.textContent));
+
+    await shell.search("국민");
+    check("results state hides the status line entirely",
+      shell.state() === "results" && status.hasAttribute("hidden") && api.isVisible(),
+      shell.state());
+
+    fake.__failLookup = true;
+    await shell.search("국민");
+    check("a worker failure shows a quiet, retryable message",
+      shell.state() === "error" && !status.hasAttribute("hidden") &&
+      /try again/i.test(status.textContent),
+      JSON.stringify(status.textContent));
+    fake.__failLookup = false;
+    await shell.search("국민");
+    check("the next search after a failure simply works",
+      shell.state() === "results" && api.isVisible());
+
+    // --- shell: ?q= deep link -------------------------------------------
+    // init() with initialQuery is exactly what popup.js does with ?q=.
+    var seenStates = [];
+    shell = reinit({
+      initialQuery: "國民", autofocus: true,
+      onState: function (s) { seenStates.push(s); }
+    });
+    check("a deep link never flashes the empty state",
+      seenStates.indexOf("empty") < 0 && seenStates[0] === "loading",
+      seenStates.join(","));
+    check("the deep-link query is prefilled into the input", input.value === "國民");
+    check("the input is focused for immediate typing",
+      document.activeElement === input);
+    await shell.ready;
+    check("the deep link renders results without any typing",
+      shell.state() === "results" && api.isVisible() && api.cardCount() === 3,
+      seenStates.join(",") + " cards=" + api.cardCount());
+
+    // Leave the page in a usable state for manual poking.
+    shell = reinit();
+    } catch (e) {
+      fail++;
+      lines.push("THREW  " + (e && e.message) + "  @ " +
+        String((e && e.stack) || "").split("\n")[1]);
+    }
+
+    lines.push("");
+    lines.push(fail === 0 ? ("ALL PASS (" + pass + ")") : (fail + " FAILED / " + pass + " passed"));
+    out.textContent = lines.join("\n");
+  });
+})();
+</script>
+
+</body>
+</html>

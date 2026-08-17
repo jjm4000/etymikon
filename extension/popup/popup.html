@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Okpyeon — Hanja search</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+<div class="app">
+  <div class="searchbar">
+    <input id="okp-input" type="text" class="query"
+           placeholder="한자 · 한글 · 음절"
+           aria-label="Search hanja, a sino-Korean word, or a single syllable"
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+  <!--
+    THE scroll container. content.js mounts its shadow host in here, and the
+    panel gives up its own overflow in embed mode, so there is exactly one
+    scrollbar on this page.
+  -->
+  <div id="okp-results" class="results">
+    <p id="okp-status" class="status"></p>
+  </div>
+</div>
+
+<!--
+  Load order is load-bearing and all four are CLASSIC scripts (no
+  type=module / defer / async): the boot flag must be set before content.js
+  evaluates, search-shell.js needs the embed API content.js exposes, and
+  popup.js needs the shell. They sit AFTER the markup so mount() sees a
+  laid-out container. MV3's extension-page CSP forbids inline script, so none
+  of this can be collapsed into the page.
+
+  The first three lines are surface-independent: a future sidepanel.html
+  loads them verbatim and supplies only its own bootstrapper.
+-->
+<script src="popup-boot.js"></script>
+<script src="../content/content.js"></script>
+<script src="search-shell.js"></script>
+<script src="popup.js"></script>
+
+</body>
+</html>

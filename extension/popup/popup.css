@@ -1,0 +1,137 @@
+/*
+ * Okpyeon — search popup page chrome.
+ *
+ * Only the page around the results: the cards themselves are rendered by
+ * content.js inside a CLOSED shadow root, so its palette tokens do not reach
+ * this stylesheet and the two colour schemes are maintained in parallel. The
+ * values below are the same palette as the panel's --bg/--fg/--muted/--edge/
+ * --accent, so the seam between page chrome and panel is invisible.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --page-bg: #ffffff;
+  --page-fg: #1b1b1f;
+  --page-muted: #6b6b73;
+  --page-faint: #86868f;
+  --page-edge: rgba(0, 0, 0, 0.12);
+  --page-rule: rgba(0, 0, 0, 0.09);
+  --page-accent: #2f57c9;
+  --field-bg: #f6f6f9;
+  --field-edge: rgba(0, 0, 0, 0.14);
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page-bg: #23232a;
+    --page-fg: #e6e6ea;
+    --page-muted: #9a9aa4;
+    --page-faint: #8b8b95;
+    --page-edge: rgba(255, 255, 255, 0.14);
+    --page-rule: rgba(255, 255, 255, 0.12);
+    --page-accent: #96b4ff;
+    --field-bg: rgba(255, 255, 255, 0.06);
+    --field-edge: rgba(255, 255, 255, 0.18);
+    --scroll-thumb: rgba(255, 255, 255, 0.24);
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--page-bg);
+  color: var(--page-fg);
+}
+
+body {
+  /* Sized for the action popup; `margin: 0 auto` costs nothing there and
+     centres the same column when the page is opened as a normal tab.
+     Height is deliberately NOT set anywhere on this page: Chrome sizes the
+     popup window to the document, so an empty search is a slim input plus one
+     hint line (~80px) and results grow the window naturally. Nothing here may
+     reserve vertical space — no min-heights, no vh units, no flex filler. */
+  width: 340px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Malgun Gothic", "Apple SD Gothic Neo",
+    "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- search field ---------------------------------------------------- */
+
+/* Quiet utility, not an app window: slim field, no heavy chrome. */
+.searchbar {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--page-rule);
+  background: var(--page-bg);
+}
+
+.query {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.35;
+  padding: 5px 8px;
+  color: var(--page-fg);
+  background: var(--field-bg);
+  border: 1px solid var(--field-edge);
+  border-radius: 6px;
+  outline: none;
+}
+
+.query::placeholder {
+  color: var(--page-faint);
+}
+
+.query:focus {
+  border-color: var(--page-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-accent) 28%, transparent);
+}
+
+/* ---- results: THE scroll container ----------------------------------- */
+
+/* No height of its own — it is exactly as tall as what is in it, so the
+   window grows with the results and an empty search reserves nothing. The
+   cap only engages when the content genuinely exceeds it, and only then does
+   this become a scroller. */
+.results {
+  max-height: 480px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.results::-webkit-scrollbar { width: 10px; }
+.results::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.results::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- empty / no-result / error hints --------------------------------- */
+
+/* Always ONE short line — empty, no-results and error alike. */
+.status {
+  margin: 0;
+  padding: 8px 11px 10px;
+  color: var(--page-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.status[data-state="error"] {
+  color: var(--page-fg);
+}

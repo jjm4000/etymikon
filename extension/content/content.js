@@ -94,6 +94,22 @@
   var IS_STUB = !HAS_CHROME_RUNTIME;
 
   /* ------------------------------------------------------------------ *
+   * Embed mode
+   *
+   * A host page (the search popup page, or its test harness) sets
+   * `globalThis.__okpyeonEmbed = true` BEFORE this script runs. The popup is
+   * then a component of that page rather than an overlay on someone else's:
+   * no selection/dismissal listeners, no floating anchor, no resize handle —
+   * the host supplies a container through globalThis.__okpyeonEmbedApi.
+   *
+   * This gate is ORTHOGONAL to IS_STUB: an extension popup page has a real
+   * chrome.runtime (IS_STUB false, IS_EMBED true), and the embed test harness
+   * has neither (both true).
+   * ------------------------------------------------------------------ */
+
+  var IS_EMBED = globalThis.__okpyeonEmbed === true;
+
+  /* ------------------------------------------------------------------ *
    * Constants
    * ------------------------------------------------------------------ */
 
@@ -200,6 +216,23 @@
     "    --grip: rgba(255, 255, 255, 0.34);",
     "    --flash: rgba(150, 180, 255, 0.2);",
     "  }",
+    "}",
+    /* ---- embed mode: in-flow, flat, and NOT a scroll container ----
+     * The popup page's results area is the one and only scroller, so the
+     * panel gives up overflow (no nested scrollbars) and its own size caps.
+     * `resize: none` is cosmetic here — installResize() is skipped in embed,
+     * so there is no drag gesture to suppress. The card chrome (border,
+     * radius, shadow) goes too: in-flow, it should read as part of the page,
+     * not as a floating card sitting on it. */
+    ".panel.embed {",
+    "  width: 100%;",
+    "  max-height: none;",
+    "  height: auto;",
+    "  overflow: visible;",
+    "  resize: none;",
+    "  border: none;",
+    "  box-shadow: none;",
+    "  border-radius: 0;",
     "}",
     /* ---- view container: the unit that swaps on navigation ---- */
     "@keyframes hh-view-in { from { opacity: 0; } to { opacity: 1; } }",
@@ -521,6 +554,34 @@
     visibility: "visible"
   };
 
+  // Embed mode: the host is an in-flow block inside the page's own results
+  // container, so it drops the fixed-position anchor, the coordinates and the
+  // stacking context. `display` is still toggled by showAt/hide.
+  var EMBED_HOST_STYLE = {
+    position: "static",
+    margin: "0",
+    padding: "0",
+    border: "0",
+    width: "100%",
+    height: "auto",
+    "min-width": "0",
+    "min-height": "0",
+    "max-width": "none",
+    "max-height": "none",
+    background: "transparent",
+    opacity: "1",
+    transform: "none",
+    float: "none",
+    clip: "auto",
+    "clip-path": "none",
+    filter: "none",
+    "pointer-events": "auto",
+    "text-align": "left",
+    direction: "ltr",
+    display: "none",
+    visibility: "visible"
+  };
+
   /* ------------------------------------------------------------------ *
    * Popup host / shadow root (created once, reused)
    * ------------------------------------------------------------------ */
@@ -532,6 +593,7 @@
   var visible = false;
   var requestSeq = 0;
   var anchorRect = null;      // selection rect the popup is currently glued to
+  var embedContainer = null;  // embed mode only: the page element the host lives in
 
   // --- resize state (survives the popup session; only a reload resets it) ---
   var userSized = false;      // the user has taken control of the dimensions
@@ -564,9 +626,10 @@
     if (!host) {
       host = document.createElement("div");
       host.setAttribute("data-hanja-hover", "");
-      for (var prop in HOST_STYLE) {
-        if (Object.prototype.hasOwnProperty.call(HOST_STYLE, prop)) {
-          host.style.setProperty(prop, HOST_STYLE[prop], "important");
+      var hostStyle = IS_EMBED ? EMBED_HOST_STYLE : HOST_STYLE;
+      for (var prop in hostStyle) {
+        if (Object.prototype.hasOwnProperty.call(hostStyle, prop)) {
+          host.style.setProperty(prop, hostStyle[prop], "important");
         }
       }
       shadow = host.attachShadow({ mode: "closed" });
@@ -576,8 +639,19 @@
       shadow.appendChild(style);
       panel = document.createElement("div");
       panel.className = "panel";
+      // Flat, full-width, non-scrolling variant (see the .panel.embed rule).
+      if (IS_EMBED) panel.classList.add("embed");
       shadow.appendChild(panel);
-      installResize();
+      // The resize gesture is deliberately NOT installed in embed: its corner
+      // hit-test is geometric, so `resize: none` alone would leave an
+      // invisible drag trap in the bottom-right of the results area.
+      if (!IS_EMBED) installResize();
+    }
+    if (IS_EMBED) {
+      // No container yet means mount() has not run; the host simply stays
+      // detached until it does.
+      if (embedContainer) embedContainer.appendChild(host);
+      return;
     }
     (document.documentElement || document.body).appendChild(host);
   }
@@ -2179,6 +2253,10 @@
   // spelling swap, drill-down, crumb jump. Keeps the popup glued to the
   // original selection throughout the whole descent.
   function reposition() {
+    // Single choke point for every in-place re-anchor (spelling swap,
+    // drill-down, crumb jump, resize settle): in embed there is nothing to
+    // anchor to, so they all become no-ops here rather than at each call site.
+    if (IS_EMBED) return;
     if (!visible || !anchorRect) return;
     positionAt(anchorRect);
   }
@@ -2208,7 +2286,7 @@
     // Clamp overflow and scrollTop both need the popup to have layout.
     syncClamps();
     applyPendingScroll();
-    positionAt(rect);
+    if (!IS_EMBED) positionAt(rect);
     host.style.setProperty("visibility", "visible", "important");
     visible = true;
     return true;
@@ -2371,43 +2449,115 @@
     Home: 1, End: 1, PageUp: 1, PageDown: 1
   };
 
-  window.addEventListener("mousedown", function (e) {
-    if (eventInsidePopup(e)) return; // clicks inside must not dismiss
-    if (visible) hide();
-  }, true);
+  // Embed mode installs NONE of these: the popup page owns its own lifecycle,
+  // so scrolling the results, clicking the input or pressing Escape must never
+  // tear the panel down. Selection lookups are likewise the host page's call
+  // (it drives searchFor instead).
+  if (!IS_EMBED) {
+    window.addEventListener("mousedown", function (e) {
+      if (eventInsidePopup(e)) return; // clicks inside must not dismiss
+      if (visible) hide();
+    }, true);
 
-  window.addEventListener("mouseup", function (e) {
-    if (eventInsidePopup(e)) return; // mouseup inside the popup: ignore entirely
-    lastPointer = { x: e.clientX, y: e.clientY };
-    // Let the browser finish updating the selection first.
-    setTimeout(handleSelection, 0);
-  }, true);
+    window.addEventListener("mouseup", function (e) {
+      if (eventInsidePopup(e)) return; // mouseup inside the popup: ignore entirely
+      lastPointer = { x: e.clientX, y: e.clientY };
+      // Let the browser finish updating the selection first.
+      setTimeout(handleSelection, 0);
+    }, true);
 
-  window.addEventListener("keyup", function (e) {
-    if (eventInsidePopup(e)) return;
-    var isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
-    // Escape is handled on keydown; ignoring it here stops the popup from
-    // immediately reopening on the matching keyup.
-    if (!SELECTION_KEYS[e.key] && !isSelectAll) return;
-    setTimeout(handleSelection, 0);
-  }, true);
+    window.addEventListener("keyup", function (e) {
+      if (eventInsidePopup(e)) return;
+      var isSelectAll = (e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey);
+      // Escape is handled on keydown; ignoring it here stops the popup from
+      // immediately reopening on the matching keyup.
+      if (!SELECTION_KEYS[e.key] && !isSelectAll) return;
+      setTimeout(handleSelection, 0);
+    }, true);
 
-  window.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" || e.key === "Esc") hide();
-  }, true);
+    window.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" || e.key === "Esc") hide();
+    }, true);
 
-  // Capture phase catches scrolls in any scroller, not just the document.
-  window.addEventListener("scroll", function (e) {
-    if (!visible) return;
-    if (eventInsidePopup(e)) return; // scrolling the popup's own list is fine
-    hide();
-  }, true);
+    // Capture phase catches scrolls in any scroller, not just the document.
+    window.addEventListener("scroll", function (e) {
+      if (!visible) return;
+      if (eventInsidePopup(e)) return; // scrolling the popup's own list is fine
+      hide();
+    }, true);
 
-  window.addEventListener("resize", function () {
-    if (visible) hide();
-  }, true);
+    window.addEventListener("resize", function () {
+      if (visible) hide();
+    }, true);
 
-  window.addEventListener("pagehide", hide, true);
+    window.addEventListener("pagehide", hide, true);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Embed API — the popup page's handle on the renderer.
+   *
+   * Gated on IS_EMBED alone, independently of the IS_STUB test hooks below:
+   * the real popup page has a chrome.runtime and needs this, the embed test
+   * harness has neither and needs both.
+   * ------------------------------------------------------------------ */
+
+  if (IS_EMBED) {
+    // Inert stand-in for the selection rect. Nothing reads it (positionAt is
+    // skipped in embed) — it exists so anchorRect keeps its shape.
+    var EMBED_RECT = {
+      left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0
+    };
+
+    globalThis.__okpyeonEmbedApi = {
+      // The container must already be in the document: ensureHost appends into
+      // it immediately and the first render measures inside it.
+      mount: function (container) {
+        if (!container || container.nodeType !== 1) {
+          throw new TypeError("okpyeon embed: mount() needs an element");
+        }
+        if (!container.isConnected) {
+          throw new Error("okpyeon embed: mount() container is not in the document");
+        }
+        if (embedContainer) return false; // single mount; later calls are no-ops
+        embedContainer = container;
+        ensureHost();
+        return true;
+      },
+
+      // Structurally a twin of handleSelection: bump the request sequence,
+      // ask the worker, drop stale answers, render. Deliberately NOT built on
+      // fetchLookup — that is the per-session drill-down cache, which is reset
+      // by the very render this path performs.
+      searchFor: function (text) {
+        var query = typeof text === "string" ? text.trim() : "";
+        ensureHost();
+        if (!query) {
+          hide();
+          return Promise.resolve({ ok: true, count: 0 });
+        }
+        var seq = ++requestSeq;
+        return sendLookup(query).then(function (response) {
+          // A newer search (or clear()) won; leave the DOM to the winner.
+          if (seq !== requestSeq) return { ok: true, count: 0, stale: true };
+          if (!response || response.ok !== true) {
+            hide();
+            return { ok: false, count: 0 };
+          }
+          var list = usableMatches(response.matches);
+          if (!list.length || !showAt(EMBED_RECT, response.matches, query)) {
+            // showAt already hid the panel when it rendered nothing.
+            if (!list.length) hide();
+            return { ok: true, count: 0 };
+          }
+          // Seed the session cache so drilling back to the query is free.
+          if (lookupCache) lookupCache[query] = response;
+          return { ok: true, count: list.length };
+        });
+      },
+
+      clear: function () { hide(); }
+    };
+  }
 
   /* ------------------------------------------------------------------ *
    * Test hooks — only exposed when running outside the extension.
