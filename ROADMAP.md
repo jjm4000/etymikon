@@ -31,7 +31,18 @@ in progress for it:
   selection lookup — via an embed mode of the existing renderer
 - Omnibox keyword (`hj 국민` from the address bar) opening the search page
 
-## Options page + storage permission (1.2 candidates)
+## 1.2 candidates
+
+- Romanized SEARCH INPUT (not display): typing gukmin/gungmin finds 국민 →
+  國民 for IME-less learners — the natural completion of typed search for
+  the target audience. Approach: dictionary-constrained matching (candidate
+  hangul readings of the typed romanization, kept only where they hit
+  byHangul / the reading index); index both naive and sound-changed Revised
+  Romanization at build time (hangul→RR is deterministic). Also powers
+  omnibox (`hj guk`). Romanized OUTPUT on cards: declined for now (clutter
+  + counter-pedagogical; at most a far-future options toggle).
+
+## Options page + storage permission (also 1.2 candidates)
 
 These share the `storage` permission and an options page, and require a
 privacy-policy update ("stores your display preferences locally"):
