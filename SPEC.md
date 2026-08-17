@@ -75,20 +75,29 @@ exists in hanja.json. Self-mappings omitted.
 - `glosses`: short English definitions, deduped, max ~6.
 - `compounds`: top compounds containing this character, ranked most-common first,
   max 8. `gloss` is a single short English gloss.
-- `edu` (ADDENDUM — 급 levels phase 1): `"edu": true` when the character is in
-  the South Korean MOE basic-education hanja list (1,800 chars; source:
-  Unihan kKoreanEducationHanja, Unicode license). Omitted when false.
-  Propagated onto `kind:"char"` matches and reading-list candidates so the UI
-  can badge school-curriculum characters.
-- `eduT` (ADDENDUM — 급 levels phase 2, MOE tier): `"eduT": "m"` (middle
-  school, 중학교용) or `"h"` (high school, 고등학교용) on edu-flagged chars
-  whose tier is known. Source: the CC BY-SA wikitable at Korean Wikipedia
-  「대한민국 중고등학교 기초한자 목록」 (extraction validated in the level-source
-  research report), intersected with the Unihan membership set; a small
-  glyph-variant map bridges the wiki's pre-2007 forms (戱→戲 etc.).
-  Membership (edu) remains Unihan-authoritative: eduT never appears without
-  edu. Emitted only when known; propagated wherever edu is. Attribution for
-  the wiki source goes in extension/data/DATA-LICENSE.md.
+- `lvl` (ADDENDUM — character level taxonomy, REPLACES the earlier edu/eduT
+  fields; nothing shipped them, migrate cleanly): EVERY char entry carries
+  exactly one of `"m" | "h" | "a" | "r"`:
+  - `m` / `h`: MOE curriculum middle/high tier — same sources and invariants
+    as before (Unihan kKoreanEducationHanja membership is authoritative; the
+    CC BY-SA Korean-Wikipedia tier table with the glyph-variant bridge
+    assigns m vs h; an in-membership char with no tier falls back to `m`?
+    NO — there are zero such chars today; if the sources ever diverge, emit
+    the char as `a` and FAIL a verify anchor so the divergence is looked at).
+  - `a` (Advanced): outside the curriculum but genuinely attested in use.
+  - `r` (Rare): archaic/specialist/reading-only tail.
+  The a/r boundary is a calibrated build-time predicate in the spirit of the
+  word-rare flag: corpus-frequency signals, compound-index depth, native-hun
+  presence, and gloss provenance (the build must now TRACK which glosses came
+  from Unihan kDefinition gap-fill — a strong rare signal — even though
+  provenance itself is not emitted). Anchors + a 10+10 random sample per zone
+  in the report; naive hun/cw-count predicates admit dead Ext-A chars into
+  `a` and are insufficient. Distribution sanity: m≈899, h≈895, a in the low
+  thousands, r the remainder; every char has exactly one lvl (verified).
+  `lvl` propagates wherever edu did: char matches, reading-index candidates,
+  AND the reading-match candidate rebuild (the known trap site). The omnibox
+  dim tail replaces "기초" with the school levels only (short forms 중학/고교;
+  a/r add nothing there).
 - `cw` (ADDENDUM — complete compound index): EVERY words.json spelling that
   contains this character, as a bare array of spellings pre-sorted by the
   build-time frequency score, best first (ranking is baked into array order —
@@ -422,23 +431,23 @@ Service worker behavior:
   "← back" restores, results cached per part. `type:"char"` parts get no row
   (they're already in the component-hanja section). Homograph chip swaps swap
   the parts section along with the rest of the card body.
-- Edu badge (ADDENDUM — 급 levels phase 1): char cards whose match carries
-  `edu: true`, and reading-list rows whose candidate does, render a small
-  quiet badge near the eumhun — informative, not loud; muted colors in both
-  themes. Label: "Basic-1800 (기초)" everywhere (title/aria "MOE basic
-  education hanja (1,800)"); one label, no compact variant (user decision —
-  re-assess later if it crowds narrow layouts). No badge anywhere when the
-  flag is absent.
-  Tier badge (ADDENDUM — phase 2): when the match carries `eduT`, a SECOND
-  badge in the same style renders next to the Basic-1800 badge (Naver-style
-  separate badges per classification): label "Middle school" for m,
-  "High school" for h (plain English, user decision); tooltip/aria
-  "MOE tier: middle school (중학교용)" / "MOE tier: high school (고등학교용)".
-  The tier badge REPLACES the Basic-1800 badge when eduT is present (user
-  decision: tier strictly implies membership, and two badges saying one
-  thing is clutter) — so Basic-1800 renders only on edu chars with no known
-  tier (the small variant-gap set). Rendered everywhere badges render (card
-  heads, nested cards, reading rows).
+- Level chips (ADDENDUM — REPLACES the Basic-1800/tier badge design; the
+  taxonomy makes the field universal): every char card head and reading-list
+  row renders EXACTLY ONE level chip from `lvl`, via four mutually exclusive
+  badge-registry entries (exclusivity expressed in their when() conditions):
+  - m → "Middle school", jade tint; title "MOE curriculum, middle school
+    (중학교용)"
+  - h → "High school", blue tint; title "MOE curriculum, high school
+    (고등학교용)"
+  - a → "Advanced", amber tint; title "Beyond the school curriculum; common
+    in real vocabulary (Okpyeon's classification)"
+  - r → "Rare", grey tint; title "Archaic, specialist, or reading-only
+    (Okpyeon's classification)"
+  Quiet tints per zone (school zones slightly more saturated so they still
+  pop); nested-card scaling as before. The a/r titles own that the boundary
+  is our editorial judgment. The char-level "Rare" chip is DISTINCT from the
+  word-level RARE homograph marker — both may appear in one popup; keep
+  their styles distinguishable. The Basic-1800 label is retired.
 - Badge registry (ADDENDUM — infrastructure, user-requested): classification
   badges are DECLARATIVE. One registry array defines them — each entry:
   { key, when(match-or-candidate) -> false | {label, title} } — and one
