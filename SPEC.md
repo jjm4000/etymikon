@@ -547,6 +547,17 @@ A typed-search surface reusing the selection popup's renderer end to end.
   composing / keyCode 229), reads `?q=` for deep links (auto-search after
   mount, skipping the empty-state flash), autofocuses, and shows quiet
   empty-state / no-results states driven by searchFor's {ok, count}.
+  Popup header (ADDENDUM — design D, user-chosen): above the input sits ONE
+  slim header row: the brand wordmark ("玉篇", small, Batang/serif, jade
+  accent, aria-label "Okpyeon") left, and a right-aligned ACTIONS container.
+  Actions are declarative, mirroring the badge-registry pattern: popup.js
+  holds a HEADER_ACTIONS registry ({key, label/icon, title, onClick,
+  enabled}) rendered into the container by one function — adding "saved
+  words" or "settings" later must mean adding ONE registry entry (a disabled
+  entry renders dimmed with a title, an absent entry renders nothing). The
+  registry ships EMPTY today: search's input is always visible below, so no
+  search icon; no dead placeholder icons. Header adds ≤ 26px; empty popup
+  stays ≤ ~105px.
   Popup sizing (REVISED per user — the popup is the SECONDARY search surface;
   a future sidebar is the primary one): compact and unobtrusive. Width
   ~340px. Height is CONTENT-DRIVEN (Chrome auto-sizes popups to the
