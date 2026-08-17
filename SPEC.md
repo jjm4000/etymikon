@@ -751,6 +751,18 @@ wiki-link background-open rules all stand unchanged.
     without a real chrome.runtime. Harness checks: poke with a primed
     query updates input + results; poke with nothing pending changes
     nothing; a windowId mismatch is ignored.
+- Focus rules (ADDENDUM fix, user-reported 2026-08-17): the panel input
+  autofocuses ONLY when the panel boots with NO initial query — the
+  icon-click open, where the user's next act is typing into the panel.
+  When the initial query came from anywhere else (the worker's pending
+  query after an omnibox search, or a ?q= deep link) the input must NOT
+  be focused: the user just typed elsewhere and a focus grab hijacks
+  their next keystrokes (observed: typing meant for the address bar
+  landing in the panel input). The poke path (pendingQueryChanged on an
+  already-open panel) must never focus or select the input either — it
+  updates value and runs the search, nothing more. In short: autofocus
+  iff the resolved initial query is empty, and no other code path
+  focuses the input.
 - Escape: the panel is NOT closed by the browser on Escape — the old
   popup limitation is retired with the popup. Escape during IME
   composition must still not trigger a search (existing search-shell
