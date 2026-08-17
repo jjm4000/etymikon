@@ -727,6 +727,30 @@ wiki-link background-open rules all stand unchanged.
   panel open). `searchUrl()` retargets to the sidepanel path. The
   sidepanel page must work opened as a normal tab (this fallback and dev
   convenience).
+- Repeat omnibox searches while the panel is OPEN (ADDENDUM fix,
+  user-reported 2026-08-17): the boot pull only covers a cold panel — an
+  already-open panel never re-asks, so a second `hj` query sat unread
+  (and, being read-once storage, would have re-run on the NEXT panel
+  open). The handshake gains a push half; read-once stays central
+  (pendingQuery is only ever cleared by getPendingQuery):
+  - Worker: after open() RESOLVES, poke live panel pages with
+    `chrome.runtime.sendMessage({type: "pendingQueryChanged", windowId:
+    focusedWindowId})`, errors swallowed — the rejection when no page is
+    listening IS the cold-open case, where the boot pull takes over.
+  - Panel: installs a `chrome.runtime.onMessage` listener (guarded,
+    real-runtime only). On pendingQueryChanged: if the message carries a
+    windowId, the page knows its own (cached from
+    `chrome.windows.getCurrent` at boot, guarded), and they differ →
+    ignore (the poke was for a panel in another window). Else pull
+    getPendingQuery again; null/empty → no-op (another panel won the
+    read-once race, or the poke was stale); non-empty → write the query
+    into the input AND drive the shell's immediate search (the shell's
+    search does not write input.value itself).
+  - The panel's message handler must be reachable on `__okpyeonSidebar`
+    (e.g. `handleWorkerMessage(msg)`) so the harness can drive it
+    without a real chrome.runtime. Harness checks: poke with a primed
+    query updates input + results; poke with nothing pending changes
+    nothing; a windowId mismatch is ignored.
 - Escape: the panel is NOT closed by the browser on Escape — the old
   popup limitation is retired with the popup. Escape during IME
   composition must still not trigger a search (existing search-shell
