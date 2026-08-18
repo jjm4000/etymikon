@@ -771,8 +771,16 @@
     return needsQuoting.test(value) ? '"' + value.split('"').join('""') + '"' : value;
   }
 
+  // The folder rides along as an Anki TAG in a third column, so folders
+  // survive the trip into Anki. Anki separates tags with whitespace, so a
+  // name's whitespace runs collapse to "_" — saved.js's ankiTag rule.
+  function savedAnkiTag(row) {
+    var folder = folderById(row.folderId);
+    return String(folder ? folder.name : row.folderId).trim().replace(/\s+/g, "_");
+  }
+
   function buildSavedAnki(rows) {
-    var lines = ["#separator:tab", "#html:false"];
+    var lines = ["#separator:tab", "#html:false", "#tags column:3"];
     rows.forEach(function (row) {
       if (row.missing === true) return;
       var isChar = row.kind === "char";
@@ -781,7 +789,9 @@
         .map(function (t) { return savedField(row, t); })
         .filter(function (v) { return v !== ""; })
         .join(" · ");
-      lines.push(quoteField(front, /[\t\n\r"]/) + "\t" + quoteField(back, /[\t\n\r"]/));
+      lines.push(quoteField(front, /[\t\n\r"]/) + "\t" +
+                 quoteField(back, /[\t\n\r"]/) + "\t" +
+                 quoteField(savedAnkiTag(row), /[\t\n\r"]/));
     });
     return lines.join("\n") + "\n";
   }

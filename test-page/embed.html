@@ -70,7 +70,8 @@
   This page sets <code>__hanjaHoverTestRuntime</code> (the same fake service worker
   the selection test page uses, extended to answer <code>getPendingQuery</code>)
   <em>and</em> loads the real
-  <code>boot.js → content.js → search-shell.js → sidepanel.js</code> against the
+  <code>boot.js → content.js → search-shell.js → sidepanel.js →
+  saved-view.js → settings-view.js</code> against the
   replicated side panel below. The fake worker boots holding a pending query, so
   the panel comes up already showing it, exactly as an omnibox open would.
   Type in the field to drive the real search shell; append <code>?q=國民</code> to
@@ -108,10 +109,12 @@
 <h2>Automated checks</h2>
 <p class="note">
   Embed layout, inert dismissal, the drill-down surface inside embed, the
-  shell's debounce / IME / deep-link / no-result wiring, and the side panel
+  shell's debounce / IME / deep-link / no-result wiring, the side panel
   page's own boot sequence, view registry, header actions,
   single-scroll-container invariant and pending-query handshake (both the
-  boot pull and the worker's poke for a panel that is already open).
+  boot pull and the worker's poke for a panel that is already open), and
+  the three shipped views: the save star and its bubble on cards, the
+  saved list with its folders and exports, and the settings schema.
 </p>
 <p><button id="run">Run embed self-checks</button></p>
 <pre id="out">not run yet</pre>
@@ -768,8 +771,16 @@
     return needsQuoting.test(value) ? '"' + value.split('"').join('""') + '"' : value;
   }
 
+  // The folder rides along as an Anki TAG in a third column, so folders
+  // survive the trip into Anki. Anki separates tags with whitespace, so a
+  // name's whitespace runs collapse to "_" — saved.js's ankiTag rule.
+  function savedAnkiTag(row) {
+    var folder = folderById(row.folderId);
+    return String(folder ? folder.name : row.folderId).trim().replace(/\s+/g, "_");
+  }
+
   function buildSavedAnki(rows) {
-    var lines = ["#separator:tab", "#html:false"];
+    var lines = ["#separator:tab", "#html:false", "#tags column:3"];
     rows.forEach(function (row) {
       if (row.missing === true) return;
       var isChar = row.kind === "char";
@@ -778,7 +789,9 @@
         .map(function (t) { return savedField(row, t); })
         .filter(function (v) { return v !== ""; })
         .join(" · ");
-      lines.push(quoteField(front, /[\t\n\r"]/) + "\t" + quoteField(back, /[\t\n\r"]/));
+      lines.push(quoteField(front, /[\t\n\r"]/) + "\t" +
+                 quoteField(back, /[\t\n\r"]/) + "\t" +
+                 quoteField(savedAnkiTag(row), /[\t\n\r"]/));
     });
     return lines.join("\n") + "\n";
   }
@@ -1158,11 +1171,14 @@
 })();
 </script>
 
-<!-- The real side panel boot chain, in the real order. -->
+<!-- The real side panel boot chain, in the real order. The two view
+     scripts self-register, which is what puts the nav row on the page. -->
 <script src="../extension/sidepanel/boot.js"></script>
 <script src="../extension/content/content.js"></script>
 <script src="../extension/sidepanel/search-shell.js"></script>
 <script src="../extension/sidepanel/sidepanel.js"></script>
+<script src="../extension/sidepanel/saved-view.js"></script>
+<script src="../extension/sidepanel/settings-view.js"></script>
 
 <!-- Self-checks. -->
 <script>
@@ -1281,6 +1297,9 @@
     var bootShell = shellApi.controller();
     if (bootShell) await bootShell.ready;
     shell = bootShell;
+    // search, plus the two views whose own files register themselves on
+    // load. Everything below counts probe views from here.
+    var SHIPPED_VIEWS = 3;
 
     check("the sidebar surface exposes its registries and view controls",
       Array.isArray(sidebar.viewRegistry) && Array.isArray(sidebar.actionRegistry) &&
@@ -1310,10 +1329,17 @@
       sidebar.activeView() === "search" && searchBox.parentNode === views &&
       !searchBox.classList.contains("view--hidden") && shown(searchBox),
       "active=" + sidebar.activeView());
-    check("one registered view means NO nav row at all",
-      sidebar.viewRegistry.length === 1 && sidebar.renderNav() === 0 &&
-      nav.classList.contains("nav--hidden") && !shown(nav),
-      "views=" + sidebar.viewRegistry.length + " tabs=" + sidebar.renderNav());
+    check("the shipped registry is search, Saved and Settings, one tab each",
+      sidebar.viewRegistry.map(function (v) { return v.key; }).join(",") ===
+        "search,saved,settings" &&
+      sidebar.viewRegistry.length === SHIPPED_VIEWS &&
+      sidebar.renderNav() === SHIPPED_VIEWS &&
+      !nav.classList.contains("nav--hidden") && shown(nav) &&
+      nav.querySelectorAll(".tab").length === SHIPPED_VIEWS &&
+      nav.querySelector(".tab--saved").textContent === "Saved" &&
+      nav.querySelector(".tab--settings").textContent === "Settings",
+      sidebar.viewRegistry.map(function (v) { return v.key; }).join(",") +
+      " tabs=" + nav.querySelectorAll(".tab").length);
 
     shell = reinit();
 
@@ -1725,12 +1751,13 @@
       onHide: function () { order.push("probe:hide"); }
     });
     check("registerView returns the entry and grows the live registry",
-      probeView && sidebar.viewRegistry.length === 2 &&
-      sidebar.viewRegistry[1] === probeView && mounts === 0,
+      probeView && sidebar.viewRegistry.length === SHIPPED_VIEWS + 1 &&
+      sidebar.viewRegistry[SHIPPED_VIEWS] === probeView && mounts === 0,
       "views=" + sidebar.viewRegistry.length + " mounts=" + mounts);
-    check("a second view is all it takes for the nav row to appear",
-      sidebar.renderNav() === 2 && !nav.classList.contains("nav--hidden") &&
-      shown(nav) && nav.querySelectorAll(".tab").length === 2 &&
+    check("a new view is all it takes for its own tab to appear",
+      sidebar.renderNav() === SHIPPED_VIEWS + 1 &&
+      !nav.classList.contains("nav--hidden") && shown(nav) &&
+      nav.querySelectorAll(".tab").length === SHIPPED_VIEWS + 1 &&
       !!nav.querySelector(".tab--search") && !!nav.querySelector(".tab--" + VIEW_KEY),
       "tabs=" + nav.querySelectorAll(".tab").length);
     check("the active view's tab is the marked one",
@@ -1779,12 +1806,12 @@
     try { sidebar.registerView({ key: VIEW_KEY, mount: function () {} }); }
     catch (e) { dupThrew = true; }
     check("a duplicate view key throws and leaves the registry alone",
-      dupThrew && sidebar.viewRegistry.length === 2);
+      dupThrew && sidebar.viewRegistry.length === SHIPPED_VIEWS + 1);
     var noMountThrew = false;
     try { sidebar.registerView({ key: VIEW_KEY + "-x", label: "No mount" }); }
     catch (e) { noMountThrew = true; }
     check("a view without a mount() throws and leaves the registry alone",
-      noMountThrew && sidebar.viewRegistry.length === 2);
+      noMountThrew && sidebar.viewRegistry.length === SHIPPED_VIEWS + 1);
 
     // Back via the rendered tab, not the API — the nav has to work too.
     order.length = 0;
@@ -1809,10 +1836,796 @@
     sidebar.viewRegistry.pop();
     var orphan = probeBox();
     if (orphan && orphan.parentNode) orphan.parentNode.removeChild(orphan);
-    check("dropping back to one view hides the nav again",
-      sidebar.viewRegistry.length === 1 && sidebar.renderNav() === 0 &&
-      nav.classList.contains("nav--hidden") && !shown(nav));
+    check("dropping the probe leaves the shipped registry as it was",
+      sidebar.viewRegistry.length === SHIPPED_VIEWS &&
+      sidebar.renderNav() === SHIPPED_VIEWS &&
+      !nav.querySelector(".tab--" + VIEW_KEY),
+      "views=" + sidebar.viewRegistry.length);
+    // Tabs exist to choose BETWEEN views, so a registry with one entry has
+    // no nav at all. The shipped two are PARKED for the length of the
+    // check rather than unregistered: a mounted view is never taken back.
+    var parked = sidebar.viewRegistry.splice(1, SHIPPED_VIEWS - 1);
+    check("a registry down to one view hides the nav row entirely",
+      sidebar.renderNav() === 0 && nav.classList.contains("nav--hidden") &&
+      !shown(nav));
+    Array.prototype.push.apply(sidebar.viewRegistry, parked);
+    check("putting them back brings the nav row back with them",
+      sidebar.renderNav() === SHIPPED_VIEWS && shown(nav) &&
+      !!nav.querySelector(".tab--saved") && !!nav.querySelector(".tab--settings"),
+      "tabs=" + nav.querySelectorAll(".tab").length);
     results.scrollTop = 0;
+
+
+    /* ==================================================================
+     * ADDENDUM: the save star on the sidebar surface.
+     *
+     * index.html covers the star inside the selection popup, and the Escape
+     * rule that exists only there. What this surface adds is a permanent
+     * panel: the same star, the same one batched savedCheck per render pass,
+     * and a bubble whose Escape has nothing else to close.
+     * ================================================================== */
+    var store = fake.__savedStore;
+    var savedView = globalThis.__okpyeonSavedView;
+    var settingsView = globalThis.__okpyeonSettingsView;
+
+    function byId(id) { return document.getElementById(id); }
+
+    // The worker messages a page really sends, awaited one at a time so the
+    // fixture store's order is the order the checks below read back.
+    function send(msg) {
+      return new Promise(function (resolve) { fake.sendMessage(msg, resolve); });
+    }
+    function starIn(selector) {
+      var card = api.query(selector);
+      return card && card.querySelector(".save");
+    }
+    function visibilityOf(node) {
+      return node ? getComputedStyle(node).visibility : "no-such-element";
+    }
+    // Rendered controls are driven the way a user drives them: set the value
+    // the browser would have set, then fire the event the browser would fire.
+    function fireChange(node) {
+      node.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    function setChecked(node, on) {
+      node.checked = on === true;
+      fireChange(node);
+    }
+
+    check("the saved and settings view scripts self-registered their test surfaces",
+      !!savedView && typeof savedView.refresh === "function" &&
+      typeof savedView.handleStorageChanged === "function" &&
+      !!settingsView && Array.isArray(settingsView.schema),
+      "saved=" + !!savedView + " settings=" + !!settingsView);
+
+    shell = reinit();
+    await wait(TAIL);              // let a pass already in flight report first
+    store.reset();
+    // A second folder, made BEFORE the save: the bubble's select is built
+    // from the folders the toggle answer carried, so it can only ever offer
+    // what existed when the save happened.
+    var bubbleFolderId =
+      (await send({ type: "folderCreate", name: "Bubble folder" })).folder.id;
+    await shell.search("국민");
+    await wait(TAIL);
+    var wordStar = starIn(".card");
+    var charStar = starIn(".component-list > .card.component");
+    check("word and component cards in the panel each carry a save star",
+      !!wordStar && !!charStar && wordStar.tagName === "BUTTON" &&
+      wordStar.nextElementSibling === api.query(".card .wiki"),
+      "word=" + !!wordStar + " char=" + !!charStar);
+    check("the whole render pass costs ONE savedCheck, carrying every key",
+      store.checkCalls() === 1 &&
+      (store.lastCheckKeys() || []).join(",") === "w:國民,c:國,c:民",
+      store.checkCalls() + " " + (store.lastCheckKeys() || []).join(","));
+    check("an answered star is revealed and resting on ☆",
+      visibilityOf(wordStar) === "visible" &&
+      !wordStar.classList.contains("save--unknown") &&
+      wordStar.textContent === "☆" && wordStar.getAttribute("aria-pressed") === "false",
+      wordStar.className + " visibility=" + visibilityOf(wordStar));
+
+    wordStar.click();
+    await wait(TAIL);
+    check("clicking flips the star to ★ and saves the canonical spelling",
+      wordStar.textContent === "★" && wordStar.classList.contains("save--on") &&
+      wordStar.getAttribute("aria-pressed") === "true" &&
+      store.state().items.length === 1 &&
+      store.state().items[0].kind === "word" && store.state().items[0].key === "國民",
+      JSON.stringify(store.state().items));
+    var bubbleNode = api.saveBubble();
+    var bubbleFolder = bubbleNode && bubbleNode.querySelector(".savebubble-folder");
+    check("the save opens exactly one bubble, anchored in the star's own head",
+      !!bubbleNode && bubbleNode.parentNode === wordStar.parentNode &&
+      api.queryAll(".savebubble").length === 1);
+    check("the bubble offers the folders, with New folder… always last",
+      !!bubbleFolder && bubbleFolder.value === "f0" &&
+      bubbleFolder.options.length === store.state().folders.length + 1 &&
+      bubbleFolder.options[bubbleFolder.options.length - 1].textContent === "New folder…",
+      bubbleNode && bubbleNode.textContent);
+    bubbleFolder.value = bubbleFolderId;
+    fireChange(bubbleFolder);
+    await wait(TAIL);
+    check("choosing another folder moves the item there and then, no confirm step",
+      store.state().items[0].folderId === bubbleFolderId && !!api.saveBubble(),
+      JSON.stringify(store.state().items));
+
+    charStar.click();
+    await wait(TAIL);
+    check("saving from another card replaces the bubble: one at a time, always",
+      api.queryAll(".savebubble").length === 1 &&
+      api.saveBubble().parentNode === charStar.parentNode &&
+      charStar.textContent === "★" && store.state().items.length === 2 &&
+      store.state().items[1].kind === "char" && store.state().items[1].key === "國",
+      "bubbles=" + api.queryAll(".savebubble").length);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await wait(TAIL);
+    check("Escape closes the bubble, and in embed there is nothing else to close",
+      !api.saveBubble() && api.isVisible() && api.cardCount() === 3 &&
+      charStar.textContent === "★",
+      "bubble=" + !!api.saveBubble() + " visible=" + api.isVisible());
+
+    var charStar2 = api.queryAll(".component-list > .card.component")[1]
+      .querySelector(".save");
+    charStar2.click();
+    await wait(TAIL);
+    check("a second character saves and opens a bubble of its own",
+      !!api.saveBubble() && charStar2.textContent === "★" &&
+      store.state().items.length === 3 && store.state().items[2].key === "民",
+      JSON.stringify(store.state().items));
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    await wait(TAIL);
+    check("a mousedown outside dismisses the bubble and leaves the save standing",
+      !api.saveBubble() && charStar2.textContent === "★" &&
+      store.state().items.length === 3,
+      "bubble=" + !!api.saveBubble());
+
+    charStar2.click();
+    await wait(TAIL);
+    check("unsaving removes the item and shows NO bubble",
+      charStar2.textContent === "☆" && !charStar2.classList.contains("save--on") &&
+      !api.saveBubble() && store.state().items.length === 2,
+      JSON.stringify(store.state().items));
+
+    charStar2.click();
+    await wait(TAIL);
+    var removeLink = api.saveBubble() &&
+      api.saveBubble().querySelector(".savebubble-remove");
+    if (removeLink) removeLink.click();
+    await wait(TAIL);
+    check("the bubble's Remove undoes the save and closes the bubble with it",
+      !!removeLink && charStar2.textContent === "☆" &&
+      !charStar2.classList.contains("save--on") && !api.saveBubble() &&
+      store.state().items.length === 2 &&
+      !store.state().items.some(function (it) { return it.key === "民"; }),
+      JSON.stringify(store.state().items));
+
+    store.fail("toggle", true);
+    charStar2.click();
+    await wait(TAIL);
+    check("a refused toggle puts the star back and saves nothing",
+      charStar2.textContent === "☆" && !charStar2.classList.contains("save--on") &&
+      charStar2.getAttribute("aria-pressed") === "false" &&
+      !api.saveBubble() && store.state().items.length === 2,
+      charStar2.className + " " + JSON.stringify(store.state().items));
+    store.fail("toggle", false);
+
+    store.fail("check", true);
+    await shell.search("학생");
+    await wait(TAIL);
+    var unknownStar = starIn(".card");
+    check("a render whose savedCheck is refused leaves every star hidden",
+      !!unknownStar && unknownStar.classList.contains("save--unknown") &&
+      visibilityOf(unknownStar) === "hidden" &&
+      api.queryAll(".save").length === api.queryAll(".save--unknown").length,
+      "visibility=" + visibilityOf(unknownStar) +
+      " stars=" + api.queryAll(".save").length);
+    store.fail("check", false);
+    await shell.search("학생");
+    await wait(TAIL);
+    check("the next render reveals its stars again",
+      visibilityOf(starIn(".card")) === "visible" &&
+      api.queryAll(".save--unknown").length === 0,
+      "visibility=" + visibilityOf(starIn(".card")));
+
+    /* ==================================================================
+     * ADDENDUM: the three shipped views.
+     *
+     * The probe view above proved the scaffold; these are the real Saved and
+     * Settings views, mounted from their own files, with the search view's
+     * state on the line across every switch.
+     * ================================================================== */
+    sidebar.showView("search");
+    input.value = "大韓民國";
+    await shell.search();
+    await wait(TAIL);
+    var keptCards = api.cardCount();
+    results.scrollTop = 70;
+    var keptScroll = results.scrollTop;
+    check("fixture sanity: the search view has state worth losing",
+      keptCards === 5 && keptScroll > 0,
+      "cards=" + keptCards + " scrollTop=" + keptScroll);
+
+    nav.querySelector(".tab--saved").click();
+    await wait(TAIL);
+    var savedBox = byId("okp-view-saved");
+    check("the Saved tab mounts and shows the saved view",
+      sidebar.activeView() === "saved" && !!savedBox &&
+      savedBox.classList.contains("view--saved") && shown(savedBox) &&
+      !!byId("okp-saved-list") && !!byId("okp-saved-bar") &&
+      !!byId("okp-saved-actions") && !shown(searchBox),
+      "active=" + sidebar.activeView());
+
+    nav.querySelector(".tab--settings").click();
+    await wait(TAIL);
+    var settingsBox = byId("okp-view-settings");
+    check("the Settings tab mounts and shows the settings view",
+      sidebar.activeView() === "settings" && !!settingsBox &&
+      shown(settingsBox) && !!byId("okp-settings") && !shown(savedBox) &&
+      nav.querySelector(".tab--settings").classList.contains("tab--active"),
+      "active=" + sidebar.activeView());
+
+    nav.querySelector(".tab--search").click();
+    await wait(TAIL);
+    check("search state survives a trip through BOTH new views",
+      sidebar.activeView() === "search" && input.value === "大韓民國" &&
+      api.isVisible() && api.cardCount() === keptCards &&
+      results.scrollTop === keptScroll && shellApi.controller() === shell,
+      "input=" + JSON.stringify(input.value) + " cards=" + api.cardCount() +
+      " scrollTop=" + results.scrollTop + " (was " + keptScroll + ")");
+    results.scrollTop = 0;
+
+    sidebar.showView("saved");
+    var autoCalls = fake.__calls;
+    input.value = "국민";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    check("typing in the searchbar from another view lands on search at once",
+      sidebar.activeView() === "search" && shown(searchBox),
+      "active=" + sidebar.activeView());
+    await wait(SETTLE + TAIL);
+    check("and the typed query then searches as it always did",
+      shell.state() === "results" && api.isVisible() && fake.__calls > autoCalls,
+      "state=" + shell.state() + " calls=" + (fake.__calls - autoCalls));
+
+    sidebar.showView("settings");
+    pendingSpy.set("학생");
+    var viewPoke = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
+    await wait(TAIL);
+    check("an omnibox poke lands on the SEARCH view, never behind another one",
+      viewPoke && viewPoke.applied === true && sidebar.activeView() === "search" &&
+      input.value === "학생" && shown(searchBox) && api.isVisible(),
+      JSON.stringify(viewPoke) + " active=" + sidebar.activeView());
+
+    /* ==================================================================
+     * ADDENDUM: the saved view.
+     *
+     * Driven through __okpyeonSavedView and the rendered DOM, against the
+     * fixture store: every row here is fixture data joined at read time, so
+     * the missing row and the export bodies are the real thing.
+     * ================================================================== */
+    store.reset();
+    sidebar.showView("saved");
+    await savedView.refresh();
+    check("with nothing saved the view says so and points at the star on cards",
+      byId("okp-saved-list").querySelectorAll(".saved-row").length === 0 &&
+      !!byId("okp-saved-list").querySelector(".saved-empty") &&
+      byId("okp-saved-list").querySelector(".saved-empty").textContent
+        .indexOf("☆") > 0,
+      byId("okp-saved-list").textContent);
+
+    await send({ type: "savedToggle", kind: "word", key: "國民" });
+    await send({ type: "savedToggle", kind: "char", key: "國" });
+    await send({ type: "savedToggle", kind: "char", key: "民" });
+    var examFolder = await send({ type: "folderCreate", name: "Exam words" });
+    var examId = examFolder.folder.id;
+    var studentSave = await send({ type: "savedToggle", kind: "word", key: "學生" });
+    await send({ type: "savedMove", ids: [studentSave.item.id], folderId: examId });
+    // 㐀 is in no fixture table, so its row is the one that has left the
+    // dictionary: the view says so and the exporter skips and counts it.
+    await send({ type: "savedToggle", kind: "char", key: "㐀" });
+
+    sidebar.showView("saved");
+    var savedList = byId("okp-saved-list");
+    var savedBar = byId("okp-saved-bar");
+    var barInline = byId("okp-saved-bar-inline");
+    var actsInline = byId("okp-saved-actions-inline");
+    var filterSel = byId("okp-saved-filter");
+    var selectAll = byId("okp-saved-selectall");
+
+    function folderHeads() { return savedList.querySelectorAll(".saved-folder"); }
+    function savedRows() { return savedList.querySelectorAll(".saved-row"); }
+    function rowFor(key) {
+      return savedList.querySelector('.saved-row[data-key="' + key + '"]');
+    }
+    function setFilter(value) {
+      filterSel.value = value;
+      fireChange(filterSel);
+    }
+    function setSelectAll(on) { setChecked(selectAll, on); }
+    function optionTexts(select) {
+      return Array.prototype.map.call(select.options, function (o) {
+        return o.textContent;
+      }).join("|");
+    }
+
+    var savedOk = await savedView.refresh();
+    // Selection and collapse both live as long as the page does, so a re-run
+    // starts by putting them back where a fresh open would have them.
+    setFilter("");
+    savedView.collapsed().forEach(function (id) {
+      var header = savedList.querySelector('.saved-folder[data-folder="' + id + '"]');
+      if (header) header.click();
+    });
+    setSelectAll(true);
+    setSelectAll(false);
+
+    check("savedGet answers and the view holds the folders and joined rows",
+      savedOk === true && savedView.folders().length === 2 &&
+      savedView.items().length === 5 && savedView.filter() === "" &&
+      savedView.selection().length === 0 && savedView.collapsed().length === 0,
+      "folders=" + savedView.folders().length + " items=" + savedView.items().length);
+    check("the All list groups its rows under a header per folder, counts and all",
+      folderHeads().length === 2 && savedRows().length === 5 &&
+      folderHeads()[0].getAttribute("data-folder") === "f0" &&
+      folderHeads()[0].querySelector(".saved-folder-name").textContent === "Saved" &&
+      folderHeads()[0].querySelector(".saved-folder-count").textContent === "4" &&
+      folderHeads()[1].getAttribute("data-folder") === examId &&
+      folderHeads()[1].querySelector(".saved-folder-name").textContent === "Exam words" &&
+      folderHeads()[1].querySelector(".saved-folder-count").textContent === "1",
+      "headers=" + folderHeads().length + " rows=" + savedRows().length);
+    check("a word row carries its hangul and first gloss, a char row its eumhun",
+      rowFor("國民").getAttribute("data-kind") === "word" &&
+      rowFor("國民").querySelector(".saved-primary").textContent === "國民" &&
+      rowFor("國民").querySelector(".saved-secondary").textContent === "국민" &&
+      rowFor("國民").querySelector(".saved-gloss").textContent ===
+        "the people; citizens of a nation" &&
+      rowFor("國").getAttribute("data-kind") === "char" &&
+      rowFor("國").querySelector(".saved-secondary").textContent === "나라 국",
+      rowFor("國").textContent);
+    var goneRow = savedList.querySelector(".saved-row.missing");
+    check("a row whose entry has left the dictionary says so instead of vanishing",
+      !!goneRow && goneRow.getAttribute("data-key") === "㐀" &&
+      goneRow.querySelector(".saved-missing").textContent ===
+        "no longer in the dictionary" && !goneRow.querySelector(".saved-gloss"),
+      goneRow && goneRow.textContent);
+    check("the filter select offers All plus every folder, each with its count",
+      optionTexts(filterSel) === "All (5)|Saved (4)|Exam words (1)",
+      optionTexts(filterSel));
+
+    var oneBox = rowFor("國").querySelector(".saved-check");
+    setChecked(oneBox, true);
+    check("checking one item makes its folder header indeterminate",
+      folderHeads()[0].querySelector(".saved-folder-check").indeterminate === true &&
+      folderHeads()[0].querySelector(".saved-folder-check").checked === false &&
+      selectAll.indeterminate === true && savedView.selection().length === 1,
+      "selected=" + savedView.selection().join(","));
+    setChecked(folderHeads()[0].querySelector(".saved-folder-check"), true);
+    check("a folder header checkbox selects everything in that folder",
+      savedView.selection().length === 4 &&
+      savedList.querySelectorAll(".saved-row .saved-check:checked").length === 4 &&
+      folderHeads()[0].querySelector(".saved-folder-check").indeterminate === false &&
+      folderHeads()[1].querySelector(".saved-folder-check").checked === false,
+      "selected=" + savedView.selection().length);
+    setSelectAll(true);
+    check("the global select-all takes the whole current filter",
+      savedView.selection().length === 5 && savedView.effectiveIds().length === 5 &&
+      byId("okp-saved-actions").querySelector(".saved-count").textContent ===
+        "5 selected",
+      byId("okp-saved-actions").querySelector(".saved-count").textContent);
+    setSelectAll(false);
+    check("nothing checked means the current filter, so an action still has a target",
+      savedView.selection().length === 0 && savedView.effectiveIds().length === 5 &&
+      byId("okp-saved-actions").querySelector(".saved-count").textContent ===
+        "all 5 shown",
+      byId("okp-saved-actions").querySelector(".saved-count").textContent);
+
+    folderHeads()[0].click();
+    check("clicking a folder header collapses it: rows gone, count and box still there",
+      savedView.collapsed().join(",") === "f0" &&
+      folderHeads()[0].getAttribute("aria-expanded") === "false" &&
+      folderHeads()[0].classList.contains("saved-folder--collapsed") &&
+      savedRows().length === 1 &&
+      folderHeads()[0].querySelector(".saved-folder-count").textContent === "4" &&
+      shown(folderHeads()[0].querySelector(".saved-folder-count")),
+      "collapsed=" + savedView.collapsed().join(",") + " rows=" + savedRows().length);
+    setChecked(folderHeads()[0].querySelector(".saved-folder-check"), true);
+    check("a collapsed folder is still a working batch target",
+      savedView.selection().length === 4 && savedRows().length === 1,
+      "selected=" + savedView.selection().length);
+    folderHeads()[0].click();
+    check("clicking the header again expands it, with the selection intact",
+      savedView.collapsed().length === 0 &&
+      folderHeads()[0].getAttribute("aria-expanded") === "true" &&
+      savedRows().length === 5 &&
+      savedList.querySelectorAll(".saved-row .saved-check:checked").length === 4,
+      "rows=" + savedRows().length);
+    setSelectAll(false);
+
+    setFilter(examId);
+    check("a single-folder filter renders a flat list, with no header over it",
+      savedView.filter() === examId && folderHeads().length === 0 &&
+      savedRows().length === 1 &&
+      savedRows()[0].getAttribute("data-key") === "學生",
+      "headers=" + folderHeads().length + " rows=" + savedRows().length);
+    setSelectAll(true);
+    check("select-all on a filter takes that folder and nothing else",
+      savedView.selection().length === 1 && savedView.effectiveIds().length === 1 &&
+      savedView.selection()[0] === studentSave.item.id,
+      "selected=" + savedView.selection().join(","));
+    setSelectAll(false);
+    check("a folder that is not f0 offers both Rename and Delete",
+      byId("okp-saved-rename").disabled === false &&
+      byId("okp-saved-delete").hidden === false);
+    setFilter("f0");
+    check("f0 can be renamed but never deleted, so it offers no delete at all",
+      byId("okp-saved-rename").disabled === false &&
+      byId("okp-saved-delete").hidden === true);
+    setFilter("");
+    check("on All there is no one folder to act on: Rename inert, Delete absent",
+      byId("okp-saved-rename").disabled === true &&
+      byId("okp-saved-delete").hidden === true);
+
+    byId("okp-saved-new").click();
+    check("New folder opens an inline name form inside the bar",
+      barInline.hidden === false &&
+      !!barInline.querySelector(".saved-nameform") &&
+      barInline.querySelector(".saved-nameform").getAttribute("data-mode") === "new" &&
+      !!byId("okp-saved-name-input") &&
+      !!barInline.querySelector(".saved-name-ok") &&
+      !!barInline.querySelector(".saved-name-cancel"));
+    byId("okp-saved-name-input").value = "Readings";
+    barInline.querySelector(".saved-name-ok").click();
+    await wait(TAIL);
+    var madeId = store.state().folders[2] && store.state().folders[2].id;
+    check("creating the folder makes it, closes the form and filters to it",
+      store.state().folders.length === 3 &&
+      store.state().folders[2].name === "Readings" &&
+      savedView.filter() === madeId && barInline.hidden === true &&
+      savedRows().length === 0 && !!savedList.querySelector(".saved-empty"),
+      JSON.stringify(store.state().folders));
+
+    byId("okp-saved-rename").click();
+    check("Rename opens the same form, prefilled with the folder's name",
+      !!byId("okp-saved-name-input") &&
+      byId("okp-saved-name-input").value === "Readings" &&
+      barInline.querySelector(".saved-nameform").getAttribute("data-mode") === "rename",
+      byId("okp-saved-name-input") && byId("okp-saved-name-input").value);
+    byId("okp-saved-name-input").value = "Readings list";
+    barInline.querySelector(".saved-name-ok").click();
+    await wait(TAIL);
+    check("renaming writes through the worker and re-labels the filter",
+      store.state().folders[2].name === "Readings list" &&
+      barInline.hidden === true &&
+      filterSel.selectedOptions[0].textContent === "Readings list (0)",
+      filterSel.selectedOptions[0].textContent);
+    byId("okp-saved-rename").click();
+    byId("okp-saved-name-input").value = "   ";
+    barInline.querySelector(".saved-name-ok").click();
+    await wait(TAIL);
+    check("a nameless folder is refused in place, with the form still open",
+      !!byId("okp-saved-name-input") &&
+      barInline.querySelector(".saved-error").hidden === false &&
+      store.state().folders[2].name === "Readings list",
+      barInline.querySelector(".saved-error").textContent);
+    barInline.querySelector(".saved-name-cancel").click();
+    check("cancel closes the inline form and changes nothing",
+      barInline.hidden === true && store.state().folders.length === 3);
+
+    setFilter(examId);
+    byId("okp-saved-delete").click();
+    check("Delete arms an inline confirmation that says where the items go",
+      !!barInline.querySelector(".saved-confirm--folder") &&
+      /Delete Exam words\? 1 item moves to Saved\./
+        .test(barInline.querySelector(".saved-confirm-text").textContent),
+      barInline.textContent);
+    barInline.querySelector(".saved-confirm-no").click();
+    check("cancelling the confirmation leaves the folder alone",
+      barInline.hidden === true && store.state().folders.length === 3 &&
+      savedView.filter() === examId);
+    byId("okp-saved-delete").click();
+    barInline.querySelector(".saved-confirm-yes").click();
+    await wait(TAIL);
+    check("deleting a folder rehomes its items to f0 and falls back to All",
+      store.state().folders.length === 2 &&
+      store.state().items.filter(function (it) { return it.key === "學生"; })[0]
+        .folderId === "f0" &&
+      savedView.filter() === "" && folderHeads().length === 2 &&
+      folderHeads()[0].querySelector(".saved-folder-count").textContent === "5",
+      JSON.stringify(store.state().folders));
+
+    var moveSel = byId("okp-saved-move");
+    var readingsId = store.state().folders[1].id;
+    setChecked(rowFor("學生").querySelector(".saved-check"), true);
+    moveSel.value = readingsId;
+    fireChange(moveSel);
+    await wait(TAIL);
+    check("Move to… moves the checked rows and resets itself to the prompt",
+      store.state().items.filter(function (it) { return it.key === "學生"; })[0]
+        .folderId === readingsId &&
+      moveSel.value === "" && moveSel.options[0].textContent === "Move to…" &&
+      savedView.selection().length === 1,
+      JSON.stringify(store.state().items));
+    setSelectAll(true);
+    setSelectAll(false);
+
+    setChecked(rowFor("國").querySelector(".saved-check"), true);
+    setChecked(rowFor("民").querySelector(".saved-check"), true);
+    var removeBtn = byId("okp-saved-remove");
+    removeBtn.click();
+    check("the first Remove click ARMS an inline confirmation and removes nothing",
+      actsInline.hidden === false &&
+      !!actsInline.querySelector(".saved-confirm--remove") &&
+      actsInline.querySelector(".saved-confirm-text").textContent ===
+        "Remove 2 items?" &&
+      document.querySelector(".saved-actions-main").hidden === true &&
+      store.state().items.length === 5,
+      actsInline.textContent);
+    actsInline.querySelector(".saved-confirm-no").click();
+    check("cancel disarms it, restores the buttons and still removes nothing",
+      actsInline.hidden === true && store.state().items.length === 5 &&
+      document.querySelector(".saved-actions-main").hidden === false &&
+      savedView.selection().length === 2,
+      "items=" + store.state().items.length);
+    removeBtn.click();
+    actsInline.querySelector(".saved-confirm-yes").click();
+    await wait(TAIL);
+    check("confirming removes exactly the checked rows and clears the selection",
+      store.state().items.length === 3 && savedView.selection().length === 0 &&
+      !rowFor("國") && !rowFor("民") && !!rowFor("國民") && !!rowFor("學生"),
+      JSON.stringify(store.state().items));
+
+    var exportBtn = byId("okp-saved-export");
+    var anchor = byId("okp-saved-download");
+    exportBtn.click();
+    check("Export offers the format choice in place, Anki or CSV",
+      actsInline.hidden === false &&
+      !!actsInline.querySelector(".saved-export-choice") &&
+      !!actsInline.querySelector(".saved-export-anki") &&
+      !!actsInline.querySelector(".saved-export-csv") &&
+      !!actsInline.querySelector(".saved-export-cancel") &&
+      document.querySelector(".saved-actions-main").hidden === true,
+      actsInline.textContent);
+    actsInline.querySelector(".saved-export-cancel").click();
+    check("cancelling the chooser downloads nothing", actsInline.hidden === true);
+
+    exportBtn.click();
+    actsInline.querySelector(".saved-export-anki").click();
+    await wait(TAIL);
+    var anki = savedView.lastDownload();
+    var ankiLines = anki.body.split("\n");
+    var ankiRows = ankiLines.slice(3).filter(Boolean).map(function (line) {
+      return line.split("\t");
+    });
+    check("the Anki file leads with its three header directives",
+      ankiLines[0] === "#separator:tab" && ankiLines[1] === "#html:false" &&
+      ankiLines[2] === "#tags column:3",
+      ankiLines.slice(0, 3).join(" / "));
+    check("it writes Front TAB Back TAB folder-tag, whitespace in a name joined by _",
+      ankiRows.length === 2 && ankiRows[0].length === 3 && ankiRows[1].length === 3 &&
+      ankiRows[0][0] === "國民" && ankiRows[0][2] === "Saved" &&
+      ankiRows[1][0] === "學生" && ankiRows[1][2] === "Readings_list",
+      JSON.stringify(ankiRows));
+    check("the missing row is skipped and counted, never exported",
+      anki.count === 2 && anki.skipped === 1 && anki.format === "anki" &&
+      /\.txt$/.test(anki.filename) && anki.body.indexOf("㐀") < 0,
+      JSON.stringify({ count: anki.count, skipped: anki.skipped, file: anki.filename }));
+    check("the download anchor carries the file the browser was handed",
+      anchor.getAttribute("download") === anki.filename &&
+      anchor.getAttribute("data-format") === "anki" &&
+      anchor.getAttribute("data-count") === "2" &&
+      anchor.getAttribute("data-skipped") === "1" &&
+      anchor.getAttribute("data-body") === anki.body &&
+      actsInline.hidden === true,
+      anchor.getAttribute("download") + " " + anchor.getAttribute("data-count") +
+      "/" + anchor.getAttribute("data-skipped"));
+
+    exportBtn.click();
+    actsInline.querySelector(".saved-export-csv").click();
+    await wait(TAIL);
+    var csv = savedView.lastDownload();
+    var csvLines = csv.body.split("\n").filter(Boolean);
+    check("the CSV file leads with the full-data header row",
+      csvLines[0] === "kind,key,hangul,eumhun,readings,definitions,level,folder,added",
+      csvLines[0]);
+    check("it writes one row per exported item, folder name and date included",
+      csvLines.length === 3 &&
+      csvLines[1].indexOf("word,國民,국민,") === 0 &&
+      csvLines[1].indexOf(",Saved,2026-08-17") > 0 &&
+      csvLines[2].indexOf(",Readings list,2026-08-17") > 0,
+      JSON.stringify(csvLines));
+    check("the CSV download is the same object, re-pointed at the other format",
+      anchor.getAttribute("data-format") === "csv" &&
+      anchor.getAttribute("download") === csv.filename &&
+      /\.csv$/.test(csv.filename) && csv.count === 2 && csv.skipped === 1 &&
+      anchor.getAttribute("data-body") === csv.body,
+      csv.filename);
+
+    var rowsBeforeChange = savedRows().length;
+    await send({ type: "savedToggle", kind: "char", key: "學" });
+    check("a storage change while the view is visible is taken",
+      savedView.handleStorageChanged({ okpSaved: { newValue: 1 } }, "local") === true);
+    await wait(TAIL);
+    check("so a save made from a page appears without anyone asking for it",
+      savedRows().length === rowsBeforeChange + 1 && !!rowFor("學"),
+      "rows=" + savedRows().length + " (was " + rowsBeforeChange + ")");
+    check("a change in another area, or to another key, is left alone",
+      savedView.handleStorageChanged({ okpSaved: {} }, "sync") === false &&
+      savedView.handleStorageChanged({ okpOther: {} }, "local") === false);
+
+    store.fail("all", true);
+    var absent = await savedView.refresh();
+    check("a worker without storage reads as absent: one quiet line, no error",
+      absent === false && !!savedList.querySelector(".saved-unavailable") &&
+      !savedList.querySelector(".saved-row") && savedBar.hidden === true &&
+      byId("okp-saved-actions").hidden === true,
+      savedList.textContent);
+    store.fail("all", false);
+    await savedView.refresh();
+    check("and the view comes back the moment the worker answers again",
+      !savedList.querySelector(".saved-unavailable") && savedBar.hidden === false &&
+      byId("okp-saved-actions").hidden === false && savedRows().length === 4,
+      "rows=" + savedRows().length);
+
+    rowFor("國民").click();
+    await wait(SETTLE + TAIL);
+    check("clicking a row lands in the search view with the card rendered",
+      sidebar.activeView() === "search" && shown(searchBox) &&
+      input.value === "國民" && api.isVisible() && api.cardCount() === 3 &&
+      shellApi.controller().query() === "國民",
+      "active=" + sidebar.activeView() + " input=" + JSON.stringify(input.value) +
+      " cards=" + api.cardCount());
+
+    /* ==================================================================
+     * ADDENDUM: the settings view.
+     *
+     * One declarative schema and one generic renderer, so what is checked
+     * here is the RENDERER: groups in schema order, a row per entry of the
+     * right type, and a control that writes through the moment it changes.
+     * ================================================================== */
+    sidebar.showView("settings");
+    var settingsBody = byId("okp-settings");
+    function settingsRows() { return settingsBody.querySelectorAll(".settings-row"); }
+    function settingsGroups() {
+      return settingsBody.querySelectorAll("section.settings-group");
+    }
+    function checkedIn(key) {
+      return Array.prototype.map.call(
+        byId(settingsView.controlId(key)).querySelectorAll(".settings-check:checked"),
+        function (box) { return box.getAttribute("data-value"); }
+      );
+    }
+    function boxIn(key, value) {
+      return byId(settingsView.controlId(key))
+        .querySelector('.settings-check[data-value="' + value + '"]');
+    }
+
+    var settingsOk = await settingsView.render();
+    check("the shipped schema is the SPEC's five entries, in its two groups",
+      settingsOk === true &&
+      settingsView.schema.map(function (e) { return e.group + "/" + e.key + ":" + e.type; })
+        .join(" ") === "Saving/defaultFolderId:folder-select " +
+        "Anki export/anki.wordFront:select Anki export/anki.wordBack:checkset " +
+        "Anki export/anki.charFront:select Anki export/anki.charBack:checkset",
+      settingsView.schema.map(function (e) { return e.key; }).join(","));
+    check("the renderer emits one heading per group, in schema order",
+      settingsGroups().length === 2 &&
+      settingsGroups()[0].getAttribute("data-group") === "Saving" &&
+      settingsGroups()[0].querySelector("h2.settings-heading").textContent === "Saving" &&
+      settingsGroups()[1].getAttribute("data-group") === "Anki export" &&
+      settingsGroups()[1].querySelector("h2.settings-heading").textContent ===
+        "Anki export",
+      Array.prototype.map.call(settingsGroups(), function (g) {
+        return g.getAttribute("data-group");
+      }).join("|"));
+    check("every entry renders one row of its own type, its label bound to its control",
+      settingsRows().length === settingsView.schema.length &&
+      Array.prototype.every.call(settingsRows(), function (row, i) {
+        var entry = settingsView.schema[i];
+        var control = byId(settingsView.controlId(entry.key));
+        return row.getAttribute("data-key") === entry.key &&
+          row.classList.contains("settings-row--" + entry.type) &&
+          row.querySelector(".settings-label").textContent === entry.label &&
+          row.querySelector(".settings-label").getAttribute("for") ===
+            settingsView.controlId(entry.key) &&
+          !!control && control.parentNode === row.querySelector(".settings-control");
+      }),
+      "rows=" + settingsRows().length);
+    check("controlId flattens a dot-path into one id",
+      settingsView.controlId("anki.wordBack") === "okp-set-anki-wordBack" &&
+      settingsView.controlId("defaultFolderId") === "okp-set-defaultFolderId",
+      settingsView.controlId("anki.wordBack"));
+    check("the controls come up on the stored values, the shipped defaults here",
+      byId("okp-set-defaultFolderId").value === "f0" &&
+      byId("okp-set-anki-wordFront").value === "hanja" &&
+      checkedIn("anki.wordBack").join(",") === "hangul,defs" &&
+      byId("okp-set-anki-charFront").value === "char" &&
+      checkedIn("anki.charBack").join(",") === "eumhun,defs",
+      checkedIn("anki.wordBack").join(",") + " / " +
+      checkedIn("anki.charBack").join(","));
+    check("the folder-select resolves its options from the worker's folders",
+      Array.prototype.map.call(byId("okp-set-defaultFolderId").options, function (o) {
+        return o.value + "=" + o.textContent;
+      }).join("|") === store.state().folders.map(function (f) {
+        return f.id + "=" + f.name;
+      }).join("|"),
+      optionTexts(byId("okp-set-defaultFolderId")));
+
+    var wordFrontSel = byId("okp-set-anki-wordFront");
+    wordFrontSel.value = "hangul";
+    fireChange(wordFrontSel);
+    await wait(TAIL);
+    check("a select writes through the moment it changes, with no save button",
+      store.state().settings.anki.wordFront === "hangul" &&
+      settingsView.settings().anki.wordFront === "hangul",
+      JSON.stringify(store.state().settings.anki));
+    var folderSetSel = byId("okp-set-defaultFolderId");
+    folderSetSel.value = readingsId;
+    fireChange(folderSetSel);
+    await wait(TAIL);
+    check("the default folder persists the same way",
+      store.state().settings.defaultFolderId === readingsId,
+      store.state().settings.defaultFolderId);
+    var landed = await send({ type: "savedToggle", kind: "char", key: "民" });
+    check("and a new save really lands in the folder the setting names",
+      landed.ok === true && landed.saved === true && landed.folderId === readingsId,
+      JSON.stringify(landed.item));
+
+    setChecked(boxIn("anki.charBack", "lvl"), true);
+    await wait(TAIL);
+    setChecked(boxIn("anki.charBack", "char"), true);
+    await wait(TAIL);
+    check("a checkset writes the SCHEMA's option order, not the click order",
+      store.state().settings.anki.charBack.join(",") === "char,eumhun,defs,lvl",
+      store.state().settings.anki.charBack.join(","));
+    setChecked(boxIn("anki.charBack", "defs"), false);
+    await wait(TAIL);
+    check("unchecking one drops that field and leaves the order alone",
+      store.state().settings.anki.charBack.join(",") === "char,eumhun,lvl",
+      store.state().settings.anki.charBack.join(","));
+
+    // The acceptance test for the schema: a whole new setting, in a group that
+    // does not exist yet, with no renderer change at all.
+    settingsView.schema.push({
+      key: "probeSetting", group: "Harness", type: "select", label: "Probe setting",
+      options: [{ value: "a", label: "A" }, { value: "b", label: "B" }],
+      default: "a"
+    });
+    await settingsView.render();
+    check("a new setting is ONE schema entry: new heading, new row, nothing else",
+      settingsGroups().length === 3 &&
+      settingsGroups()[2].getAttribute("data-group") === "Harness" &&
+      settingsGroups()[2].querySelector(".settings-heading").textContent === "Harness" &&
+      !!settingsBody.querySelector('.settings-row[data-key="probeSetting"]') &&
+      byId("okp-set-probeSetting").value === "a",
+      "groups=" + settingsGroups().length + " rows=" + settingsRows().length);
+    settingsView.schema.pop();
+    await settingsView.render();
+    check("removing the entry removes its row and its heading again",
+      settingsGroups().length === 2 && settingsRows().length === 5 &&
+      !settingsBody.querySelector('.settings-row[data-key="probeSetting"]'),
+      "groups=" + settingsGroups().length);
+
+    store.fail("all", true);
+    var settingsAbsent = await settingsView.render();
+    check("a worker without storage leaves one quiet line here too",
+      settingsAbsent === false &&
+      !!settingsBody.querySelector(".settings-unavailable") &&
+      settingsRows().length === 0,
+      settingsBody.textContent);
+    store.fail("all", false);
+    await settingsView.render();
+    check("and the controls come straight back, on the values that were written",
+      !settingsBody.querySelector(".settings-unavailable") &&
+      settingsRows().length === 5 &&
+      byId("okp-set-anki-wordFront").value === "hangul" &&
+      checkedIn("anki.charBack").join(",") === "char,eumhun,lvl",
+      checkedIn("anki.charBack").join(","));
+
+    // Back to the search view with a clean store, so a second run starts
+    // where the first one did.
+    store.reset();
+    sidebar.showView("search");
+
 
     /* ==================================================================
      * Wiktionary links: background-open on the sidebar surface.
