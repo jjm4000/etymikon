@@ -290,6 +290,14 @@
       { hangul: "천지", hanja: "天地", gloss: "heaven and earth" }
     ]),
 
+    // --- the romanized-search example, so "su" has two honest readings ----
+    // RR reads "su" as 수 and the Dubeolsik keyboard mapping reads it 녀.
+    // Both syllables need real entries here, or the canned dual response
+    // below would be describing characters the fixture does not have.
+    "水": C("물", "수", "water"),
+    "手": C("손", "수", "hand"),
+    "女": C("계집", "녀", "woman; female"),
+
     // Reading-only character: hun is "" AND glosses is [] (Agent A reports
     // these exist in the real data). Must render as just the eum, no blanks.
     "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
@@ -308,7 +316,8 @@
     "字": "m", "文": "m", "大": "m", "事": "m", "社": "m", "士": "m",
     "使": "m", "史": "m", "死": "m", "四": "m", "師": "m", "氣": "m",
     "器": "m", "武": "m", "本": "m", "主": "m", "天": "m", "外": "m",
-    "活": "m", "會": "m", "者": "m", "海": "m",
+    "活": "m", "會": "m", "者": "m", "海": "m", "水": "m", "手": "m",
+    "女": "m",
     "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
     "沙": "h", "舍": "h",
     "菊": "a", "欺": "a", "衝": "a",
@@ -570,18 +579,45 @@
     };
   }
 
-  // ONE canned 한영타 conversion. The real Dubeolsik automaton is covered in
-  // Node; all a browser harness needs is the RESPONSE SHAPE, so it can assert
-  // that the renderer takes its search context from `converted` rather than
-  // from what was typed.
-  var QWERTY = { gkrtod: "학생" };
+  // CANNED interpreted responses. The harness deliberately does NOT
+  // reimplement the interpreters — Node owns the Dubeolsik automaton and the
+  // rr map. What a browser harness needs is the RESPONSE SHAPE, so the
+  // renderer can be held to the grouping and labeling rules.
+  //
+  //   gkrtod: ONE interpretation, the keyboard reading of 학생.
+  //   su:     TWO, which is the case the renderer has to tell apart. RR reads
+  //           it 수, the keyboard mapping reads it 녀, and no view may assert
+  //           either over the other.
+  //
+  // Order here is the worker's preference order, which the renderer must
+  // preserve as-is.
+  var INTERPRETED = {
+    gkrtod: [{ kind: "dubeolsik", to: "학생" }],
+    su: [{ kind: "rr", to: "수" }, { kind: "dubeolsik", to: "녀" }]
+  };
+
+  // Flatten the groups into one match list plus the descriptors, where
+  // `start` is the index in `matches` at which each group begins. A group
+  // that finds nothing is dropped, exactly as the worker drops it.
+  function interpretedLookup(typed) {
+    var matches = [];
+    var interpretations = [];
+    INTERPRETED[typed].forEach(function (group) {
+      var inner = lookup(group.to);
+      if (!inner.ok || !inner.matches.length) return;
+      interpretations.push({
+        kind: group.kind, from: typed, to: group.to, start: matches.length
+      });
+      matches = matches.concat(inner.matches);
+    });
+    if (!interpretations.length) return { ok: true, matches: [] };
+    return { ok: true, matches: matches, interpretations: interpretations };
+  }
 
   function lookup(text) {
     var typed = String(text === null || text === undefined ? "" : text).trim();
-    if (Object.prototype.hasOwnProperty.call(QWERTY, typed)) {
-      var inner = lookup(QWERTY[typed]);
-      if (inner.ok) inner.converted = { from: typed, to: QWERTY[typed] };
-      return inner;
+    if (Object.prototype.hasOwnProperty.call(INTERPRETED, typed)) {
+      return interpretedLookup(typed);
     }
 
     var words = [], chars = [], seenChar = {};
@@ -1010,6 +1046,11 @@
     __isStub: true,
     __calls: 0,          // dictionary sendMessage — proves "back" doesn't re-query
     __lastText: null,
+    // Romanized-search input-channel rule: interpretation is for free-typed
+    // input only, so a check can watch the flag NOT arrive on the lookups
+    // internal navigation sends.
+    __lastInterpret: null,
+    __interpretCalls: 0,
     __compoundCalls: 0,  // {type:"compounds"} only
     __lastChar: null,
     __failCompounds: false,  // flip on to exercise the retry path
@@ -1032,6 +1073,8 @@
       try {
         if (msg && msg.type === "lookup") {
           this.__lastText = msg.text;
+          this.__lastInterpret = msg.interpret === true;
+          if (msg.interpret === true) this.__interpretCalls++;
           resp = lookup(String(msg.text || ""));
         } else if (msg && msg.type === "compounds") {
           this.__compoundCalls++;
@@ -1754,6 +1797,81 @@
       api.viewKeys()[0] === "word:學生" &&
       api.viewSrcText().indexOf("학생") === 0,
       api.viewKeys().join(",") + " " + JSON.stringify(api.viewSrcText()));
+
+    // --- romanized search: two interpretations in one view ----------------
+    // "su" is the genuinely ambiguous case: RR reads it 수, the keyboard
+    // mapping reads it 녀. Both survive, so both render, and no view may
+    // assert either reading over the other. Driven through searchFor with the
+    // interpret flag, which is what a typed channel does.
+    function dividers() {
+      return api.queryAll(".interp").map(function (n) { return n.textContent; });
+    }
+    function readingTitles() {
+      return api.queryAll(".reading-title")
+        .map(function (n) { return n.textContent; });
+    }
+
+    var singleKeys = api.viewKeys().join(",");
+    await embed.searchFor("su", { interpret: true });
+    await wait(TAIL);
+    check("both interpretations render, preferred group first",
+      api.cardCount() === 2 &&
+      readingTitles().join(" | ") === "2 hanja read 수 | 1 hanja read 녀",
+      readingTitles().join(" | "));
+    check("each group is introduced by a divider naming its mapping",
+      dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)",
+      dividers().join(" | "));
+    check("the dividers sit BEFORE their groups, not in a block of their own",
+      Array.prototype.slice.call(api.query(".view").children)
+        .map(function (n) { return n.className.split(" ")[0]; })
+        .join(",") === "interp,card,top-chars,interp,card,top-chars",
+      Array.prototype.slice.call(api.query(".view").children)
+        .map(function (n) { return n.className.split(" ")[0]; }).join(","));
+    check("an ambiguous query is named by what was TYPED, not by either reading",
+      api.viewKeys()[0] === "typed:su" && api.viewSrcText().indexOf("su") === 0,
+      api.viewKeys().join(",") + " " + JSON.stringify(api.viewSrcText()));
+
+    // Drilling out of the SECOND group is ordinary navigation.
+    var rows = api.queryAll(".reading-row");
+    check("test setup: the second group's rows are the 녀 candidates",
+      rows.length === 3 &&
+      rows[2].querySelector(".r-glyph").textContent === "女",
+      rows.map(function (r) { return r.querySelector(".r-glyph").textContent; })
+        .join(""));
+    var interpretsBefore = fake.__interpretCalls;
+    rows[2].click();
+    await wait(TAIL);
+    check("a drill from the SECOND group crumbs as typed › entity",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "char:女" &&
+      api.crumbLabels().join(" › ") === "su › 女",
+      api.crumbLabels().join(" › "));
+    check("internal navigation NEVER re-interprets",
+      fake.__interpretCalls === interpretsBefore &&
+      fake.__lastInterpret === false,
+      "interpret calls " + interpretsBefore + " → " + fake.__interpretCalls +
+      ", last=" + fake.__lastInterpret);
+    // Spot check: a card reached out of the second group is an ordinary card.
+    check("cards from the second group carry the usual affordances",
+      !!api.query(".card .save") && !!api.query(".card .wiki") &&
+      !!api.query(".eumhun .rnav"),
+      "star=" + !!api.query(".card .save") + " wiki=" + !!api.query(".card .wiki"));
+
+    api.query(".crumb").click();
+    await wait(TAIL);
+    check("going back restores BOTH groups, dividers and all",
+      api.viewDepth() === 1 && api.cardCount() === 2 &&
+      dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)" &&
+      readingTitles().join(" | ") === "2 hanja read 수 | 1 hanja read 녀",
+      dividers().join(" | "));
+
+    await embed.searchFor("gkrtod", { interpret: true });
+    await wait(TAIL);
+    check("a single interpretation renders exactly as it did, with no divider",
+      api.queryAll(".interp").length === 0 &&
+      api.viewKeys().join(",") === singleKeys &&
+      api.query(".word-body .surface").textContent === "學生" &&
+      api.viewSrcText().indexOf("학생") === 0,
+      api.viewKeys().join(",") + " dividers=" + api.queryAll(".interp").length);
 
     // --- shell: ?q= deep link -------------------------------------------
     // init() with initialQuery is exactly what sidepanel.js does with ?q=.

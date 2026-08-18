@@ -289,6 +289,14 @@
       { hangul: "천지", hanja: "天地", gloss: "heaven and earth" }
     ]),
 
+    // --- the romanized-search example, so "su" has two honest readings ----
+    // RR reads "su" as 수 and the Dubeolsik keyboard mapping reads it 녀.
+    // Both syllables need real entries here, or the canned dual response
+    // below would be describing characters the fixture does not have.
+    "水": C("물", "수", "water"),
+    "手": C("손", "수", "hand"),
+    "女": C("계집", "녀", "woman; female"),
+
     // Reading-only character: hun is "" AND glosses is [] (Agent A reports
     // these exist in the real data). Must render as just the eum, no blanks.
     "朞": { eumhun: [{ hun: "", eum: "기" }], readings: ["기"], glosses: [], compounds: [] }
@@ -307,7 +315,8 @@
     "字": "m", "文": "m", "大": "m", "事": "m", "社": "m", "士": "m",
     "使": "m", "史": "m", "死": "m", "四": "m", "師": "m", "氣": "m",
     "器": "m", "武": "m", "本": "m", "主": "m", "天": "m", "外": "m",
-    "活": "m", "會": "m", "者": "m", "海": "m",
+    "活": "m", "會": "m", "者": "m", "海": "m", "水": "m", "手": "m",
+    "女": "m",
     "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
     "沙": "h", "舍": "h",
     "菊": "a", "欺": "a", "衝": "a",
@@ -569,18 +578,45 @@
     };
   }
 
-  // ONE canned 한영타 conversion. The real Dubeolsik automaton is covered in
-  // Node; all a browser harness needs is the RESPONSE SHAPE, so it can assert
-  // that the renderer takes its search context from `converted` rather than
-  // from what was typed.
-  var QWERTY = { gkrtod: "학생" };
+  // CANNED interpreted responses. The harness deliberately does NOT
+  // reimplement the interpreters — Node owns the Dubeolsik automaton and the
+  // rr map. What a browser harness needs is the RESPONSE SHAPE, so the
+  // renderer can be held to the grouping and labeling rules.
+  //
+  //   gkrtod: ONE interpretation, the keyboard reading of 학생.
+  //   su:     TWO, which is the case the renderer has to tell apart. RR reads
+  //           it 수, the keyboard mapping reads it 녀, and no view may assert
+  //           either over the other.
+  //
+  // Order here is the worker's preference order, which the renderer must
+  // preserve as-is.
+  var INTERPRETED = {
+    gkrtod: [{ kind: "dubeolsik", to: "학생" }],
+    su: [{ kind: "rr", to: "수" }, { kind: "dubeolsik", to: "녀" }]
+  };
+
+  // Flatten the groups into one match list plus the descriptors, where
+  // `start` is the index in `matches` at which each group begins. A group
+  // that finds nothing is dropped, exactly as the worker drops it.
+  function interpretedLookup(typed) {
+    var matches = [];
+    var interpretations = [];
+    INTERPRETED[typed].forEach(function (group) {
+      var inner = lookup(group.to);
+      if (!inner.ok || !inner.matches.length) return;
+      interpretations.push({
+        kind: group.kind, from: typed, to: group.to, start: matches.length
+      });
+      matches = matches.concat(inner.matches);
+    });
+    if (!interpretations.length) return { ok: true, matches: [] };
+    return { ok: true, matches: matches, interpretations: interpretations };
+  }
 
   function lookup(text) {
     var typed = String(text === null || text === undefined ? "" : text).trim();
-    if (Object.prototype.hasOwnProperty.call(QWERTY, typed)) {
-      var inner = lookup(QWERTY[typed]);
-      if (inner.ok) inner.converted = { from: typed, to: QWERTY[typed] };
-      return inner;
+    if (Object.prototype.hasOwnProperty.call(INTERPRETED, typed)) {
+      return interpretedLookup(typed);
     }
 
     var words = [], chars = [], seenChar = {};
@@ -1009,6 +1045,11 @@
     __isStub: true,
     __calls: 0,          // dictionary sendMessage — proves "back" doesn't re-query
     __lastText: null,
+    // Romanized-search input-channel rule: interpretation is for free-typed
+    // input only, so a check can watch the flag NOT arrive on the lookups
+    // internal navigation sends.
+    __lastInterpret: null,
+    __interpretCalls: 0,
     __compoundCalls: 0,  // {type:"compounds"} only
     __lastChar: null,
     __failCompounds: false,  // flip on to exercise the retry path
@@ -1031,6 +1072,8 @@
       try {
         if (msg && msg.type === "lookup") {
           this.__lastText = msg.text;
+          this.__lastInterpret = msg.interpret === true;
+          if (msg.interpret === true) this.__interpretCalls++;
           resp = lookup(String(msg.text || ""));
         } else if (msg && msg.type === "compounds") {
           this.__compoundCalls++;

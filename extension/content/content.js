@@ -427,6 +427,25 @@
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
     "}",
+    /* ---- interpretation divider: which reading the group below came from ---- */
+    // Same voice as the section labels above (small, faint, weighted), but it
+    // spans the panel because it introduces a whole group rather than a region
+    // inside a card. NOT uppercased: it quotes what the reader typed, and
+    // "SU → 수" would misquote it.
+    // Deliberately NOT a flex row: the spacing here is real text (" → "), and
+    // a flex container would collapse it away as inter-item whitespace, so the
+    // reader would see "su→수" while the markup said otherwise. As a block of
+    // inline spans the two agree, and the mixed type sizes sit on the baseline
+    // by themselves.
+    ".interp {",
+    "  padding: 6px 12px 5px; font-size: 11px; font-weight: 600;",
+    "  color: var(--faint); background: var(--hedge-bg);",
+    "  border-bottom: 1px solid var(--rule);",
+    "}",
+    // Every group after the first closes off the one above it.
+    ".view > * + .interp { border-top: 1px solid var(--rule); }",
+    ".interp-from { color: var(--muted); }",
+    ".interp-to { font-size: 13px; font-weight: 600; color: var(--fg-soft); }",
     /* ---- compounds: nav rows + "show more" pagination ---- */
     // The negative side margins let a row's hover background bleed into the
     // card padding, so the compound text still lines up with the label above.
@@ -741,9 +760,10 @@
   var viewStack = [];         // the descent; last entry is the current view
   var currentSrcText = "";    // source text of the view being rendered (see noteApplies)
   var wordStates = [];        // one per word surface in the current view
-  var independentChars = [];  // current view's chars that are nobody's component
-  var independentCardEls = null;
-  var topCharsBox = null;
+  // One entry per interpretation group in the current view (exactly one for
+  // an ordinary view): the chars that are nobody's component, the cards built
+  // for them, and the box they live in.
+  var charGroups = [];
 
   function ensureHost() {
     if (host && host.isConnected) return;
@@ -2414,14 +2434,87 @@
     return parts.join("\n");
   }
 
-  // QWERTY-to-hangul ADDENDUM: a query typed with the keyboard in the wrong
-  // mode (toddlf) is looked up as the hangul it meant. What the user typed is
-  // NEVER rewritten, so the search CONTEXT carries the conversion instead —
-  // the view is about 생일, not about "toddlf", and everything downstream of
-  // srcText (the variant notes, a crumb falling back to the query) says so.
+  /* ---- Interpreted queries --------------------------------------------- *
+   * A typed Latin query is read by two interpreters, the Dubeolsik keyboard
+   * mapping and RR romanization. The response describes what survived:
+   * `interpretations: [{kind, from, to, start}]`, preferred first, `start`
+   * indexing into `matches` where that group begins.
+   *
+   * ONE interpretation reads as an ordinary search FOR THE HANGUL: the view
+   * is about 생일, not about "toddlf". TWO means the query was genuinely
+   * ambiguous, and no view may assert one reading over the other — the view
+   * is about what was TYPED, and each group says for itself what it mapped to.
+   * -------------------------------------------------------------------- */
+
+  function interpretationsOf(response) {
+    return asArray(response && response.interpretations).filter(function (entry) {
+      return entry && typeof entry === "object" && nonEmptyString(entry.to);
+    });
+  }
+
+  // The search context (srcText) the renderer works in. What the user typed is
+  // NEVER rewritten; this is what everything downstream of srcText — the
+  // variant notes, a label falling back to the query — reads instead.
   function searchContext(response, typed) {
-    var converted = response && response.converted;
-    return (converted && nonEmptyString(converted.to)) || typed;
+    var interpretations = interpretationsOf(response);
+    // Exactly one: the search really is about the hangul it converted to.
+    if (interpretations.length === 1) {
+      return nonEmptyString(interpretations[0].to) || typed;
+    }
+    // None (an ordinary lookup) or two (ambiguous): the typed text stands.
+    return typed;
+  }
+
+  /**
+   * Split a response's matches into its interpretation groups.
+   *
+   * Indices come from the RAW matches array, so the slicing happens before
+   * anything filters it. Fewer than two interpretations is one anonymous
+   * group, which is every ordinary view.
+   */
+  function interpretationGroups(matches, interpretations) {
+    var all = asArray(matches);
+    var entries = asArray(interpretations).filter(function (entry) {
+      return entry && typeof entry === "object";
+    });
+    if (entries.length < 2) {
+      return [{ interpretation: null, matches: usableMatches(all) }];
+    }
+    var groups = [];
+    entries.forEach(function (entry, i) {
+      var start = Math.max(0, Math.min(all.length, Math.floor(entry.start) || 0));
+      var next = entries[i + 1];
+      var end = next
+        ? Math.max(start, Math.min(all.length, Math.floor(next.start) || 0))
+        : all.length;
+      var slice = usableMatches(all.slice(start, end));
+      if (slice.length) groups.push({ interpretation: entry, matches: slice });
+    });
+    // A group that turned up nothing renderable stops being a group, and one
+    // survivor stops being ambiguous — so its divider goes too.
+    if (groups.length < 2) {
+      return [{ interpretation: null, matches: usableMatches(all) }];
+    }
+    return groups;
+  }
+
+  // The slim header that introduces a group, naming the mapping it came from.
+  // Only ever rendered in the ambiguous case, which is why "(keyboard)" can
+  // live here rather than being conditional on anything else.
+  function buildGroupDivider(interpretation) {
+    var from = nonEmptyString(interpretation.from);
+    var to = nonEmptyString(interpretation.to);
+    if (!from || !to) return null;
+    // The separators are real text, so the row READS as the SPEC writes it
+    // ("su → 수") rather than depending on flex gaps to look spaced.
+    var row = el("div", "interp");
+    row.appendChild(el("span", "interp-from", from));
+    row.appendChild(document.createTextNode(" → "));
+    row.appendChild(el("span", "interp-to", to));
+    if (interpretation.kind === "dubeolsik") {
+      row.appendChild(document.createTextNode(" (keyboard)"));
+    }
+    return row;
   }
 
   // "surface → canonical" is a statement about the CURRENT view: it explains a
@@ -2465,7 +2558,9 @@
       state.componentList = el("div", "component-list");
       state.owned = [];
     });
-    if (topCharsBox) clearNode(topCharsBox);
+    charGroups.forEach(function (group) {
+      if (group.box) clearNode(group.box);
+    });
 
     var rendered = Object.create(null);
     var count = 0;
@@ -2492,37 +2587,42 @@
       }
     });
 
-    // Independent characters keep their top-level card. The element is reused
-    // across swaps, so an unrelated card is genuinely untouched (same node,
-    // same text selection) rather than rebuilt.
-    if (topCharsBox) {
-      independentChars.forEach(function (ch) {
+    // Independent characters keep their top-level card, in the box belonging
+    // to their own interpretation group. The element is reused across swaps,
+    // so an unrelated card is genuinely untouched (same node, same text
+    // selection) rather than rebuilt. `rendered` is view-global on purpose: a
+    // glyph both groups turned up is one card, under whichever claimed it.
+    charGroups.forEach(function (group) {
+      if (!group.box) return;
+      group.chars.forEach(function (ch) {
         if (rendered[ch] || claim[ch]) return;
         var m = charDataIndex[ch];
         if (!m) return;
-        var cardEl = independentCardEls[ch];
+        var cardEl = group.cardEls[ch];
         if (!cardEl) {
           cardEl = buildCharCard(m);
-          independentCardEls[ch] = cardEl;
+          group.cardEls[ch] = cardEl;
         }
-        topCharsBox.appendChild(cardEl);
+        group.box.appendChild(cardEl);
         rendered[ch] = true;
         charCardIndex[ch] = cardEl;
         count++;
       });
-    }
+    });
 
     return count;
   }
 
-  // Order: reading list, then word cards (same-surface homographs collapsed),
-  // then the independent chars. Returns the number of cards rendered.
+  // Order WITHIN one interpretation group: reading list, then word cards
+  // (same-surface homographs collapsed), then the independent chars. Returns
+  // the number of cards rendered.
+  //
+  // Called once per group, so it ACCUMULATES: wordStates and charGroups are
+  // reset by renderCurrentView, not here, and the char regions are laid out
+  // once at the end over every group. Each group gets its own top-chars box,
+  // which is what keeps a dual view's cards from interleaving.
   function appendMatchCards(list) {
     adoptCharData(list);
-    wordStates = [];
-    independentChars = [];
-    independentCardEls = Object.create(null);
-    topCharsBox = null;
 
     var readings = [];
     var usedIns = [];
@@ -2589,12 +2689,16 @@
         isComponent[ch] = true;
       });
     });
-    independentChars = responseChars.filter(function (ch) { return !isComponent[ch]; });
 
-    topCharsBox = el("div", "top-chars");
-    viewRoot.appendChild(topCharsBox);
+    var box = el("div", "top-chars");
+    viewRoot.appendChild(box);
+    charGroups.push({
+      chars: responseChars.filter(function (ch) { return !isComponent[ch]; }),
+      cardEls: Object.create(null),
+      box: box
+    });
 
-    return count + renderCharRegions();
+    return count;
   }
 
   /* ------------------------------------------------------------------ *
@@ -2924,7 +3028,25 @@
 
     if (viewStack.length > 1) viewRoot.appendChild(buildCrumbs());
 
-    var count = appendMatchCards(view.matches);
+    // One group for an ordinary view, two when the query was ambiguous. The
+    // per-group state the card builders accumulate into is reset here, once,
+    // so appendMatchCards can simply be called per group.
+    wordStates = [];
+    charGroups = [];
+    var groups = (view.groups && view.groups.length)
+      ? view.groups
+      : [{ interpretation: null, matches: view.matches }];
+    var count = 0;
+    groups.forEach(function (group) {
+      if (groups.length > 1 && group.interpretation) {
+        var divider = buildGroupDivider(group.interpretation);
+        if (divider) viewRoot.appendChild(divider);
+      }
+      count += appendMatchCards(group.matches);
+    });
+    // Char regions are laid out ONCE across every group, so a glyph both
+    // interpretations turned up renders a single card.
+    count += renderCharRegions();
 
     // Restore the spelling that was selected when we left this view.
     if (view.selection && view.selection.length) {
@@ -3147,12 +3269,22 @@
     positionAt(anchorRect);
   }
 
-  function showAt(rect, matches, srcText) {
+  function showAt(rect, matches, srcText, interpretations) {
     ensureHost();
     var list = usableMatches(matches);
+    // Split before anything filters the array: `start` indexes the raw one.
+    var groups = interpretationGroups(matches, interpretations);
+    var ambiguous = groups.length > 1;
+    // An ambiguous query has no single canonical to name itself by, so the
+    // view IS the typed text — the trail reads "su › 女" whichever group the
+    // reader descended from, and neither reading is asserted over the other.
+    var typed = nonEmptyString(srcText);
     resetSession();
     viewStack = [{
-      key: viewKey(list), label: viewLabel(list, ""), matches: list,
+      key: (ambiguous && typed) ? "typed:" + typed : viewKey(list),
+      label: (ambiguous && typed) ? typed : viewLabel(list, ""),
+      matches: list,
+      groups: groups,
       // The selection itself: the root view is the one place a highlighted
       // variant glyph is guaranteed to belong.
       srcText: viewSourceText(list, srcText),
@@ -3260,8 +3392,14 @@
     });
   }
 
-  function sendLookup(text) {
-    return sendToWorker({ type: "lookup", text: text });
+  // `interpret` rides along ONLY when a typed entry point asked for it. Every
+  // other caller here — navigateTo, fetchLookup, the spelling swap, the
+  // compound and used-in fetches — leaves it off, which is the input-channel
+  // rule: internal navigation is always a literal lookup.
+  function sendLookup(text, interpret) {
+    var message = { type: "lookup", text: text };
+    if (interpret === true) message.interpret = true;
+    return sendToWorker(message);
   }
 
   // The char's COMPLETE compound index, joined by the service worker. Fetched
@@ -3321,11 +3459,13 @@
       }
       // Re-read the rect: layout may have shifted while awaiting the response.
       var fresh = readSelection();
-      // A selection cannot be pure Latin (readSelection requires Han or
-      // Hangul), so this never converts in practice. It costs one call to be
-      // right anyway rather than to depend on that.
+      // A selection is never interpreted (readSelection requires Han or
+      // Hangul, and this path sets no interpret flag), so there is nothing to
+      // describe here in practice. Passing it through costs one argument and
+      // beats depending on that.
       showAt(fresh && fresh.text === sel.text ? fresh.rect : sel.rect,
-        response.matches, searchContext(response, sel.text));
+        response.matches, searchContext(response, sel.text),
+        response.interpretations);
       // Seed the cache so drilling back into the original text is free.
       if (lookupCache) lookupCache[sel.text] = response;
     });
@@ -3460,15 +3600,21 @@
       // ask the worker, drop stale answers, render. Deliberately NOT built on
       // fetchLookup — that is the per-session drill-down cache, which is reset
       // by the very render this path performs.
-      searchFor: function (text) {
+      // `options.interpret` opts this search into the two interpreters. It is
+      // the CALLER's to set, per the input-channel rule: only free-typed input
+      // (the shell's typed path, the omnibox, ?q=, the pending query) may
+      // interpret. Absent means literal, so every programmatic search — a
+      // saved row, the wordmark, anything internal — stays literal by default.
+      searchFor: function (text, options) {
         var query = typeof text === "string" ? text.trim() : "";
+        var interpret = !!(options && options.interpret);
         ensureHost();
         if (!query) {
           hide();
           return Promise.resolve({ ok: true, count: 0 });
         }
         var seq = ++requestSeq;
-        return sendLookup(query).then(function (response) {
+        return sendLookup(query, interpret).then(function (response) {
           // A newer search (or clear()) won; leave the DOM to the winner.
           if (seq !== requestSeq) return { ok: true, count: 0, stale: true };
           if (!response || response.ok !== true) {
@@ -3478,7 +3624,7 @@
           var list = usableMatches(response.matches);
           if (!list.length ||
               !showAt(EMBED_RECT, response.matches,
-                searchContext(response, query))) {
+                searchContext(response, query), response.interpretations)) {
             // showAt already hid the panel when it rendered nothing.
             if (!list.length) hide();
             return { ok: true, count: 0 };
@@ -3500,9 +3646,9 @@
   if (IS_STUB) {
     var testDragOrigin = { x: 0, y: 0 };
     globalThis.__hanjaHover = {
-      showAt: function (rect, matches, srcText) {
+      showAt: function (rect, matches, srcText, interpretations) {
         ensureHost();
-        return showAt(rect, matches, srcText);
+        return showAt(rect, matches, srcText, interpretations);
       },
       // The badge registry itself, so a check can prove a NEW badge needs
       // nothing but an entry (the harness registers a dummy and removes it).
