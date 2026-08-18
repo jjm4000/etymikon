@@ -8,6 +8,8 @@
  * Implements SPEC.md "Service worker behavior" rules 1-4 (including 3b).
  */
 
+import { qwertyToHangul, isLatinQuery } from "./dubeolsik.js";
+
 /** Rule 1: cap the input at 20 relevant (Han + Hangul) characters. */
 export const MAX_RELEVANT_CHARS = 20;
 /**
@@ -713,12 +715,38 @@ export function buildMatches(text, data) {
 }
 
 /**
+ * What to actually look up, and what the conversion was when one happened.
+ *
+ * QWERTY-to-hangul ADDENDUM: input that is nothing but Latin letters is read
+ * as hangul typed with the keyboard in the wrong mode (`toddlf` → 생일). The
+ * conversion is unconditional for such input because a Latin query matches
+ * nothing in the dictionary by construction, so there is no ambiguity to
+ * weigh. The existing length cap still governs: the conversion feeds the
+ * ordinary path, which caps at MAX_RELEVANT_CHARS.
+ *
+ * @param {string} text raw query
+ * @returns {{query:string, converted:{from:string,to:string}|null}}
+ */
+export function resolveQuery(text) {
+  const raw = normalize(text).trim();
+  if (!isLatinQuery(raw)) return { query: raw, converted: null };
+  const to = qwertyToHangul(raw);
+  if (to === "" || to === raw) return { query: raw, converted: null };
+  return { query: to, converted: { from: raw, to } };
+}
+
+/**
  * Full lookup, returning the SPEC "Message protocol" response envelope.
  * Never throws.
  */
 export function lookup(text, data) {
   try {
-    return { ok: true, matches: buildMatches(text, data) };
+    const { query, converted } = resolveQuery(text);
+    const response = { ok: true, matches: buildMatches(query, data) };
+    // Surfaces never rewrite what the user typed; they read this instead, so
+    // the search context can show the hangul the query turned into.
+    if (converted !== null) response.converted = converted;
+    return response;
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -807,7 +835,10 @@ function charSuggestion(char, hun, eum, gloss, lvl) {
  */
 export function buildOmniboxSuggestions(text, data) {
   try {
-    const query = normalize(text).trim();
+    // Same rule as lookup(): `hj toddlf` suggests 생일's entries. Each row's
+    // `content` stays the candidate's canonical searchable string, so the
+    // suggestion the user picks re-enters as hanja, not as what they typed.
+    const { query } = resolveQuery(text);
     if (query === "") return [];
 
     const matches = buildMatches(query, data);

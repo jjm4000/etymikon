@@ -2405,6 +2405,16 @@
     return parts.join("\n");
   }
 
+  // QWERTY-to-hangul ADDENDUM: a query typed with the keyboard in the wrong
+  // mode (toddlf) is looked up as the hangul it meant. What the user typed is
+  // NEVER rewritten, so the search CONTEXT carries the conversion instead —
+  // the view is about 생일, not about "toddlf", and everything downstream of
+  // srcText (the variant notes, a crumb falling back to the query) says so.
+  function searchContext(response, typed) {
+    var converted = response && response.converted;
+    return (converted && nonEmptyString(converted.to)) || typed;
+  }
+
   // "surface → canonical" is a statement about the CURRENT view: it explains a
   // glyph the reader actually highlighted here. char matches are cached per
   // popup session and reused in later views (charDataIndex), so the surface on
@@ -3184,8 +3194,11 @@
       }
       // Re-read the rect: layout may have shifted while awaiting the response.
       var fresh = readSelection();
+      // A selection cannot be pure Latin (readSelection requires Han or
+      // Hangul), so this never converts in practice. It costs one call to be
+      // right anyway rather than to depend on that.
       showAt(fresh && fresh.text === sel.text ? fresh.rect : sel.rect,
-        response.matches, sel.text);
+        response.matches, searchContext(response, sel.text));
       // Seed the cache so drilling back into the original text is free.
       if (lookupCache) lookupCache[sel.text] = response;
     });
@@ -3322,7 +3335,9 @@
             return { ok: false, count: 0 };
           }
           var list = usableMatches(response.matches);
-          if (!list.length || !showAt(EMBED_RECT, response.matches, query)) {
+          if (!list.length ||
+              !showAt(EMBED_RECT, response.matches,
+                searchContext(response, query))) {
             // showAt already hid the panel when it rendered nothing.
             if (!list.length) hide();
             return { ok: true, count: 0 };
@@ -3384,6 +3399,13 @@
       viewDepth: function () { return viewStack.length; },
       viewKeys: function () {
         return viewStack.map(function (v) { return v.key; });
+      },
+      // The current view's search context (see viewSourceText). A
+      // QWERTY-converted query must leave the HANGUL here and never the Latin
+      // the user typed, which is the whole of what `converted` is for.
+      viewSrcText: function () {
+        var view = viewStack[viewStack.length - 1];
+        return view ? view.srcText : "";
       },
       crumbLabels: function () {
         ensureHost();

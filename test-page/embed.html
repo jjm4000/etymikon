@@ -570,7 +570,20 @@
     };
   }
 
+  // ONE canned 한영타 conversion. The real Dubeolsik automaton is covered in
+  // Node; all a browser harness needs is the RESPONSE SHAPE, so it can assert
+  // that the renderer takes its search context from `converted` rather than
+  // from what was typed.
+  var QWERTY = { gkrtod: "학생" };
+
   function lookup(text) {
+    var typed = String(text === null || text === undefined ? "" : text).trim();
+    if (Object.prototype.hasOwnProperty.call(QWERTY, typed)) {
+      var inner = lookup(QWERTY[typed]);
+      if (inner.ok) inner.converted = { from: typed, to: QWERTY[typed] };
+      return inner;
+    }
+
     var words = [], chars = [], seenChar = {};
     function pushChar(canon, surface) {
       if (seenChar[canon]) return;
@@ -1680,6 +1693,35 @@
     await shell.search("국민");
     check("the next search after a failure simply works",
       shell.state() === "results" && api.isVisible());
+
+    // --- QWERTY-to-hangul input ------------------------------------------
+    // Typed through the real input, since what must NOT happen is the input
+    // being rewritten under the user. The fixture answers one canned
+    // conversion; the automaton itself is Node's business.
+    input.value = "gkrtod";
+    await shell.search();
+    await wait(TAIL);
+    check("a QWERTY-typed query finds the hangul word it meant",
+      shell.state() === "results" && api.viewKeys()[0] === "word:學生" &&
+      api.query(".word-body .surface").textContent === "學生" &&
+      api.query(".word-body .hangul").textContent === "학생",
+      api.viewKeys().join(",") + " " + api.cardCount() + " cards");
+    check("the conversion happens worker-side: the raw text is what is sent",
+      fake.__lastText === "gkrtod", JSON.stringify(fake.__lastText));
+    check("what the user typed is never rewritten", input.value === "gkrtod",
+      JSON.stringify(input.value));
+    check("the search CONTEXT is the hangul, not the Latin",
+      api.viewSrcText().indexOf("학생") === 0 &&
+      api.viewSrcText().indexOf("gkrtod") < 0,
+      JSON.stringify(api.viewSrcText()));
+
+    input.value = "학생";
+    await shell.search();
+    await wait(TAIL);
+    check("typing the hangul outright lands on the very same view",
+      api.viewKeys()[0] === "word:學生" &&
+      api.viewSrcText().indexOf("학생") === 0,
+      api.viewKeys().join(",") + " " + JSON.stringify(api.viewSrcText()));
 
     // --- shell: ?q= deep link -------------------------------------------
     // init() with initialQuery is exactly what sidepanel.js does with ?q=.

@@ -22,12 +22,15 @@ import {
   buildReadingIndex,
   buildWordParts,
   lookup,
+  resolveQuery,
   extractRuns,
   segmentRun,
   maxWordLenOf,
   maxHangulLenOf,
   MAX_OMNIBOX_SUGGESTIONS,
 } from "../extension/lookup.js";
+
+import { qwertyToHangul, isLatinQuery } from "../extension/dubeolsik.js";
 
 import {
   buildAnkiTsv,
@@ -999,7 +1002,14 @@ test("mixed Han + hangul selection works end to end", () => {
 // --- rules 1 & 4: caps, non-CJK, unknown chars ---------------------------
 
 test('lookup("abc") returns empty matches', () => {
-  assert.deepEqual(lookup("abc", data), { ok: true, matches: [] });
+  // Latin still finds nothing, but since the QWERTY ADDENDUM it is first read
+  // as mistyped hangul (뮻, which is in no dictionary either) and the response
+  // says so.
+  assert.deepEqual(lookup("abc", data), {
+    ok: true,
+    matches: [],
+    converted: { from: "abc", to: "뮻" },
+  });
 });
 
 test("empty / non-string input is safe", () => {
@@ -1894,6 +1904,182 @@ await testAsync("pending query is handed over once, then cleared", async () => {
   assert.deepEqual(await handleGetPendingQuery(), { ok: true, query: null });
 });
 
+/* ---------------------------------------------------------------------------
+ * QWERTY-to-hangul (한영타 변환) — extension/dubeolsik.js
+ * ------------------------------------------------------------------------- */
+
+test("the key map covers the layout, unshifted and shifted", () => {
+  // One syllable per key, so a wrong cell shows up as a wrong glyph rather
+  // than as a plausible-looking neighbour.
+  assert.equal(qwertyToHangul("rk"), "가");
+  assert.equal(qwertyToHangul("sk"), "나");
+  assert.equal(qwertyToHangul("ek"), "다");
+  assert.equal(qwertyToHangul("fk"), "라");
+  assert.equal(qwertyToHangul("ak"), "마");
+  assert.equal(qwertyToHangul("qk"), "바");
+  assert.equal(qwertyToHangul("tk"), "사");
+  assert.equal(qwertyToHangul("dk"), "아");
+  assert.equal(qwertyToHangul("wk"), "자");
+  assert.equal(qwertyToHangul("ck"), "차");
+  assert.equal(qwertyToHangul("zk"), "카");
+  assert.equal(qwertyToHangul("xk"), "타");
+  assert.equal(qwertyToHangul("vk"), "파");
+  assert.equal(qwertyToHangul("gk"), "하");
+  // Every vowel key, against the same initial.
+  assert.equal(
+    qwertyToHangul("rk ro ri rO rj rp ru rP rh ry rn rb rm rl"),
+    "가 개 갸 걔 거 게 겨 계 고 교 구 규 그 기"
+  );
+  // The seven shifted keys are their own jamo, not their lowercase twins.
+  assert.equal(qwertyToHangul("Qk Wk Ek Rk Tk"), "빠 짜 따 까 싸");
+  assert.equal(qwertyToHangul("rO rP"), "걔 계");
+});
+
+test("any other uppercase letter is just its lowercase key", () => {
+  // 하늘 uses none of the seven shifted keys, so caps lock changes nothing.
+  assert.equal(qwertyToHangul("gksmf"), "하늘");
+  assert.equal(qwertyToHangul("GKSMF"), "하늘");
+  assert.equal(qwertyToHangul("GkSmF"), "하늘");
+  // Where a letter IS a shifted key, the two cases genuinely differ: the R of
+  // 한국 is ㄱ, but a capital R is ㄲ.
+  assert.equal(qwertyToHangul("gksrnr"), "한국");
+  assert.equal(qwertyToHangul("GKSRNR"), "한꾺");
+  assert.equal(qwertyToHangul("gkrtod"), "학생");
+  assert.equal(qwertyToHangul("GKRTOD"), "핚썡");
+});
+
+test("compound vowels fuse", () => {
+  assert.equal(qwertyToHangul("rhk"), "과");   // ㅗ + ㅏ = ㅘ
+  assert.equal(qwertyToHangul("rho"), "괘");   // ㅗ + ㅐ = ㅙ
+  assert.equal(qwertyToHangul("rhl"), "괴");   // ㅗ + ㅣ = ㅚ
+  assert.equal(qwertyToHangul("rnj"), "궈");   // ㅜ + ㅓ = ㅝ
+  assert.equal(qwertyToHangul("rnp"), "궤");   // ㅜ + ㅔ = ㅞ
+  assert.equal(qwertyToHangul("rnl"), "귀");   // ㅜ + ㅣ = ㅟ
+  assert.equal(qwertyToHangul("rml"), "긔");   // ㅡ + ㅣ = ㅢ
+  // A pair the layout does NOT fuse simply starts a new syllable.
+  assert.equal(qwertyToHangul("rkl"), "가ㅣ");
+});
+
+test("compound finals fuse", () => {
+  assert.equal(qwertyToHangul("rkrt"), "갃");
+  assert.equal(qwertyToHangul("rksw"), "갅");
+  assert.equal(qwertyToHangul("rksg"), "갆");
+  assert.equal(qwertyToHangul("rkfr"), "갉");
+  assert.equal(qwertyToHangul("rkfa"), "갊");
+  assert.equal(qwertyToHangul("rkfq"), "갋");
+  assert.equal(qwertyToHangul("rkft"), "갌");
+  assert.equal(qwertyToHangul("rkfx"), "갍");
+  assert.equal(qwertyToHangul("rkfv"), "갎");
+  assert.equal(qwertyToHangul("rkfg"), "갏");
+  assert.equal(qwertyToHangul("rkqt"), "값");
+});
+
+test("ㄲ and ㅆ are legal finals; ㄸ ㅃ ㅉ never are", () => {
+  assert.equal(qwertyToHangul("dlT"), "있");
+  assert.equal(qwertyToHangul("qkR"), "밖");
+  // A double that cannot close a syllable opens the next one instead.
+  assert.equal(qwertyToHangul("rkE"), "가ㄸ");
+  assert.equal(qwertyToHangul("rkEk"), "가따");
+});
+
+test("a final hands itself to the next syllable when a vowel follows", () => {
+  // The headline case: 생일, not 샹딜.
+  assert.equal(qwertyToHangul("toddlf"), "생일");
+  assert.equal(qwertyToHangul("tkfka"), "사람");
+  assert.equal(qwertyToHangul("dkssudgktpdy"), "안녕하세요");
+  // A DOUBLED final moves whole, since it is one jamo.
+  assert.equal(qwertyToHangul("dlTj"), "이써");
+  // A COMPOUND final splits: ㄺ leaves ㄹ behind and sends ㄱ on.
+  assert.equal(qwertyToHangul("ekfr"), "닭");
+  assert.equal(qwertyToHangul("ekfrl"), "달기");
+  assert.equal(qwertyToHangul("Qkfrka"), "빨감");
+  // No vowel follows, so nothing is handed off and the syllable just ends.
+  assert.equal(qwertyToHangul("dlTdj"), "있어");
+});
+
+test("jamo that never complete a syllable emit as themselves", () => {
+  assert.equal(qwertyToHangul("r"), "ㄱ");
+  assert.equal(qwertyToHangul("k"), "ㅏ");
+  assert.equal(qwertyToHangul("rt"), "ㄱㅅ");
+  assert.equal(qwertyToHangul("rr"), "ㄱㄱ");
+  assert.equal(qwertyToHangul("kk"), "ㅏㅏ");
+  // A bare pair still fuses where the layout fuses it.
+  assert.equal(qwertyToHangul("ml"), "ㅢ");
+  assert.equal(qwertyToHangul("hk"), "ㅘ");
+  // A trailing consonant after a finished syllable is a tail, not a loss.
+  assert.equal(qwertyToHangul("rkr"), "각");
+  assert.equal(qwertyToHangul("rkrr"), "각ㄱ");
+});
+
+test("characters the layout has no key for pass straight through", () => {
+  assert.equal(qwertyToHangul("rk rk"), "가 가");
+  assert.equal(qwertyToHangul("rk1"), "가1");
+  assert.equal(qwertyToHangul(""), "");
+  assert.equal(qwertyToHangul(null), "");
+  assert.equal(qwertyToHangul(undefined), "");
+  assert.equal(qwertyToHangul(42), "");
+});
+
+test("only pure-Latin queries are read as mistyped hangul", () => {
+  assert.equal(isLatinQuery("toddlf"), true);
+  assert.equal(isLatinQuery("GKRTOD"), true);
+  assert.equal(isLatinQuery("생일"), false);
+  assert.equal(isLatinQuery("國民"), false);
+  assert.equal(isLatinQuery("hj toddlf"), false);   // a space disqualifies it
+  assert.equal(isLatinQuery("toddlf1"), false);
+  assert.equal(isLatinQuery("國民abc"), false);
+  assert.equal(isLatinQuery(""), false);
+  assert.equal(isLatinQuery(null), false);
+});
+
+test("resolveQuery converts Latin and leaves everything else alone", () => {
+  assert.deepEqual(resolveQuery("toddlf"), {
+    query: "생일",
+    converted: { from: "toddlf", to: "생일" },
+  });
+  // Trimmed and NFC-normalized before the test, like every other query.
+  assert.deepEqual(resolveQuery("  gkrtod  "), {
+    query: "학생",
+    converted: { from: "gkrtod", to: "학생" },
+  });
+  assert.deepEqual(resolveQuery("國民"), { query: "國民", converted: null });
+  assert.deepEqual(resolveQuery("국민"), { query: "국민", converted: null });
+  assert.deepEqual(resolveQuery("國民abc"), { query: "國民abc", converted: null });
+  assert.deepEqual(resolveQuery(""), { query: "", converted: null });
+});
+
+test("lookup() reports the conversion it performed", () => {
+  // 학생 is in the fixture, so a QWERTY query for it finds the real thing.
+  const typed = lookup("gkrtod", data);
+  assert.equal(typed.ok, true);
+  assert.deepEqual(typed.converted, { from: "gkrtod", to: "학생" });
+  const word = typed.matches.find((m) => m.kind === "word");
+  assert.ok(word, "gkrtod should find a word match");
+  assert.equal(word.canonical, "學生");
+  assert.equal(word.hangul, "학생");
+  // Byte for byte the ordinary lookup, plus the one extra field.
+  const plain = lookup("학생", data);
+  assert.deepEqual(typed.matches, plain.matches);
+  assert.equal("converted" in plain, false);
+  // Non-Latin input is untouched, and so is mixed input.
+  assert.equal("converted" in lookup("國民", data), false);
+  assert.equal("converted" in lookup("國民abc", data), false);
+});
+
+test("omnibox suggestions convert on the same rule", () => {
+  assert.deepEqual(
+    buildOmniboxSuggestions("gkrtod", data),
+    buildOmniboxSuggestions("학생", data)
+  );
+  // `content` stays the canonical searchable string, never what was typed.
+  const rows = buildOmniboxSuggestions("gkrtod", data);
+  assert.ok(rows.length > 0);
+  assert.equal(rows[0].content, "學生");
+  assert.ok(rows.every((r) => !/[A-Za-z]/.test(r.content)));
+  // A Latin query that converts to nothing findable simply suggests nothing.
+  assert.deepEqual(buildOmniboxSuggestions("zzz", data), []);
+});
+
 // --- optional smoke test against Agent A's real corpus -------------------
 // Read-only, and skipped (not failed) if the files are absent.
 
@@ -1931,6 +2117,36 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
     canonicals(charsOf(withParticle.matches)).slice(0, 2),
     ["國", "民"],
     `${kind} data: 國民이라는 must still return the 國/民 char cards`
+  );
+
+  // QWERTY ADDENDUM against the real corpus: the headline case only works if
+  // the automaton and the dictionary agree, which no fixture can prove.
+  const typed = lookup("toddlf", real);
+  assert.deepEqual(
+    typed.converted,
+    { from: "toddlf", to: "생일" },
+    `${kind} data: toddlf should convert to 생일`
+  );
+  const birthday = typed.matches.find((m) => m.kind === "word");
+  assert.ok(birthday, `${kind} data: toddlf should find a word match`);
+  assert.equal(birthday.hangul, "생일");
+  assert.deepEqual(lookup("생일", real).matches, typed.matches);
+  const typedRows = buildOmniboxSuggestions("toddlf", real);
+  assert.ok(typedRows.length > 0, `${kind} data: toddlf should suggest something`);
+  assert.deepEqual(
+    typedRows,
+    buildOmniboxSuggestions("생일", real),
+    `${kind} data: the omnibox converts on the same rule`
+  );
+  assert.ok(
+    typedRows.every((r) => !/[A-Za-z]/.test(r.content)),
+    `${kind} data: suggestion content stays the canonical searchable string`
+  );
+  // The project's own name, typed the same way.
+  assert.equal(lookup("dhrvus", real).converted.to, "옥편");
+  assert.ok(
+    lookup("dhrvus", real).matches.some((m) => m.canonical === "玉篇"),
+    `${kind} data: dhrvus should find 玉篇`
   );
 
   // Rule 3c against the real corpus.

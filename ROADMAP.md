@@ -19,6 +19,11 @@ the 1.0 review clears anyway.
   release. Both surfaces run on the same documented embed contract, and
   the sidebar page is a small registry-driven shell (views and header
   actions are declarative entries).
+- **QWERTY-to-hangul search.** Typing `toddlf` with the keyboard still in
+  English finds 생일. A query of nothing but Latin letters is read back
+  through the 2-set Korean layout, which is safe because such a query
+  matches nothing as it stands. The search box keeps what you typed. The
+  omnibox converts on the same rule.
 - **Character level taxonomy.** Every character carries exactly one `lvl` of
   m/h/a/r, rendered as one of four level chips on char cards and reading-list
   rows: Middle school and High school (MOE curriculum tiers, from the CC BY-SA

@@ -569,7 +569,20 @@
     };
   }
 
+  // ONE canned 한영타 conversion. The real Dubeolsik automaton is covered in
+  // Node; all a browser harness needs is the RESPONSE SHAPE, so it can assert
+  // that the renderer takes its search context from `converted` rather than
+  // from what was typed.
+  var QWERTY = { gkrtod: "학생" };
+
   function lookup(text) {
+    var typed = String(text === null || text === undefined ? "" : text).trim();
+    if (Object.prototype.hasOwnProperty.call(QWERTY, typed)) {
+      var inner = lookup(QWERTY[typed]);
+      if (inner.ok) inner.converted = { from: typed, to: QWERTY[typed] };
+      return inner;
+    }
+
     var words = [], chars = [], seenChar = {};
     function pushChar(canon, surface) {
       if (seenChar[canon]) return;
