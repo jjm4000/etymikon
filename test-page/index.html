@@ -289,6 +289,16 @@
       { hangul: "천지", hanja: "天地", gloss: "heaven and earth" }
     ]),
 
+    // --- decomposition ADDENDUM: 靴 and the characters its parts open -----
+    // 靴 carries the real BabelStone rows, and is here because it covers all
+    // four part-row shapes in one card. The three eums (화 혁 인) are new, so
+    // no reading list the checks pin by count moves.
+    "靴": C("신", "화", "shoe; boot", [
+      { hangul: "군화", hanja: "軍靴", gloss: "military boots" }
+    ]),
+    "革": C("가죽", "혁", "leather; hide"),
+    "人": C("사람", "인", "person; human being"),
+
     // --- the romanized-search example, so "su" has two honest readings ----
     // RR reads "su" as 수 and the Dubeolsik keyboard mapping reads it 녀.
     // Both syllables need real entries here, or the canned dual response
@@ -330,8 +340,8 @@
     "女": "m", "數": "m", "首": "m", "樹": "h", "修": "h", "秀": "h",
     "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
     "沙": "h", "舍": "h",
-    "菊": "a", "欺": "a", "衝": "a",
-    "鞠": "r", "麴": "r", "廊": "r"
+    "菊": "a", "欺": "a", "衝": "a", "人": "a",
+    "鞠": "r", "麴": "r", "廊": "r", "革": "r", "靴": "r"
     // 朞: intentionally absent — see above.
   };
   Object.keys(LVL).forEach(function (c) {
@@ -407,6 +417,37 @@
       "學者", "學問", "學院", "學術", "留學", "入學", "大學生", "晩學"
     ]
   };
+
+  // ADDENDUM decomposition: rows exactly as decomp.json emits them. [g] is a
+  // self-target row, [g,t] an alias row, [g,null] an inert part and
+  // [g,null,name] an inert part Unihan has a name for. Only 靴 has an entry;
+  // every other fixture char is the ordinary "no Made of row" case.
+  var DECOMP = {
+    "靴": [["革"], ["亻", "人"], ["乚", null, "hidden"], ["㇒", null]]
+  };
+
+  // The worker's join. The content script never sees hanja.json, so the click
+  // target's eumhun and gloss are resolved here, and a target with no entry
+  // degrades to an inert row.
+  function decompParts(char) {
+    return (DECOMP[char] || []).map(function (row) {
+      var clickable = row.length === 1 || typeof row[1] === "string";
+      if (!clickable) {
+        var inert = { g: row[0] };
+        if (typeof row[2] === "string") inert.name = row[2];
+        return inert;
+      }
+      var target = typeof row[1] === "string" ? row[1] : row[0];
+      var d = CHARS[target];
+      if (!d) return { g: row[0] };
+      var pair = (d.eumhun || [])[0] || {};
+      return {
+        g: row[0], t: target,
+        hun: pair.hun || "", eum: pair.eum || "",
+        gloss: (d.glosses || [])[0] || ""
+      };
+    });
+  }
 
   // ADDENDUM used-in: the words.json spellings that STRICTLY contain a word
   // (self excluded), ranked. The worker derives these from the first char's cw
@@ -568,6 +609,9 @@
     if (CW[canon] && CW[canon].length) m.cwCount = CW[canon].length;
     // Character level; omitted only for pre-migration entries (see LVL).
     if (d.lvl) m.lvl = d.lvl;
+    // Decomposition rows, joined; omitted for characters with no entry.
+    var parts = decompParts(canon);
+    if (parts.length) m.parts = parts;
     return m;
   }
 
@@ -1146,10 +1190,14 @@
   document.getElementById("run").addEventListener("click", async function () {
     var api = globalThis.__hanjaHover;
     if (!api) { out.textContent = "FAIL: __hanjaHover test hooks missing (is chrome.runtime present?)"; return; }
-    var lines = [], pass = 0, fail = 0;
+    var lines = [], pass = 0, fail = 0, skipped = 0;
     function check(name, cond, detail) {
       (cond ? pass++ : fail++);
       lines.push((cond ? "PASS  " : "FAIL  ") + name + (detail ? "   [" + detail + "]" : ""));
+    }
+    function skip(name, why) {
+      skipped++;
+      lines.push("SKIP  " + name + "   [" + why + "]");
     }
 
     var vw = document.documentElement.clientWidth;
@@ -4077,6 +4125,126 @@
       api.queryAll(".card").length >= 2 && api.queryAll(".spellings").length === 0,
       "cards=" + api.cardCount());
 
+    /* ==================================================================
+     * Decomposition: the "Made of" section.
+     *
+     * 靴 is the fixture's only decomposed character and covers every row
+     * shape: 革 self-target, 亻 aliased to 人, 乚 inert with a name, ㇒ inert
+     * without one.
+     * ================================================================== */
+    api.hide();
+    api.showAt(anchor, fake.__lookup("靴").matches);
+    await wait(60);
+    function madeOfRow() { return api.query(".madeof-row"); }
+    function madeOfParts() { return api.queryAll(".madeof-part"); }
+    function inDocOrder(a, b) {
+      return !!(a && b && (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING));
+    }
+
+    check("a decomposed char card shows one collapsed Made of row",
+      !!madeOfRow() && api.queryAll(".madeof-row").length === 1 &&
+      madeOfRow().textContent === "Made of 革 + 亻 + 乚 + ㇒" &&
+      api.query(".madeof-list").hidden === true &&
+      madeOfRow().getAttribute("aria-expanded") === "false",
+      madeOfRow() && JSON.stringify(madeOfRow().textContent));
+    check("the section sits after the definitions and before the compounds",
+      inDocOrder(api.query(".glosses"), api.query(".madeof")) &&
+      inDocOrder(api.query(".madeof"), api.query(".compounds")));
+    check("nothing is rendered until it is opened", madeOfParts().length === 4 &&
+      madeOfParts().every(function (r) { return r.offsetParent === null; }),
+      "rows=" + madeOfParts().length);
+
+    var callsBeforeExpand = fake.__calls;
+    var depthBeforeExpand = api.viewDepth();
+    madeOfRow().click();
+    await wait(60);
+    check("tapping the row expands it in place",
+      api.query(".madeof-list").hidden === false &&
+      madeOfRow().classList.contains("open") &&
+      madeOfRow().getAttribute("aria-expanded") === "true" &&
+      api.viewDepth() === depthBeforeExpand,
+      "depth=" + api.viewDepth());
+    check("expanding asks the worker nothing", fake.__calls === callsBeforeExpand,
+      "calls " + callsBeforeExpand + " → " + fake.__calls);
+    check("the parts render in IDS order, readings joined from the target",
+      madeOfParts().length === 4 &&
+      madeOfParts()[0].textContent === "革가죽 혁  leather; hide" &&
+      madeOfParts()[1].textContent === "亻사람 인  person; human being",
+      madeOfParts().map(function (r) { return r.textContent; }).join(" | "));
+    check("clickable parts are nav rows, reading-less parts are inert",
+      madeOfParts().filter(function (r) { return r.classList.contains("nav"); }).length === 2 &&
+      madeOfParts().slice(0, 2).every(function (r) {
+        return r.getAttribute("role") === "button";
+      }) &&
+      madeOfParts().slice(2).every(function (r) {
+        return r.classList.contains("inert") && !r.classList.contains("nav") &&
+          !r.hasAttribute("role") && !r.hasAttribute("tabindex");
+      }),
+      madeOfParts().map(function (r) { return r.className; }).join(" | "));
+    check("an inert part shows its name when Unihan has one, nothing when not",
+      madeOfParts()[2].textContent === "乚hidden" && madeOfParts()[3].textContent === "㇒",
+      JSON.stringify(madeOfParts()[2].textContent + " | " + madeOfParts()[3].textContent));
+    check("collapsing again hides the rows",
+      (madeOfRow().click(), api.query(".madeof-list").hidden === true &&
+        !madeOfRow().classList.contains("open")));
+
+    // --- an inert row is not a click target -------------------------------
+    madeOfRow().click();
+    await wait(30);
+    var callsBeforeInert = fake.__calls;
+    madeOfParts()[3].click();
+    await wait(60);
+    check("clicking an inert part does nothing at all",
+      api.viewDepth() === depthBeforeExpand && fake.__calls === callsBeforeInert,
+      "depth=" + api.viewDepth() + " calls=" + fake.__calls);
+
+    // --- the alias row navigates to its TARGET, literally -----------------
+    var callsBeforeAlias = fake.__calls;
+    madeOfParts()[1].click();                    // 亻 → 人
+    await wait(90);
+    check("the alias row opens the target character, not the display glyph",
+      api.viewDepth() === depthBeforeExpand + 1 &&
+      api.query(".card .surface").textContent === "人" &&
+      fake.__calls === callsBeforeAlias + 1 && fake.__lastText === "人" &&
+      fake.__lastInterpret !== true,
+      "depth=" + api.viewDepth() + " text=" + fake.__lastText);
+    check("it carries the ordinary breadcrumb trail",
+      api.crumbLabels().join(" › ") === "靴 › 人",
+      api.crumbLabels().join(" › "));
+    api.query(".crumb").click();
+    await wait(90);
+    check("coming back rebuilds the section collapsed",
+      !!madeOfRow() && api.query(".madeof-list").hidden === true &&
+      !madeOfRow().classList.contains("open"),
+      madeOfRow() && madeOfRow().className);
+
+    // --- characters and cards with no section -----------------------------
+    api.showAt(anchor, fake.__lookup("民").matches);
+    await wait(60);
+    check("a character with no decomposition shows no row at all",
+      !api.query(".madeof") && !api.query(".madeof-row"));
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    await wait(60);
+    check("word cards are unchanged", !api.query(".word-body .madeof"),
+      "cards=" + api.cardCount());
+    api.hide();
+
+    /* --- MODULARITY: one definition, one call site (SPEC) ---------------- *
+     * Reads the shipped source, so it holds for the file rather than for
+     * whatever this page happens to render. Same-origin fetch, i.e. the
+     * harness served over http://; on file:// it is reported as skipped.    */
+    if (location.protocol === "file:") {
+      skip("appendMadeOf is defined once and called once",
+        "file:// blocks fetching the content script; serve the repo over http://");
+    } else {
+      var contentSrc = await (await fetch("../extension/content/content.js")).text();
+      var defs = contentSrc.match(/function appendMadeOf\s*\(/g) || [];
+      var mentions = contentSrc.match(/appendMadeOf\s*\(/g) || [];
+      check("appendMadeOf is defined once and called once",
+        defs.length === 1 && mentions.length === 2,
+        "definitions=" + defs.length + " mentions=" + mentions.length);
+    }
+
     api.hide();
     check("hide() clears visibility", !api.isVisible());
     } catch (e) {
@@ -4086,7 +4254,9 @@
     }
 
     lines.push("");
-    lines.push(fail === 0 ? ("ALL PASS (" + pass + ")") : (fail + " FAILED / " + pass + " passed"));
+    lines.push((fail === 0 ? ("ALL PASS (" + pass + ")")
+                           : (fail + " FAILED / " + pass + " passed")) +
+               (skipped ? ("  —  " + skipped + " skipped") : ""));
     out.textContent = lines.join("\n");
   });
 })();
