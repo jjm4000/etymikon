@@ -572,7 +572,7 @@
     });
     main.appendChild(move);
 
-    var removeBtn = button("saved-remove", "Remove", "Remove the selection");
+    var removeBtn = button("saved-remove", "Delete", "Delete the selection");
     removeBtn.id = "okp-saved-remove";
     removeBtn.addEventListener("click", openRemoveConfirm);
     main.appendChild(removeBtn);
@@ -637,8 +637,8 @@
     if (!ids.length) return;
     var box = el("div", "saved-confirm saved-confirm--remove");
     box.appendChild(el("span", "saved-confirm-text",
-      "Remove " + ids.length + (ids.length === 1 ? " item?" : " items?")));
-    var yes = button("saved-confirm-yes", "Remove");
+      "Delete " + ids.length + (ids.length === 1 ? " item?" : " items?")));
+    var yes = button("saved-confirm-yes", "Delete");
     var no = button("saved-confirm-no", "Cancel");
     yes.addEventListener("click", function () {
       sendToWorker({ type: "savedRemove", ids: ids }).then(function () {

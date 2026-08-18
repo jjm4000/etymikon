@@ -60,7 +60,7 @@ QA and merge:
   always shows current data and duplicates cannot exist.
 - **Folders.** Create, rename and delete (contents return to the default
   folder), collapse and expand, batch selection at the folder and item
-  level, and batch move, remove (with confirmation) and export.
+  level, and batch move, delete (with confirmation) and export.
 - **Export.** Anki (tab-separated, front and back shaped by settings, the
   folder carried as an Anki tag) or CSV (a full-data spreadsheet).
 - **Settings page.** Schema-driven so each future setting is one entry:

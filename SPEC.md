@@ -933,10 +933,13 @@ eumhun/hangul instead).
   "no longer in the dictionary" note for missing rows.
 - Row click (outside the checkbox) → set `#okp-input.value` to the key,
   `controller.search(key)`, `showView("search")`.
-- Actions bar: "Move to…" folder select, Remove, Export — all act on the
+- Actions bar: "Move to…" folder select, Delete, Export — all act on the
   checked set; nothing checked = the current filter (All = everything).
-  Remove requires an INLINE two-step confirmation ("Remove N items?" →
-  confirm/cancel buttons in place; no window.confirm). Export opens an
+  Delete requires an INLINE two-step confirmation ("Delete N items?" →
+  confirm/cancel buttons in place; no window.confirm). (Verbiage ADDENDUM,
+  user-directed: the batch action says "Delete"; the save bubble's link
+  keeps "Remove" since it unsaves rather than deletes. Internal
+  ids/classes keep the remove naming.) Export opens an
   inline FORMAT choice: "Anki" or "CSV" (see Export formats). Download:
   Blob + `<a download>` click, filename from the worker, then revoke.
 - `onShow` refreshes via `savedGet`; a guarded `chrome.storage.onChanged`

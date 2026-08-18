@@ -2352,11 +2352,11 @@
     setChecked(rowFor("民").querySelector(".saved-check"), true);
     var removeBtn = byId("okp-saved-remove");
     removeBtn.click();
-    check("the first Remove click ARMS an inline confirmation and removes nothing",
+    check("the first Delete click ARMS an inline confirmation and removes nothing",
       actsInline.hidden === false &&
       !!actsInline.querySelector(".saved-confirm--remove") &&
       actsInline.querySelector(".saved-confirm-text").textContent ===
-        "Remove 2 items?" &&
+        "Delete 2 items?" &&
       document.querySelector(".saved-actions-main").hidden === true &&
       store.state().items.length === 5,
       actsInline.textContent);
