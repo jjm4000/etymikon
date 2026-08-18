@@ -1282,6 +1282,20 @@ This section supersedes the QWERTY addendum's `converted` response field:
   navigation (a homophone click) never re-interprets. index.html:
   fixture parity only (selections are never Latin).
 
+## Card section convention (binding, all features)
+
+User-directed (2026-08-18): every card section — existing and future —
+is ONE self-contained unit: a single `appendX(card, m)` function with a
+single call site in the card build, reading only its slice of the match
+(plus settings through one enabled-predicate). No other code may know a
+section exists. Moving a section is moving its call; removing it is
+deleting its call; disabling it is one predicate. Rationale: the shell
+(surfaces, saved words, settings, navigation, harness) should stay
+reusable for a possible future app around a different language, without
+building a speculative language-abstraction layer now. New sections MUST
+follow this; existing sections are brought into line opportunistically
+when touched, never in a big rewrite.
+
 ## Character decomposition (ADDENDUM)
 
 User-directed (2026-08-18): character cards show what a character is made
