@@ -34,7 +34,20 @@ const DATA_FILES = {
   hanja: "data/hanja.json",
   words: "data/words.json",
   variants: "data/variants.json",
+  // Romanized search ADDENDUM: the forward-generated RR index.
+  rr: "data/rr.json",
 };
+
+/**
+ * Shape guard for rr.json. A bundle mid-update (or one built before the
+ * romanization addendum) must cost the interpreter nothing worse than finding
+ * no candidates, so the tables are always objects.
+ */
+function guardRr(raw) {
+  const rr = raw !== null && typeof raw === "object" ? raw : {};
+  const table = (v) => (v !== null && typeof v === "object" ? v : {});
+  return { v: 1, words: table(rr.words), syllables: table(rr.syllables) };
+}
 
 /**
  * Rule 5: module-level cache. The service worker may be torn down and
@@ -60,16 +73,17 @@ async function fetchJson(path) {
   return response.json();
 }
 
-/** Lazily load + cache the three data files. Failures clear the cache so a later lookup can retry. */
+/** Lazily load + cache the four data files. Failures clear the cache so a later lookup can retry. */
 function getData() {
   if (dataPromise === null) {
     dataPromise = (async () => {
-      const [hanja, words, variants] = await Promise.all([
+      const [hanja, words, variants, rr] = await Promise.all([
         fetchJson(DATA_FILES.hanja),
         fetchJson(DATA_FILES.words),
         fetchJson(DATA_FILES.variants),
+        fetchJson(DATA_FILES.rr),
       ]);
-      return { hanja, words, variants };
+      return { hanja, words, variants, rr: guardRr(rr) };
     })();
     dataPromise.catch(() => {
       dataPromise = null;
@@ -80,19 +94,28 @@ function getData() {
 }
 
 /**
- * Handle a {type:"lookup", text} message.
+ * Handle a {type:"lookup", text, interpret} message.
+ *
+ * Romanized search ADDENDUM (input-channel rule): `interpret` is set only by
+ * free-typed entry points (the search shell, the omnibox, `?q=` deep links,
+ * the pending query). Everything else — every internal navigation — arrives
+ * without it and gets a literal lookup.
  * @returns {Promise<{ok:true, matches:object[]}|{ok:false, error:string}>}
  */
-export async function handleLookup(text) {
+export async function handleLookup(text, interpret) {
   try {
     const data = await getData();
-    return lookup(text, {
-      ...data,
-      getReadingIndex: () => {
-        if (readingIndex === null) readingIndex = buildReadingIndex(data.hanja);
-        return readingIndex;
+    return lookup(
+      text,
+      {
+        ...data,
+        getReadingIndex: () => {
+          if (readingIndex === null) readingIndex = buildReadingIndex(data.hanja);
+          return readingIndex;
+        },
       },
-    });
+      { interpret: interpret === true }
+    );
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -474,7 +497,7 @@ export async function handleSavedExport(selection, format) {
  * set against the SPEC without a chrome.runtime.
  */
 export const MESSAGE_HANDLERS = {
-  lookup: (m) => handleLookup(m.text),
+  lookup: (m) => handleLookup(m.text, m.interpret === true),
   compounds: (m) => handleCompounds(m.char),
   usedIn: (m) => handleUsedIn(m.word),
   openTab: (m) => handleOpenTab(m.url),
@@ -611,7 +634,8 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
   chrome.omnibox.onInputChanged.addListener((text, suggest) => {
     (async () => {
       try {
-        suggest(buildOmniboxSuggestions(text, await getData()));
+        // The omnibox is a typed channel, so it always interprets.
+        suggest(buildOmniboxSuggestions(text, await getData(), { interpret: true }));
       } catch {
         // Data unavailable (offline install, mid-update): no rows, no noise.
         suggest([]);

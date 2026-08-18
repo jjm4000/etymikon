@@ -714,39 +714,260 @@ export function buildMatches(text, data) {
   return [...wordMatches, ...charMatches];
 }
 
+/* ---------------------------------------------------------------------------
+ * Romanized search ADDENDUM — the two interpreters.
+ *
+ * A pure-Latin query has two plausible readings: hangul typed with the
+ * keyboard in the wrong mode (`toddlf` → 생일) and romanized Korean
+ * (`gukmin` → 국민). Both are tried, both may survive, and the merge orders
+ * them by frequency. This supersedes the QWERTY addendum's `converted` field:
+ * the response now carries `interpretations`.
+ *
+ * THE INPUT-CHANNEL RULE: none of this runs unless the caller asks for it.
+ * Interpretation belongs to free-typed input (the search shell, the omnibox,
+ * `?q=` deep links, the pending query); every internal navigation looks up
+ * literally, and a literal lookup of Latin text finds nothing, as it always
+ * did. Interpretation must never depend on string shape alone.
+ * ------------------------------------------------------------------------- */
+
+/** Variant rule (b): a leading tense/aspirate spelling for a lax initial. */
+const DEVOICE_LEADING = { k: "g", t: "d", p: "b" };
+
+/** Variant expansion is deliberately bounded; v1 caps the set at 8. */
+export const MAX_RR_VARIANTS = 8;
+
 /**
- * What to actually look up, and what the conversion was when one happened.
- *
- * QWERTY-to-hangul ADDENDUM: input that is nothing but Latin letters is read
- * as hangul typed with the keyboard in the wrong mode (`toddlf` → 생일). The
- * conversion is unconditional for such input because a Latin query matches
- * nothing in the dictionary by construction, so there is no ambiguity to
- * weigh. The existing length cap still governs: the conversion feeds the
- * ordinary path, which caps at MAX_RELEVANT_CHARS.
- *
- * @param {string} text raw query
- * @returns {{query:string, converted:{from:string,to:string}|null}}
+ * Romanization normalization: case, and the punctuation romanizations use to
+ * mark syllable boundaries (`guk-min`, `han'gul`), are all noise against an
+ * index built from unpunctuated forms.
  */
-export function resolveQuery(text) {
-  const raw = normalize(text).trim();
-  if (!isLatinQuery(raw)) return { query: raw, converted: null };
+export function normalizeRomanization(text) {
+  return typeof text === "string"
+    ? text.toLowerCase().replace(/[-'’\s]/g, "")
+    : "";
+}
+
+/**
+ * The bounded variant set for a romanized query: the normalized form, plus
+ * the three v1 spelling rules applied in combination. Rules are applied to
+ * everything produced so far, so `kooksu` reaches `guksu`, and the total is
+ * capped at MAX_RR_VARIANTS (three binary rules cannot exceed it, but the cap
+ * is enforced anyway so no future rule can make this unbounded).
+ *
+ * @param {string} text raw (or already normalized) query
+ * @returns {string[]} variants, normalized form first, deduped
+ */
+export function romanizationVariants(text) {
+  const base = normalizeRomanization(text);
+  if (base === "") return [];
+  const out = [base];
+  const rules = [
+    // (b) a leading k/t/p is often the lax initial the index spells g/d/b.
+    (s) => (hasOwn(DEVOICE_LEADING, s[0]) ? DEVOICE_LEADING[s[0]] + s.slice(1) : null),
+    // (c) McCune-style `oo` for RR's `u`.
+    (s) => (s.includes("oo") ? s.replace(/oo/g, "u") : null),
+    // (d) `sh` before a vowel is RR's plain `s`.
+    (s) => (/sh[aeiou]/.test(s) ? s.replace(/sh(?=[aeiou])/g, "s") : null),
+  ];
+  for (const rule of rules) {
+    for (const seed of out.slice()) {
+      if (out.length >= MAX_RR_VARIANTS) break;
+      const next = rule(seed);
+      if (typeof next === "string" && next !== "" && !out.includes(next)) out.push(next);
+    }
+  }
+  return out;
+}
+
+/**
+ * Every hangul string the rr index offers for a variant set: words first, then
+ * single syllables, in rr.json's own order (which is frequency-sorted for
+ * words). Deduped across variants.
+ */
+function rrCandidates(variants, rr) {
+  const words = (rr && rr.words) || {};
+  const syllables = (rr && rr.syllables) || {};
+  const out = [];
+  const seen = new Set();
+  const take = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const hangul of list) {
+      if (typeof hangul !== "string" || hangul === "" || seen.has(hangul)) continue;
+      seen.add(hangul);
+      out.push(hangul);
+    }
+  };
+  for (const variant of variants) {
+    if (hasOwn(words, variant)) take(words[variant]);
+    if (hasOwn(syllables, variant)) take(syllables[variant]);
+  }
+  return out;
+}
+
+/** Identity of a match for dedupe purposes, per kind. */
+function matchKey(match) {
+  if (match.kind === "word") return `w|${match.canonical}|${match.hangul}|${match.surface}`;
+  if (match.kind === "reading") return `r|${match.eum}`;
+  return `c|${match.canonical}`;
+}
+
+/** Interpretation 1: the Dubeolsik reading of the typed letters. */
+function dubeolsikInterpretation(raw, data) {
   const to = qwertyToHangul(raw);
-  if (to === "" || to === raw) return { query: raw, converted: null };
-  return { query: to, converted: { from: raw, to } };
+  if (to === "" || to === raw) return null;
+  const matches = buildMatches(to, data);
+  return matches.length === 0 ? null : { kind: "dubeolsik", from: raw, to, matches };
+}
+
+/**
+ * Interpretation 2: the romanization reading. Every candidate hangul the rr
+ * index offers runs the NORMAL lookup — a word candidate takes the word path,
+ * a single syllable takes the reading path — and the results merge in
+ * candidate order (i.e. rr.json's frequency order), deduped.
+ */
+function rrInterpretation(raw, data) {
+  const candidates = rrCandidates(romanizationVariants(raw), data && data.rr);
+  const matches = [];
+  const seen = new Set();
+  let to = "";
+  for (const candidate of candidates) {
+    let contributed = false;
+    for (const match of buildMatches(candidate, data)) {
+      const key = matchKey(match);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      matches.push(match);
+      contributed = true;
+    }
+    // `to` names the mapping the UI shows ("su → 수"), so it is the first
+    // candidate that actually explained something, not merely the first key.
+    if (contributed && to === "") to = candidate;
+  }
+  return matches.length === 0 ? null : { kind: "rr", from: raw, to, matches };
+}
+
+/** True when an interpretation found real words (not just a reading list). */
+function hasWordMatches(interp) {
+  return interp.matches.some((m) => m.kind === "word");
+}
+
+/**
+ * The best (lowest) frequency bucket among an interpretation's word matches.
+ * `f` lives on the words.json entry, not on the match, so it is read back
+ * here; unranked entries sort last.
+ */
+function bestFrequency(interp, wordTable) {
+  let best = Infinity;
+  for (const match of interp.matches) {
+    if (match.kind !== "word" || !hasOwn(wordTable, match.canonical)) continue;
+    const entries = wordTable[match.canonical];
+    for (const entry of Array.isArray(entries) ? entries : [entries]) {
+      if (entry && Number.isInteger(entry.f) && entry.f < best) best = entry.f;
+    }
+  }
+  return best;
+}
+
+/**
+ * The prominence of a reading-only interpretation: the best compound count
+ * among its candidates. Read as the parallel of the `f` rule above — the best
+ * value the side has to offer — because the reading list's own order is
+ * ranked by a saturating proxy (the truncated `compounds` array) and so says
+ * little about which reading a typist meant.
+ */
+function bestCompoundCount(interp, charTable) {
+  let best = -1;
+  for (const match of interp.matches) {
+    if (match.kind !== "reading" || !Array.isArray(match.candidates)) continue;
+    for (const candidate of match.candidates) {
+      const entry = hasOwn(charTable, candidate.char) ? charTable[candidate.char] : null;
+      const count = entry && Array.isArray(entry.cw) ? entry.cw.length : 0;
+      if (count > best) best = count;
+    }
+  }
+  return best;
+}
+
+/**
+ * Two surviving interpretations, ordered preferred-first. A word
+ * interpretation beats a syllable-only one; word vs word compares the best
+ * `f`; reading vs reading compares the best compound count; a remaining tie
+ * goes to Dubeolsik, which is the older, more deliberate gesture.
+ */
+function orderPair(dubeolsik, rr, data) {
+  const wordTable = (data && data.words && data.words.words) || {};
+  const charTable = (data && data.hanja && data.hanja.chars) || {};
+  const dw = hasWordMatches(dubeolsik);
+  const rw = hasWordMatches(rr);
+  if (dw !== rw) return dw ? [dubeolsik, rr] : [rr, dubeolsik];
+  if (dw) {
+    const df = bestFrequency(dubeolsik, wordTable);
+    const rf = bestFrequency(rr, wordTable);
+    if (df !== rf) return df < rf ? [dubeolsik, rr] : [rr, dubeolsik];
+  } else {
+    const dc = bestCompoundCount(dubeolsik, charTable);
+    const rc = bestCompoundCount(rr, charTable);
+    if (dc !== rc) return dc > rc ? [dubeolsik, rr] : [rr, dubeolsik];
+  }
+  return [dubeolsik, rr];
+}
+
+/**
+ * Run both interpreters over a query, dropping the ones that found nothing.
+ *
+ * @param {string} text raw query (trimming/NFC handled here)
+ * @param {object} data parsed data bundle, including `rr`
+ * @returns {Array<{kind:string, from:string, to:string, matches:object[]}>}
+ *          zero, one or two interpretations, preferred first
+ */
+export function buildInterpretations(text, data) {
+  const raw = normalize(text).trim();
+  if (!isLatinQuery(raw)) return [];
+  const dubeolsik = dubeolsikInterpretation(raw, data);
+  const rr = rrInterpretation(raw, data);
+  if (dubeolsik === null) return rr === null ? [] : [rr];
+  if (rr === null) return [dubeolsik];
+  return orderPair(dubeolsik, rr, data);
+}
+
+/**
+ * Flatten interpretations into the response's `matches` plus the
+ * `interpretations` descriptor, where `start` is the index in `matches` at
+ * which each group begins.
+ */
+function flattenInterpretations(interps) {
+  const matches = [];
+  const descriptors = [];
+  for (const interp of interps) {
+    descriptors.push({
+      kind: interp.kind,
+      from: interp.from,
+      to: interp.to,
+      start: matches.length,
+    });
+    matches.push(...interp.matches);
+  }
+  return { matches, interpretations: descriptors };
 }
 
 /**
  * Full lookup, returning the SPEC "Message protocol" response envelope.
  * Never throws.
+ *
+ * @param {string} text raw query or selection
+ * @param {object} data parsed data bundle
+ * @param {{interpret?:boolean}} [options] `interpret: true` opts the call into
+ *        the two interpreters above. Absent (every internal navigation) means
+ *        a literal lookup, so Latin text matches nothing.
  */
-export function lookup(text, data) {
+export function lookup(text, data, options) {
   try {
-    const { query, converted } = resolveQuery(text);
-    const response = { ok: true, matches: buildMatches(query, data) };
-    // Surfaces never rewrite what the user typed; they read this instead, so
-    // the search context can show the hangul the query turned into.
-    if (converted !== null) response.converted = converted;
-    return response;
+    const interpret = options !== null && typeof options === "object" && options.interpret === true;
+    if (interpret) {
+      const interps = buildInterpretations(text, data);
+      if (interps.length > 0) return { ok: true, ...flattenInterpretations(interps) };
+    }
+    return { ok: true, matches: buildMatches(text, data) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -830,27 +1051,39 @@ function charSuggestion(char, hun, eum, gloss, lvl) {
  * Never throws: junk data yields [].
  *
  * @param {string} text raw omnibox input
- * @param {{hanja?:object, words?:object, variants?:object}} data parsed data files
+ * @param {{hanja?:object, words?:object, variants?:object, rr?:object}} data parsed data files
+ * @param {{interpret?:boolean}} [options] same input-channel rule as lookup();
+ *        the omnibox IS a typed channel, so background.js passes it.
  * @returns {Array<{content:string, description:string}>}
  */
-export function buildOmniboxSuggestions(text, data) {
+export function buildOmniboxSuggestions(text, data, options) {
   try {
-    // Same rule as lookup(): `hj toddlf` suggests 생일's entries. Each row's
-    // `content` stays the candidate's canonical searchable string, so the
-    // suggestion the user picks re-enters as hanja, not as what they typed.
-    const { query } = resolveQuery(text);
-    if (query === "") return [];
+    // Same generators and ordering as lookup(): `hj toddlf` suggests 생일's
+    // entries, `hj gukmin` suggests 국민's. Each row's `content` stays the
+    // candidate's canonical searchable string, so the suggestion the user
+    // picks re-enters as hanja, not as what they typed.
+    const interpret =
+      options !== null && typeof options === "object" && options.interpret === true;
+    const interps = interpret ? buildInterpretations(text, data) : [];
+    const groups =
+      interps.length > 0
+        ? interps.map((i) => i.matches)
+        : [buildMatches(text, data)];
 
-    const matches = buildMatches(query, data);
-    const words = matches.filter((m) => m.kind === "word");
-    const rows = [
-      // Rare-flagged spellings rank last across the whole query, not just
-      // within one hangul span (buildMatches only orders within a span).
-      ...words.filter((m) => m.rare !== true),
-      ...words.filter((m) => m.rare === true),
-      ...matches.filter((m) => m.kind === "reading"),
-      ...matches.filter((m) => m.kind === "char"),
-    ];
+    // Ordering applies WITHIN a group, so the preferred interpretation's rows
+    // stay ahead of the other's.
+    const rows = [];
+    for (const matches of groups) {
+      const words = matches.filter((m) => m.kind === "word");
+      rows.push(
+        // Rare-flagged spellings rank last across the whole query, not just
+        // within one hangul span (buildMatches only orders within a span).
+        ...words.filter((m) => m.rare !== true),
+        ...words.filter((m) => m.rare === true),
+        ...matches.filter((m) => m.kind === "reading"),
+        ...matches.filter((m) => m.kind === "char")
+      );
+    }
 
     const suggestions = [];
     const seen = new Set();
