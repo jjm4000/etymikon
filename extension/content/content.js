@@ -497,6 +497,19 @@
     ".view > .card.usedin { padding: 0; }",
     ".usedin-list { padding: 3px 0 5px; }",
     ".usedin-item { padding: 4px 12px; border-radius: 0; }",
+    /* ---- decomposition: the collapsed "Made of" row and its part rows ---- */
+    // Quiet like the used-in row, except the glyphs themselves, which carry
+    // full text colour because they are the content.
+    ".madeof { margin: 9px -6px 0; }",
+    ".madeof-row { padding: 4px 6px; color: var(--muted); font-size: 12px; }",
+    ".madeof-glyph { font-weight: 600; font-size: 14px; color: var(--fg); }",
+    // Open state: the same chevron slot, turned down.
+    ".madeof-row.open::after { content: '\\2304'; }",
+    ".madeof-list { padding: 2px 0 1px; }",
+    ".madeof-part { padding: 3px 6px; }",
+    // An inert part has no reading to show, so the whole row recedes.
+    ".madeof-part.inert, .madeof-part.inert .r-glyph { color: var(--faint); }",
+    ".card.component .madeof-row { font-size: 11px; }",
     /* ---- nested sections: component words + component hanja ---- */
     // Sections are built only when populated; an empty one must take no space.
     ".parts:empty, .components:empty, .hedge:empty, .top-chars:empty { display: none; }",
@@ -2302,9 +2315,89 @@
 
     appendGlosses(card, m.glosses);
 
+    appendMadeOf(card, m);
+
     appendCompounds(card, m);
 
     return card;
+  }
+
+  /* ---- Decomposition ---------------------------------------------------- *
+   * One self-contained section: this predicate, this function, and the single
+   * call above. Nothing else in the renderer knows the feature exists, so
+   * moving the section is moving that call and removing it is deleting it.
+   * -------------------------------------------------------------------- */
+
+  // The section's one enabled-predicate. The renderer has no settings channel
+  // in this release, so it is a constant; a later toggle is one SETTINGS_SCHEMA
+  // entry read here, and no other change.
+  function decompEnabled(settings) {
+    return true;
+  }
+
+  // "Made of 亻 + 衣 ›", expanding in place into one row per part. Reads only
+  // `m.parts`, whose rows the worker has already joined: `g` is the display
+  // glyph, `t` the character the row opens (absent on reading-less parts),
+  // `hun`/`eum`/`gloss` the target's, `name` the English name of a
+  // reading-less shape when Unihan has one.
+  function appendMadeOf(card, m) {
+    if (!decompEnabled(null)) return;
+    var parts = asArray(m.parts).filter(function (p) {
+      return p && typeof p === "object" && nonEmptyString(p.g);
+    });
+    if (!parts.length) return;
+
+    var box = el("div", "madeof");
+    var row = el("div", "entry-row madeof-row nav");
+    var text = el("span", "madeof-text");
+    text.appendChild(document.createTextNode("Made of "));
+    parts.forEach(function (p, i) {
+      if (i) text.appendChild(document.createTextNode(" + "));
+      text.appendChild(el("span", "madeof-glyph", nonEmptyString(p.g)));
+    });
+    row.appendChild(clampWrap(text, 1));
+    row.setAttribute("aria-expanded", "false");
+    box.appendChild(row);
+
+    var list = el("div", "madeof-list");
+    list.hidden = true;
+    parts.forEach(function (p) {
+      var part = el("div", "entry-row madeof-part");
+      part.appendChild(el("span", "r-glyph", nonEmptyString(p.g)));
+      var body = el("span", "r-text");
+      var target = nonEmptyString(p.t);
+      if (target) {
+        var hun = nonEmptyString(p.hun);
+        var eum = nonEmptyString(p.eum);
+        var label = hun && eum ? hun + " " + eum : (eum || hun);
+        if (label) body.appendChild(el("span", "r-eumhun", label));
+        var gloss = nonEmptyString(p.gloss);
+        if (gloss) body.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
+      } else {
+        part.classList.add("inert");
+        var name = nonEmptyString(p.name);
+        if (name) body.appendChild(el("span", "madeof-name", name));
+      }
+      part.appendChild(clampWrap(body, 1));
+      // Literal navigation, like every other row: a part is a character, never
+      // something to interpret.
+      if (target) {
+        part.classList.add("nav");
+        makeNavRow(part, target);
+      }
+      list.appendChild(part);
+    });
+    box.appendChild(list);
+
+    // Collapsed on every build, by construction: nothing here is persisted.
+    makeNavRow(row, function () {
+      var open = list.hidden;
+      list.hidden = !open;
+      row.classList.toggle("open", open);
+      row.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) keepInView(list);
+    });
+    card.appendChild(box);
   }
 
   // One dictionary line: "국민 (國民): the people of a nation". Shared by the
