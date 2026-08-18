@@ -1249,6 +1249,15 @@ This section supersedes the QWERTY addendum's `converted` response field:
   (today it assumes at most one); generalize before wiring dividers.
   Drill-downs from either group are ordinary navigation with standard
   crumbs, cache, and cycle handling.
+- Group PREVIEW cap (ADDENDUM, user-reported: 수's 102 rows buried the
+  녀 group): in MULTI-GROUP views only, a reading-list group renders its
+  top 5 candidates plus one nav row `Show all N ›` (house nav-row
+  affordance) that pushes the syllable's FULL reading view as an
+  ordinary drill-down (crumb typed › syllable; back restores both
+  groups). Groups at or under 5 candidates render whole, no row.
+  Single-group views and every directly reached reading view stay
+  complete and uncapped (the homophone browser's contract is
+  unchanged).
 
 ### Tests
 
