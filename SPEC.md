@@ -800,6 +800,20 @@ views (crumbs, cached scroll, cycle handling all standard):
   hangul lookup of that word — the multi-spelling selector view when
   homographs exist, the word view otherwise. Crumb label follows the
   canonical-crumb rules (the hangul is the view's identity here).
+  (REVISED, user-reported 2026-08-18): when MULTIPLE spellings exist the
+  chip must always land on the selector view, even clicked from one of
+  those spellings' own cards — the selector is the point of the click,
+  so neither the orient-in-place rule nor the drill-down path's
+  single-word resolution may swallow it. The pushed view's identity is
+  the hangul (e.g. `hangul:사과`), distinct from any single spelling's
+  word view; re-clicking while already ON that selector view orients as
+  usual. Single-spelling words keep the plain word view and the orient
+  rule.
+- Eumhun display (REVISED, user-chosen): the hun is NOT accent-colored —
+  it renders in the normal foreground, and only the clickable eum keeps
+  the accent. One color rule everywhere the eumhun pairing appears on
+  card heads; the word-body eumhun chips and reading rows keep their
+  existing styling.
 - One shared internal primitive does both: fetchLookup(text) (the cached
   drill-down path) + the normal view push; no new worker traffic types.
 - Affordance: keep the accent color, add the nav hover treatment
