@@ -785,6 +785,36 @@ wiki-link background-open rules all stand unchanged.
   message plus a `searchFor()` call on this page — nothing in this
   section may be built in a way that precludes it.
 
+## Reading navigation (ADDENDUM)
+
+User-directed (2026-08-18): the accent-colored readings on card heads look
+clickable and must be. Two navigations, both pushed as ordinary drill-down
+views (crumbs, cached scroll, cycle handling all standard):
+
+- On CHAR card heads, every eum syllable in the eumhun line (구슬 옥 → the
+  옥) and every syllable on a readings-only line becomes a nav chip
+  opening the READING VIEW for that syllable — the same homophone list a
+  single-syllable selection opens, crumb labeled with the syllable. The
+  hun part (구슬) is NOT clickable.
+- On WORD card heads, the hangul (옥편) becomes a nav chip opening the
+  hangul lookup of that word — the multi-spelling selector view when
+  homographs exist, the word view otherwise. Crumb label follows the
+  canonical-crumb rules (the hangul is the view's identity here).
+- One shared internal primitive does both: fetchLookup(text) (the cached
+  drill-down path) + the normal view push; no new worker traffic types.
+- Affordance: keep the accent color, add the nav hover treatment
+  (underline) and keyboard activation (role=button/tabindex, Enter/Space
+  — the makeNavRow idiom). Identical in normal and embed modes.
+- Reading-list ROWS are unchanged (the whole row already navigates to
+  the char). Eumhun chips on word bodies are unchanged (they scroll to
+  the component card).
+- Harness: checks in BOTH harnesses — eum click opens the reading list
+  with the right candidates and crumb, back returns with scroll restored;
+  readings-only syllable click works; word-head hangul click opens the
+  hangul view (spelling selector where applicable); keyboard activation;
+  a chip for a syllable with no homophones still renders a sane view
+  (the reading view handles empty candidate lists already).
+
 ## Saved words + settings (ADDENDUM)
 
 User-directed (2026-08-17): a saved-words list with folders and Anki
