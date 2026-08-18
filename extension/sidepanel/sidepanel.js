@@ -295,6 +295,12 @@
         input: document.getElementById("okp-input"),
         results: container.querySelector("#okp-results"),
         status: container.querySelector("#okp-status"),
+        // The corner seal (see sidepanel.css .view--blank::after) marks the
+        // view only while it is genuinely empty — never behind results,
+        // errors, or the no-match line.
+        onState: function (state) {
+          container.classList.toggle("view--blank", state === "empty");
+        },
         // Focus rules: the input is focused ONLY on an empty boot — the
         // icon-click open, where typing into the panel is the next thing the
         // user does. A boot that already has a query came from somewhere the

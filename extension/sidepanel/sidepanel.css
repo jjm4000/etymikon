@@ -29,6 +29,7 @@
   --brand: #2e6b57;
   --action-fg: #6b6b73;
   --action-hover: rgba(0, 0, 0, 0.06);
+  --seal: rgba(46, 107, 87, 0.3);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -48,6 +49,7 @@
     --brand: #7cc3a3;
     --action-fg: #9a9aa4;
     --action-hover: rgba(255, 255, 255, 0.09);
+    --seal: rgba(124, 195, 163, 0.32);
   }
 }
 
@@ -398,9 +400,12 @@ body {
   .saved-error { color: #f2b8b5; }
 }
 
-/* THE scroller for this view. */
+/* THE scroller for this view. Sized to its content (not stretched) so the
+   actions bar sits directly under the last row instead of parking at the
+   bottom of a tall panel; it still shrinks and scrolls when the list is
+   longer than the panel. */
 .saved-list {
-  flex: 1;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -472,6 +477,33 @@ body {
 
 /* Items sit visibly inside their folder in grouped lists. */
 .saved-list--grouped .saved-row { padding-left: 28px; }
+
+/* Corner seal (낙관): a faint stamp marking genuinely empty views — the
+   search view before a query, the saved view before a first save. The
+   .view--blank class is toggled by the views themselves; the seal never
+   sits behind content. Decorative only: no pointer events, no selection,
+   invisible to screen readers (pseudo-element content in an aria-free
+   position is not announced as meaningful structure). */
+.view { position: relative; }
+
+.view--blank::after {
+  content: "玉篇";
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  writing-mode: vertical-rl;
+  letter-spacing: 3px;
+  font-family: Batang, BatangChe, "Noto Serif CJK KR", serif;
+  font-size: 20px;
+  line-height: 1.15;
+  color: var(--seal);
+  border: 1.5px solid var(--seal);
+  border-radius: 4px;
+  padding: 8px 5px;
+  transform: rotate(-2deg);
+  pointer-events: none;
+  user-select: none;
+}
 
 .saved-check,
 .saved-folder-check {

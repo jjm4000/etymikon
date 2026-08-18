@@ -505,6 +505,13 @@
     // the class keeps that a stylesheet concern (flat lists keep full width).
     list.classList.toggle("saved-list--grouped", !filterId);
 
+    // The corner seal marks the view only while nothing is saved at all
+    // (sidepanel.css .view--blank::after) — not over lists, not over the
+    // storage-unavailable line.
+    if (root) {
+      root.classList.toggle("view--blank", available === true && items.length === 0);
+    }
+
     if (!available) {
       list.appendChild(el("p", "saved-unavailable",
         "Saved words are not available in this browser session."));
