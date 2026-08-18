@@ -274,7 +274,9 @@
     ".view > .card, .top-chars > .card { padding: 10px 12px 11px; }",
     ".view > .card + .card, .top-chars > .card + .card,",
     ".view > .card ~ .top-chars { border-top: 1px solid var(--rule); }",
-    ".head { display: flex; align-items: baseline; gap: 9px; }",
+    // `position: relative` exists for one reason: the save bubble anchors to
+    // the star, and the star lives here.
+    ".head { display: flex; align-items: baseline; gap: 9px; position: relative; }",
     ".surface {",
     "  font-size: 26px;",
     "  line-height: 1.15;",
@@ -331,6 +333,52 @@
     "}",
     // A step smaller inside a nested component card, matching its 22px glyph.
     ".card.component .wiki { font-size: 10px; }",
+    /* ---- save star: the card action that sits beside the Wiktionary link ---- */
+    // Both trailing items carry `margin-left: auto`; the star absorbs the free
+    // space, so the pair ends up flush right with the head's own gap between
+    // them (the link drops its own padding once a star precedes it).
+    ".save {",
+    "  flex: 0 0 auto; align-self: flex-start; margin-left: auto;",
+    "  font: inherit; font-size: 15px; line-height: 1.35;",
+    "  padding: 0 3px; margin-top: -1px; border: 0; border-radius: 4px;",
+    "  background: transparent; color: var(--muted); cursor: pointer;",
+    "}",
+    ".save + .wiki { margin-left: 0; padding-left: 0; }",
+    ".save:hover { background: var(--hover); color: var(--accent); }",
+    ".save:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    ".save--on { color: var(--accent); }",
+    // Until a savedCheck answers, the star has no state to show — and a star
+    // that guesses would either lie or flip under the reader on every render.
+    // It keeps its BOX, though, hiding with visibility rather than display:
+    // the answer arrives a tick after the cards are laid out, and a head that
+    // changed width on it would reflow every card. Under a restored scroll
+    // offset (crumb-back into a scrolled parent) Chrome's scroll anchoring
+    // then slides the reader to a position they never scrolled to.
+    ".save--unknown { visibility: hidden; }",
+    ".card.component .save { font-size: 13px; }",
+    /* ---- save bubble: the confirmation anchored to a star that just saved ---- */
+    ".savebubble {",
+    "  position: absolute; top: 100%; right: 0; z-index: 3;",
+    "  margin-top: 3px; padding: 8px 10px 9px; min-width: 168px;",
+    "  background: var(--bg); border: 1px solid var(--edge); border-radius: 8px;",
+    "  box-shadow: var(--shadow);",
+    "  font-size: 12px; line-height: 1.4; color: var(--fg); text-align: left;",
+    "}",
+    ".savebubble-title {",
+    "  display: block; margin-bottom: 5px; font-size: 11px; font-weight: 700;",
+    "  letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint);",
+    "}",
+    ".savebubble-folder {",
+    "  width: 100%; font: inherit; font-size: 12px; color: var(--fg);",
+    "  background: var(--bg); border: 1px solid var(--edge); border-radius: 5px;",
+    "  padding: 2px 4px;",
+    "}",
+    ".savebubble-remove {",
+    "  display: inline-block; margin: 7px 0 0; padding: 0; border: 0;",
+    "  background: transparent; font: inherit; font-size: 11px; font-weight: 600;",
+    "  color: var(--accent); text-decoration: underline; cursor: pointer;",
+    "}",
+    ".savebubble-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
     ".chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }",
     ".chip {",
     "  display: inline-flex; align-items: baseline; gap: 4px;",
@@ -898,6 +946,7 @@
 
   function hide() {
     requestSeq++; // invalidate any in-flight response (incl. spelling swaps)
+    closeSaveBubble();
     anchorRect = null;
     resetSession();
     if (!host) return;
@@ -1203,6 +1252,275 @@
     return link;
   }
 
+  /* ---- Card actions ---------------------------------------------------- *
+   * CARD_ACTIONS is the whole definition of what a card head offers beside
+   * the Wiktionary link, in the same declarative spirit as BADGES: an entry
+   * answers "do I apply to this match?" and "what element am I?", and the one
+   * renderer below is the only action-drawing code. Adding an action is one
+   * more entry here and nothing else. First (and so far only) entry: "save".
+   * -------------------------------------------------------------------- */
+
+  var STAR_OFF = "☆";
+  var STAR_ON = "★";
+
+  // The saved identity of a match: the canonical glyph for a char, the
+  // canonical spelling for a word. Anything else is not a saveable thing.
+  function savedIdentity(m) {
+    if (!m || typeof m !== "object") return null;
+    if (m.kind !== "char" && m.kind !== "word") return null;
+    var key = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
+    return key ? { kind: m.kind, key: key } : null;
+  }
+
+  // The savedCheck map key, "c:<glyph>" / "w:<spelling>". saved.js exports the
+  // same function, but this file is a classic-script IIFE and cannot import it,
+  // so the convention is pinned here too (it is SPEC, not an implementation
+  // detail either side is free to change alone).
+  function savedMapKey(kind, key) {
+    return (kind === "char" ? "c" : "w") + ":" + key;
+  }
+
+  var CARD_ACTIONS = [
+    {
+      key: "save",
+      when: function (m) { return !!savedIdentity(m); },
+      build: function (m) { return buildSaveStar(m); }
+    }
+  ];
+
+  // The one action renderer, in registry order. Every card head that carries
+  // actions calls this immediately before appending its Wiktionary link.
+  function appendCardActions(head, m) {
+    if (!head || !m || typeof m !== "object") return 0;
+    var count = 0;
+    CARD_ACTIONS.forEach(function (spec) {
+      var applies;
+      try {
+        applies = spec.when(m);
+      } catch (e) {
+        applies = false;
+      }
+      if (!applies) return;
+      var node;
+      try {
+        node = spec.build(m);
+      } catch (e) {
+        node = null;
+      }
+      if (!node) return;
+      head.appendChild(node);
+      count++;
+    });
+    return count;
+  }
+
+  /* ---- The save star --------------------------------------------------- *
+   * Stars render HIDDEN and are revealed by ONE batched savedCheck per render
+   * pass. A star that has not been answered for shows nothing at all: on an
+   * older worker, or with no chrome.storage, or in a bare harness runtime, the
+   * feature is simply absent rather than wrong.
+   * -------------------------------------------------------------------- */
+
+  var pendingStars = [];          // stars awaiting the current pass's answer
+  var savedCheckScheduled = false;
+
+  function applySavedState(star, on) {
+    var saved = on === true;
+    star.classList.remove("save--unknown");
+    star.classList.toggle("save--on", saved);
+    star.textContent = saved ? STAR_ON : STAR_OFF;
+    star.setAttribute("aria-pressed", saved ? "true" : "false");
+    var label = (saved ? "Remove " : "Save ") + star.hhSaveKey;
+    star.setAttribute("aria-label", label);
+    star.title = saved ? "Saved" : "Save";
+  }
+
+  // A render pass builds its cards synchronously, so a microtask is exactly
+  // "once everything this pass created has registered".
+  function scheduleSavedCheck() {
+    if (savedCheckScheduled) return;
+    savedCheckScheduled = true;
+    Promise.resolve().then(function () {
+      savedCheckScheduled = false;
+      flushSavedCheck();
+    });
+  }
+
+  function flushSavedCheck() {
+    var stars = pendingStars;
+    pendingStars = [];
+    if (!stars.length) return;
+    var keys = [];
+    var seen = Object.create(null);
+    stars.forEach(function (star) {
+      var mapKey = savedMapKey(star.hhSaveKind, star.hhSaveKey);
+      if (seen[mapKey]) return;
+      seen[mapKey] = true;
+      keys.push({ kind: star.hhSaveKind, key: star.hhSaveKey });
+    });
+    sendToWorker({ type: "savedCheck", keys: keys }).then(function (response) {
+      // No answer, or {ok:false}: every star of this pass stays hidden.
+      if (!response || response.ok !== true || !response.saved) return;
+      stars.forEach(function (star) {
+        if (star.isConnected === false) return;  // its view was replaced
+        applySavedState(star,
+          response.saved[savedMapKey(star.hhSaveKind, star.hhSaveKey)] === true);
+      });
+    });
+  }
+
+  function buildSaveStar(m) {
+    var identity = savedIdentity(m);
+    if (!identity) return null;
+    // Native <button>, so Enter and Space activate it for free — the same
+    // idiom makeMoreButton uses. The listeners below are its own, and both
+    // stop propagation so a star inside a clickable row never navigates.
+    var star = el("button", "save save--unknown", STAR_OFF);
+    star.type = "button";
+    star.hhSaveKind = identity.kind;
+    star.hhSaveKey = identity.key;
+    star.setAttribute("aria-pressed", "false");
+    star.setAttribute("aria-label", "Save " + identity.key);
+    star.title = "Save";
+    star.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
+    star.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleSave(star);
+    });
+    pendingStars.push(star);
+    scheduleSavedCheck();
+    return star;
+  }
+
+  // Optimistic: the star flips now and the worker confirms. A refusal (or no
+  // answer at all) puts it back, so the star never claims a save that failed.
+  function toggleSave(star) {
+    // Any fresh card interaction dismisses an open bubble, this one included.
+    closeSaveBubble();
+    if (star.hhSaveBusy) return;
+    // Unknown state: nothing to toggle. Only reachable programmatically — an
+    // unrevealed star is `visibility: hidden`, so it takes neither clicks nor
+    // focus.
+    if (star.classList.contains("save--unknown")) return;
+    var was = star.classList.contains("save--on");
+    star.hhSaveBusy = true;
+    applySavedState(star, !was);
+    sendToWorker({
+      type: "savedToggle", kind: star.hhSaveKind, key: star.hhSaveKey
+    }).then(function (response) {
+      star.hhSaveBusy = false;
+      if (!response || response.ok !== true) {
+        applySavedState(star, was);
+        return;
+      }
+      applySavedState(star, response.saved === true);
+      // Only a SAVE bubbles. Unsaving is silent by design: the reader just
+      // undid something, and a panel offering to undo it again is noise.
+      if (response.saved === true) openSaveBubble(star, response);
+    });
+  }
+
+  /* ---- The save bubble ------------------------------------------------- *
+   * Chrome's bookmark star, transposed: the save already happened, so the
+   * bubble is a confirmation carrying the only two follow-ups worth offering —
+   * move it to another folder, or undo it. One at a time, by construction.
+   * -------------------------------------------------------------------- */
+
+  var saveBubble = null;   // { node, star }
+
+  function saveBubbleIsOpen() { return saveBubble !== null; }
+
+  function closeSaveBubble() {
+    if (!saveBubble) return;
+    var node = saveBubble.node;
+    saveBubble = null;
+    window.removeEventListener("mousedown", onBubbleOutsideMouseDown, false);
+    window.removeEventListener("keydown", onBubbleKeyDown, true);
+    if (node && node.parentNode) node.parentNode.removeChild(node);
+  }
+
+  // The bubble stops its own mousedowns, so anything that reaches window is
+  // outside it — another card, the page, the popup's own chrome.
+  function onBubbleOutsideMouseDown() {
+    closeSaveBubble();
+  }
+
+  // Escape belongs to the bubble while one is open. In normal mode the
+  // popup-hide handler checks saveBubbleIsOpen() FIRST and consumes the key,
+  // so the popup behind the bubble survives; this listener is what covers
+  // embed mode, where that handler is never installed.
+  function onBubbleKeyDown(ev) {
+    if (ev.key !== "Escape" && ev.key !== "Esc") return;
+    if (!saveBubble) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    closeSaveBubble();
+  }
+
+  function openSaveBubble(star, response) {
+    closeSaveBubble();
+    var head = star.parentNode;
+    if (!head) return;
+    var item = response.item && typeof response.item === "object" ? response.item : null;
+    var folders = asArray(response.folders).filter(function (folder) {
+      return folder && typeof folder === "object" && nonEmptyString(folder.id);
+    });
+    var currentId = nonEmptyString(response.folderId) ||
+      (item ? nonEmptyString(item.folderId) : "");
+
+    var node = el("div", "savebubble");
+    node.setAttribute("role", "dialog");
+    node.setAttribute("aria-label", "Saved");
+    node.appendChild(el("span", "savebubble-title", "Saved to"));
+
+    var select = el("select", "savebubble-folder");
+    select.setAttribute("aria-label", "Folder");
+    folders.forEach(function (folder) {
+      var option = el("option", "", nonEmptyString(folder.name) || folder.id);
+      option.value = folder.id;
+      if (folder.id === currentId) option.selected = true;
+      select.appendChild(option);
+    });
+    if (!folders.length || !item) select.disabled = true;
+    // Chrome-bookmarks behaviour: the move happens on the change itself, with
+    // no confirm step — the bubble is already the confirmation.
+    select.addEventListener("change", function () {
+      if (!item) return;
+      sendToWorker({ type: "savedMove", ids: [item.id], folderId: select.value });
+    });
+    node.appendChild(select);
+
+    var remove = el("button", "savebubble-remove", "Remove");
+    remove.type = "button";
+    remove.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      applySavedState(star, false);
+      closeSaveBubble();
+      sendToWorker({
+        type: "savedToggle", kind: star.hhSaveKind, key: star.hhSaveKey
+      }).then(function (result) {
+        if (!result || result.ok !== true) {
+          applySavedState(star, true);   // the removal did not happen
+          return;
+        }
+        applySavedState(star, result.saved === true);
+      });
+    });
+    node.appendChild(remove);
+
+    // Everything inside the bubble is its own business; every other mousedown
+    // in the document dismisses it.
+    node.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
+    node.addEventListener("click", function (ev) { ev.stopPropagation(); });
+
+    head.appendChild(node);
+    saveBubble = { node: node, star: star };
+    window.addEventListener("mousedown", onBubbleOutsideMouseDown, false);
+    window.addEventListener("keydown", onBubbleKeyDown, true);
+  }
+
   // Wires a div as a keyboard-accessible navigation row. `target` is either the
   // text of a follow-up lookup or a function that performs the navigation
   // itself (the used-in disclosure needs its own request).
@@ -1254,6 +1572,10 @@
       meta.appendChild(el("div", "canonical", surface + " → " + big));
     }
     head.appendChild(meta);
+    // Card actions come first so the star lands beside the link rather than
+    // after it. The identity saved is the ACTIVE spelling's, which is exactly
+    // the `m` this body was filled from.
+    appendCardActions(head, m);
     // Korean word entries usually live at the hangul title; hp-flagged
     // matches were harvested from the hanja-spelling page (大韓民國), which
     // also hosts the Chinese/Japanese entries, so link there instead.
@@ -1463,6 +1785,7 @@
 
   // Everything on a word card that depends on the selected spelling.
   function syncWordCard(state) {
+    closeSaveBubble();   // the body carrying it is about to be refilled
     syncChips(state);
     var m = state.items[state.index];
     var hedged = isHedged(m);
@@ -1653,6 +1976,7 @@
       meta.appendChild(el("div", "canonical", surface + " → " + big));
     }
     head.appendChild(meta);
+    appendCardActions(head, m);
     // The entry IS the canonical character, so that is the page we link to.
     appendWikiLink(head, big);
     card.appendChild(head);
@@ -1861,6 +2185,7 @@
   // swap moves cards in and out of the group automatically — including giving
   // an independently-selected char its top-level card back.
   function renderCharRegions() {
+    closeSaveBubble();   // char cards move between regions here and get rebuilt
     var claim = Object.create(null);
     wordStates.forEach(function (state) {
       uniqStrings(asArray(state.items[state.index].chars)).forEach(function (ch) {
@@ -2201,6 +2526,9 @@
     ensureHost();
     var view = viewStack[viewStack.length - 1];
     if (!view) return 0;
+
+    // The cards this bubble was anchored to are about to be thrown away.
+    closeSaveBubble();
 
     // Any navigation re-collapses an expanded trail.
     crumbsExpanded = false;
@@ -2593,7 +2921,16 @@
     }, true);
 
     window.addEventListener("keydown", function (e) {
-      if (e.key === "Escape" || e.key === "Esc") hide();
+      if (e.key !== "Escape" && e.key !== "Esc") return;
+      // A save bubble owns Escape while it is open: the key closes the bubble
+      // and NOTHING else, so the popup behind it survives. A second Escape,
+      // with no bubble left, dismisses the popup as it always did.
+      if (saveBubbleIsOpen()) {
+        e.stopPropagation();
+        closeSaveBubble();
+        return;
+      }
+      hide();
     }, true);
 
     // Capture phase catches scrolls in any scroller, not just the document.
@@ -2690,6 +3027,13 @@
       // The badge registry itself, so a check can prove a NEW badge needs
       // nothing but an entry (the harness registers a dummy and removes it).
       badgeRegistry: BADGES,
+      // Same contract for card actions: the registry IS the definition, so a
+      // check can add or drop an entry and watch every card head follow.
+      cardActionRegistry: CARD_ACTIONS,
+      saveBubble: function () {
+        ensureHost();
+        return panel.querySelector(".savebubble");
+      },
       hide: hide,
       handleSelection: handleSelection,
       readSelection: readSelection,

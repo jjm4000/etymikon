@@ -637,9 +637,351 @@
     return { ok: true, matches: words.concat(chars) };
   }
 
+  /* ------------------------------------------------------------------ *
+   * Saved words + settings: the worker's other half, in memory.
+   *
+   * Identity-only items (kind, key) joined against the fixture tables above at
+   * read time, exactly like the real worker — so savedGet rows and the export
+   * bodies are real content, not placeholders. Folder f0 always exists and
+   * cannot be deleted; deleting any other folder rehomes its items to f0.
+   * Reachable from the checks as __hanjaHoverTestRuntime.__savedStore.
+   * ------------------------------------------------------------------ */
+
+  // Fixed stamp, so an export body is byte-stable across runs.
+  var SAVED_ADDED_AT = Date.UTC(2026, 7, 17);
+
+  var SAVED_TYPES = {
+    savedGet: 1, savedToggle: 1, savedCheck: 1, savedRemove: 1, savedMove: 1,
+    folderCreate: 1, folderRename: 1, folderDelete: 1,
+    settingsGet: 1, settingsSet: 1, savedExport: 1
+  };
+
+  var SAVED_CSV_COLUMNS = [
+    "kind", "key", "hangul", "eumhun", "readings", "definitions",
+    "level", "folder", "added"
+  ];
+
+  var saved, settings, savedCheckCalls, savedLastCheckKeys, savedFail;
+
+  function resetSaved() {
+    saved = {
+      v: 1, folders: [{ id: "f0", name: "Saved" }], items: [],
+      nextFolder: 1, nextItem: 0
+    };
+    settings = {
+      v: 1, defaultFolderId: "f0",
+      anki: {
+        wordFront: "hanja", wordBack: ["hangul", "defs"],
+        charFront: "char", charBack: ["eumhun", "defs"]
+      }
+    };
+    savedCheckCalls = 0;
+    savedLastCheckKeys = null;
+    savedFail = { all: false, check: false, toggle: false };
+  }
+  resetSaved();
+
+  // SPEC's map key for one identity: "c:<glyph>" / "w:<spelling>".
+  function savedKey(kind, key) { return (kind === "char" ? "c" : "w") + ":" + key; }
+
+  function folderById(id) {
+    for (var fi = 0; fi < saved.folders.length; fi++) {
+      if (saved.folders[fi].id === id) return saved.folders[fi];
+    }
+    return null;
+  }
+
+  function foldersCopy() {
+    return saved.folders.map(function (f) { return { id: f.id, name: f.name }; });
+  }
+
+  function itemCopy(item) {
+    return {
+      id: item.id, kind: item.kind, key: item.key,
+      folderId: item.folderId, addedAt: item.addedAt
+    };
+  }
+
+  function settingsCopy() {
+    return {
+      v: settings.v, defaultFolderId: settings.defaultFolderId,
+      anki: {
+        wordFront: settings.anki.wordFront,
+        wordBack: settings.anki.wordBack.slice(),
+        charFront: settings.anki.charFront,
+        charBack: settings.anki.charBack.slice()
+      }
+    };
+  }
+
+  // The read-time join. An item whose entry has left the dictionary becomes a
+  // {missing:true} row rather than vanishing — the saved view says so and the
+  // exporter skips and counts it.
+  function joinSaved(items) {
+    return items.map(function (item) {
+      var row = itemCopy(item);
+      if (item.kind === "char") {
+        var c = CHARS[item.key];
+        if (!c) { row.missing = true; return row; }
+        row.eumhun = c.eumhun || [];
+        row.readings = c.readings || [];
+        row.glosses = c.glosses || [];
+        if (c.lvl) row.lvl = c.lvl;
+        return row;
+      }
+      var senses = WORDS[item.key];
+      if (!senses || !senses.length) { row.missing = true; return row; }
+      row.hangul = senses[0].hangul || "";
+      var glosses = [];
+      senses.forEach(function (s) {
+        (s.glosses || []).forEach(function (g) {
+          if (g && glosses.indexOf(g) < 0) glosses.push(g);
+        });
+      });
+      row.glosses = glosses;
+      if (senses.every(function (s) { return s.rare === true; })) row.rare = true;
+      return row;
+    });
+  }
+
+  function numberedDefs(glosses) {
+    return (glosses || []).filter(Boolean).map(function (g, i) {
+      return (i + 1) + ". " + g;
+    }).join("; ");
+  }
+
+  function savedField(row, token) {
+    if (token === "hanja" || token === "char" || token === "key") return row.key || "";
+    if (token === "hangul") return row.hangul || "";
+    if (token === "eumhun") {
+      return (row.eumhun || []).map(function (e) {
+        return ((e.hun || "") + " " + (e.eum || "")).trim();
+      }).filter(Boolean).join(", ");
+    }
+    if (token === "readings") return (row.readings || []).filter(Boolean).join(", ");
+    if (token === "defs") return numberedDefs(row.glosses);
+    if (token === "lvl") return row.lvl || "";
+    return "";
+  }
+
+  function quoteField(value, needsQuoting) {
+    return needsQuoting.test(value) ? '"' + value.split('"').join('""') + '"' : value;
+  }
+
+  function buildSavedAnki(rows) {
+    var lines = ["#separator:tab", "#html:false"];
+    rows.forEach(function (row) {
+      if (row.missing === true) return;
+      var isChar = row.kind === "char";
+      var front = savedField(row, isChar ? settings.anki.charFront : settings.anki.wordFront);
+      var back = (isChar ? settings.anki.charBack : settings.anki.wordBack)
+        .map(function (t) { return savedField(row, t); })
+        .filter(function (v) { return v !== ""; })
+        .join(" · ");
+      lines.push(quoteField(front, /[\t\n\r"]/) + "\t" + quoteField(back, /[\t\n\r"]/));
+    });
+    return lines.join("\n") + "\n";
+  }
+
+  function buildSavedCsv(rows) {
+    var lines = [SAVED_CSV_COLUMNS.join(",")];
+    rows.forEach(function (row) {
+      if (row.missing === true) return;
+      var folder = folderById(row.folderId);
+      var cells = [
+        row.kind === "char" ? "char" : "word",
+        savedField(row, "key"), savedField(row, "hangul"),
+        savedField(row, "eumhun"), savedField(row, "readings"),
+        savedField(row, "defs"), savedField(row, "lvl"),
+        folder ? folder.name : row.folderId,
+        row.addedAt > 0 ? new Date(row.addedAt).toISOString().slice(0, 10) : ""
+      ];
+      lines.push(cells.map(function (c) {
+        return quoteField(c, /[",\n\r]/);
+      }).join(","));
+    });
+    return lines.join("\n") + "\n";
+  }
+
+  function exportSelection(msg) {
+    if (Array.isArray(msg.ids) && msg.ids.length) {
+      return saved.items.filter(function (it) { return msg.ids.indexOf(it.id) >= 0; });
+    }
+    if (Array.isArray(msg.folderIds) && msg.folderIds.length) {
+      return saved.items.filter(function (it) {
+        return msg.folderIds.indexOf(it.folderId) >= 0;
+      });
+    }
+    return msg.all === true ? saved.items.slice() : [];
+  }
+
+  function savedMessage(msg) {
+    if (msg.type === "savedCheck") {
+      savedCheckCalls++;
+      savedLastCheckKeys = (Array.isArray(msg.keys) ? msg.keys : []).map(function (k) {
+        return savedKey(k && k.kind, k && k.key);
+      });
+    }
+    // A worker without chrome.storage answers {ok:false} to every one of these,
+    // and every surface must read that as "feature absent". The flags drive
+    // that path without tearing the store down.
+    if (savedFail.all ||
+        (savedFail.check && msg.type === "savedCheck") ||
+        (savedFail.toggle && msg.type === "savedToggle")) {
+      return { ok: false, error: "storage unavailable" };
+    }
+
+    if (msg.type === "savedGet") {
+      return { ok: true, folders: foldersCopy(), items: joinSaved(saved.items) };
+    }
+
+    if (msg.type === "savedToggle") {
+      var kind = msg.kind === "char" ? "char" : msg.kind === "word" ? "word" : null;
+      var key = typeof msg.key === "string" ? msg.key.normalize("NFC") : "";
+      if (!kind || !key) return { ok: false, error: "bad identity" };
+      for (var ti = 0; ti < saved.items.length; ti++) {
+        if (saved.items[ti].kind === kind && saved.items[ti].key === key) {
+          saved.items.splice(ti, 1);            // identity toggles OFF
+          return { ok: true, saved: false, folders: foldersCopy() };
+        }
+      }
+      var target = folderById(settings.defaultFolderId) ? settings.defaultFolderId : "f0";
+      var item = {
+        id: "i" + saved.nextItem, kind: kind, key: key,
+        folderId: target, addedAt: SAVED_ADDED_AT
+      };
+      saved.nextItem++;
+      saved.items.push(item);
+      return {
+        ok: true, saved: true, item: itemCopy(item),
+        folderId: target, folders: foldersCopy()
+      };
+    }
+
+    if (msg.type === "savedCheck") {
+      var map = {};
+      (Array.isArray(msg.keys) ? msg.keys : []).forEach(function (entry) {
+        if (!entry || typeof entry !== "object") return;
+        var k = entry.kind === "char" ? "char" : "word";
+        if (typeof entry.key !== "string" || entry.key === "") return;
+        map[savedKey(k, entry.key)] = saved.items.some(function (it) {
+          return it.kind === k && it.key === entry.key;
+        });
+      });
+      return { ok: true, saved: map };
+    }
+
+    if (msg.type === "savedRemove") {
+      var dropIds = Array.isArray(msg.ids) ? msg.ids : [];
+      var before = saved.items.length;
+      saved.items = saved.items.filter(function (it) {
+        return dropIds.indexOf(it.id) < 0;
+      });
+      return { ok: true, removed: before - saved.items.length };
+    }
+
+    if (msg.type === "savedMove") {
+      if (!folderById(msg.folderId)) return { ok: false, error: "no such folder" };
+      var wanted = Array.isArray(msg.ids) ? msg.ids : [];
+      var moved = 0;
+      saved.items.forEach(function (it) {
+        if (wanted.indexOf(it.id) < 0 || it.folderId === msg.folderId) return;
+        it.folderId = msg.folderId;
+        moved++;
+      });
+      return { ok: true, moved: moved };
+    }
+
+    if (msg.type === "folderCreate") {
+      var name = typeof msg.name === "string" ? msg.name.trim() : "";
+      if (!name) return { ok: false, error: "folder name required" };
+      var folder = { id: "f" + saved.nextFolder, name: name };
+      saved.nextFolder++;
+      saved.folders.push(folder);
+      return { ok: true, folder: { id: folder.id, name: folder.name } };
+    }
+
+    if (msg.type === "folderRename") {
+      var renamed = folderById(msg.id);
+      var newName = typeof msg.name === "string" ? msg.name.trim() : "";
+      if (!renamed) return { ok: false, error: "no such folder" };
+      if (!newName) return { ok: false, error: "folder name required" };
+      renamed.name = newName;
+      return { ok: true, folder: { id: renamed.id, name: renamed.name } };
+    }
+
+    if (msg.type === "folderDelete") {
+      if (msg.id === "f0") {
+        return { ok: false, error: "the default folder cannot be deleted" };
+      }
+      if (!folderById(msg.id)) return { ok: false, error: "no such folder" };
+      var rehomed = 0;
+      saved.items.forEach(function (it) {
+        if (it.folderId !== msg.id) return;
+        it.folderId = "f0";
+        rehomed++;
+      });
+      saved.folders = saved.folders.filter(function (f) { return f.id !== msg.id; });
+      // Deleting the "save new items to" folder resets the setting, so no
+      // surface can observe a dangling default.
+      if (settings.defaultFolderId === msg.id) settings.defaultFolderId = "f0";
+      return { ok: true, moved: rehomed, settings: settingsCopy() };
+    }
+
+    if (msg.type === "settingsGet") return { ok: true, settings: settingsCopy() };
+
+    if (msg.type === "settingsSet") {
+      var patch = msg.patch && typeof msg.patch === "object" ? msg.patch : {};
+      Object.keys(patch).forEach(function (field) {
+        if (field === "anki" && patch.anki && typeof patch.anki === "object") {
+          Object.keys(patch.anki).forEach(function (sub) {
+            settings.anki[sub] = patch.anki[sub];
+          });
+          return;
+        }
+        settings[field] = patch[field];
+      });
+      if (!folderById(settings.defaultFolderId)) settings.defaultFolderId = "f0";
+      return { ok: true, settings: settingsCopy() };
+    }
+
+    if (msg.type === "savedExport") {
+      var rows = joinSaved(exportSelection(msg));
+      var skipped = rows.filter(function (r) { return r.missing === true; }).length;
+      var isCsv = msg.format === "csv";
+      return {
+        ok: true,
+        tsv: isCsv ? buildSavedCsv(rows) : buildSavedAnki(rows),
+        count: rows.length - skipped,
+        skipped: skipped,
+        filename: isCsv ? "okpyeon-saved-20260817.csv" : "okpyeon-anki-20260817.txt"
+      };
+    }
+
+    return { ok: false, error: "unknown message type" };
+  }
+
+  var savedStore = {
+    reset: function () { resetSaved(); },
+    state: function () {
+      return {
+        folders: foldersCopy(),
+        items: saved.items.map(itemCopy),
+        settings: settingsCopy()
+      };
+    },
+    // savedCheck is batched one-per-render-pass, so its call count is a
+    // meaningful assertion and not just bookkeeping.
+    checkCalls: function () { return savedCheckCalls; },
+    lastCheckKeys: function () {
+      return savedLastCheckKeys ? savedLastCheckKeys.slice() : null;
+    },
+    fail: function (which, on) { savedFail[which] = on !== false; }
+  };
+
   globalThis.__hanjaHoverTestRuntime = {
     __isStub: true,
-    __calls: 0,          // every sendMessage — lets tests prove "back" doesn't re-query
+    __calls: 0,          // dictionary sendMessage — proves "back" doesn't re-query
     __lastText: null,
     __compoundCalls: 0,  // {type:"compounds"} only
     __lastChar: null,
@@ -655,7 +997,10 @@
     __lastOpenTabUrl: null,
     __failOpenTab: false,
     sendMessage: function (msg, cb) {
-      this.__calls++;
+      // Dictionary traffic only. The saved store keeps its own counters, so
+      // every "this view was served from cache" proof stays a statement about
+      // LOOKUPS and does not quietly start counting savedCheck round-trips.
+      if (!(msg && SAVED_TYPES[msg.type] === 1)) this.__calls++;
       var resp;
       try {
         if (msg && msg.type === "lookup") {
@@ -679,6 +1024,8 @@
           resp = this.__failOpenTab
             ? { ok: false, error: "url rejected" }
             : { ok: true };
+        } else if (msg && SAVED_TYPES[msg.type] === 1) {
+          resp = savedMessage(msg);
         } else {
           resp = { ok: false, error: "unknown message type" };
         }
@@ -690,7 +1037,8 @@
     },
     __lookup: lookup,
     __fullCompounds: fullCompounds,
-    __usedIn: buildUsedIn
+    __usedIn: buildUsedIn,
+    __savedStore: savedStore
   };
 })();
 </script>
