@@ -1159,10 +1159,15 @@ This section supersedes the QWERTY addendum's `converted` response field:
 
 ### Data (pipeline/build.py)
 
-- New RR module: decompose hangul to jamo, then two forms per string:
+- New RR module: decompose hangul to jamo, then THREE forms per string
+  (ADDENDUM — user-raised: the per-jamo form is RR's own Article 8):
   - NAIVE: RR letter rules per syllable, positional (initial ㄱ=g, final
     ㄱ=k; initial ㄹ=r, final ㄹ=l), no cross-syllable changes: 국민 →
     gukmin.
+  - TRANSLITERATION (Article 8): one fixed letter per jamo regardless of
+    position (ㄱ=g, ㄷ=d, ㅂ=b, ㄹ=l, ㅅ=s always; no sound changes; no
+    positional logic): 국민 → gugmin, 좋다 → johda, 먹는 → meogneun,
+    값 → gabs. These four are additional BINDING anchors.
   - OFFICIAL: apply the standard's sound-change rules across syllable
     boundaries FIRST, then romanize: nasalization, liquid assimilation
     (ㄴㄹ adjacency → ll), palatalization (ㄷㅌ before 이/히), the ㅎ
@@ -1175,9 +1180,9 @@ This section supersedes the QWERTY addendum's `converted` response field:
     놓다 nota, 잡혀 japyeo, 낳지 nachi, 국민 gungmin (naive gukmin).
 - Emit `extension/data/rr.json`:
   `{v:1, words: {rr: [hangul...]}, syllables: {rr: [syllable...]}}` —
-  every byHangul key and every reading-index syllable under BOTH forms,
-  deduped (identical forms collapse), word values sorted most-frequent
-  first, sort_keys, deterministic across runs.
+  every byHangul key and every reading-index syllable under ALL THREE
+  forms, deduped (identical forms collapse), word values sorted
+  most-frequent first, sort_keys, deterministic across runs.
 - Frequency bucket: words.json entries gain `f` (integer 0-9, 0 = most
   frequent, log-scaled from the hermitdave ranks the build already
   loads; absent = unranked). Deterministic; the ONLY change to existing
