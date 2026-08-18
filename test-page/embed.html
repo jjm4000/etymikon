@@ -2109,6 +2109,61 @@
       api.queryAll(".save--unknown").length === 0,
       "visibility=" + visibilityOf(starIn(".card")));
 
+    // --- stars stay true across surfaces ---------------------------------
+    // A save made in the in-page popup reaches this panel as a storage
+    // change. The harness has no chrome.storage, so the handler is driven
+    // directly — debounced exactly as the real listener is, hence the wait.
+    async function syncStars() {
+      api.applySavedChange();
+      await wait(api.savedSyncDelay + 140);
+    }
+    store.reset();
+    await shell.search("국민");
+    await wait(TAIL);
+    var syncWordStar = starIn(".card");
+    var syncCharStar = api.queryAll(".component-list > .card.component .save")[1];
+    check("test setup: both stars render unsaved on this surface",
+      syncWordStar.textContent === "☆" && syncCharStar.textContent === "☆");
+
+    await send({ type: "savedToggle", kind: "word", key: "國民" });
+    await send({ type: "savedToggle", kind: "char", key: "民" });
+    var syncCallsBefore = store.checkCalls();
+    await syncStars();
+    check("a save made on the other surface flips these stars in place",
+      syncWordStar.textContent === "★" && syncCharStar.textContent === "★" &&
+      syncWordStar.getAttribute("aria-pressed") === "true" &&
+      starIn(".card") === syncWordStar,       // the same node, not a redraw
+      syncWordStar.textContent + syncCharStar.textContent);
+    check("the sync costs ONE batched savedCheck for every rendered identity",
+      store.checkCalls() - syncCallsBefore === 1 &&
+      store.lastCheckKeys().join(",") === "w:國民,c:國,c:民",
+      (store.checkCalls() - syncCallsBefore) + " " +
+      store.lastCheckKeys().join(","));
+
+    await send({ type: "savedToggle", kind: "char", key: "民" });
+    await syncStars();
+    check("an unsave made there flips them back here",
+      syncCharStar.textContent === "☆" &&
+      syncCharStar.getAttribute("aria-pressed") === "false" &&
+      syncWordStar.textContent === "★",
+      syncWordStar.textContent + syncCharStar.textContent);
+
+    syncWordStar.click();                     // unsave, then save for a bubble
+    await wait(TAIL);
+    syncWordStar.click();
+    await wait(TAIL);
+    check("test setup: the save opened a bubble", !!api.saveBubble());
+    await syncStars();
+    check("a sync that confirms the current state leaves the bubble alone",
+      !!api.saveBubble() && syncWordStar.textContent === "★",
+      "bubble=" + !!api.saveBubble());
+    await send({ type: "savedToggle", kind: "word", key: "國民" });
+    await syncStars();
+    check("a sync that flips the bubbled star closes the bubble with it",
+      !api.saveBubble() && syncWordStar.textContent === "☆",
+      "bubble=" + !!api.saveBubble() + " star=" + syncWordStar.textContent);
+    store.reset();
+
     /* ==================================================================
      * ADDENDUM: the three shipped views.
      *

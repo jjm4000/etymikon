@@ -3911,6 +3911,73 @@
       folderSelect().selectedOptions[0].textContent === "Exam",
       JSON.stringify(made.folders) + " " + JSON.stringify(made.items));
 
+    // --- ADDENDUM: stars stay true across surfaces -----------------------
+    // A save made on the sidebar reaches a rendered card as a storage change.
+    // This page has no chrome.storage, so the handler is driven directly —
+    // debounced exactly as the real listener is, hence the wait.
+    async function syncStars() {
+      api.applySavedChange();
+      await wait(api.savedSyncDelay + 140);
+    }
+    store.reset();
+    api.hide();
+    api.showAt(anchor, fake.__lookup("국민").matches, "국민");
+    await wait(60);
+    var syncWordStar = api.query(".card .save");
+    var syncCharStar = api.queryAll(".component-list > .card.component .save")[1];
+    check("test setup: both stars render unsaved",
+      syncWordStar.textContent === "☆" && syncCharStar.textContent === "☆");
+
+    // Saved somewhere else entirely — no click here, no re-render here.
+    await fake.sendMessage({ type: "savedToggle", kind: "word", key: "國民" });
+    await fake.sendMessage({ type: "savedToggle", kind: "char", key: "民" });
+    var callsBefore = store.checkCalls();
+    await syncStars();
+    check("a save made elsewhere flips the rendered stars in place",
+      syncWordStar.textContent === "★" && syncCharStar.textContent === "★" &&
+      syncWordStar.getAttribute("aria-pressed") === "true" &&
+      syncWordStar.classList.contains("save--on") &&
+      api.query(".card .save") === syncWordStar,   // the same node, not a redraw
+      syncWordStar.textContent + syncCharStar.textContent);
+    check("it costs ONE batched savedCheck, carrying every rendered identity",
+      store.checkCalls() - callsBefore === 1 &&
+      store.lastCheckKeys().join(",") === "w:國民,c:國,c:民",
+      (store.checkCalls() - callsBefore) + " " + store.lastCheckKeys().join(","));
+
+    await fake.sendMessage({ type: "savedToggle", kind: "word", key: "國民" });
+    await syncStars();
+    check("an unsave made elsewhere flips them back",
+      syncWordStar.textContent === "☆" &&
+      syncWordStar.getAttribute("aria-pressed") === "false" &&
+      syncCharStar.textContent === "★",
+      syncWordStar.textContent + syncCharStar.textContent);
+
+    // Stars from a view that has been replaced must not linger in the registry.
+    api.showAt(anchor, fake.__lookup("法").matches, "法");
+    await wait(60);
+    await syncStars();
+    check("replaced views drop out: only what is on screen is asked about",
+      store.lastCheckKeys().join(",") === "c:法",
+      store.lastCheckKeys().join(","));
+
+    // A sync must not fight an open bubble.
+    store.reset();
+    api.showAt(anchor, fake.__lookup("국민").matches, "국민");
+    await wait(60);
+    var bubbleStar = api.query(".card .save");
+    bubbleStar.click();
+    await wait(60);
+    check("test setup: the save opened a bubble", !!api.saveBubble());
+    await syncStars();
+    check("a sync that confirms the current state leaves the bubble alone",
+      !!api.saveBubble() && bubbleStar.textContent === "★",
+      "bubble=" + !!api.saveBubble());
+    await fake.sendMessage({ type: "savedToggle", kind: "word", key: "國民" });
+    await syncStars();
+    check("a sync that flips the bubbled star closes the bubble with it",
+      !api.saveBubble() && bubbleStar.textContent === "☆",
+      "bubble=" + !!api.saveBubble() + " star=" + bubbleStar.textContent);
+
     api.hide();
     store.reset();
 

@@ -1346,7 +1346,17 @@
    * -------------------------------------------------------------------- */
 
   var pendingStars = [];          // stars awaiting the current pass's answer
+  var liveStars = [];             // every star on screen, for cross-surface sync
   var savedCheckScheduled = false;
+
+  // Detached stars belong to a view that has been replaced. Dropping them here
+  // is the whole of the registry's housekeeping.
+  function pruneStars() {
+    liveStars = liveStars.filter(function (star) {
+      return star.isConnected !== false;
+    });
+    return liveStars;
+  }
 
   function applySavedState(star, on) {
     var saved = on === true;
@@ -1373,6 +1383,7 @@
   function flushSavedCheck() {
     var stars = pendingStars;
     pendingStars = [];
+    pruneStars();
     if (!stars.length) return;
     var keys = [];
     var seen = Object.create(null);
@@ -1387,10 +1398,52 @@
       if (!response || response.ok !== true || !response.saved) return;
       stars.forEach(function (star) {
         if (star.isConnected === false) return;  // its view was replaced
-        applySavedState(star,
-          response.saved[savedMapKey(star.hhSaveKind, star.hhSaveKey)] === true);
+        var saved =
+          response.saved[savedMapKey(star.hhSaveKind, star.hhSaveKey)] === true;
+        // An answer that DISAGREES with the star a bubble is hanging off means
+        // the item changed under it — the bubble is describing something that
+        // no longer exists, so it goes. An answer that agrees changes nothing,
+        // which is the ordinary case: our own save is what fired the sync.
+        if (saveBubble && saveBubble.star === star &&
+            star.classList.contains("save--on") !== saved) {
+          closeSaveBubble();
+        }
+        applySavedState(star, saved);
       });
     });
+  }
+
+  /* ---- Cross-surface sync ---------------------------------------------- *
+   * A save made anywhere else — the sidebar's saved view, the popup on
+   * another tab — reaches this one as a storage change. A stale star is not
+   * merely wrong-looking: it INVERTS the next click, so ☆ on an
+   * already-saved word unsaves it, and re-saving drops it back in the default
+   * folder, losing wherever the reader had filed it.
+   *
+   * The fix re-asks about exactly the stars on screen, through the same
+   * batched savedCheck a render pass uses. Debounced, because one user action
+   * elsewhere can write more than once.
+   * -------------------------------------------------------------------- */
+
+  var SAVED_SYNC_DEBOUNCE = 100;
+  var savedSyncTimer = null;
+
+  function resyncStars() {
+    if (!pruneStars().length) return;
+    liveStars.forEach(function (star) {
+      if (pendingStars.indexOf(star) < 0) pendingStars.push(star);
+    });
+    scheduleSavedCheck();
+  }
+
+  // The storage-change handler itself. Exposed on the test hooks because a
+  // bare harness page has no chrome.storage to fire it.
+  function applySavedChange() {
+    if (savedSyncTimer) clearTimeout(savedSyncTimer);
+    savedSyncTimer = setTimeout(function () {
+      savedSyncTimer = null;
+      resyncStars();
+    }, SAVED_SYNC_DEBOUNCE);
   }
 
   function buildSaveStar(m) {
@@ -1413,6 +1466,7 @@
       toggleSave(star);
     });
     pendingStars.push(star);
+    liveStars.push(star);
     scheduleSavedCheck();
     return star;
   }
@@ -3200,6 +3254,24 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Storage sync — installed on BOTH surfaces, since the sidebar's cards
+   * come from this same renderer. Guarded all the way down: a bare harness
+   * page, or any host without the extension's storage permission, simply
+   * has nothing to listen to and keeps render-time state.
+   * ------------------------------------------------------------------ */
+
+  if (typeof chrome !== "undefined" && chrome && chrome.storage &&
+      chrome.storage.onChanged &&
+      typeof chrome.storage.onChanged.addListener === "function") {
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      // Only the saved record, only the area we write to. Settings changes
+      // and anything else are none of a star's business.
+      if (area !== "local" || !changes || !changes.okpSaved) return;
+      applySavedChange();
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * Embed API — the popup page's handle on the renderer.
    *
    * Gated on IS_EMBED alone, independently of the IS_STUB test hooks below:
@@ -3286,6 +3358,11 @@
         ensureHost();
         return panel.querySelector(".savebubble");
       },
+      // The storage-change handler, for pages that have no chrome.storage to
+      // fire it. Debounced exactly as the real listener is, so a check drives
+      // the same path the browser does.
+      applySavedChange: applySavedChange,
+      savedSyncDelay: SAVED_SYNC_DEBOUNCE,
       hide: hide,
       handleSelection: handleSelection,
       readSelection: readSelection,
