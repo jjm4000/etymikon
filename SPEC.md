@@ -1282,6 +1282,124 @@ This section supersedes the QWERTY addendum's `converted` response field:
   navigation (a homophone click) never re-interprets. index.html:
   fixture parity only (selections are never Latin).
 
+## Character decomposition (ADDENDUM)
+
+User-directed (2026-08-18): character cards show what a character is made
+of (依 = 亻 + 衣), one level deep, behind a collapsed row. Source:
+BabelStone IDS (public domain per its file header; chosen over
+CHISE/cjkvi-ids for license, maintenance — cjkvi-ids has been static
+since 2019 — and fidelity to modern glyph forms). Decisions ratified
+with Jesse: expandable not always-present; the row sits AFTER the
+definitions and BEFORE the compounds section; trigger styled like the
+word-card used-in row (quiet, no accent color on the words, glyphs at
+full text color); radical variant forms alias to their parent character;
+character cards only; no level chips on part rows.
+
+### Data source (pipeline)
+
+- `https://www.babelstone.co.uk/IDS.TXT` alias
+  `https://www.babelstone.co.uk/CJK/IDS.TXT`, cached as
+  `pipeline/cache/babelstone-ids.txt` (UTF-8 with BOM, CRLF, ~3.3 MB).
+  Format: `U+xxxx<TAB>char<TAB>seq...` where each sequence is
+  `^IDS$` optionally followed by `(SOURCETAGS)`; a line may carry
+  several tab-separated sequences for different regional forms.
+- Sequence pick per character: prefer a sequence whose tags include K;
+  else one whose tags include G or with no tag; else the first. (克 has
+  `⿱十兄$(GHTJKPV)` and `⿱古儿$(X)`: pick 十+兄.)
+- License: the file's header explicitly waives copyright and permits any
+  use. DATA-LICENSE.md gains a decomp.json section quoting that basis
+  and crediting Andrew West / BabelStone. No copyleft admixture: this
+  was the deciding reason BabelStone won over the GPLv2 CHISE data.
+
+### Build rules (binding)
+
+- Flatten: strip IDC layout characters (U+2FF0–U+2FFF), the variation
+  indicator 〾, and ASCII; what remains, in sequence order, is the part
+  list. Layout/bracketing is NOT stored; the card's own glyph shows the
+  arrangement.
+- Sequences containing the mirror ⿾, rotation ⿿, or subtraction ㇯
+  operators: drop the decomposition (affects 2 chars in our set).
+- Placeholders `{n}` (unencoded components): substitute the IDS fragment
+  from the file's own header table, recursively. If a `？`
+  (unrepresentable) remains anywhere after substitution, drop the
+  decomposition for that character.
+- Skip-through (renderability): any part above the BMP (codepoint >
+  U+FFFF) is replaced by its own picked decomposition, recursively,
+  depth-capped at 6; if it cannot be fully reduced to BMP parts, drop
+  the decomposition. BMP parts (including CJK Strokes block and radical
+  blocks) are considered displayable.
+- Radical aliasing: a display glyph maps to a TARGET dictionary
+  character when one exists: NFKD over the Kangxi Radicals and CJK
+  Radicals Supplement blocks, plus a pinned hand table for
+  non-normalizing forms (at minimum 亻→人, 訁→言, 釒→金, 𥫗→竹,
+  𤣩→王, 氵→水, 忄→心, 扌→手, 犭→犬, 衤→衣, 礻→示, 刂→刀, 灬→火,
+  ⺌→小, 艹→艸, ⺼→肉, ⺝→月, 罒→网, ⻏→邑, 阝→阜). The DISPLAY glyph
+  stays as written in the IDS (the card shows 亻, not 人); the alias
+  affects only the reading/click target.
+- Visibility rule: a character's decomposition is emitted only if it has
+  ≥ 2 parts AND at least one part resolves (directly or via alias) to a
+  dictionary character. Stroke-soup splits of simple characters (匕 =
+  乚 + ㇒) and fully-opaque splits are suppressed; the card then simply
+  has no Made of row, exactly like an atomic character.
+- Emit `extension/data/decomp.json`:
+  `{v:1, parts: {char: [[g], [g,t], [g,null,n], ...]}}` where `g` is the
+  display glyph, `t` the dictionary character its row opens (omitted
+  when g itself is the target and is in the dictionary; null in slot 2
+  only when slot 3 is used), and `n` a short English name (first clause
+  of Unihan kDefinition) present only for reading-less parts that have
+  one. Only characters passing the visibility rule appear. sort_keys,
+  deterministic across runs.
+
+### Binding anchors (build verify step)
+
+- 依 → [亻(→人), 衣]; 國 → [囗, 或]; 明 → [日, 月]; 或 → [戈, 口, 一];
+  克 → [十, 兄] (K-form pick); 誨 → [訁(→言), 每] (alias);
+  乾 → [十, 早, 乞] (skip-through of 𠦝 = ⿱十早);
+  疑 → [匕, 矢, 龴, 疋] (skip-through of 𠤕 = ⿱匕矢; 龴 is a
+  reading-less shape row).
+- ABSENT (no entry): 無 (placeholder {56} substitutes to ？), 乙 and 一
+  (atomic). Agent A verifies each absence reason against the source
+  before asserting, and extends the anchor set if a rule above turns
+  out to bind differently than expected — SPEC updated to match, never
+  silently diverged from.
+- Negative invariants over the whole emit: no part above the BMP, no
+  `{`, `？`, IDC, or operator character in any list, no entry with
+  fewer than 2 parts, no entry violating the visibility rule.
+
+### Runtime
+
+- background.js getData loads decomp.json as the FIFTH file, same lazy
+  cache, with a guard (shape check; on failure the feature is absent,
+  lookups still work). Char lookup responses gain `parts` (the decoded
+  list) when the character has an entry.
+- Part clicks are ordinary LITERAL navigation to the target character
+  (input-channel rule: never interpreted), with normal breadcrumbs and
+  view caching. Reading-less parts are not clickable.
+
+### Renderer (content.js, both surfaces, char cards only)
+
+- Placement: after the definition list, before the Compounds label.
+- Collapsed (default on every card build, no persistence): one row,
+  `Made of 亻 + 衣 ›` — "Made of" and the chevron in the quiet
+  used-in-row style, the glyphs at full text color, plus-signs between.
+  The row lists the DISPLAY glyphs in IDS order.
+- Expanded (tap anywhere on the row; chevron flips): part rows in the
+  compound-row format directly under the trigger, pushing the compounds
+  down. A part with a target renders glyph + the target's eumhun +
+  short gloss + chevron and navigates on tap. A reading-less part
+  renders greyed: glyph + its `n` name when present, no chevron, inert.
+- Word cards are unchanged. Characters without an entry show no row.
+
+### Tests
+
+- Node: parse/pick/substitute/skip-through/alias/visibility as pure
+  functions with inline fixtures; anchor assertions against the real
+  emitted decomp.json; determinism (double build byte-identical).
+- Harness (both fixture blocks, byte-identical): char card shows the
+  collapsed row with correct glyph sum; expand reveals rows; alias row
+  (亻) navigates to 人 with crumb; reading-less row inert; atomic char
+  has no row; word card unchanged; collapsed again after re-navigation.
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
