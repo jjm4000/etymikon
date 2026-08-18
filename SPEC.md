@@ -835,6 +835,44 @@ views (crumbs, cached scroll, cycle handling all standard):
   a chip for a syllable with no homophones still renders a sane view
   (the reading view handles empty candidate lists already).
 
+## QWERTY-to-hangul input (ADDENDUM)
+
+User-directed (2026-08-18): typing Latin letters as if on the 2-set Korean
+(Dubeolsik) layout finds the hangul — `toddlf` finds 생일. 한영타 변환,
+deterministic, no data files.
+
+- New pure ES module `extension/dubeolsik.js` (no chrome.*, like
+  lookup.js): `qwertyToHangul(text)` → the composed hangul string. Key
+  map: the standard Dubeolsik layout (q=ㅂ w=ㅈ e=ㄷ r=ㄱ t=ㅅ y=ㅛ u=ㅕ
+  i=ㅑ o=ㅐ p=ㅔ a=ㅁ s=ㄴ d=ㅇ f=ㄹ g=ㅎ h=ㅗ j=ㅓ k=ㅏ l=ㅣ z=ㅋ x=ㅌ
+  c=ㅊ v=ㅍ b=ㅠ n=ㅜ m=ㅡ; shifted Q=ㅃ W=ㅉ E=ㄸ R=ㄲ T=ㅆ O=ㅒ P=ㅖ;
+  any other uppercase letter behaves as its lowercase key). Composition
+  is the standard IME automaton: choseong/jungseong/jongseong assembly
+  via the Unicode syllable formula, compound vowels (ㅗ+ㅏ=ㅘ etc.),
+  compound finals (ㄹ+ㄱ=ㄺ etc.), and final-consonant handoff when a
+  vowel follows (toddlf → 생일, not 샹딜). Jamo that never complete a
+  syllable emit as bare jamo characters.
+- Applied in `lookup(text, data)`: when the trimmed text matches
+  /^[A-Za-z]+$/ (within the existing length cap), convert and run the
+  NORMAL lookup on the conversion. The ok response then carries
+  `converted: {from, to}`. A Latin query matches nothing by construction
+  today, so the conversion is unconditional for pure-Latin input — no
+  ambiguity handling needed.
+- Surfaces: the user's typed input is NEVER rewritten. The renderer uses
+  `converted.to` as the search context (srcText) when present, so the
+  root view and crumbs show 생일, which is the visible cue for what the
+  conversion produced. `buildOmniboxSuggestions` applies the same rule,
+  so `hj toddlf` suggests 생일's entries (suggestion `content` stays the
+  canonical searchable string).
+- Tests: Node coverage of the automaton (table spot checks, compound
+  vowels and finals, final handoff, shifted doubles, bare-jamo tails,
+  mixed/non-Latin input NOT converted) plus a real-data smoke
+  (lookup("toddlf") → the 생일 word match) and omnibox coverage. The
+  shared harness fixture blocks (kept byte-identical) answer ONE canned
+  conversion (e.g. "gkrtod" → the 학생 fixture response with
+  `converted`) so the embed harness can assert the renderer's srcText
+  swap; everything else stays Node-side.
+
 ## Corner seal (ADDENDUM)
 
 The jade 玉篇 seal (낙관 style: vertical-rl, bordered, slightly rotated,
