@@ -890,7 +890,13 @@ error to display. addedAt = Date.now() in the worker.
   one bubble anchored to that star, inside the shadow root: "Saved to"
   + a folder `<select>` (options from the toggle response's folders;
   change = `savedMove` immediately) + a Remove link (toggle off; star
-  reverts; bubble closes). Dismissed by clicking anywhere outside it,
+  reverts; bubble closes). The select's LAST option is "New folder…"
+  (ADDENDUM — user-directed): choosing it swaps the select for an inline
+  name input with create/cancel; create sends `folderCreate {name}` then
+  `savedMove {ids:[item.id], folderId}` to the new folder, and the select
+  returns showing the new folder selected (append the created folder to
+  the local options); cancel restores the select to the previous folder.
+  A failed create shows the worker's error inline and keeps the input. Dismissed by clicking anywhere outside it,
   by Escape, or by starting another card interaction; one bubble at a
   time; unsaving never shows a bubble. Escape rule: while a bubble is
   open, Escape closes ONLY the bubble — the normal-mode popup-hide
