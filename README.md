@@ -51,6 +51,10 @@ typing `hj` in the address bar searches from anywhere.
   It makes no network requests and collects no data. Saved words stay on your
   device. See [privacy-policy.html](privacy-policy.html).
 
+![Japanese page lookup](screenshots/8-japanese-lookup.png)
+
+*学生 selected on a Japanese page, resolving to 學生.*
+
 ![Sidebar search](screenshots/5-sidebar-search.png)
 
 *The sidebar's search view.*
