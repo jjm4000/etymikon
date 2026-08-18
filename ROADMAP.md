@@ -10,13 +10,15 @@ Everything below is merged on `main` and verified. It is one release: 1.0.1
 was folded in rather than shipped separately, since nothing goes out until
 the 1.0 review clears anyway.
 
-- **Typed search.** The toolbar popup takes a query (hanja, hangul word, or
-  syllable) and renders the same cards, drill-downs and chips as selection
-  lookup, with a 玉篇 header row (design D) whose `HEADER_ACTIONS` registry
-  ships empty as scaffolding. An omnibox keyword (`hj 국민`) reaches the same
-  search. Both run through an embed mode of the existing renderer, which is
-  now a documented multi-surface contract — the sidebar is meant to reuse it
-  verbatim.
+- **Typed search in a sidebar.** Clicking the toolbar icon toggles a
+  persistent side panel: a search box over the same cards, drill-downs and
+  levels as selection lookup. The omnibox keyword (`hj 국민`) opens the
+  panel with the query. The panel survives tab switches and navigation,
+  which the earlier toolbar popup structurally could not; that popup was
+  built first, shipped to no one, and was replaced by the sidebar before
+  release. Both surfaces run on the same documented embed contract, and
+  the sidebar page is a small registry-driven shell (views and header
+  actions are declarative entries).
 - **Character level taxonomy.** Every character carries exactly one `lvl` of
   m/h/a/r, rendered as one of four level chips on char cards and reading-list
   rows: Middle school and High school (MOE curriculum tiers, from the CC BY-SA
@@ -35,16 +37,39 @@ the 1.0 review clears anyway.
   appear on every card and target the hanja-titled page where that page hosts
   the fuller CJK entry (`hp`). Badges became a declarative registry; gloss
   cleaning no longer eats quoted glosses.
-- **Wiki links open in a background tab on every surface**, including the
-  popup — where a foreground open destroyed the popup mid-read. Covered by
-  the harness.
+- **Wiki links open in a background tab on every surface.** A foreground
+  open would destroy ephemeral surfaces mid-read. Covered by the harness.
 - **Resizable popup, stage 1**: per-page-visit size, no persistence.
 - **Build hygiene**: deterministic data emit (`sort_keys`), canonical words
   keys, data-driven segmentation caps, geometry-derived expander state.
 - Listing updates at upload time: privacy policy URL on GitHub Pages,
-  homepage field pointing at this repo, and a style pass over
+  homepage field pointing at this repo, a style pass over
   store-listing.md's newer sections (same rules as the README rewrite:
-  no rule-of-three phrasing, no flavor lines).
+  no rule-of-three phrasing, no flavor lines), and a screenshots, README
+  and store-listing refresh covering the sidebar and saved words (the
+  current screenshot 5 and search copy show the removed toolbar popup).
+
+### In final QA (joins the release when verified)
+
+On the `saved-words` branch, complete and suite-verified, awaiting manual
+QA and merge:
+
+- **Saved words.** A star on every card (selection popup and sidebar)
+  saves the entry, with a bookmark-style bubble to pick or create a folder
+  on the spot. Saved items are references into the dictionary, so the list
+  always shows current data and duplicates cannot exist.
+- **Folders.** Create, rename and delete (contents return to the default
+  folder), collapse and expand, batch selection at the folder and item
+  level, and batch move, remove (with confirmation) and export.
+- **Export.** Anki (tab-separated, front and back shaped by settings, the
+  folder carried as an Anki tag) or CSV (a full-data spreadsheet).
+- **Settings page.** Schema-driven so each future setting is one entry:
+  default save folder plus the Anki card layout for word and character
+  cards.
+- **Storage.** First use of the `storage` permission; everything stays in
+  `chrome.storage.local` on the device. The privacy policy is updated to
+  match (it also corrects the older "no permissions" wording that
+  `sidePanel` had already outdated).
 
 ### Open question in this release
 
@@ -61,17 +86,14 @@ the 1.0 review clears anyway.
 - **Popup state restoration** (reopening the toolbar popup back on the last
   view). Declined: action popups are destroyed on any focus loss by browser
   design, and faking continuity in an ephemeral surface teaches the wrong
-  model. Persistent sessions are the sidebar's job (see 1.2).
+  model. The question later resolved itself when the toolbar popup was
+  replaced by the sidebar, which persists for real.
 
-## 1.2 — sidebar as the anchor
+## 1.2 — romanized search
 
-- **Sidebar (sidePanel API)** is the 1.2 anchor and the home for everything
-  the popup structurally cannot hold: persistence across tab switches and
-  navigation, saved words, settings, and the primary search home. Already
-  pre-wired — it reuses the embed contract (popup-boot.js + content.js +
-  search-shell.js) verbatim, adding only its own bootstrapper and page
-  chrome; see SPEC "Multi-surface contract". The popup's `HEADER_ACTIONS`
-  registry gets its "open sidebar" entry when this lands.
+The sidebar, saved words and settings were planned here and moved up (see
+above). What remains:
+
 - **Romanized SEARCH INPUT** (not display): typing gukmin/gungmin finds 국민 →
   國民 for IME-less learners — the natural completion of typed search for the
   target audience. Approach: dictionary-constrained matching (candidate
@@ -81,14 +103,14 @@ the 1.0 review clears anyway.
   omnibox (`hj guk`). Romanized OUTPUT on cards: declined for now (clutter +
   counter-pedagogical; at most a far-future options toggle).
 
-### Options page + storage permission (1.2 cluster)
+### Future settings entries
 
-These share the `storage` permission and an options page, and require a
-privacy-policy update ("stores your display preferences locally"):
+The settings page and `storage` permission now exist, so each of these is
+one schema entry plus its feature code:
 
-- Save-word list with Anki/CSV export
-- Resizable popup, stage 2: persist the chosen size; explicit size setting
+- In-page popup resize persistence (per-page-visit sizing shipped in 1.1)
 - Per-site disable, hover-mode toggle (hover mode itself is further out)
+- Japanese and Chinese pronunciations on character cards (see Later)
 
 ## Later / unscheduled
 
