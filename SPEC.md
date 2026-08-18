@@ -1200,8 +1200,15 @@ This section supersedes the QWERTY addendum's `converted` response field:
   only by the typed entry points; content.js's navigateTo/fetchLookup
   and all programmatic searches stay literal. Interpretation must never
   depend on string shape alone.
-- Two generators for an interpreted pure-Latin query (/^[A-Za-z]+$/
-  after trimming; existing length cap):
+- Two generators for an interpreted Latin query. Gate (REVISED — the
+  original letters-only gate made separator stripping unreachable):
+  after trimming, the query must contain at least one A-Z letter and
+  consist only of letters, hyphens, apostrophes, and internal spaces
+  (/^[A-Za-z][A-Za-z' -]*$/ with a letter present); existing length cap.
+  The Dubeolsik generator receives the RAW text (separators are not
+  Dubeolsik keys and simply break composition, which the dictionary
+  filter absorbs); the romanization generator receives the normalized
+  form:
   1. DUBEOLSIK: qwertyToHangul → normal lookup. Validity = the
      dictionary filter (no composition gate).
   2. ROMANIZATION: normalize (lowercase; strip hyphens, apostrophes,
@@ -1214,7 +1221,10 @@ This section supersedes the QWERTY addendum's `converted` response field:
 - Merge: interpretations that yield zero matches are dropped. One left →
   render as today. Two left → matches of both, preferred group first.
   PREFERENCE: best (lowest) `f` among each side's word matches wins;
-  reading-list vs reading-list compares the top candidates' cwCount;
+  reading-list vs reading-list compares each side's BEST candidate
+  cwCount (the max over its candidates — the index's first slot is
+  arbitrary among compound-saturated chars, so "top candidate" is not
+  meaningful);
   a word interpretation beats a syllable-only one; remaining ties →
   Dubeolsik first. The response carries
   `interpretations: [{kind: "dubeolsik"|"rr", from, to, start}]` where
