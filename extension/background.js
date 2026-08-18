@@ -36,6 +36,8 @@ const DATA_FILES = {
   variants: "data/variants.json",
   // Romanized search ADDENDUM: the forward-generated RR index.
   rr: "data/rr.json",
+  // Decomposition ADDENDUM: display glyph + click target per character.
+  decomp: "data/decomp.json",
 };
 
 /**
@@ -47,6 +49,68 @@ function guardRr(raw) {
   const rr = raw !== null && typeof raw === "object" ? raw : {};
   const table = (v) => (v !== null && typeof v === "object" ? v : {});
   return { v: 1, words: table(rr.words), syllables: table(rr.syllables) };
+}
+
+const hasOwn = (obj, key) =>
+  obj !== null && obj !== undefined &&
+  Object.prototype.hasOwnProperty.call(obj, key);
+
+/**
+ * Shape guard for decomp.json, in the guardRr spirit: a bundle without the
+ * file (or with an older one) must leave lookups working, with the feature
+ * simply absent.
+ */
+export function guardDecomp(raw) {
+  const d = raw !== null && typeof raw === "object" ? raw : {};
+  const parts = d.parts !== null && typeof d.parts === "object" ? d.parts : {};
+  return { v: 1, parts: d.v === 1 ? parts : {} };
+}
+
+/**
+ * Decomposition ADDENDUM: turn one emitted row into the response row the
+ * renderer draws. Emitted rows are [g], [g,t], [g,null] or [g,null,name];
+ * a row is clickable when its length is 1 or slot 2 is a string. The target's
+ * eumhun and gloss are joined HERE because the content script has no access to
+ * hanja.json, and a target with no entry degrades to an inert row rather than
+ * a click that would land nowhere.
+ */
+function decompRow(row, hanjaTable) {
+  if (!Array.isArray(row)) return null;
+  const g = typeof row[0] === "string" ? row[0] : "";
+  if (!g) return null;
+  const clickable = row.length === 1 || typeof row[1] === "string";
+  if (!clickable) {
+    const out = { g };
+    if (typeof row[2] === "string" && row[2] !== "") out.name = row[2];
+    return out;
+  }
+  const t = typeof row[1] === "string" ? row[1] : g;
+  const entry = hasOwn(hanjaTable, t) ? hanjaTable[t] : null;
+  if (!entry || typeof entry !== "object") return { g };
+  const pair = (Array.isArray(entry.eumhun) ? entry.eumhun : [])[0];
+  return {
+    g,
+    t,
+    hun: pair && typeof pair.hun === "string" ? pair.hun : "",
+    eum: pair && typeof pair.eum === "string" ? pair.eum : "",
+    gloss: (Array.isArray(entry.glosses) ? entry.glosses : [])[0] ?? "",
+  };
+}
+
+/** Hang `parts` on every char match the decomposition table knows about. */
+export function attachDecomp(result, data) {
+  if (!result || result.ok !== true || !Array.isArray(result.matches)) return result;
+  const table = data.decomp.parts;
+  for (const match of result.matches) {
+    if (!match || match.kind !== "char") continue;
+    const char = typeof match.canonical === "string" ? match.canonical : "";
+    if (!char || !hasOwn(table, char)) continue;
+    const rows = table[char];
+    if (!Array.isArray(rows)) continue;
+    const parts = rows.map((row) => decompRow(row, data.hanja)).filter(Boolean);
+    if (parts.length) match.parts = parts;
+  }
+  return result;
 }
 
 /**
@@ -73,17 +137,20 @@ async function fetchJson(path) {
   return response.json();
 }
 
-/** Lazily load + cache the four data files. Failures clear the cache so a later lookup can retry. */
+/** Lazily load + cache the five data files. Failures clear the cache so a later lookup can retry. */
 function getData() {
   if (dataPromise === null) {
     dataPromise = (async () => {
-      const [hanja, words, variants, rr] = await Promise.all([
+      const [hanja, words, variants, rr, decomp] = await Promise.all([
         fetchJson(DATA_FILES.hanja),
         fetchJson(DATA_FILES.words),
         fetchJson(DATA_FILES.variants),
         fetchJson(DATA_FILES.rr),
+        // Absent or malformed: guardDecomp yields an empty table and no card
+        // shows a Made of row.
+        fetchJson(DATA_FILES.decomp).catch(() => null),
       ]);
-      return { hanja, words, variants, rr: guardRr(rr) };
+      return { hanja, words, variants, rr: guardRr(rr), decomp: guardDecomp(decomp) };
     })();
     dataPromise.catch(() => {
       dataPromise = null;
@@ -105,7 +172,7 @@ function getData() {
 export async function handleLookup(text, interpret) {
   try {
     const data = await getData();
-    return lookup(
+    const result = lookup(
       text,
       {
         ...data,
@@ -116,6 +183,7 @@ export async function handleLookup(text, interpret) {
       },
       { interpret: interpret === true }
     );
+    return attachDecomp(result, data);
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }

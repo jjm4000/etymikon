@@ -1861,6 +1861,59 @@ await testAsync("background.js imports cleanly in Node (guards hold)", async () 
   }
 });
 
+// --- decomposition: the worker's guard and its join ----------------------
+
+await testAsync("decomp: a missing or wrong-version file leaves an empty table", async () => {
+  const { guardDecomp } = await import("../extension/background.js");
+  assert.deepEqual(guardDecomp(null), { v: 1, parts: {} });
+  assert.deepEqual(guardDecomp("nonsense"), { v: 1, parts: {} });
+  assert.deepEqual(guardDecomp({ v: 2, parts: { "依": [["衣"]] } }), { v: 1, parts: {} });
+  assert.deepEqual(guardDecomp({ v: 1 }), { v: 1, parts: {} });
+});
+
+await testAsync("decomp: rows are joined onto char matches, targets resolved", async () => {
+  const { attachDecomp, guardDecomp } = await import("../extension/background.js");
+  const decomp = guardDecomp({
+    v: 1,
+    parts: {
+      "依": [["亻", "人"], ["衣"]],
+      "疑": [["匕"], ["龴", null], ["㇒", null, "downward stroke"]],
+      "乁": [["丿", "丿"]],            // target with no dictionary entry
+    },
+  });
+  const hanja = {
+    "人": { eumhun: [{ hun: "사람", eum: "인" }], glosses: ["person; human"] },
+    "衣": { eumhun: [{ hun: "옷", eum: "의" }], glosses: ["clothing"] },
+    "匕": { eumhun: [], glosses: [] },
+  };
+  const matches = [
+    { kind: "char", canonical: "依" },
+    { kind: "char", canonical: "疑" },
+    { kind: "char", canonical: "乁" },
+    { kind: "char", canonical: "一" },                       // no entry
+    { kind: "word", canonical: "依存", parts: [{ type: "word" }] },
+  ];
+  const out = attachDecomp({ ok: true, matches }, { decomp, hanja });
+  const [uy, ui, ye, il, word] = out.matches;
+
+  // Alias: the display glyph stays 亻, the reading comes from 人.
+  assert.deepEqual(uy.parts, [
+    { g: "亻", t: "人", hun: "사람", eum: "인", gloss: "person; human" },
+    { g: "衣", t: "衣", hun: "옷", eum: "의", gloss: "clothing" },
+  ]);
+  // Reading-less rows carry no target, and a name only when the data has one.
+  assert.deepEqual(ui.parts, [
+    { g: "匕", t: "匕", hun: "", eum: "", gloss: "" },
+    { g: "龴" },
+    { g: "㇒", name: "downward stroke" },
+  ]);
+  // A target outside the dictionary degrades to an inert row.
+  assert.deepEqual(ye.parts, [{ g: "丿" }]);
+  assert.equal("parts" in il, false);
+  // Word `parts` (component words) are a different field on a different kind.
+  assert.deepEqual(word.parts, [{ type: "word" }]);
+});
+
 // --- saved words: every handler answers when there is no chrome.storage ---
 
 await testAsync("without chrome.storage every saved handler answers 'unavailable'", async () => {

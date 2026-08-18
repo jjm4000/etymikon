@@ -1410,8 +1410,18 @@ character cards only; no level chips on part rows.
 
 - background.js getData loads decomp.json as the FIFTH file, same lazy
   cache, with a guard (shape check; on failure the feature is absent,
-  lookups still work). Char lookup responses gain `parts` (the decoded
-  list) when the character has an entry.
+  lookups still work). Char lookup responses gain `parts` when the
+  character has an entry.
+- `parts` row shape (Agent B, recorded here because the emitted rows are
+  not what the renderer receives): the worker JOINS each row against
+  hanja.json, because the content script has no access to it and there is
+  no message type that would give it one. A clickable row becomes
+  `{g, t, hun, eum, gloss}` (`g` display glyph, `t` the character the row
+  opens, the rest the TARGET's first eumhun pair and first gloss); a
+  reading-less row becomes `{g}` or `{g, name}`. A row whose target has no
+  hanja.json entry degrades to `{g}`, so a click can never land nowhere.
+  Char `parts` and word `parts` (component words) are disjoint by kind and
+  read by different sections.
 - Part clicks are ordinary LITERAL navigation to the target character
   (input-channel rule: never interpreted), with normal breadcrumbs and
   view caching. Reading-less parts are not clickable.
@@ -1450,6 +1460,10 @@ character cards only; no level chips on part rows.
   collapsed row with correct glyph sum; expand reveals rows; alias row
   (亻) navigates to 人 with crumb; reading-less row inert; atomic char
   has no row; word card unchanged; collapsed again after re-navigation.
+  The fixture character is 靴 (`[["革"],["亻","人"],["乚",null,"hidden"],
+  ["㇒",null]]`), the one shape that carries all four row kinds. The
+  single-call-site check reads content.js over fetch, so it needs the
+  repo served over http:// and reports itself skipped on file://.
 
 ## Verification expectations
 
