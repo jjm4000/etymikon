@@ -952,8 +952,20 @@ error to display. addedAt = Date.now() in the worker.
   open, Escape closes ONLY the bubble — the normal-mode popup-hide
   Escape handler must check bubble state first; in embed mode Escape
   does nothing else anyway.
-- content.js does NOT listen to storage.onChanged in this cycle; stars
-  reflect render-time state plus optimistic toggles.
+- Star sync (REVISED, user-reported 2026-08-18 — supersedes the earlier
+  "no storage.onChanged in content.js" line): stars must stay true across
+  surfaces. A stale star inverts the toggle's meaning (clicking ☆ on an
+  already-saved word unsaves it, and re-saving loses the folder), so
+  content.js installs ONE guarded `chrome.storage.onChanged` listener
+  (real chrome.storage present; area "local"; key okpSaved) that
+  re-checks the identities of currently rendered stars (the existing
+  batched savedCheck path, debounced ~100ms) and applies the results.
+  Covers the in-page popup and the sidebar's cards alike. Bare harness
+  pages have no chrome.storage, so the handler must be exposed for
+  tests (e.g. `__hanjaHover.applySavedChange()`) and the listener wiring
+  skipped; harness checks drive the handler directly: toggle an identity
+  through the fake store, fire the handler, and the rendered star flips
+  without a re-render.
 
 ### Sidebar: saved view (extension/sidepanel/saved-view.js, view 2)
 
