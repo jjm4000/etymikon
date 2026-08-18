@@ -415,12 +415,16 @@ body {
 }
 .saved-list::-webkit-scrollbar-track { background: transparent; }
 
+/* Folder bands read as structure, not content: a jade left edge and the
+   field tint set them off from the item rows, which indent underneath
+   (grouped mode only — see .saved-list--grouped). */
 .saved-folder {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 6px 10px 6px 8px;
   background: var(--field-bg);
+  border-left: 3px solid var(--brand);
   border-bottom: 1px solid var(--page-rule);
   cursor: pointer;
   user-select: none;
@@ -465,6 +469,9 @@ body {
 }
 
 .saved-row:hover { background: var(--action-hover); }
+
+/* Items sit visibly inside their folder in grouped lists. */
+.saved-list--grouped .saved-row { padding-left: 28px; }
 
 .saved-check,
 .saved-folder-check {

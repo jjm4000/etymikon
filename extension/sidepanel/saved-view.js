@@ -501,6 +501,10 @@
     var list = els.list;
     clear(list);
 
+    // Grouped (All) lists indent their item rows under the folder bands;
+    // the class keeps that a stylesheet concern (flat lists keep full width).
+    list.classList.toggle("saved-list--grouped", !filterId);
+
     if (!available) {
       list.appendChild(el("p", "saved-unavailable",
         "Saved words are not available in this browser session."));
