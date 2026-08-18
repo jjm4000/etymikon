@@ -3656,6 +3656,108 @@
       api.queryAll(".edu-badge--dummyProbe").length === 0,
       badgeLabels().join(","));
 
+    // --- ADDENDUM: navigating readings -----------------------------------
+    // The accent-coloured text on a head names another view, and now opens it.
+    // Both chips are ordinary drill-downs, so the crumb, the cache and the
+    // scroll restore are the ones every other nav row already gets.
+    function rnavText(sel) {
+      return api.queryAll(sel + " .rnav")
+        .map(function (n) { return n.textContent; }).join(",");
+    }
+
+    api.showAt(anchor, fake.__lookup("國").matches, "國");
+    check("the eumhun line makes the EUM a chip and leaves the hun alone",
+      rnavText(".eumhun") === "국" &&
+      api.query(".eumhun").firstChild.nodeType === 3 &&
+      api.query(".eumhun").firstChild.textContent === "나라 ",
+      rnavText(".eumhun") + " | " + JSON.stringify(api.query(".eumhun").textContent));
+    check("the chip is a keyboard-reachable button",
+      api.query(".eumhun .rnav").getAttribute("role") === "button" &&
+      api.query(".eumhun .rnav").getAttribute("tabindex") === "0");
+    api.query(".eumhun .rnav").click();
+    await wait(120);
+    check("clicking an eum opens the reading view for that syllable",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:국" &&
+      api.query(".reading-title").textContent === "5 hanja read 국" &&
+      api.crumbLabels().join(",") === "國,국",
+      api.viewKeys().join(",") + " | " + api.crumbLabels().join(","));
+    check("it lists exactly what a single-syllable selection would",
+      api.queryAll(".reading-row .r-glyph")
+        .map(function (n) { return n.textContent; }).join("") === "國局菊鞠麴");
+
+    api.showAt(anchor, fake.__lookup("國").matches, "國");
+    api.query(".eumhun .rnav").dispatchEvent(new KeyboardEvent("keydown",
+      { key: "Enter", bubbles: true, cancelable: true }));
+    await wait(120);
+    check("Enter on the chip navigates exactly as a click does",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:국",
+      api.viewKeys().join(","));
+
+    api.showAt(anchor, fake.__lookup("漢").matches, "漢");
+    check("a two-entry eumhun gets one chip per entry, visible text unchanged",
+      rnavText(".eumhun") === "한,한" &&
+      api.query(".eumhun").textContent.indexOf("한수 한 · 한나라 한") === 0,
+      JSON.stringify(api.query(".eumhun").textContent));
+
+    api.showAt(anchor, fake.__lookup("法").matches, "法");
+    check("a readings-only line makes its syllable a chip",
+      !api.query(".eumhun") && rnavText(".readings") === "법",
+      JSON.stringify(api.query(".readings").textContent));
+    api.query(".readings .rnav").click();
+    await wait(120);
+    check("a syllable with no homophones still opens a sane one-row view",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:법" &&
+      api.query(".reading-title").textContent === "1 hanja read 법" &&
+      api.queryAll(".reading-row").length === 1,
+      api.query(".reading-title") && api.query(".reading-title").textContent);
+
+    // Nested component cards carry the chips too, and the descent behaves.
+    api.showAt(anchor, fake.__lookup("국민").matches, "국민");
+    api.scrollTop(90);
+    var readingParentTop = api.scrollTop();
+    check("test setup: the parent view is scrolled", readingParentTop > 50,
+      "scrollTop=" + readingParentTop);
+    api.queryAll(".component-list .eumhun .rnav")[1].click();
+    await wait(120);
+    check("a component card's eum opens its reading view, at the top",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:민" &&
+      api.scrollTop() === 0,
+      api.viewKeys().join(",") + " scrollTop=" + api.scrollTop());
+    api.queryAll(".crumb")[0].click();
+    await wait(120);
+    check("going back restores the parent's scroll offset",
+      api.viewDepth() === 1 && Math.abs(api.scrollTop() - readingParentTop) <= 2,
+      "want " + readingParentTop + " got " + api.scrollTop());
+
+    api.showAt(anchor, fake.__lookup("詐欺 學生").matches, "詐欺 學生");
+    check("a word head's hangul is a chip too",
+      rnavText(".word-body .hangul") === "사기,학생",
+      rnavText(".word-body .hangul"));
+    api.query(".word-body .hangul .rnav").click();
+    await wait(120);
+    check("clicking it opens the hangul lookup, spelling selector and all",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "word:詐欺" &&
+      api.queryAll(".spell-chip").length === 3 &&
+      api.crumbLabels()[1] === "詐欺",
+      api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+
+    api.showAt(anchor, fake.__lookup("國民").matches, "國民");
+    api.query(".word-body .hangul .rnav").click();
+    await wait(120);
+    check("a hangul naming the view already on screen orients, never stacks",
+      api.viewDepth() === 1 && api.viewKeys()[0] === "word:國民",
+      "depth=" + api.viewDepth());
+
+    api.showAt(anchor, fake.__lookup("사기").matches, "사기");
+    api.queryAll(".spell-chip")[2].click();
+    await wait(120);
+    check("the hangul chip survives a spelling swap",
+      api.query(".word-body .surface").textContent === "沙器" &&
+      rnavText(".word-body .hangul") === "사기",
+      api.query(".word-body .surface").textContent + " / " +
+      rnavText(".word-body .hangul"));
+    api.hide();
+
     // --- ADDENDUM: the save star, in selection-popup mode ----------------
     // The bulk of the save coverage lives in embed.html; what only THIS
     // surface can prove is the Escape rule, since the popup-hide handler

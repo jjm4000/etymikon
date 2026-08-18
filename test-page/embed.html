@@ -1495,6 +1495,56 @@
       api.query(".surface").textContent !== firstSurface,
       firstSurface + " → " + api.query(".surface").textContent);
 
+    // --- navigating readings inside embed --------------------------------
+    // Same code as the in-page popup, no IS_EMBED gate: the chips must behave
+    // identically on this surface.
+    await embed.searchFor("國");
+    check("the eum of a char head is a nav chip in embed",
+      !!api.query(".eumhun .rnav") &&
+      api.query(".eumhun .rnav").textContent === "국" &&
+      api.query(".eumhun .rnav").getAttribute("role") === "button" &&
+      api.query(".eumhun").textContent.indexOf("나라 국") === 0,
+      api.query(".eumhun") && JSON.stringify(api.query(".eumhun").textContent));
+    api.query(".eumhun .rnav").click();
+    await wait(TAIL);
+    check("clicking it opens the reading view with the whole homophone list",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:국" &&
+      api.query(".reading-title").textContent === "5 hanja read 국" &&
+      api.crumbLabels().join(",") === "國,국",
+      api.viewKeys().join(",") + " | " + api.crumbLabels().join(","));
+    api.query(".crumb").click();
+    await wait(TAIL);
+    check("the crumb returns to the char view it came from",
+      api.viewDepth() === 1 && api.viewKeys()[0] === "char:國",
+      api.viewKeys().join(","));
+
+    await embed.searchFor("法");
+    check("a readings-only head makes its syllable a chip in embed",
+      !api.query(".eumhun") && !!api.query(".readings .rnav") &&
+      api.query(".readings .rnav").textContent === "법",
+      api.query(".readings") && JSON.stringify(api.query(".readings").textContent));
+    api.query(".readings .rnav").dispatchEvent(new KeyboardEvent("keydown",
+      { key: "Enter", bubbles: true, cancelable: true }));
+    await wait(TAIL);
+    check("Enter activates it, and a lone reading still renders a sane view",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:법" &&
+      api.queryAll(".reading-row").length === 1 &&
+      api.query(".reading-title").textContent === "1 hanja read 법",
+      api.viewKeys().join(","));
+
+    await embed.searchFor("詐欺 學生");
+    check("a word head's hangul is a nav chip in embed",
+      api.queryAll(".word-body .hangul .rnav")
+        .map(function (n) { return n.textContent; }).join(",") === "사기,학생",
+      api.queryAll(".word-body .hangul .rnav")
+        .map(function (n) { return n.textContent; }).join(","));
+    api.query(".word-body .hangul .rnav").click();
+    await wait(TAIL);
+    check("clicking it opens the hangul view with its spelling selector",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "word:詐欺" &&
+      api.queryAll(".spell-chip").length === 3,
+      api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+
     // --- clear() ---------------------------------------------------------
     embed.clear();
     check("clear() hides the panel", !api.isVisible());

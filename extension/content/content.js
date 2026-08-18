@@ -289,6 +289,14 @@
     ".headmeta { min-width: 0; flex: 1 1 auto; }",
     ".hangul, .eumhun { font-size: 15px; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }",
     ".readings { font-size: 14px; font-weight: 600; color: var(--accent); }",
+    /* ---- navigating readings: eum syllables, and a word head's hangul ---- */
+    // These already LOOKED clickable — they are the only accent-coloured text
+    // on a head — so the affordance is just made honest. No colour of their
+    // own: the underline on hover and the focus ring are the whole treatment,
+    // which keeps a head reading as a heading and not as a row of links.
+    ".rnav { cursor: pointer; border-radius: 3px; }",
+    ".rnav:hover { text-decoration: underline; }",
+    ".rnav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
     ".canonical { font-size: 11px; color: var(--muted); margin-top: 1px; }",
     /* ---- sense lists: numbered, hanging indent, clamped ---- */
     ".glosses { margin: 7px 0 0; }",
@@ -1656,6 +1664,69 @@
     });
   }
 
+  /* ---- Navigating readings --------------------------------------------- *
+   * The accent-coloured text on a card head names another view: an eum
+   * syllable names its homophone list, a word's hangul names its own lookup.
+   * Both are ordinary drill-downs, so both are just navigateTo — the cache,
+   * the breadcrumb, the cycle handling and the scroll restore all come along
+   * unchanged, and no new worker traffic exists.
+   *
+   * makeNavRow already IS the "this element navigates" primitive (role,
+   * tabindex, the text-selection guard, Enter/Space); an inline chip is the
+   * same wiring on a <span>.
+   * -------------------------------------------------------------------- */
+
+  function navChip(text, hint) {
+    var chip = el("span", "rnav", text);
+    if (hint) {
+      chip.title = hint;
+      chip.setAttribute("aria-label", hint);
+    }
+    makeNavRow(chip, text);
+    return chip;
+  }
+
+  function syllableChip(syllable) {
+    return navChip(syllable, "Characters read " + syllable);
+  }
+
+  // The eumhun line as ELEMENTS instead of one string: the eum of each entry
+  // navigates, the hun does not. The visible text is character-for-character
+  // what formatEumhun produces for the same data — that function still serves
+  // every other site, and is the emptiness test here.
+  function appendEumhunLine(line, eumhun) {
+    var list = asArray(eumhun);
+    var written = 0;
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i];
+      if (!entry || typeof entry !== "object") continue;
+      var hun = nonEmptyString(entry.hun);
+      var eum = nonEmptyString(entry.eum);
+      if (!hun && !eum) continue;
+      if (written) line.appendChild(document.createTextNode(" · "));
+      if (hun && eum) {
+        line.appendChild(document.createTextNode(hun + " "));
+        line.appendChild(syllableChip(eum));
+      } else if (eum) {
+        line.appendChild(syllableChip(eum));
+      } else {
+        line.appendChild(document.createTextNode(hun));
+      }
+      written++;
+    }
+    return written;
+  }
+
+  // The fallback line for a char with no eumhun: every syllable navigates,
+  // since there is no hun to separate them from.
+  function appendReadingsLine(line, readings) {
+    readings.forEach(function (reading, i) {
+      if (i) line.appendChild(document.createTextNode(", "));
+      line.appendChild(syllableChip(reading));
+    });
+    return readings.length;
+  }
+
   /* ------------------------------------------------------------------ *
    * Card builders
    * ------------------------------------------------------------------ */
@@ -1674,7 +1745,14 @@
     head.appendChild(el("div", "surface", big));
 
     var meta = el("div", "headmeta");
-    if (hangul) meta.appendChild(el("div", "hangul", hangul));
+    // The hangul names this word's own lookup — the spelling selector when
+    // homographs exist. Rebuilt with the rest of the body, so a spelling swap
+    // re-points the chip at the swapped-in spelling's hangul.
+    if (hangul) {
+      var hangulLine = el("div", "hangul");
+      hangulLine.appendChild(navChip(hangul, "Look up " + hangul));
+      meta.appendChild(hangulLine);
+    }
     // Note the highlighted form only when it is neither the big text nor the
     // hangul already shown (e.g. a simplified/variant spelling was selected),
     // and only in a view whose own source text actually contains it.
@@ -2065,15 +2143,16 @@
     head.appendChild(el("div", "surface", big));
 
     var meta = el("div", "headmeta");
-    var eumhun = formatEumhun(m.eumhun);
     var readingLine = null;
-    if (eumhun) {
-      readingLine = el("div", "eumhun", eumhun);
+    if (formatEumhun(m.eumhun)) {
+      readingLine = el("div", "eumhun");
+      appendEumhunLine(readingLine, m.eumhun);
       meta.appendChild(readingLine);
     } else {
       var readings = asArray(m.readings).map(nonEmptyString).filter(Boolean);
       if (readings.length) {
-        readingLine = el("div", "readings", readings.join(", "));
+        readingLine = el("div", "readings");
+        appendReadingsLine(readingLine, readings);
         meta.appendChild(readingLine);
       }
     }
