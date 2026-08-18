@@ -4,7 +4,7 @@ Working list of planned changes. Ordering within a release is not priority
 order. The next store upload ships whatever is merged and verified when the
 current review clears.
 
-## 1.1 — ready, awaiting 1.0 store review
+## 1.1: ready, awaiting 1.0 store review
 
 Everything below is merged on `main` and verified. It is one release: 1.0.1
 was folded in rather than shipped separately, since nothing goes out until
@@ -43,11 +43,12 @@ the 1.0 review clears anyway.
 - **Build hygiene**: deterministic data emit (`sort_keys`), canonical words
   keys, data-driven segmentation caps, geometry-derived expander state.
 - Listing updates at upload time: privacy policy URL on GitHub Pages,
-  homepage field pointing at this repo, a style pass over
-  store-listing.md's newer sections (same rules as the README rewrite:
-  no rule-of-three phrasing, no flavor lines), and a screenshots, README
-  and store-listing refresh covering the sidebar and saved words (the
-  current screenshot 5 and search copy show the removed toolbar popup).
+  homepage field pointing at this repo, and a rewrite of store-listing.md
+  covering the sidebar, saved words, export and settings, with a style pass
+  over its newer sections (same rules as the README: no rule-of-three
+  phrasing, no flavor lines). Its search copy still describes the removed
+  toolbar popup. The screenshots and the README are done: seven 1280x800
+  shots, the last three of them the sidebar.
 
 ### Saved words and settings (merged and verified)
 
@@ -76,7 +77,7 @@ release:
 - **Reading-row chip weight.** Level chips on reading-list rows are correct
   but visually heavy in the worst case: an all-Rare homophone list renders a
   column of identical grey pills that carries no information and drowns the
-  eumhun. Two mitigations identified — suppress the Rare chip on rows only
+  eumhun. Two mitigations identified: suppress the Rare chip on rows only
   (keep it on card heads), or de-fill row chips generally (text-weight rather
   than pill). Not decided; both are small and can land before or after
   upload.
@@ -89,13 +90,13 @@ release:
   model. The question later resolved itself when the toolbar popup was
   replaced by the sidebar, which persists for real.
 
-## 1.2 — romanized search
+## 1.2: romanized search
 
 The sidebar, saved words and settings were planned here and moved up (see
 above). What remains:
 
 - **Romanized SEARCH INPUT** (not display): typing gukmin/gungmin finds 국민 →
-  國民 for IME-less learners — the natural completion of typed search for the
+  國民 for IME-less learners, the natural completion of typed search for the
   target audience. Approach: dictionary-constrained matching (candidate
   hangul readings of the typed romanization, kept only where they hit
   byHangul / the reading index); index both naive and sound-changed Revised
@@ -118,15 +119,15 @@ one schema entry plus its feature code:
 - One example sentence per word (already present in the cached kaikki extracts)
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
 - 대법원 인명용 badge ("usable in given names", ~8,000 chars from the Supreme
-  Court rules annex — Korean law excludes statutes/rules from copyright, so
+  Court rules annex; Korean law excludes statutes/rules from copyright, so
   likely clean): deliberately deferred; an optional badge long-term, not part
   of the level taxonomy that shipped
 - General dictionary mode: include native Korean words, not just Sino-Korean
   (the full Wiktionary Korean extract is already downloaded and parsed at
-  build time — this is a filter change plus roughly double words.json, and a
+  build time, so this is a filter change plus roughly double words.json, and a
   product-identity decision more than a technical one)
 - Japanese and Chinese pronunciations on character cards, as an option
-  (Unihan kMandarin / kJapaneseOn / kJapaneseKun — data is nearly free, but
+  (Unihan kMandarin / kJapaneseOn / kJapaneseKun: data is nearly free, but
   whether cross-language readings belong in a Korean-first tool is uncertain;
   would ride the options page whenever it exists)
 - List views auto-growing taller than card views
@@ -135,7 +136,7 @@ one schema entry plus its feature code:
 ## Non-goals for now
 
 - The 어문회 검정시험 급수 ladder. CLOSED as won't-do: no openly licensed
-  source exists (verified — Korean Wiktionary carries no level data; all
+  source exists (verified: Korean Wiktionary carries no level data; all
   compilations trace to the association unlicensed), and Korean
   database-producer rights (저작권법 제91조–98조, with case law) make
   unlicensed extraction indefensible for a distributed product. The MOE

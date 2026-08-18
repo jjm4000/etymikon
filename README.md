@@ -2,7 +2,8 @@
 
 A study tool for Korean learners. Highlight hanja, hanzi, or kanji on any page
 to read them in Korean, or highlight a Korean (hangul) word to see its hanja.
-You can also type a query into the toolbar popup or the address bar.
+The toolbar button opens a sidebar for typed search, and typing `hj` in the
+address bar searches from there.
 
 옥편 (玉篇) is the traditional Korean word for a hanja dictionary.
 
@@ -12,44 +13,48 @@ You can also type a query into the toolbar popup or the address bar.
 
 - **Characters into Korean.** Select a hanja to see its eumhun (나라 국 for
   國), its readings, English definitions, and the compounds it appears in.
-  Simplified Chinese and Japanese shinjitai forms (国, 学, 気, 図) resolve to
-  the same entries, so the extension works on Chinese and Japanese pages too.
+  Simplified and shinjitai forms resolve to the same entries, so Chinese and
+  Japanese pages work too.
 - **Korean words into hanja.** Highlight a Sino-Korean word written in hangul
-  (국민) to see the hanja behind it (國民) along with its meaning and its
-  component characters. Grammatical endings are handled: 자본주의는 still
-  finds 자본주의.
+  to see the hanja behind it, its meaning, and its component characters.
+  Grammatical endings are handled: 자본주의는 still finds 자본주의.
 - **Word breakdown.** Long compounds split into component words (자본주의 →
-  資本 + 主義). Character cards list their compounds five at a time, and word
-  cards can list the larger words that contain them. Every entry is clickable,
-  and a breadcrumb trail takes you back to any earlier step.
-- **Browse by sound.** Highlight a single hangul syllable (국) to list every
-  hanja with that reading, with schoolbook characters at the top.
+  資本 + 主義). Every entry is clickable, and a breadcrumb trail takes you back
+  to any earlier step.
+- **Browse by sound.** Highlight a single hangul syllable to list every hanja
+  with that reading. Readings on cards are clickable too: a character's eum
+  opens that list, and a word's hangul shows its other hanja spellings.
 - **Character levels.** Every character is marked Middle school, High school,
   Advanced, or Rare. The first two follow the Korean Ministry of Education
-  curriculum lists. Advanced and Rare are Okpyeon's own classification, and
+  curriculum lists; Advanced and Rare are Okpyeon's own classification, and
   the tooltips state that.
-- **Search.** The toolbar button opens a small search popup, and typing `hj`
-  in the address bar searches from there. Both show the same cards as
-  highlighting does.
-- **Wiktionary links.** Each card links to its Wiktionary entry. Links open
-  in a background tab, so the popup stays open.
-- **Resizable.** Drag the popup's corner to resize it. The size is kept for
-  the rest of the page visit.
+- **Search.** The sidebar shows the same cards as highlighting does, and it
+  stays open as you switch tabs and follow links.
+- **Saved words.** The star on any card saves the entry, and a bubble lets you
+  pick or create a folder for it. The sidebar's Saved view holds the folders,
+  and items can be moved or deleted in batches.
+- **Export.** Saved words export as an Anki text file or as CSV, with folder
+  names carried over as Anki tags. Settings chooses the Anki card fields and
+  the folder new saves go to.
+- **Wiktionary links.** Each card links to its Wiktionary entry. Links open in
+  a background tab, so the card you are reading stays open.
+- **Resizable.** Drag the in-page popup's corner to resize it. The size is
+  kept for the rest of the page visit.
 - **Native words.** Native Korean words show nothing rather than a forced
   match. When a common native word shares its sound with an obscure hanja
-  spelling (사랑 and 舍廊), the entry is labelled a rare homograph instead of
-  being presented as the word's origin.
-- **Private and offline.** The whole dictionary ships inside the extension.
-  It makes no network requests and collects no data. See
-  [privacy-policy.html](privacy-policy.html).
+  spelling (사랑 and 舍廊), the entry is labelled a rare homograph rather than
+  the word's origin.
+- **Private and offline.** The whole dictionary ships inside the extension. It
+  makes no network requests and collects no data, and saved words stay on the
+  device. See [privacy-policy.html](privacy-policy.html).
 
-![Homophone browse](screenshots/4-homophone-browse.png)
+![Sidebar search](screenshots/5-sidebar-search.png)
 
-*Browsing every hanja read 국.*
+*Typed search in the sidebar.*
 
-![Search popup](screenshots/5-search-popup.png)
+![Saved words](screenshots/6-saved-words.png)
 
-*The toolbar search popup.*
+*Saved words, grouped into folders.*
 
 ## Install
 
