@@ -291,16 +291,57 @@
     label: "Search",
     title: "Search hanja and words",
     mount: function (container, ctx) {
+      // Corner seal (SPEC "Corner seal"): sealed like the other views, shown
+      // only while it fits under the content. The content is the renderer's
+      // shadow host inside #okp-results, so its SIZE is the render signal:
+      // a ResizeObserver on the results container's children (the childList
+      // observer enrolls the host once mount creates it) covers searches,
+      // drill-downs and show-more without any renderer hook; the shell's
+      // onState nudges too.
+      container.classList.add("view--sealed");
+      var resultsBox = container.querySelector("#okp-results");
+      var SEAL_ROOM = 230;
+      function updateSealRoom() {
+        var edge = 0;
+        for (var i = 0; i < resultsBox.children.length; i++) {
+          var r = resultsBox.children[i].getBoundingClientRect();
+          if (r.height > 0 && r.bottom > edge) edge = r.bottom;
+        }
+        var room = container.getBoundingClientRect().bottom -
+          (edge || resultsBox.getBoundingClientRect().top);
+        container.classList.toggle("view--roomy", room >= SEAL_ROOM);
+      }
+      var sealTimer = null;
+      function scheduleSeal() {
+        clearTimeout(sealTimer);
+        sealTimer = setTimeout(updateSealRoom, 60);
+      }
+      if (typeof ResizeObserver === "function" &&
+          typeof MutationObserver === "function") {
+        var sealRo = new ResizeObserver(scheduleSeal);
+        var sealWatched = [];
+        var watchResultsChildren = function () {
+          for (var i = 0; i < resultsBox.children.length; i++) {
+            var kid = resultsBox.children[i];
+            if (sealWatched.indexOf(kid) < 0) {
+              sealWatched.push(kid);
+              sealRo.observe(kid);
+            }
+          }
+        };
+        watchResultsChildren();
+        new MutationObserver(watchResultsChildren)
+          .observe(resultsBox, { childList: true });
+      }
+      if (typeof window !== "undefined" && window.addEventListener) {
+        window.addEventListener("resize", scheduleSeal);
+      }
+      scheduleSeal();
       ctx.shell.init({
         input: document.getElementById("okp-input"),
         results: container.querySelector("#okp-results"),
         status: container.querySelector("#okp-status"),
-        // The corner seal (see sidepanel.css .view--blank::after) marks the
-        // view only while it is genuinely empty — never behind results,
-        // errors, or the no-match line.
-        onState: function (state) {
-          container.classList.toggle("view--blank", state === "empty");
-        },
+        onState: function () { scheduleSeal(); },
         // Focus rules: the input is focused ONLY on an empty boot — the
         // icon-click open, where typing into the panel is the next thing the
         // user does. A boot that already has a query came from somewhere the

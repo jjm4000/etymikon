@@ -842,17 +842,27 @@ The jade 玉篇 seal (낙관 style: vertical-rl, bordered, slightly rotated,
 of the view. Evolved through user iterations; binding rules as of
 2026-08-18:
 
-- Search view: shown only in the genuinely empty state (.view--blank,
-  toggled by the shell's onState callback) — never behind results, errors,
-  or the no-match line.
-- Saved and settings views (.view--sealed, set at mount): shown only when
-  it FITS (user-reported fix: with enough rows the behind-content
-  watermark read as clutter — folder bands striped it and row text sat on
-  top of it). After every render, and on window resize (debounced), the
-  view measures the space between its content's bottom edge and the view
+- ONE RULE, all three views (.view--sealed set at mount; REVISED
+  2026-08-18, user-directed — the earlier empty-state-only .view--blank
+  mechanism on search is RETIRED): the seal is shown only when it FITS.
+  After every render, and on window resize (debounced), each view
+  measures the space between its content's bottom edge and the view
   bottom and toggles .view--roomy at a ~230px threshold. The seal is
-  visible only on .view--blank or .view--sealed.view--roomy, fading via
-  an opacity transition. Content can therefore never overlap it.
+  visible only on .view--sealed.view--roomy, fading via an opacity
+  transition. Content can therefore never overlap it (the original
+  user-reported failure: folder bands striped it and row text sat on top
+  of it), and an empty view shows it by construction.
+- Measurement measures CONTENT, not stretched containers: the saved view
+  takes the max bottom of its in-flow children (its list is
+  content-sized); the settings view takes the max bottom of the
+  settings-body's CHILDREN (the body itself is a stretched flex
+  scroller, whose own box always reaches the view bottom); the search
+  view takes the max bottom of the results container's children (the
+  shadow host and the status line). The search view has no render hook
+  into the renderer, so it watches the host: a ResizeObserver on the
+  results container's children (a childList MutationObserver enrolls the
+  host when mount creates it) plus the shell's onState callback, both
+  funneled through one debounced update.
 - Layering: each .view is position:relative + isolation:isolate; the seal
   is the view's ::after at z-index -1 (behind content, above the page
   background — isolation is what keeps the page background from covering

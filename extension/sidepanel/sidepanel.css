@@ -524,20 +524,18 @@ body {
 
 .saved-actions button.saved-confirm-yes:hover { background: var(--danger); }
 
-/* Corner seal (낙관): the jade stamp in the bottom-right. On the search
-   view it marks only the genuinely empty state (.view--blank, toggled by
-   the shell's state callback); on the saved and settings views it is a
-   permanent fixture (.view--sealed, set at mount — user-directed). It is
-   faint enough to sit under content when a long list scrolls past it.
-   Decorative only: no pointer events, no selection, not announced by
-   screen readers. */
+/* Corner seal (낙관): the jade stamp in the bottom-right. One rule for
+   every view (.view--sealed at mount): it shows only while it FITS under
+   the content (.view--roomy, measured per render — see updateSealRoom in
+   the view scripts), so text never sits on it and an empty view shows it
+   by construction. Decorative only: no pointer events, no selection, not
+   announced by screen readers. */
 /* isolation makes each view its own stacking context, so the seal's
    z-index:-1 lands behind the view's content but in front of the page
    background — without it the body background paints over the seal and
    it disappears entirely. */
 .view { position: relative; isolation: isolate; }
 
-.view--blank::after,
 .view--sealed::after {
   content: "玉篇";
   opacity: 0;
@@ -561,11 +559,6 @@ body {
   user-select: none;
 }
 
-/* The seal marks empty paper only: the empty search state always has
-   room, and the sealed views toggle .view--roomy from a measurement after
-   each render (see updateSealRoom in the view scripts), so content never
-   overlaps it. */
-.view--blank::after,
 .view--sealed.view--roomy::after { opacity: 1; }
 
 .saved-check,

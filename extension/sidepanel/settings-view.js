@@ -369,18 +369,21 @@
     });
   }
 
-  // Same rule as the saved view (SPEC "Corner seal"): the seal shows only
+  // Same rule as the other views (SPEC "Corner seal"): the seal shows only
   // when the space under the content fits it, re-measured after render and
-  // on resize.
+  // on resize. Measured against the BODY'S CHILDREN, not the body: the
+  // settings-body is a stretched flex scroller whose own box always reaches
+  // the view bottom, which would report zero room forever.
   var SEAL_ROOM = 230;
   function updateSealRoom() {
-    if (!root || !root.getBoundingClientRect) return;
+    if (!root || !body || !root.getBoundingClientRect) return;
     var edge = 0;
-    for (var i = 0; i < root.children.length; i++) {
-      var r = root.children[i].getBoundingClientRect();
+    for (var i = 0; i < body.children.length; i++) {
+      var r = body.children[i].getBoundingClientRect();
       if (r.height > 0 && r.bottom > edge) edge = r.bottom;
     }
-    var room = root.getBoundingClientRect().bottom - edge;
+    var room = root.getBoundingClientRect().bottom -
+      (edge || body.getBoundingClientRect().top);
     root.classList.toggle("view--roomy", room >= SEAL_ROOM);
   }
 

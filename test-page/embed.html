@@ -2730,6 +2730,35 @@
       settingsView.controlId("anki.wordBack") === "okp-set-anki-wordBack" &&
       settingsView.controlId("defaultFolderId") === "okp-set-defaultFolderId",
       settingsView.controlId("anki.wordBack"));
+
+    // Seal room rule on the settings view: measured against the body's
+    // CHILDREN (the body itself is a stretched scroller whose own box would
+    // report zero room forever). In this 600px frame the settings groups
+    // leave ~185px, under the threshold, so the seal correctly yields; a
+    // taller frame (a real panel) has room and shows it. The view must be
+    // SHOWING — a hidden view measures zero rects, correctly no room.
+    sidebar.showView("settings");
+    await settingsView.render();
+    await wait(250);
+    var settingsSealView = byId("okp-view-settings");
+    check("a cramped settings view yields the seal (fits-only rule)",
+      !settingsSealView.classList.contains("view--roomy") &&
+      getComputedStyle(settingsSealView, "::after").opacity === "0",
+      "roomy=" + settingsSealView.classList.contains("view--roomy"));
+    var sealFrame = document.querySelector(".panel-frame");
+    var sealFrameH = sealFrame.style.height;
+    sealFrame.style.height = "780px";
+    await settingsView.render();
+    await wait(250);
+    check("a taller panel has room under the settings and the seal shows",
+      settingsSealView.classList.contains("view--roomy") &&
+      getComputedStyle(settingsSealView, "::after").opacity === "1",
+      "roomy=" + settingsSealView.classList.contains("view--roomy") +
+        " opacity=" +
+        getComputedStyle(settingsSealView, "::after").opacity);
+    sealFrame.style.height = sealFrameH;
+    await settingsView.render();
+    await wait(50);
     check("the controls come up on the stored values, the shipped defaults here",
       byId("okp-set-defaultFolderId").value === "f0" &&
       byId("okp-set-anki-wordFront").value === "hanja" &&
@@ -2923,6 +2952,30 @@
           "calls=" + tabsSpy.calls.length + " prevented=" + mod.prevented +
           " text=" + JSON.stringify(wiki.textContent));
       });
+
+    /* ==================================================================
+     * Seal room rule on the SEARCH view: one rule for all three views.
+     * Tall results push the content past the threshold and the seal hides;
+     * clearing the search empties the view and the seal returns. The
+     * ResizeObserver-driven update is debounced and the fade is .18s, so
+     * each assertion waits.
+     * ================================================================== */
+    sidebar.showView("search");
+    var searchSealView = byId("okp-view-search");
+    await shell.search("국민");
+    await wait(SETTLE + 300);
+    check("tall search results hide the search view's seal",
+      !searchSealView.classList.contains("view--roomy") &&
+      getComputedStyle(searchSealView, "::after").opacity === "0",
+      "roomy=" + searchSealView.classList.contains("view--roomy"));
+    await shell.search("");
+    await wait(SETTLE + 300);
+    check("clearing the search empties the view and the seal returns",
+      searchSealView.classList.contains("view--roomy") &&
+      getComputedStyle(searchSealView, "::after").opacity === "1",
+      "roomy=" + searchSealView.classList.contains("view--roomy") +
+        " opacity=" +
+        getComputedStyle(searchSealView, "::after").opacity);
 
     /* ==================================================================
      * ?q= precedence.
