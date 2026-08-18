@@ -1901,7 +1901,8 @@
         " dy=" + Math.round(linkBox.top - cardBox.top));
     })();
     check("link is muted at rest, not underlined",
-      getComputedStyle(charLink).color !== getComputedStyle(api.query(".eumhun")).color &&
+      getComputedStyle(charLink).color !==
+        getComputedStyle(api.query(".eumhun .rnav")).color &&
       getComputedStyle(charLink).textDecorationLine === "none",
       getComputedStyle(charLink).color);
 
@@ -3343,7 +3344,7 @@
       lvlChip.getAttribute("aria-label"));
     check("the chip is quiet, not loud",
       getComputedStyle(lvlChip).color !==
-        getComputedStyle(api.query(".eumhun")).color &&
+        getComputedStyle(api.query(".eumhun .rnav")).color &&
       parseFloat(getComputedStyle(lvlChip).fontSize) <= 10,
       getComputedStyle(lvlChip).color + " " + getComputedStyle(lvlChip).fontSize);
 
@@ -3668,9 +3669,17 @@
     api.showAt(anchor, fake.__lookup("國").matches, "國");
     check("the eumhun line makes the EUM a chip and leaves the hun alone",
       rnavText(".eumhun") === "국" &&
-      api.query(".eumhun").firstChild.nodeType === 3 &&
-      api.query(".eumhun").firstChild.textContent === "나라 ",
+      api.query(".eumhun").firstChild === api.query(".eumhun .hun") &&
+      api.query(".eumhun .hun").textContent === "나라 ",
       rnavText(".eumhun") + " | " + JSON.stringify(api.query(".eumhun").textContent));
+    // One colour rule on a head: only what is clickable carries the accent.
+    check("the hun is ordinary foreground text, the eum keeps the accent",
+      getComputedStyle(api.query(".eumhun .hun")).color !==
+        getComputedStyle(api.query(".eumhun .rnav")).color &&
+      getComputedStyle(api.query(".eumhun .hun")).color ===
+        getComputedStyle(api.query(".card")).color,
+      getComputedStyle(api.query(".eumhun .hun")).color + " vs " +
+      getComputedStyle(api.query(".eumhun .rnav")).color);
     check("the chip is a keyboard-reachable button",
       api.query(".eumhun .rnav").getAttribute("role") === "button" &&
       api.query(".eumhun .rnav").getAttribute("tabindex") === "0");
@@ -3735,17 +3744,45 @@
       rnavText(".word-body .hangul"));
     api.query(".word-body .hangul .rnav").click();
     await wait(120);
-    check("clicking it opens the hangul lookup, spelling selector and all",
-      api.viewDepth() === 2 && api.viewKeys()[1] === "word:詐欺" &&
+    check("clicking it opens the hangul's own selector view, crumbed by the hangul",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기" &&
       api.queryAll(".spell-chip").length === 3 &&
-      api.crumbLabels()[1] === "詐欺",
+      api.crumbLabels()[1] === "사기",
       api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+
+    // The user-reported gap: standing ON 詐欺, the chip has to reach the OTHER
+    // spellings. Neither the single-word resolution nor the orient rule may
+    // swallow it — the selector is the whole point of the click.
+    api.showAt(anchor, fake.__lookup("詐欺").matches, "詐欺");
+    check("test setup: a single spelling's own view shows no selector",
+      api.viewKeys()[0] === "word:詐欺" && api.queryAll(".spell-chip").length === 0,
+      api.viewKeys().join(","));
+    api.query(".word-body .hangul .rnav").click();
+    await wait(120);
+    check("clicked from one of its own spellings, it still reaches the selector",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기" &&
+      api.queryAll(".spell-chip").length === 3,
+      api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+    api.query(".word-body .hangul .rnav").click();
+    await wait(120);
+    check("re-clicking on the selector view orients, never stacks a copy",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기",
+      "depth=" + api.viewDepth() + " " + api.viewKeys().join(","));
+
+    // A root hangul search already IS that selector, whatever it is keyed by.
+    api.showAt(anchor, fake.__lookup("사기").matches, "사기");
+    api.query(".word-body .hangul .rnav").click();
+    await wait(120);
+    check("on a root hangul search the chip orients rather than pushing a twin",
+      api.viewDepth() === 1 && api.queryAll(".spell-chip").length === 3,
+      "depth=" + api.viewDepth());
 
     api.showAt(anchor, fake.__lookup("國民").matches, "國民");
     api.query(".word-body .hangul .rnav").click();
     await wait(120);
-    check("a hangul naming the view already on screen orients, never stacks",
-      api.viewDepth() === 1 && api.viewKeys()[0] === "word:國民",
+    check("a single-spelling hangul keeps the plain word view and orients",
+      api.viewDepth() === 1 && api.viewKeys()[0] === "word:國民" &&
+      api.queryAll(".spell-chip").length === 0,
       "depth=" + api.viewDepth());
 
     api.showAt(anchor, fake.__lookup("사기").matches, "사기");

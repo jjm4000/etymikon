@@ -287,14 +287,15 @@
     "  overflow-wrap: anywhere;",
     "}",
     ".headmeta { min-width: 0; flex: 1 1 auto; }",
-    ".hangul, .eumhun { font-size: 15px; font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }",
-    ".readings { font-size: 14px; font-weight: 600; color: var(--accent); }",
+    ".hangul, .eumhun { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }",
+    ".readings { font-size: 14px; font-weight: 600; }",
     /* ---- navigating readings: eum syllables, and a word head's hangul ---- */
-    // These already LOOKED clickable — they are the only accent-coloured text
-    // on a head — so the affordance is just made honest. No colour of their
-    // own: the underline on hover and the focus ring are the whole treatment,
-    // which keeps a head reading as a heading and not as a row of links.
-    ".rnav { cursor: pointer; border-radius: 3px; }",
+    // ONE colour rule on a head: what is clickable carries the link colour and
+    // nothing else does. So the eum chip keeps the accent these lines always
+    // had, and the hun beside it (구슬 in 구슬 옥) is ordinary foreground text —
+    // it names the character, it does not go anywhere.
+    ".hun { color: var(--fg); }",
+    ".rnav { color: var(--accent); cursor: pointer; border-radius: 3px; }",
     ".rnav:hover { text-decoration: underline; }",
     ".rnav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
     ".canonical { font-size: 11px; color: var(--muted); margin-top: 1px; }",
@@ -1667,22 +1668,22 @@
   /* ---- Navigating readings --------------------------------------------- *
    * The accent-coloured text on a card head names another view: an eum
    * syllable names its homophone list, a word's hangul names its own lookup.
-   * Both are ordinary drill-downs, so both are just navigateTo — the cache,
-   * the breadcrumb, the cycle handling and the scroll restore all come along
-   * unchanged, and no new worker traffic exists.
+   * Both are ordinary drill-downs — the cache, the breadcrumb, the cycle
+   * handling and the scroll restore all come along unchanged, and no new
+   * worker traffic exists.
    *
    * makeNavRow already IS the "this element navigates" primitive (role,
    * tabindex, the text-selection guard, Enter/Space); an inline chip is the
    * same wiring on a <span>.
    * -------------------------------------------------------------------- */
 
-  function navChip(text, hint) {
+  function navChip(text, hint, target) {
     var chip = el("span", "rnav", text);
     if (hint) {
       chip.title = hint;
       chip.setAttribute("aria-label", hint);
     }
-    makeNavRow(chip, text);
+    makeNavRow(chip, target === undefined ? text : target);
     return chip;
   }
 
@@ -1691,9 +1692,11 @@
   }
 
   // The eumhun line as ELEMENTS instead of one string: the eum of each entry
-  // navigates, the hun does not. The visible text is character-for-character
-  // what formatEumhun produces for the same data — that function still serves
-  // every other site, and is the emptiness test here.
+  // navigates and the hun does not, and each half is named so the one colour
+  // rule on a head ("clickable carries the link colour") can reach it. The
+  // visible text is character-for-character what formatEumhun produces for the
+  // same data — that function still serves every other site, and is the
+  // emptiness test here.
   function appendEumhunLine(line, eumhun) {
     var list = asArray(eumhun);
     var written = 0;
@@ -1705,12 +1708,12 @@
       if (!hun && !eum) continue;
       if (written) line.appendChild(document.createTextNode(" · "));
       if (hun && eum) {
-        line.appendChild(document.createTextNode(hun + " "));
+        line.appendChild(el("span", "hun", hun + " "));
         line.appendChild(syllableChip(eum));
       } else if (eum) {
         line.appendChild(syllableChip(eum));
       } else {
-        line.appendChild(document.createTextNode(hun));
+        line.appendChild(el("span", "hun", hun));
       }
       written++;
     }
@@ -1750,7 +1753,9 @@
     // re-points the chip at the swapped-in spelling's hangul.
     if (hangul) {
       var hangulLine = el("div", "hangul");
-      hangulLine.appendChild(navChip(hangul, "Look up " + hangul));
+      hangulLine.appendChild(navChip(hangul, "Look up " + hangul, function () {
+        navigateToHangul(hangul);
+      }));
       meta.appendChild(hangulLine);
     }
     // Note the highlighted form only when it is neither the big text nor the
@@ -2812,6 +2817,64 @@
       pushView({
         key: key, label: viewLabel(list, target), matches: list,
         srcText: target                 // this view was looked up from the row
+      });
+    });
+  }
+
+  /* ---- The word head's hangul ------------------------------------------ *
+   * A hangul with more than one hanja spelling is its OWN view: the selector
+   * IS the point of the click, so it gets an identity of its own —
+   * "hangul:사과" — instead of collapsing onto whichever spelling happens to
+   * sort first. Two things would otherwise swallow it: viewKey resolves a
+   * multi-spelling lookup to the first spelling's word view, and the
+   * orient-in-place rule then recognises the card you are already standing on.
+   * Between them, the other spellings were unreachable from a drill-down.
+   * -------------------------------------------------------------------- */
+
+  // The distinct hanja spellings a lookup turned up for exactly this hangul.
+  function hangulSpellings(matches, hangul) {
+    return uniqStrings(usableMatches(matches).filter(function (m) {
+      return m.kind === "word" && nonEmptyString(m.surface) === hangul;
+    }).map(spellingKey));
+  }
+
+  // Asked of what the current view SHOWS, not of what it is called: a root
+  // hangul search renders this very selector but is keyed by its first
+  // spelling, so comparing keys alone would miss it and push a copy.
+  function showingSpellingsOf(hangul) {
+    var top = viewStack[viewStack.length - 1];
+    if (!top) return false;
+    if (top.key === "hangul:" + hangul) return true;
+    return hangulSpellings(top.matches, hangul).length > 1;
+  }
+
+  function navigateToHangul(text) {
+    var target = nonEmptyString(text);
+    if (!target) return;
+    // Re-clicking the selector orients, exactly as any other re-click does.
+    if (showingSpellingsOf(target)) {
+      orientCurrentView();
+      return;
+    }
+
+    var seq = requestSeq;
+    fetchLookup(target).then(function (response) {
+      if (seq !== requestSeq) return;
+      if (!response || response.ok !== true) return;
+      var list = usableMatches(response.matches);
+      if (!list.length) return;
+      if (hangulSpellings(list, target).length > 1) {
+        // The hangul itself is the identity, and the crumb names it.
+        pushView({
+          key: "hangul:" + target, label: target, matches: list, srcText: target
+        });
+        return;
+      }
+      // One spelling: an ordinary word view, under the ordinary orient rule.
+      var key = viewKey(list);
+      if (reenterCurrentView(key)) return;
+      pushView({
+        key: key, label: viewLabel(list, target), matches: list, srcText: target
       });
     });
   }

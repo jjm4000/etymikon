@@ -1541,10 +1541,40 @@
         .map(function (n) { return n.textContent; }).join(","));
     api.query(".word-body .hangul .rnav").click();
     await wait(TAIL);
-    check("clicking it opens the hangul view with its spelling selector",
-      api.viewDepth() === 2 && api.viewKeys()[1] === "word:詐欺" &&
+    check("clicking it opens the hangul's own selector view, crumbed by the hangul",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기" &&
+      api.queryAll(".spell-chip").length === 3 &&
+      api.crumbLabels()[1] === "사기",
+      api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+
+    // Standing ON one of the spellings, the chip must still reach the others:
+    // neither the single-word resolution nor the orient rule may swallow it.
+    await embed.searchFor("詐欺");
+    check("a single spelling's own view shows no selector in embed",
+      api.viewKeys()[0] === "word:詐欺" && api.queryAll(".spell-chip").length === 0,
+      api.viewKeys().join(","));
+    api.query(".word-body .hangul .rnav").click();
+    await wait(TAIL);
+    check("clicked from one of its own spellings, it still reaches the selector",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기" &&
       api.queryAll(".spell-chip").length === 3,
       api.viewKeys().join(",") + " chips=" + api.queryAll(".spell-chip").length);
+    api.query(".word-body .hangul .rnav").click();
+    await wait(TAIL);
+    check("re-clicking on the selector view orients, never stacks a copy",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "hangul:사기",
+      "depth=" + api.viewDepth() + " " + api.viewKeys().join(","));
+
+    // One colour rule on a head: only what is clickable carries the accent.
+    await embed.searchFor("國");
+    check("the hun is ordinary foreground text, the eum keeps the accent",
+      getComputedStyle(api.query(".eumhun .hun")).color !==
+        getComputedStyle(api.query(".eumhun .rnav")).color &&
+      getComputedStyle(api.query(".eumhun .hun")).color ===
+        getComputedStyle(api.query(".card")).color &&
+      api.query(".eumhun .hun").textContent === "나라 ",
+      getComputedStyle(api.query(".eumhun .hun")).color + " vs " +
+      getComputedStyle(api.query(".eumhun .rnav")).color);
 
     // --- clear() ---------------------------------------------------------
     embed.clear();
