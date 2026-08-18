@@ -808,6 +808,12 @@ views (crumbs, cached scroll, cycle handling all standard):
 - Reading-list ROWS are unchanged (the whole row already navigates to
   the char). Eumhun chips on word bodies are unchanged (they scroll to
   the component card).
+- The sidebar's 玉篇 brand wordmark is also clickable (user-directed —
+  the name is itself an entry, Yupian): click fills the search input
+  with 玉篇, runs the search, and shows the search view — the saved-row
+  openInSearch primitive. It becomes a real button (plain-styled, focus
+  ring, Enter/Space native), aria-label "Okpyeon: look up 玉篇". Applies
+  to the sidepanel page only (the in-page popup has no wordmark).
 - Harness: checks in BOTH harnesses — eum click opens the reading list
   with the right candidates and crumb, back returns with scroll restored;
   readings-only syllable click works; word-head hangul click opens the
