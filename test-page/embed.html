@@ -1864,6 +1864,16 @@
       readingTitles().join(" | ") === "2 hanja read 수 | 1 hanja read 녀",
       dividers().join(" | "));
 
+    // The SHELL is a typed channel: typing into the real input must carry the
+    // interpret flag end to end (search-shell passes it to searchFor).
+    input.value = "su";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await wait(SETTLE + TAIL);
+    check("typing in the searchbar interprets: the flag flows through the shell",
+      fake.__lastInterpret === true &&
+      dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)",
+      "last=" + fake.__lastInterpret + " " + dividers().join(" | "));
+
     await embed.searchFor("gkrtod", { interpret: true });
     await wait(TAIL);
     check("a single interpretation renders exactly as it did, with no divider",

@@ -128,7 +128,11 @@
         setState("empty");
         return Promise.resolve({ ok: true, count: 0 });
       }
-      return api.searchFor(query).then(function (res) {
+      // The shell IS a typed channel (romanized search ADDENDUM): everything
+      // that reaches it was typed or deep-linked by the user, so it opts into
+      // interpretation. Non-typed shell rides (wordmark, saved-row opens)
+      // pass hanja/hangul, which the interpreters' Latin gate ignores.
+      return api.searchFor(query, { interpret: true }).then(function (res) {
         // A newer search already owns the panel; its own .then will set state.
         if (destroyed || (res && res.stale)) return res;
         // A fresh query always starts at the top of the results.
