@@ -1,15 +1,16 @@
 # Hanja Hover — data pipeline (Agent A)
 
-Builds the four data files the extension ships with:
+Builds the five data files the extension ships with:
 
 ```
 extension/data/hanja.json      per-character: eumhun, readings, glosses, compounds
 extension/data/words.json      per-hanja-spelling words + byHangul reverse index
 extension/data/variants.json   variant character -> canonical (traditional) form
 extension/data/rr.json         romanization -> hangul, for romanized search
+extension/data/decomp.json     character -> its parts, for the Made of row
 ```
 
-All four are UTF-8 **without BOM** and compact (no indentation, no newlines).
+All five are UTF-8 **without BOM** and compact (no indentation, no newlines).
 Schemas are defined in `../SPEC.md`; this pipeline is the only thing that may
 write to `extension/data/`.
 
@@ -55,6 +56,7 @@ verification check fails.
 | `cache/ja-extract.jsonl.gz`      | `https://kaikki.org/dictionary/downloads/ja/ja-extract.jsonl.gz` | ~62 MB (gz) |
 | `cache/ko_full_opensubtitles.txt`| `https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/ko/ko_full.txt` | ~11 MB |
 | `cache/ko-wiki-edu-tier.wikitext` | `https://ko.wikipedia.org/w/index.php?title=대한민국_중고등학교_기초한자_목록&action=raw` (percent-encoded in `build.py`) | ~22 KB |
+| `cache/babelstone-ids.txt`       | `https://www.babelstone.co.uk/CJK/IDS.TXT`                           | ~3 MB   |
 
 The Translingual and Japanese extracts are used **only to establish variant
 links**. Nothing from them is ever displayed: every gloss, reading and eumhun
@@ -374,6 +376,36 @@ Anchors checked every run: 學/國/民 are `m`; 雰 (분위기), 祠 (사당), �
 fixed-seed 10 + 10 sample of the `a` and `r` zones on every run, so a
 recalibration can be eyeballed without extra tooling.
 
+## Character decomposition (`decomp.json`)
+
+`pipeline/decomp.py` turns the BabelStone IDS file into the part list a
+character card shows (依 = 亻 + 衣). One level deep: the parts are the
+characters the picked IDS names, with the layout removed, because the card's
+own glyph already shows the arrangement.
+
+Per character the build picks the K (ROKorea) sequence where there is one,
+else a G or untagged one, else the first; substitutes the `{n}` unencoded
+components from the table in the file's own header; and drops the
+decomposition on a mirror, rotation or subtraction operator, or on a `？` left
+behind by an unrepresentable placeholder. A part above the BMP cannot be
+trusted to render, so it is replaced by its own decomposition (乾 = 𠦝 + 乞
+becomes 十 + 早 + 乞), depth-capped at 6, dropping the character if it will
+not reduce.
+
+Radical display forms alias to the character they stand for: NFKD covers the
+two radical blocks (⺊ → 卜), a pinned table covers the forms encoded as
+ordinary ideographs (亻 → 人). The alias decides what the row opens, not what
+it shows — the card renders 亻, not 人 — except for an aliased part above the
+BMP, where the target has to supply the display glyph as well (𥫗 → 竹).
+
+A decomposition is emitted only if it has at least 2 parts and at least one
+part the dictionary can open. That suppresses stroke soup (匕 = 乚 + ㇒) and
+fully opaque splits; those cards simply have no Made of row. Parts with no
+dictionary target carry a short name from Unihan `kDefinition` when there is
+one, and are inert in the UI. Of 9,469 characters, 9,191 get an entry:
+2 drop on an operator, 83 on a placeholder, 108 on skip-through, 85 on the
+visibility rule.
+
 ## Canonical words keys, and how long a key can be
 
 The service worker NFC-normalizes a selection and maps every character through
@@ -448,6 +480,13 @@ Every run ends with counts, output sizes, and spot-checks:
 * 20 very common characters are present, including 文/金/小/中/時, which use an
   older template shape (`alt-of` senses pointing at a hangul reading) that a
   naive parser silently drops.
+
+* `decomp.json` anchors: 依 = 亻(→人) + 衣, 或 = 戈 + 口 + 一, 克 = 十 + 兄
+  (the K pick), 誨 = 訁(→言) + 每, 乾 = 十 + 早 + 乞 and 疑 = 匕 + 矢 + 龴 + 疋
+  (skip-through), 飮 = 食 + 欠 and 學 = 臼 + 爻 + 冖 + 子 (above-BMP aliases);
+  無, 乙 and 一 have no entry. Over the whole file: every part is in the BMP,
+  no IDC, operator, placeholder or `？` survives, every entry has 2+ parts and
+  a dictionary part, and every stated target exists in `hanja.json`.
 
 A failed check exits non-zero.
 

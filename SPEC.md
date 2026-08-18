@@ -1316,7 +1316,13 @@ character cards only; no level chips on part rows.
   `pipeline/cache/babelstone-ids.txt` (UTF-8 with BOM, CRLF, ~3.3 MB).
   Format: `U+xxxx<TAB>char<TAB>seq...` where each sequence is
   `^IDS$` optionally followed by `(SOURCETAGS)`; a line may carry
-  several tab-separated sequences for different regional forms.
+  several tab-separated sequences for different regional forms, and a
+  final `*note` field. Tag letters may be bracketed (`(G[V][B])`,
+  `([G][T])`) for the virtual source forms the file's section 9
+  describes; a bracketed letter counts as that tag.
+- Decompositions are emitted for hanja.json characters only. The
+  runtime never asks about anything else, and the other 88k IDS entries
+  would be dead weight in the file.
 - Sequence pick per character: prefer a sequence whose tags include K;
   else one whose tags include G or with no tag; else the first. (克 has
   `⿱十兄$(GHTJKPV)` and `⿱古儿$(X)`: pick 十+兄.)
@@ -1347,22 +1353,38 @@ character cards only; no level chips on part rows.
   Radicals Supplement blocks, plus a pinned hand table for
   non-normalizing forms (at minimum 亻→人, 訁→言, 釒→金, 𥫗→竹,
   𤣩→王, 氵→水, 忄→心, 扌→手, 犭→犬, 衤→衣, 礻→示, 刂→刀, 灬→火,
-  ⺌→小, 艹→艸, ⺼→肉, ⺝→月, 罒→网, ⻏→邑, 阝→阜). The DISPLAY glyph
+  ⺌→小, 艹→艸, ⺼→肉, ⺝→月, 罒→网, ⻏→邑, 阝→阜, and the three the IDS
+  file's own section 7 names: 糹→糸, 飠→食, 牜→牛). The DISPLAY glyph
   stays as written in the IDS (the card shows 亻, not 人); the alias
   affects only the reading/click target.
+- Aliasing runs BEFORE skip-through, and an aliased part above the BMP
+  takes its TARGET as the display glyph. Correction (Agent A, verified
+  against the source): 𥫗 and 𤣩 are above the BMP and are their own
+  whole IDS (`^𥫗$`), so under skip-through-first every bamboo and jade
+  character would have been dropped instead of showing 竹 and 王. The
+  same case pins three more aliases, without which their characters
+  drop: 𩙿→食 (57 chars: 飯 館 飮), 𠆢→人 (39: 今 全 余 食), 𦥑→臼
+  (11: 學 覺 興). The remaining above-BMP blockers are stroke shapes
+  (𠃌 𠃊 𠃍 𠄌) and 𧘇, the bottom of 衣, which have no parent character
+  to alias to, so their characters still drop.
 - Visibility rule: a character's decomposition is emitted only if it has
   ≥ 2 parts AND at least one part resolves (directly or via alias) to a
   dictionary character. Stroke-soup splits of simple characters (匕 =
   乚 + ㇒) and fully-opaque splits are suppressed; the card then simply
   has no Made of row, exactly like an atomic character.
 - Emit `extension/data/decomp.json`:
-  `{v:1, parts: {char: [[g], [g,t], [g,null,n], ...]}}` where `g` is the
-  display glyph, `t` the dictionary character its row opens (omitted
-  when g itself is the target and is in the dictionary; null in slot 2
-  only when slot 3 is used), and `n` a short English name (first clause
-  of Unihan kDefinition) present only for reading-less parts that have
-  one. Only characters passing the visibility rule appear. sort_keys,
-  deterministic across runs.
+  `{v:1, parts: {char: [[g], [g,t], [g,null,n], [g,null], ...]}}` where
+  `g` is the display glyph, `t` the dictionary character its row opens
+  (omitted when g itself is the target and is in the dictionary), and
+  `n` a short English name (first clause of Unihan kDefinition) present
+  only for reading-less parts that have one. Slot 2 is null for every
+  reading-less part; the row is 2 long when Unihan has no definition to
+  name it with (correction, Agent A: 455 of the 1,215 reading-less rows,
+  e.g. the strokes ㇒ ㇂ and shapes like 龴, have no kDefinition at all,
+  so `[g,null,n]` alone could not express them, and `[g]` already means
+  "clickable, target is g"). A row is therefore clickable if and only if
+  its length is 1 or its slot 2 is a string. Only characters passing the
+  visibility rule appear. sort_keys, deterministic across runs.
 
 ### Binding anchors (build verify step)
 
@@ -1370,9 +1392,13 @@ character cards only; no level chips on part rows.
   克 → [十, 兄] (K-form pick); 誨 → [訁(→言), 每] (alias);
   乾 → [十, 早, 乞] (skip-through of 𠦝 = ⿱十早);
   疑 → [匕, 矢, 龴, 疋] (skip-through of 𠤕 = ⿱匕矢; 龴 is a
-  reading-less shape row).
+  reading-less shape row);
+  飮 → [食, 欠] and 學 → [臼, 爻, 冖, 子] (above-BMP aliases 𩙿 and 𦥑
+  supplying the display glyph).
 - ABSENT (no entry): 無 (placeholder {56} substitutes to ？), 乙 and 一
-  (atomic). Agent A verifies each absence reason against the source
+  (atomic). Verified against the file: 無 is `^⿱{56}灬$` with `{56}` =
+  ？ in the header table, 乙 is `^乙$` and 一 is `^一$`, so both flatten
+  to a single part and fail the visibility rule. Agent A verifies each absence reason against the source
   before asserting, and extends the anchor set if a rule above turns
   out to bind differently than expected — SPEC updated to match, never
   silently diverged from.

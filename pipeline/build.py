@@ -8,11 +8,14 @@ Hanja Hover -- build-time data pipeline (Agent A).
 Sources
     * kaikki.org postprocessed Korean Wiktionary extract (JSONL, ~190 MB)
     * Unicode Unihan database (Unihan_Variants.txt inside Unihan.zip)
+    * BabelStone IDS (character decomposition, ~3.3 MB)
 
 Outputs (UTF-8, no BOM, compact / no indentation)
     extension/data/hanja.json
     extension/data/words.json
     extension/data/variants.json
+    extension/data/rr.json
+    extension/data/decomp.json
 
 Usage
     python pipeline/build.py            # download if missing, parse, emit, verify
@@ -42,6 +45,8 @@ import zipfile
 # module, stdlib only; sys.path[0] is this directory whenever build.py runs as
 # a script, which is the only supported way to run it.
 import rr
+# Character decomposition rules (pipeline/decomp.py); same local-module rule.
+import decomp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -76,6 +81,10 @@ EDU_TIER_URL = (
     "%EB%8C%80%ED%95%9C%EB%AF%BC%EA%B5%AD_%EC%A4%91%EA%B3%A0%EB%93%B1%ED%95%99"
     "%EA%B5%90_%EA%B8%B0%EC%B4%88%ED%95%9C%EC%9E%90_%EB%AA%A9%EB%A1%9D"
     "&action=raw")
+# BabelStone IDS: one Ideographic Description Sequence per CJK ideograph,
+# maintained by Andrew West, who waives copyright in the file's own header.
+# Source of decomp.json. See extension/data/DATA-LICENSE.md.
+IDS_URL = "https://www.babelstone.co.uk/CJK/IDS.TXT"
 
 KAIKKI_FILE = os.path.join(CACHE, "kaikki-Korean.jsonl")
 UNIHAN_FILE = os.path.join(CACHE, "Unihan.zip")
@@ -83,6 +92,7 @@ TRANSLINGUAL_FILE = os.path.join(CACHE, "kaikki-Translingual.jsonl")
 JAPANESE_FILE = os.path.join(CACHE, "ja-extract.jsonl.gz")
 EXTFREQ_FILE = os.path.join(CACHE, "ko_full_opensubtitles.txt")
 EDU_TIER_FILE = os.path.join(CACHE, "ko-wiki-edu-tier.wikitext")
+IDS_FILE = os.path.join(CACHE, "babelstone-ids.txt")
 
 # ---------------------------------------------------------------- script ranges
 
@@ -1092,7 +1102,7 @@ def write_json(name, obj):
     return os.path.getsize(path)
 
 
-def verify(hanja_obj, words_obj, variants_obj, rr_obj=None):
+def verify(hanja_obj, words_obj, variants_obj, rr_obj=None, decomp_obj=None):
     chars_out = hanja_obj["chars"]
     words_out = words_obj["words"]
     by_hangul = words_obj["byHangul"]
@@ -1437,6 +1447,72 @@ def verify(hanja_obj, words_obj, variants_obj, rr_obj=None):
         add("rr.json values are duplicate-free", not unsorted_vals,
             "checked %d keys" % min(len(rw), 5000))
 
+    # --- decomp.json (SPEC character-decomposition addendum) -----------
+    if decomp_obj is not None:
+        dp = decomp_obj["parts"]
+        add("decomp.json schema", decomp_obj.get("v") == 1
+            and isinstance(dp, dict)
+            and all(isinstance(k, str) and len(k) == 1 for k in list(dp)[:2000]),
+            "v=%s, %s entries" % (decomp_obj.get("v"), format(len(dp), ",")))
+        # Each anchor pins one rule: the plain split, the K-form pick, the
+        # radical alias, the skip-through of an above-BMP part, and the
+        # reading-less shape row.
+        d_anchors = [
+            ("依", [["亻", "人"], ["衣"]]),
+            ("國", [["囗"], ["或"]]),
+            ("明", [["日"], ["月"]]),
+            ("或", [["戈"], ["口"], ["一"]]),
+            ("克", [["十"], ["兄"]]),
+            ("誨", [["訁", "言"], ["每"]]),
+            ("乾", [["十"], ["早"], ["乞"]]),
+            ("疑", [["匕"], ["矢"], ["龴", None], ["疋"]]),
+            # above-BMP radical forms: the alias supplies the display glyph
+            # the skip-through rule would otherwise have no way to produce.
+            ("飮", [["食"], ["欠"]]),
+            ("學", [["臼"], ["爻"], ["冖"], ["子"]]),
+        ]
+        bad = ["%s -> %s (want %s)" % (c, json.dumps(dp.get(c), ensure_ascii=False),
+                                       json.dumps(want, ensure_ascii=False))
+               for c, want in d_anchors if dp.get(c) != want]
+        add("decomp anchors (pick, alias, skip-through, shape row)", not bad,
+            "%d/%d pass%s" % (len(d_anchors) - len(bad), len(d_anchors),
+                              "" if not bad else "; FAILED " + "; ".join(bad)))
+        # 無 is ⿱{56}灬 and {56} substitutes to ？; 乙 and 一 are their own
+        # IDS, so they have one part and fail the visibility rule.
+        absent = [c for c in ("無", "乙", "一") if c in dp]
+        add("decomp absences (無 placeholder, 乙/一 atomic)", not absent,
+            "present but should not be: %s" % (absent or "(none)"))
+        # Negative invariants over the whole emit.
+        bad_char, short, blind = [], [], []
+        for c, rows in dp.items():
+            if len(rows) < 2:
+                short.append(c)
+            targets = [r[1] if len(r) > 1 and r[1] else r[0] for r in rows]
+            if not any(t in chars_out for t in targets):
+                blind.append(c)
+            for r in rows:
+                g = r[0]
+                o = ord(g)
+                if (len(g) != 1 or o > 0xFFFF or 0x2FF0 <= o <= 0x2FFF
+                        or g in "{}？" or g == "㇯" or g == "〾"):
+                    bad_char.append("%s:%s" % (c, g))
+        add("decomp invariants: BMP parts only, no IDC/operator/placeholder/？",
+            not bad_char, "%s rows checked; %d offenders%s"
+            % (format(sum(len(v) for v in dp.values()), ","), len(bad_char),
+               "" if not bad_char else " e.g. " + ", ".join(bad_char[:5])))
+        add("decomp visibility rule holds (>= 2 parts, >= 1 in dictionary)",
+            not short and not blind,
+            "%d entries with < 2 parts, %d with no dictionary part%s"
+            % (len(short), len(blind),
+               "" if not (short or blind) else " e.g. " + "".join((short + blind)[:5])))
+        # Every stated target must be openable, or a part row would navigate
+        # to a card that does not exist.
+        dead = [(c, r[1]) for c, rows in dp.items() for r in rows
+                if len(r) > 1 and r[1] and r[1] not in chars_out]
+        add("decomp targets all resolve to a hanja.json entry", not dead,
+            "%d dead targets%s" % (len(dead),
+                                   "" if not dead else " e.g. %s" % dead[:5]))
+
     # --- frequency bucket (SPEC addendum) ------------------------------
     f_vals = [s.get("f") for lst in words_out.values() for s in lst]
     bad_f = [v for v in f_vals if v is not None and (not isinstance(v, int)
@@ -1480,10 +1556,15 @@ def verify_only():
         r = rd("rr.json")
     except (OSError, ValueError):
         r = None
-    log("chars %s | words %s | byHangul %s | variants %s" % (
+    try:
+        d = rd("decomp.json")
+    except (OSError, ValueError):
+        d = None
+    log("chars %s | words %s | byHangul %s | variants %s | decomp %s" % (
         format(len(h["chars"]), ","), format(len(w["words"]), ","),
-        format(len(w["byHangul"]), ","), format(len(v["map"]), ",")))
-    return verify(h, w, v, r)
+        format(len(w["byHangul"]), ","), format(len(v["map"]), ","),
+        format(len(d["parts"]), ",") if d else "-"))
+    return verify(h, w, v, r, d)
 
 
 # ---------------------------------------------------------------- main
@@ -1503,6 +1584,7 @@ def main(argv):
     download(JAPANESE_URL, JAPANESE_FILE, force)
     download(EXTFREQ_URL, EXTFREQ_FILE, force)
     download_small(EDU_TIER_URL, EDU_TIER_FILE, force)
+    download(IDS_URL, IDS_FILE, force)
 
     log("[2/5] streaming kaikki Korean JSONL (line by line)")
     parse_kaikki(KAIKKI_FILE)
@@ -2019,6 +2101,29 @@ def main(argv):
            format(len(rr_syllables), ","), format(len(rr_syl_map), ","),
            format(n_syl_forms, ","), format(n_syl_collapsed, ",")))
 
+    # ---- decomp.json (SPEC character-decomposition addendum) ----------
+    # Built last: the visibility rule and the click targets both need the
+    # finished chars_out key set to know what the dictionary can open.
+    with open(IDS_FILE, "r", encoding="utf-8-sig") as fh:
+        decomp_obj, decomp_stats = decomp.build(fh.read(), set(chars_out),
+                                                uni_defs)
+    log("  decomp: %s of %s chars decomposed (%s parts, %s aliased, %s named "
+        "shape rows, %s unnamed)"
+        % (format(decomp_stats["emitted"], ","),
+           format(decomp_stats["considered"], ","),
+           format(decomp_stats["rows"], ","),
+           format(decomp_stats["aliased"], ","),
+           format(decomp_stats["named"], ","),
+           format(decomp_stats["unnamed"], ",")))
+    log("  decomp suppressed: %s no IDS, %s operator (mirror/rotation/"
+        "subtraction), %s unrepresentable placeholder, %s skip-through "
+        "failure, %s visibility rule"
+        % (format(decomp_stats["nosource"], ","),
+           format(decomp_stats["operator"], ","),
+           format(decomp_stats["placeholder"], ","),
+           format(decomp_stats["skipthrough"], ","),
+           format(decomp_stats["visibility"], ",")))
+
     # ---- emit ---------------------------------------------------------
     hanja_obj = {"version": 1, "chars": chars_out}
     # Length metadata (SPEC ADDENDUM): the segmentation caps in lookup.js were
@@ -2039,6 +2144,7 @@ def main(argv):
     s_w = write_json("words.json", words_obj)
     s_v = write_json("variants.json", variants_obj)
     s_r = write_json("rr.json", rr_obj)
+    s_d = write_json("decomp.json", decomp_obj)
 
     # ---- report -------------------------------------------------------
     log("\n================= COUNTS ===================")
@@ -2065,9 +2171,10 @@ def main(argv):
     log("words.json    : %s" % mb(s_w))
     log("variants.json : %s" % mb(s_v))
     log("rr.json       : %s" % mb(s_r))
-    log("total         : %s" % mb(s_h + s_w + s_v + s_r))
+    log("decomp.json   : %s" % mb(s_d))
+    log("total         : %s" % mb(s_h + s_w + s_v + s_r + s_d))
 
-    failed = verify(hanja_obj, words_obj, variants_obj, rr_obj)
+    failed = verify(hanja_obj, words_obj, variants_obj, rr_obj, decomp_obj)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     raise SystemExit(1 if failed else 0)

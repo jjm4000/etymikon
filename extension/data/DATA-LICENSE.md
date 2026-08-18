@@ -1,8 +1,8 @@
 # Dictionary data license and attribution
 
 The JSON files in this directory (`hanja.json`, `words.json`, `variants.json`,
-`rr.json`) are a derived database compiled from the following sources by
-`pipeline/build.py`:
+`rr.json`, `decomp.json`) are a derived database compiled from the following
+sources by `pipeline/build.py`:
 
 - **English Wiktionary** (https://en.wiktionary.org), via the machine-readable
   extracts published by **kaikki.org** (https://kaikki.org), themselves
@@ -24,6 +24,17 @@ The JSON files in this directory (`hanja.json`, `words.json`, `variants.json`,
   signal: it decides the `rare` flag and the coarse `f` frequency bucket
   (a 0-9 log-scaled rank band), and no word, count or rank from it is copied
   into these files.
+
+- **BabelStone IDS** (https://www.babelstone.co.uk/CJK/IDS.TXT, file date
+  2025-06-27), Ideographic Description Sequences maintained by **Andrew West**.
+  The only source of `decomp.json`. The file's own header waives copyright: it
+  states that IDS descriptions are facts rather than creative compositions and
+  so are not eligible for copyright protection, that anyone is free to use the
+  data for personal or commercial purposes without permission or attribution,
+  and that the author further waives any copyright claim to the presentation
+  format. The credit here is given because it is deserved, not because it is
+  required. `decomp.json` also carries short part names taken from the Unihan
+  `kDefinition` field, covered by the Unicode License above.
 
 `rr.json` adds no source of its own: it is a mechanical Revised Romanization
 transform of hangul already present in the files above, so it carries the same
