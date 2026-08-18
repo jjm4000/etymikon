@@ -1,0 +1,318 @@
+<!doctype html>
+<!--
+  Staging page for the in-page popup screenshots. Driven by
+  pipeline/make_screenshots.py; not part of the shipped extension.
+
+  It is a plausible newspaper article (Korean by default, Japanese for
+  scene 5) that loads the REAL extension code: extension/lookup.js and
+  extension/saved.js answer queries against the REAL extension/data/*.json,
+  behind the __hanjaHoverTestRuntime stub that content.js already supports in
+  place of chrome.runtime, and then the REAL extension/content/content.js runs
+  unmodified on top. Nothing about the popup's markup, styling or layout is
+  reproduced here; only the message transport is local.
+
+  This exists because Chrome 151 headless ignores --load-extension, so the
+  content script cannot be injected the normal way for a capture run.
+
+  Query parameters:
+    scene=N    which scene to drive (see the switch at the bottom)
+    scroll=N   window scroll offset before the selection is made
+    w=N        popup width handed to the product's own resizePanel
+    bottom=N   gap to leave under the popup when sizing it to its content
+
+  Signals completion by setting documentElement.dataset.shotReady.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>새벽신문 — 한자 교육, 다시 敎室로</title>
+<style>
+  html { color-scheme: light; }
+  body {
+    margin: 0; background: #fff; color: #16161a;
+    font: 16.5px/1.9 "Malgun Gothic", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, "Apple SD Gothic Neo", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .masthead {
+    border-bottom: 1px solid #e6e6ec; padding: 20px 0 19px;
+  }
+  .wrap { width: 704px; margin: 0 0 0 176px; }
+  .brand { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  .masthead .wrap { display: flex; align-items: baseline; gap: 28px; }
+  .masthead nav { display: flex; gap: 22px; font-size: 14px; color: #6b6b73; }
+  .masthead nav .on { color: #16161a; font-weight: 600; }
+  .kicker {
+    margin: 44px 0 0; font-size: 12.5px; font-weight: 600; color: #6b6b73;
+    letter-spacing: .08em;
+  }
+  h1 {
+    margin: 10px 0 14px; font-size: 34px; line-height: 1.35; font-weight: 700;
+    letter-spacing: -.02em;
+  }
+  .standfirst { margin: 0 0 22px; font-size: 18px; line-height: 1.75; color: #3d3d46; }
+  .byline {
+    margin: 0; padding: 18px 0 0; border-top: 1px solid #e6e6ec;
+    font-size: 14px; color: #86868f;
+  }
+  article p { margin: 0 0 26px; }
+  #p1 { margin-top: 42px; }
+  h2 { margin: 34px 0 14px; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  blockquote {
+    margin: 30px 0; padding: 0 0 0 20px; border-left: 3px solid #d8d8e0;
+    font-size: 17px; color: #2c2c34;
+  }
+  blockquote p { margin: 0; }
+  figure { margin: 30px 0; }
+  .photo {
+    height: 200px; border-radius: 6px; background: #eeeef2;
+    display: flex; align-items: center; justify-content: center; gap: 70px;
+    font-size: 46px; color: #cfcfd8;
+  }
+  figcaption { margin-top: 10px; font-size: 13.5px; color: #86868f; }
+  .tail { height: 300px; }
+  .ja {
+    font-family: "Yu Gothic", "Meiryo", "MS PGothic", -apple-system,
+      BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .ja h1 { line-height: 1.45; }
+  .ja article p { margin: 0 0 24px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="masthead" id="ko-masthead">
+  <div class="wrap">
+    <span class="brand">새벽신문</span>
+    <nav><span class="on">문화</span><span>사회</span><span>경제</span><span>오피니언</span></nav>
+  </div>
+</header>
+
+<article id="ko-article">
+  <div class="wrap">
+    <p class="kicker">교육</p>
+    <h1>한자 교육, 다시 敎室로</h1>
+    <p class="standfirst">학교 현장에서 漢字를 다시 가르치자는 논의가 이어지고 있다.
+      낱말의 뿌리를 알면 國語 어휘가 넓어진다는 주장이다.</p>
+    <p class="byline">김수현 기자 · 2026년 3월 14일</p>
+
+    <p id="p1"><span id="s-gukmin">국민</span>의 언어 생활에서 한자어가 차지하는 비중은
+      여전히 높다. 교육부 조사에 따르면 교과서에 쓰인 낱말의 상당수가 한자에서 왔다.
+      <span id="s-hak">學</span>이라는 한 글자만 보아도 학교, 학생, 과학, 문학처럼
+      일상적인 낱말이 줄줄이 이어진다.</p>
+
+    <p id="p2">한 중학교 교사는 “낱말을 통째로 외우는 대신 글자의 뜻을 알면 새 낱말을
+      스스로 풀어낼 수 있다”고 말했다. 예컨대 경제 기사에 자주 등장하는 자본주의라는
+      말도 <span id="s-jabon">자본</span>과 주의로 나누어 보면 뜻이 또렷해진다.</p>
+
+    <blockquote><p>“낱말을 쪼개어 보는 습관이 곧 어휘력입니다. 국어 시간에 한자를
+      조금만 다루어도 학생들의 독해가 달라집니다.”</p></blockquote>
+
+    <h2>같은 소리, 다른 글자</h2>
+
+    <p id="p3">한글은 소리를 적는 글자이므로 같은 소리를 가진 한자가 여럿이다.
+      <span id="s-guk">국</span>이라는 한 음절만 해도 나라 國, 판 局, 국화 菊처럼 여러
+      글자가 같은 소리로 읽힌다. 문맥이 뜻을 가르지만, 글자를 알면 그 갈림이 훨씬
+      빨라진다.</p>
+
+    <figure>
+      <div class="photo"><span>國</span><span>學</span><span>字</span></div>
+      <figcaption>중학교 교과서에 실린 한자 교육 단원. 자료사진</figcaption>
+    </figure>
+
+    <p>반론도 있다. 한자 교육이 학습 부담을 늘린다는 지적이다. 다만 찬반 어느 쪽도
+      한자어 자체가 한국어의 큰 부분이라는 사실에는 이견이 없다. 문제는 그것을 언제,
+      얼마나 가르치느냐다.</p>
+
+    <p>교육 과정 개정안은 올해 안에 공개될 예정이다. 한자 병기의 범위와 평가 방식이
+      가장 큰 쟁점으로 꼽힌다.</p>
+
+    <p>현장 교사들은 평가보다 읽기를 먼저 이야기한다. 시험을 늘리지 않고 교과서 낱말
+      옆에 한자를 적어 두는 것만으로 충분하다는 것이다. 실제로 몇몇 학교는 수업 자료에
+      한자를 병기해 왔다.</p>
+
+    <div class="tail"></div>
+  </div>
+</article>
+
+<div id="ja-doc" class="ja" lang="ja" hidden>
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">朝陽新聞</span>
+    <nav><span class="on">教育</span><span>社会</span><span>経済</span><span>文化</span></nav>
+  </div>
+</header>
+
+<article>
+  <div class="wrap">
+    <p class="kicker">教育</p>
+    <h1>漢字の成り立ちから、語をほどく</h1>
+    <p class="standfirst">語を音のかたまりで覚えるのではなく、字の意味から読み解く。
+      そんな授業が、大学の一年生向けの科目で静かに広がっている。</p>
+    <p class="byline">田中 千尋 · 2026年3月14日</p>
+
+    <p id="ja-p1">都内のある大学では、今年度から日本語表現の授業に漢字の講読を取り入れた。
+      担当の教員によれば、<span id="s-gakusei">学生</span>の多くは熟語をひとつの音として
+      覚えており、字そのものの意味まで意識することは少ないという。</p>
+
+    <p>「文化」も「経済」も、字を一つずつ見ていけば意味の輪郭が浮かんでくる。
+      辞書を引く手間は増えるが、初めて見る語に出会ったときに立ち止まらずに済む、
+      と教員は話す。授業では毎回、記事から拾った熟語をいくつか取り上げている。</p>
+
+    <p>受講した二年生は「知らない語を見ても、字から見当がつくようになった」と話した。
+      同じ音でも字が違えば意味が変わることに、初めて気づいたという声も多い。</p>
+
+    <div class="tail"></div>
+  </div>
+</article>
+</div>
+
+<script type="module">
+/*
+ * Staging driver for the store screenshots. Loads the REAL extension/lookup.js
+ * and extension/saved.js against the REAL data files, installs the message
+ * stub content.js already supports, then loads the REAL content/content.js and
+ * drives one scene. Nothing about the rendering is faked.
+ */
+import { lookup, buildFullCompounds, buildUsedIn, buildReadingIndex }
+  from "/extension/lookup.js";
+import { normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems }
+  from "/extension/saved.js";
+
+const params = new URLSearchParams(location.search);
+const scene = params.get("scene") || "1";
+const scrollY = Number(params.get("scroll") || 0);
+
+const [hanja, words, variants] = await Promise.all(
+  ["hanja", "words", "variants"].map((n) =>
+    fetch("/extension/data/" + n + ".json").then((r) => r.json())));
+
+let readingIndex = null;
+const data = {
+  hanja, words, variants,
+  getReadingIndex: () => (readingIndex ||= buildReadingIndex(hanja)),
+};
+
+let savedState = normalizeSavedState(null);
+const settings = normalizeSettings(null, savedState);
+
+function handle(msg) {
+  switch (msg && msg.type) {
+    case "lookup": return lookup(String(msg.text || ""), data);
+    case "compounds": return { ok: true, compounds: buildFullCompounds(msg.char, data) };
+    case "usedIn": return { ok: true, words: buildUsedIn(msg.word, data) };
+    case "openTab": return { ok: true };
+    case "savedGet":
+      return { ok: true, folders: savedState.folders, items: joinItems(savedState.items, data) };
+    case "savedCheck": return { ok: true, saved: checkKeys(savedState, msg.keys) };
+    case "savedToggle": {
+      const r = toggleItem(savedState, msg.kind, msg.key, settings.defaultFolderId, Date.now());
+      savedState = r.state;
+      const out = { ok: true, saved: r.saved, folders: savedState.folders };
+      if (r.item) { out.item = r.item; out.folderId = r.item.folderId; }
+      return out;
+    }
+    case "settingsGet": return { ok: true, settings };
+    default: return { ok: false, error: "unknown message type" };
+  }
+}
+
+globalThis.__hanjaHoverTestRuntime = {
+  __isStub: true,
+  sendMessage(msg, cb) {
+    let resp;
+    try { resp = handle(msg); } catch (e) { resp = { ok: false, error: String(e) }; }
+    if (typeof cb === "function") { setTimeout(() => cb(resp), 0); return undefined; }
+    return Promise.resolve(resp);
+  },
+};
+
+await new Promise((res, rej) => {
+  const s = document.createElement("script");
+  s.src = "/extension/content/content.js";
+  s.onload = res; s.onerror = rej;
+  document.head.appendChild(s);
+});
+
+const api = globalThis.__hanjaHover;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function select(id) {
+  const node = document.getElementById(id);
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+async function untilVisible() {
+  for (let i = 0; i < 100; i++) {
+    if (api.isVisible()) return true;
+    await sleep(50);
+  }
+  return false;
+}
+
+async function show(id) {
+  select(id);
+  api.handleSelection();
+  await untilVisible();
+  await sleep(250);
+}
+
+// The panel ships 340x360 and carries a drag handle. These shots use the
+// product's own resize (the same code path a drag runs) to size it to its
+// content, up to the room the selection leaves below it.
+function panelEl() {
+  let node = api.query(".view");
+  while (node && !node.classList.contains("panel")) node = node.parentElement;
+  return node;
+}
+
+async function fit() {
+  const width = Number(params.get("w") || 384);
+  const panel = panelEl();
+  api.resizePanel(width, 240);
+  await sleep(200);
+  const top = panel.getBoundingClientRect().top;
+  const room = Math.floor(window.innerHeight - top - Number(params.get("bottom") || 12));
+  const need = panel.scrollHeight + 2;
+  api.resizePanel(width, Math.max(240, Math.min(room, need)));
+  await sleep(300);
+}
+
+if (scene === "5") {
+  document.documentElement.lang = "ja";
+  document.title = "朝陽新聞 — 漢字の成り立ちから、語をほどく";
+  document.getElementById("ko-masthead").hidden = true;
+  document.getElementById("ko-article").hidden = true;
+  document.getElementById("ja-doc").hidden = false;
+}
+
+window.scrollTo(0, scrollY);
+await sleep(60);
+
+if (scene === "1") await show("s-hak");
+if (scene === "2") await show("s-gukmin");
+if (scene === "4") await show("s-guk");
+if (scene === "5") await show("s-gakusei");
+if (scene === "3") {
+  await show("s-jabon");
+  api.query(".usedin-row").click();
+  await sleep(400);
+  const rows = api.queryAll(".usedin-item");
+  const target = rows.find((r) => r.textContent.includes("資本主義")) || rows[0];
+  target.click();
+  await sleep(500);
+}
+if (api.isVisible()) await fit();
+
+await sleep(300);
+document.documentElement.dataset.shotReady = "scene" + scene;
+</script>
+
+</body>
+</html>

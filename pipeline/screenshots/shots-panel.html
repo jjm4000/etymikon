@@ -1,0 +1,249 @@
+<!doctype html>
+<!--
+  Staging page for the side-panel screenshots. Driven by
+  pipeline/make_screenshots.py; not part of the shipped extension.
+
+  The markup below is copied from extension/sidepanel/sidepanel.html, ids and
+  all, exactly as test-page/embed.html does it, and the stylesheet and every
+  script are the shipped ones. Only the message transport is local: the REAL
+  extension/lookup.js and extension/saved.js answer against the REAL
+  extension/data/*.json, behind the __hanjaHoverTestRuntime stub the sidepanel
+  already supports in place of chrome.runtime. A seeded in-memory saved store
+  stands in for chrome.storage.
+
+  This exists because Chrome 151 headless ignores --load-extension, so the
+  side panel cannot be opened the normal way for a capture run.
+
+  Query parameters:
+    view=search|saved|settings   which view to show
+    q=TEXT                       type TEXT into the search field and search
+    collapse=NAME,NAME           collapse these saved folders by name (or prefix)
+
+  Signals completion by setting documentElement.dataset.shotReady.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Okpyeon — side panel</title>
+<link rel="stylesheet" href="/extension/sidepanel/sidepanel.css">
+</head>
+<body>
+
+<!-- Replicated from extension/sidepanel/sidepanel.html, ids and all, exactly
+     as test-page/embed.html does, so the shipped scripts run unchanged. -->
+<div class="app">
+  <header class="header">
+    <button type="button" id="okp-brand" class="brand"
+            aria-label="Okpyeon: look up 玉篇" title="Look up 玉篇">玉篇</button>
+    <nav id="okp-nav" class="nav" aria-label="Views"></nav>
+    <div id="okp-actions" class="actions"></div>
+  </header>
+  <div class="searchbar">
+    <input id="okp-input" type="text" class="query"
+           placeholder="한자 · 한글 · 음절"
+           aria-label="Search hanja, a sino-Korean word, or a single syllable"
+           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  </div>
+  <div id="okp-views" class="views">
+    <div id="okp-view-search" class="view view--search" data-view="search">
+      <div id="okp-results" class="results">
+        <p id="okp-status" class="status"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+/*
+ * Staging driver for the side-panel screenshots. The markup, the stylesheet
+ * and every script below are the shipped ones; only the message transport is
+ * local, and it answers out of the REAL lookup.js / saved.js against the REAL
+ * data files.
+ */
+import { lookup, buildFullCompounds, buildUsedIn, buildReadingIndex }
+  from "/extension/lookup.js";
+import {
+  normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems,
+  removeItems, moveItems, createFolder, renameFolder, deleteFolder,
+  resolveExportSelection, buildAnkiTsv, buildCsv,
+} from "/extension/saved.js";
+
+const params = new URLSearchParams(location.search);
+const view = params.get("view") || "search";
+
+const [hanja, words, variants] = await Promise.all(
+  ["hanja", "words", "variants"].map((n) =>
+    fetch("/extension/data/" + n + ".json").then((r) => r.json())));
+
+let readingIndex = null;
+const data = {
+  hanja, words, variants,
+  getReadingIndex: () => (readingIndex ||= buildReadingIndex(hanja)),
+};
+
+/* A library a real user would have: two topic folders beside the default one,
+   every key a real dictionary entry. */
+const DAY = 86400000;
+const T0 = Date.UTC(2026, 6, 20);
+const seedItems = [
+  ["word", "國民", "f1"], ["word", "學生", "f1"], ["word", "敎室", "f1"],
+  ["word", "文化", "f1"], ["char", "學", "f1"], ["char", "國", "f1"],
+  ["word", "資本主義", "f2"], ["word", "民主主義", "f2"], ["word", "經濟", "f2"],
+  ["char", "資", "f2"], ["char", "義", "f2"],
+  ["word", "漢字", "f0"], ["char", "字", "f0"],
+].map(([kind, key, folderId], i) => ({
+  id: "i" + i, kind, key, folderId, addedAt: T0 + i * DAY,
+}));
+
+let savedState = normalizeSavedState({
+  v: 1,
+  folders: [
+    { id: "f0", name: "Saved" },
+    { id: "f1", name: "교과서" },
+    { id: "f2", name: "시험 준비" },
+  ],
+  items: seedItems,
+  nextFolder: 3,
+  nextItem: seedItems.length,
+});
+let settings = normalizeSettings({ v: 1, defaultFolderId: "f1" }, savedState);
+
+function handle(msg) {
+  const m = msg || {};
+  switch (m.type) {
+    case "lookup": return lookup(String(m.text || ""), data);
+    case "compounds": return { ok: true, compounds: buildFullCompounds(m.char, data) };
+    case "usedIn": return { ok: true, words: buildUsedIn(m.word, data) };
+    case "openTab": return { ok: true };
+    case "getPendingQuery": return { ok: true, query: null };
+    case "savedGet":
+      return { ok: true, folders: savedState.folders, items: joinItems(savedState.items, data) };
+    case "savedCheck": return { ok: true, saved: checkKeys(savedState, m.keys) };
+    case "savedToggle": {
+      const r = toggleItem(savedState, m.kind, m.key, settings.defaultFolderId, Date.now());
+      savedState = r.state;
+      const out = { ok: true, saved: r.saved, folders: savedState.folders };
+      if (r.item) { out.item = r.item; out.folderId = r.item.folderId; }
+      return out;
+    }
+    case "savedRemove": {
+      const r = removeItems(savedState, m.ids);
+      savedState = r.state;
+      return { ok: true, removed: r.removed };
+    }
+    case "savedMove": {
+      const r = moveItems(savedState, m.ids, m.folderId);
+      if (r.error !== null) return { ok: false, error: r.error };
+      savedState = r.state;
+      return { ok: true, moved: r.moved };
+    }
+    case "folderCreate": {
+      const r = createFolder(savedState, m.name);
+      if (r.error !== null) return { ok: false, error: r.error };
+      savedState = r.state;
+      return { ok: true, folder: r.folder };
+    }
+    case "folderRename": {
+      const r = renameFolder(savedState, m.id, m.name);
+      if (r.error !== null) return { ok: false, error: r.error };
+      savedState = r.state;
+      return { ok: true, folder: r.folder };
+    }
+    case "folderDelete": {
+      const r = deleteFolder(savedState, m.id);
+      if (r.error !== null) return { ok: false, error: r.error };
+      savedState = r.state;
+      settings = normalizeSettings(settings, savedState);
+      return { ok: true, moved: r.moved, settings };
+    }
+    case "settingsGet": return { ok: true, settings };
+    case "settingsSet": {
+      const patch = m.patch || {};
+      const anki = patch.anki || {};
+      settings = normalizeSettings(
+        { ...settings, ...patch, anki: { ...settings.anki, ...anki } }, savedState);
+      return { ok: true, settings };
+    }
+    case "savedExport": {
+      const rows = joinItems(
+        resolveExportSelection(savedState, { ids: m.ids, folderIds: m.folderIds, all: m.all }),
+        data);
+      const skipped = rows.filter((r) => r.missing === true).length;
+      const csv = m.format === "csv";
+      return {
+        ok: true,
+        tsv: csv ? buildCsv(rows, savedState.folders)
+          : buildAnkiTsv(rows, settings, savedState.folders),
+        count: rows.length - skipped,
+        skipped,
+        filename: csv ? "okpyeon-saved-20260817.csv" : "okpyeon-anki-20260817.txt",
+      };
+    }
+    default: return { ok: false, error: "unknown message type" };
+  }
+}
+
+globalThis.__hanjaHoverTestRuntime = {
+  __isStub: true,
+  sendMessage(msg, cb) {
+    let resp;
+    try { resp = handle(msg); } catch (e) { resp = { ok: false, error: String(e) }; }
+    if (typeof cb === "function") { setTimeout(() => cb(resp), 0); return undefined; }
+    return Promise.resolve(resp);
+  },
+};
+
+const load = (src) => new Promise((res, rej) => {
+  const s = document.createElement("script");
+  s.src = src; s.onload = res; s.onerror = rej;
+  document.head.appendChild(s);
+});
+
+for (const src of [
+  "/extension/sidepanel/boot.js",
+  "/extension/content/content.js",
+  "/extension/sidepanel/search-shell.js",
+  "/extension/sidepanel/sidepanel.js",
+  "/extension/sidepanel/saved-view.js",
+  "/extension/sidepanel/settings-view.js",
+]) await load(src);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sidebar = globalThis.__okpyeonSidebar;
+await sidebar.ready;
+await sleep(500);
+
+if (view !== "search") {
+  sidebar.showView(view);
+  await sleep(700);
+}
+
+// Typed the way a user types it: the shell's own "input" listener runs the
+// search, so the results are the product's, not a harness's.
+if (params.get("q")) {
+  const input = document.getElementById("okp-input");
+  input.value = params.get("q");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  for (let i = 0; i < 100; i++) {
+    if (document.querySelector("#okp-results .card")) break;
+    await sleep(50);
+  }
+  await sleep(400);
+}
+if (view === "saved" && params.get("collapse")) {
+  for (const name of params.get("collapse").split(",")) {
+    const head = [...document.querySelectorAll(".saved-folder")]
+      .find((h) => h.textContent.includes(name));
+    if (head) head.querySelector(".saved-folder-name").click();
+    await sleep(400);
+  }
+}
+
+// Nothing should read as focused: a caret ring is not part of the story.
+if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+await sleep(300);
+document.documentElement.dataset.shotReady = view;
+</script>
+
+</body>
+</html>

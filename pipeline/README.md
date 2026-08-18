@@ -450,3 +450,72 @@ Every run ends with counts, output sizes, and spot-checks:
   naive parser silently drops.
 
 A failed check exits non-zero.
+
+## Store screenshots
+
+```sh
+python make_screenshots.py
+```
+
+Regenerates all eight numbered shots in `screenshots/` (the promotional tiles
+are `make_promo.py`, which is unrelated). Every shot is 1280x800 24-bit RGB
+with no alpha, which is what the store accepts.
+
+`--only 3,8` limits the run to those shot numbers; `--keep-temp` leaves the
+working directory behind. Nothing is written until every shot has passed every
+assertion, so a broken run leaves the committed set alone.
+
+### Why there are staging pages
+
+Chrome 151 headless ignores `--load-extension`. There is no way to have the
+real extension inject itself into a real page in a headless capture, and a
+headful capture cannot be scripted to a stable pixel.
+
+So `pipeline/screenshots/shots-page.html` and `shots-panel.html` stage the
+scenes instead. They are not mockups. Each one loads the **real** extension
+code — `extension/lookup.js`, `extension/saved.js`,
+`extension/content/content.js`, the sidepanel scripts, the shipped stylesheet,
+the shipped `extension/data/*.json` — behind `__hanjaHoverTestRuntime`, the
+message-transport stub those scripts already accept in place of
+`chrome.runtime` (the same hook `test-page/embed.html` uses). The panel page
+copies the sidepanel markup verbatim, ids and all, and seeds an in-memory saved
+store where `chrome.storage` would be. Selections are real DOM ranges handed to
+the content script's own `handleSelection()`; the popup is sized by the
+product's own `resizePanel`, the code path a drag runs. Every pixel of UI in
+the output is the product rendering itself.
+
+The script serves the repo root over http on a free port, because the staging
+pages use ES modules and `fetch`, neither of which works from `file://`. It
+drives one headless Chrome over CDP, one tab per shot, using a small websocket
+client written into `make_screenshots.py` — stdlib plus PIL, no Node and no pip
+installs. The viewport is always set **before** navigation: `content.js` hides
+the popup on resize, so a viewport that changes afterwards captures an empty
+page.
+
+### What is asserted
+
+Per shot, before the pixels are kept:
+
+* the scene signalled `data-shot-ready`, and its DOM checks pass — the popup is
+  up, the card headline is the expected hanja, the breadcrumb trail exists, the
+  variant note reads `学生 → 學生`, the settings view mounted, and so on;
+* the image is exactly 1280x800, mode RGB, with no transparency key;
+* for the two shots whose point is the corner seal, the seal is actually
+  visible in the lower-right of the panel (the room rule hides it when the view
+  is full, so this is a real failure mode).
+
+### Adding a scene
+
+1. Add the markup to `shots-page.html` (a new article block, shown for your
+   scene id) or a new query parameter to `shots-panel.html`, then extend the
+   scene switch at the bottom of that file. Signal readiness by leaving
+   `document.documentElement.dataset.shotReady` set, which the driver waits on.
+2. Add an entry to `SHOTS` in `make_screenshots.py`: `kind` is `page` for a
+   whole-viewport capture or `composite` for a page docked beside a 360px side
+   panel, `page` and `panel` are the staging query strings, and `checks` are JS
+   expressions that must every one evaluate `true` before anything is captured.
+3. Run `python make_screenshots.py --only <n>` and look at the result.
+
+The `scroll` in each scene is the page offset that frames it; the `bottom` is
+how much page to leave visible under the popup, which is what decides how much
+of a long list the popup shows.
