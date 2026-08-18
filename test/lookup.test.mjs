@@ -22,6 +22,7 @@ import {
   buildInterpretations,
   buildReadingIndex,
   buildWordParts,
+  isInterpretableQuery,
   lookup,
   normalizeRomanization,
   romanizationVariants,
@@ -2081,11 +2082,44 @@ test("the input-channel rule: interpretation only happens when asked", () => {
   assert.deepEqual(lookup("tkrl", data, { interpret: false }).matches, []);
   // And the flag changes the answer, so the tests above prove something.
   assert.ok(interpreted("tkrl").matches.length > 0);
+  // The separator-bearing spellings are literal-empty too.
+  for (const written of ["guk-min", "guk min", "han'gul"]) {
+    assert.deepEqual(lookup(written, data), { ok: true, matches: [] }, written);
+  }
   // Non-Latin input is never interpreted, flag or no flag.
   assert.equal("interpretations" in interpreted("國民"), false);
   assert.equal("interpretations" in interpreted("국민"), false);
   assert.equal("interpretations" in interpreted("國民abc"), false);
   assert.deepEqual(interpreted("國民").matches, lookup("國民", data).matches);
+});
+
+test("the interpreted-query gate: letters plus syllable separators", () => {
+  assert.equal(isInterpretableQuery("gukmin"), true);
+  assert.equal(isInterpretableQuery("guk-min"), true);
+  assert.equal(isInterpretableQuery("guk min"), true);
+  assert.equal(isInterpretableQuery("han'gul"), true);
+  assert.equal(isInterpretableQuery("Seoul-Dae Hak-Kyo"), true);
+  assert.equal(isInterpretableQuery("a"), true);
+  // At least one letter, and it has to lead: separators alone are not a query.
+  assert.equal(isInterpretableQuery("- -"), false);
+  assert.equal(isInterpretableQuery("-"), false);
+  assert.equal(isInterpretableQuery("'"), false);
+  assert.equal(isInterpretableQuery(" "), false);
+  assert.equal(isInterpretableQuery("-guk"), false);
+  assert.equal(isInterpretableQuery(""), false);
+  // Anything else still disqualifies the query.
+  assert.equal(isInterpretableQuery("guk1"), false);
+  assert.equal(isInterpretableQuery("國民"), false);
+  assert.equal(isInterpretableQuery("國民abc"), false);
+  assert.equal(isInterpretableQuery("guk.min"), false);
+  assert.equal(isInterpretableQuery(null), false);
+  // A separators-only query is not interpreted even with the flag set, and
+  // the Dubeolsik generator never throws on separator-bearing input.
+  for (const junk of ["- -", "-", "  '  ", "---"]) {
+    assert.deepEqual(lookup(junk, data, { interpret: true }), { ok: true, matches: [] }, junk);
+  }
+  assert.deepEqual(buildInterpretations("- -", data), []);
+  assert.deepEqual(buildInterpretations("zz-zz z'z", data), []);
 });
 
 test("romanization normalization strips case, hyphens, apostrophes, spaces", () => {
@@ -2145,11 +2179,19 @@ test("the rr map drives the romanization interpreter", () => {
     // The candidate ran the NORMAL lookup, so it is the ordinary word answer.
     assert.deepEqual(r.matches, lookup("국민", data).matches);
   }
-  // Case normalizes into the same key. A hyphen does NOT reach here at all:
-  // the interpreted query gate is /^[A-Za-z]+$/ per SPEC, so `guk-min` is an
-  // ordinary literal query that matches nothing.
+  // Case and the syllable-boundary punctuation all normalize into one key.
   assert.deepEqual(interpreted("GukMin").matches, interpreted("gukmin").matches);
-  assert.deepEqual(interpreted("guk-min"), { ok: true, matches: [] });
+  for (const written of ["guk-min", "guk min", "Guk-Min", "guk'min", "GUK MIN"]) {
+    assert.deepEqual(
+      interpreted(written).matches,
+      interpreted("gukmin").matches,
+      `${written} should read like gukmin`
+    );
+    assert.deepEqual(kinds(interpreted(written)), ["rr"], written);
+    assert.equal(interpreted(written).interpretations[0].from, written.trim());
+  }
+  // Trailing separators are trimmed away before the gate sees them.
+  assert.deepEqual(interpreted("  gukmin  ").matches, interpreted("gukmin").matches);
   // A variant reaches the index: kukmin → gukmin → 국민.
   const k = interpreted("kukmin");
   assert.deepEqual(kinds(k), ["rr"]);
@@ -2284,9 +2326,14 @@ test("omnibox suggestions run the same generators, deduped and capped", () => {
   // one row, not two. (rnr's rr side is 학생; tkrl's is 국민.)
   const contents = omni("tkrl").map((r) => r.content);
   assert.deepEqual(contents, [...new Set(contents)]);
+  // The omnibox shares the widened gate.
+  assert.deepEqual(omni("guk-min"), buildOmniboxSuggestions("국민", data));
+  assert.deepEqual(omni("guk min"), buildOmniboxSuggestions("국민", data));
   // The channel rule applies here too.
   assert.deepEqual(buildOmniboxSuggestions("gukmin", data), []);
+  assert.deepEqual(buildOmniboxSuggestions("guk-min", data), []);
   assert.deepEqual(omni("zzz"), []);
+  assert.deepEqual(omni("- -"), []);
 });
 
 // --- optional smoke test against Agent A's real corpus -------------------
@@ -2383,6 +2430,20 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
       const w = r.matches.find((m) => m.kind === "word");
       assert.ok(w, `${kind} data: ${form} should find a word match`);
       assert.equal(w.canonical, "國民", `${kind} data: ${form} → 國民`);
+    }
+
+    // The widened gate on real data: the hyphenated spelling of the same
+    // query lands on 국민, while the literal channel still finds nothing.
+    for (const written of ["guk-min", "guk min", "Guk-Min"]) {
+      const r = say(written);
+      assert.deepEqual(
+        (r.interpretations || []).map((i) => i.kind),
+        ["rr"],
+        `${kind} data: ${written} should be read as romanization only`
+      );
+      assert.equal(r.interpretations[0].to, "국민", `${kind} data: ${written} → 국민`);
+      assert.deepEqual(r.matches, say("gukmin").matches, `${kind} data: ${written} = gukmin`);
+      assert.deepEqual(lookup(written, real), { ok: true, matches: [] }, written);
     }
 
     // su: both interpreters survive — 수 romanized, 녀 on the keyboard — and

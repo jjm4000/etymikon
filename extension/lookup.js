@@ -8,7 +8,7 @@
  * Implements SPEC.md "Service worker behavior" rules 1-4 (including 3b).
  */
 
-import { qwertyToHangul, isLatinQuery } from "./dubeolsik.js";
+import { qwertyToHangul } from "./dubeolsik.js";
 
 /** Rule 1: cap the input at 20 relevant (Han + Hangul) characters. */
 export const MAX_RELEVANT_CHARS = 20;
@@ -717,7 +717,7 @@ export function buildMatches(text, data) {
 /* ---------------------------------------------------------------------------
  * Romanized search ADDENDUM — the two interpreters.
  *
- * A pure-Latin query has two plausible readings: hangul typed with the
+ * A Latin query has two plausible readings: hangul typed with the
  * keyboard in the wrong mode (`toddlf` → 생일) and romanized Korean
  * (`gukmin` → 국민). Both are tried, both may survive, and the merge orders
  * them by frequency. This supersedes the QWERTY addendum's `converted` field:
@@ -729,6 +729,21 @@ export function buildMatches(text, data) {
  * literally, and a literal lookup of Latin text finds nothing, as it always
  * did. Interpretation must never depend on string shape alone.
  * ------------------------------------------------------------------------- */
+
+/**
+ * The interpreted-query gate (REVISED: the original letters-only gate made
+ * separator stripping unreachable). After trimming, a query is interpretable
+ * when it starts with a Latin letter and holds nothing but letters, hyphens,
+ * apostrophes and internal spaces — the punctuation romanizations use to mark
+ * syllable boundaries (`guk-min`, `han'gul`, `guk min`). The leading-letter
+ * requirement is what keeps a query of separators alone (`- -`) out.
+ */
+export const INTERPRETABLE_QUERY = /^[A-Za-z][A-Za-z' -]*$/;
+
+/** True when a trimmed query should be handed to the two interpreters. */
+export function isInterpretableQuery(text) {
+  return typeof text === "string" && INTERPRETABLE_QUERY.test(text);
+}
 
 /** Variant rule (b): a leading tense/aspirate spelling for a lax initial. */
 const DEVOICE_LEADING = { k: "g", t: "d", p: "b" };
@@ -811,7 +826,11 @@ function matchKey(match) {
   return `c|${match.canonical}`;
 }
 
-/** Interpretation 1: the Dubeolsik reading of the typed letters. */
+/**
+ * Interpretation 1: the Dubeolsik reading of the typed letters. It receives
+ * the RAW text, separators included: they are not Dubeolsik keys, so they
+ * simply break composition, and the dictionary filter absorbs the result.
+ */
 function dubeolsikInterpretation(raw, data) {
   const to = qwertyToHangul(raw);
   if (to === "" || to === raw) return null;
@@ -922,7 +941,7 @@ function orderPair(dubeolsik, rr, data) {
  */
 export function buildInterpretations(text, data) {
   const raw = normalize(text).trim();
-  if (!isLatinQuery(raw)) return [];
+  if (!isInterpretableQuery(raw)) return [];
   const dubeolsik = dubeolsikInterpretation(raw, data);
   const rr = rrInterpretation(raw, data);
   if (dubeolsik === null) return rr === null ? [] : [rr];
