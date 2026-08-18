@@ -24,6 +24,14 @@ the 1.0 review clears anyway.
   through the 2-set Korean layout, which is safe because such a query
   matches nothing as it stands. The search box keeps what you typed. The
   omnibox converts on the same rule.
+- **Romanized search.** Typing `gukmin`, `gungmin`, or `gugmin` finds
+  국민: the three Revised Romanization conventions are indexed at build
+  time, and a few common spelling habits (kukmin, guk-min) are accepted
+  on top. A query that reads as both a keyboard mistype and a
+  romanization (`su`) shows both result sets, most common first, each
+  introduced by a small header naming its reading; long homophone lists
+  preview five characters with a Show all link. Only typed input is
+  interpreted. Navigation inside the dictionary never is.
 - **Character level taxonomy.** Every character carries exactly one `lvl` of
   m/h/a/r, rendered as one of four level chips on char cards and reading-list
   rows: Middle school and High school (MOE curriculum tiers, from the CC BY-SA
@@ -96,21 +104,7 @@ release:
   model. The question later resolved itself when the toolbar popup was
   replaced by the sidebar, which persists for real.
 
-## 1.2: romanized search
-
-The sidebar, saved words and settings were planned here and moved up (see
-above). What remains:
-
-- **Romanized SEARCH INPUT** (not display): typing gukmin/gungmin finds 국민 →
-  國民 for IME-less learners, the natural completion of typed search for the
-  target audience. Approach: dictionary-constrained matching (candidate
-  hangul readings of the typed romanization, kept only where they hit
-  byHangul / the reading index); index both naive and sound-changed Revised
-  Romanization at build time (hangul→RR is deterministic). Also powers the
-  omnibox (`hj guk`). Romanized OUTPUT on cards: declined for now (clutter +
-  counter-pedagogical; at most a far-future options toggle).
-
-### Future settings entries
+## Future settings entries
 
 The settings page and `storage` permission now exist, so each of these is
 one schema entry plus its feature code:

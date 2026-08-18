@@ -30,6 +30,10 @@ typing `hj` in the address bar searches from anywhere.
   tooltips say so.
 - **Sidebar search.** The sidebar shows the same cards as highlighting does,
   and it stays open across tabs and page loads.
+- **No Korean keyboard needed.** Typing `toddlf` (the 2-set layout on an
+  English keyboard) finds 생일, and typing `gungmin` or `gukmin`
+  (romanization) finds 국민. A query that could be read both ways shows
+  both.
 - **Saved words.** The star on any card saves the entry, with a bubble to pick
   or create its folder. The Saved view manages folders, with batch move and
   delete.
