@@ -86,7 +86,8 @@
 <!-- ------------------------------------------------------------------ -->
 <div class="app">
   <header class="header">
-    <span class="brand" role="img" aria-label="Okpyeon">玉篇</span>
+    <button type="button" id="okp-brand" class="brand"
+            aria-label="Okpyeon: look up 玉篇" title="Look up 玉篇">玉篇</button>
     <nav id="okp-nav" class="nav" aria-label="Views"></nav>
     <div id="okp-actions" class="actions"></div>
   </header>
@@ -1692,8 +1693,8 @@
       "h=" + header.getBoundingClientRect().height.toFixed(1));
     check("the wordmark is 玉篇, serif, jade, with a readable accessible name",
       brand.textContent === "玉篇" &&
-      brand.getAttribute("aria-label") === "Okpyeon" &&
-      brand.getAttribute("role") === "img" &&
+      brand.getAttribute("aria-label") === "Okpyeon: look up 玉篇" &&
+      brand.tagName === "BUTTON" &&
       /batang|myungjo|myeongjo|serif|song|sim/i.test(getComputedStyle(brand).fontFamily) &&
       getComputedStyle(brand).color !== getComputedStyle(document.body).color,
       getComputedStyle(brand).color + " / " + getComputedStyle(brand).fontFamily);
@@ -2136,6 +2137,24 @@
     check("and the typed query then searches as it always did",
       shell.state() === "results" && api.isVisible() && fake.__calls > autoCalls,
       "state=" + shell.state() + " calls=" + (fake.__calls - autoCalls));
+
+    // The wordmark looks up itself: click 玉篇 from another view → search
+    // view fronted, input filled, one real search issued. (The fixture has
+    // no 玉篇 entry, so the state lands on "none" — the wiring is what is
+    // under test, not the corpus.)
+    sidebar.showView("saved");
+    var brandCalls = fake.__calls;
+    document.getElementById("okp-brand").click();
+    await wait(SETTLE + TAIL);
+    check("clicking the 玉篇 wordmark searches for the dictionary itself",
+      sidebar.activeView() === "search" && input.value === "玉篇" &&
+      fake.__calls === brandCalls + 1,
+      "active=" + sidebar.activeView() + " value=" + input.value +
+        " calls=" + (fake.__calls - brandCalls));
+    check("the wordmark is a real button with its lookup label",
+      document.getElementById("okp-brand").tagName === "BUTTON" &&
+      document.getElementById("okp-brand").getAttribute("aria-label") ===
+        "Okpyeon: look up 玉篇");
 
     sidebar.showView("settings");
     pendingSpy.set("학생");

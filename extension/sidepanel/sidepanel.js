@@ -328,6 +328,29 @@
   })();
 
   /* ------------------------------------------------------------------ *
+   * The wordmark looks up itself (SPEC "Reading navigation"): 玉篇 is a
+   * real entry — the dictionary this one is named after — so clicking the
+   * brand fills the search input and searches for it. Clicks that land
+   * before boot finishes queue on `ready` rather than being dropped.
+   * ------------------------------------------------------------------ */
+
+  (function () {
+    var brand = document.getElementById("okp-brand");
+    if (!brand) return;
+    brand.addEventListener("click", function () {
+      ready.then(function () {
+        var shell = globalThis.__okpyeonSearchShell;
+        var controller = shell && shell.controller && shell.controller();
+        if (!controller) return;
+        var inputEl = document.getElementById("okp-input");
+        if (inputEl) inputEl.value = "玉篇";
+        showView("search");
+        controller.search("玉篇");
+      });
+    });
+  })();
+
+  /* ------------------------------------------------------------------ *
    * Initial query
    *
    * Two sources, and `?q=` wins: it is an explicit deep link (the omnibox
