@@ -1556,7 +1556,7 @@ test("a settings patch merges over the current record, one level into anki", () 
 
 const tsvLines = (tsv) => tsv.replace(/\n$/, "").split("\n");
 
-test("buildAnkiTsv writes the directives, then Front TAB Back per item", () => {
+test("buildAnkiTsv writes the directives, then Front TAB Back TAB Tag per item", () => {
   const rows = joinItems(
     [
       { id: "i0", kind: "word", key: "國民", folderId: "f0", addedAt: 1 },
@@ -1564,15 +1564,46 @@ test("buildAnkiTsv writes the directives, then Front TAB Back per item", () => {
     ],
     data
   );
-  const lines = tsvLines(buildAnkiTsv(rows, null));
+  const lines = tsvLines(buildAnkiTsv(rows, null, [{ id: "f0", name: "Saved" }]));
 
-  assert.deepEqual(lines.slice(0, 2), ["#separator:tab", "#html:false"]);
-  // Word defaults: front hanja, back hangul + numbered defs.
-  assert.equal(lines[2], "國民\t국민 · 1. the people; citizens of a nation");
+  assert.deepEqual(lines.slice(0, 3), [
+    "#separator:tab",
+    "#html:false",
+    "#tags column:3",
+  ]);
+  // Word defaults: front hanja, back hangul + numbered defs, tag = folder.
+  assert.equal(lines[3], "國民\t국민 · 1. the people; citizens of a nation\tSaved");
   // Char defaults: front char, back eumhun + numbered defs over ALL glosses.
-  assert.equal(lines[3], "學\t배울 학 · 1. to learn; to study; 2. school; learning");
-  assert.equal(lines.length, 4);
-  assert.ok(buildAnkiTsv(rows, null).endsWith("\n"));
+  assert.equal(lines[4], "學\t배울 학 · 1. to learn; to study; 2. school; learning\tSaved");
+  assert.equal(lines.length, 5);
+  assert.ok(buildAnkiTsv(rows, null, []).endsWith("\n"));
+});
+
+test("the anki tag is the folder name, with whitespace runs as underscores", () => {
+  const rows = joinItems(
+    [
+      { id: "i0", kind: "word", key: "國民", folderId: "f1", addedAt: 1 },
+      { id: "i1", kind: "word", key: "學生", folderId: "f2", addedAt: 2 },
+      { id: "i2", kind: "word", key: "國家", folderId: "f9", addedAt: 3 },
+    ],
+    data
+  );
+  const tags = tsvLines(
+    buildAnkiTsv(rows, null, [
+      { id: "f1", name: "HSK words  2" },
+      { id: "f2", name: "  spaced\tout  " },
+    ])
+  )
+    .slice(3)
+    .map((line) => line.split("\t")[2]);
+
+  // Anki splits tags on whitespace, so a multi-word folder must be one token.
+  assert.deepEqual(tags, ["HSK_words_2", "spaced_out", "f9"]);
+  // Front and back are untouched by the tag column.
+  const line = tsvLines(buildAnkiTsv(rows, null, [{ id: "f1", name: "HSK words  2" }]))[3];
+  assert.equal(line, "國民\t국민 · 1. the people; citizens of a nation\tHSK_words_2");
+  // No folder list at all: the id stands in, like the CSV's folder column.
+  assert.equal(tsvLines(buildAnkiTsv(rows, null))[3].split("\t")[2], "f1");
 });
 
 test("buildAnkiTsv renders the fields the settings ask for", () => {
@@ -1583,22 +1614,27 @@ test("buildAnkiTsv renders the fields the settings ask for", () => {
     ],
     data
   );
+  const folders = [{ id: "f0", name: "Saved" }];
   const lines = tsvLines(
-    buildAnkiTsv(rows, {
-      anki: {
-        wordFront: "hangul",
-        wordBack: ["hanja", "defs"],
-        charFront: "eumhun",
-        charBack: ["char", "readings", "lvl"],
+    buildAnkiTsv(
+      rows,
+      {
+        anki: {
+          wordFront: "hangul",
+          wordBack: ["hanja", "defs"],
+          charFront: "eumhun",
+          charBack: ["char", "readings", "lvl"],
+        },
       },
-    })
+      folders
+    )
   );
-  assert.equal(lines[2], "국민\t國民 · 1. the people; citizens of a nation");
-  assert.equal(lines[3], "나라 국\t國 · 국 · m");
+  assert.equal(lines[3], "국민\t國民 · 1. the people; citizens of a nation\tSaved");
+  assert.equal(lines[4], "나라 국\t國 · 국 · m\tSaved");
 
   // A back set that renders nothing at all leaves an empty back field.
-  const bare = tsvLines(buildAnkiTsv(rows, { anki: { wordBack: [] } }));
-  assert.equal(bare[2], "國民\t");
+  const bare = tsvLines(buildAnkiTsv(rows, { anki: { wordBack: [] } }, folders));
+  assert.equal(bare[3], "國民\t\tSaved");
 });
 
 test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing rows", () => {
@@ -1620,7 +1656,7 @@ test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing
     ],
     odd
   );
-  const tsv = buildAnkiTsv(rows, null);
+  const tsv = buildAnkiTsv(rows, null, [{ id: "f0", name: 'a "tag"\there' }]);
 
   assert.ok(
     tsv.includes('特殊\t"특수 · 1. R&D <special> ""quoted"" \'odd\'"'),
@@ -1630,6 +1666,10 @@ test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing
     tsv.includes('分野\t"분야 · 1. field\ttabbed; 2. line\nbroken"'),
     "tab and newline force quoting too"
   );
+  // The tag column obeys the same quoting rules; its whitespace (the space and
+  // the tab) has already collapsed into underscores, so only the quotes are
+  // left to escape.
+  assert.ok(tsv.includes('\t"a_""tag""_here"'), "the tag is quoted like any field");
   // The missing row is skipped; the caller counts it (background.js reports it
   // as `skipped`). Asserted whole, since a quoted field may itself hold a
   // newline and line counting would lie.
@@ -1638,13 +1678,15 @@ test("buildAnkiTsv quotes tabs, quotes and newlines CSV-style, and skips missing
     [
       "#separator:tab",
       "#html:false",
-      '特殊\t"특수 · 1. R&D <special> ""quoted"" \'odd\'"',
-      '分野\t"분야 · 1. field\ttabbed; 2. line\nbroken"',
+      "#tags column:3",
+      '特殊\t"특수 · 1. R&D <special> ""quoted"" \'odd\'"\t"a_""tag""_here"',
+      '分野\t"분야 · 1. field\ttabbed; 2. line\nbroken"\t"a_""tag""_here"',
     ].join("\n") + "\n"
   );
   assert.equal(rows.filter((r) => r.missing === true).length, 1);
-  assert.deepEqual(buildAnkiTsv([], null), "#separator:tab\n#html:false\n");
-  assert.deepEqual(buildAnkiTsv(undefined, null), "#separator:tab\n#html:false\n");
+  const directives = "#separator:tab\n#html:false\n#tags column:3\n";
+  assert.deepEqual(buildAnkiTsv([], null, []), directives);
+  assert.deepEqual(buildAnkiTsv(undefined, null, undefined), directives);
 });
 
 // --- CSV export ----------------------------------------------------------

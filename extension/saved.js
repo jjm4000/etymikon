@@ -513,17 +513,41 @@ function tsvField(value) {
 }
 
 /**
- * Build the Anki import file: two header directives, then Front TAB Back per
- * item. Missing rows are skipped (the caller counts them for the "skipped"
- * report). Back fields are joined with " · ", empty ones dropped.
+ * The folder's name, falling back to its id so nothing silently disappears.
+ * Shared by both exporters.
+ */
+function folderName(folderId, folders) {
+  const found = (Array.isArray(folders) ? folders : []).find(
+    (folder) => folder !== null && typeof folder === "object" && folder.id === folderId
+  );
+  if (found && typeof found.name === "string" && found.name !== "") return found.name;
+  return typeof folderId === "string" ? folderId : "";
+}
+
+/**
+ * A folder name as an Anki tag: whitespace separates tags in Anki, so every
+ * whitespace run collapses to a single underscore ("HSK words  2" ->
+ * "HSK_words_2"). Leading and trailing whitespace goes first, so a name never
+ * turns into a tag that starts or ends with "_".
+ */
+function ankiTag(name) {
+  return name.trim().replace(/\s+/g, "_");
+}
+
+/**
+ * Build the Anki import file: three header directives, then Front TAB Back TAB
+ * Tag per item. The tag is the item's folder, so the folders survive the trip
+ * into Anki. Missing rows are skipped (the caller counts them for the
+ * "skipped" report). Back fields are joined with " · ", empty ones dropped.
  *
  * @param {object[]} joinedRows rows from joinItems
  * @param {*} settings settings record (normalized here, so raw is fine)
+ * @param {Array<{id:string, name:string}>} [folders] folder list, for the tag
  * @returns {string}
  */
-export function buildAnkiTsv(joinedRows, settings) {
+export function buildAnkiTsv(joinedRows, settings, folders) {
   const { anki } = normalizeSettings(settings);
-  const lines = ["#separator:tab", "#html:false"];
+  const lines = ["#separator:tab", "#html:false", "#tags column:3"];
   for (const row of Array.isArray(joinedRows) ? joinedRows : []) {
     if (row === null || typeof row !== "object" || row.missing === true) continue;
     const isChar = row.kind === "char";
@@ -532,7 +556,8 @@ export function buildAnkiTsv(joinedRows, settings) {
       .map((token) => fieldValue(row, token))
       .filter((value) => value !== "")
       .join(FIELD_SEPARATOR);
-    lines.push(`${tsvField(front)}\t${tsvField(back)}`);
+    const tag = ankiTag(folderName(row.folderId, folders));
+    lines.push(`${tsvField(front)}\t${tsvField(back)}\t${tsvField(tag)}`);
   }
   return `${lines.join("\n")}\n`;
 }
@@ -543,15 +568,6 @@ export function buildAnkiTsv(joinedRows, settings) {
  */
 function csvField(value) {
   return /[",\n\r]/.test(value) ? `"${value.split('"').join('""')}"` : value;
-}
-
-/** The folder's name, falling back to its id so nothing silently disappears. */
-function folderName(folderId, folders) {
-  const found = (Array.isArray(folders) ? folders : []).find(
-    (folder) => folder !== null && typeof folder === "object" && folder.id === folderId
-  );
-  if (found && typeof found.name === "string" && found.name !== "") return found.name;
-  return typeof folderId === "string" ? folderId : "";
 }
 
 /** addedAt -> ISO calendar date. A missing or unusable stamp renders empty. */

@@ -456,7 +456,7 @@ export async function handleSavedExport(selection, format) {
     // does not pay for the settings read.
     const body = csv
       ? buildCsv(rows, state.folders)
-      : buildAnkiTsv(rows, await readSettings(area, state));
+      : buildAnkiTsv(rows, await readSettings(area, state), state.folders);
     return {
       ok: true,
       tsv: body,
