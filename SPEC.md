@@ -1147,6 +1147,117 @@ must never land invisibly behind the saved or settings view.
   settings normalize/patch) and worker handler seams (storage-absent
   answers; exported handler shapes).
 
+## Romanized search (ADDENDUM)
+
+User-directed (2026-08-18): typing romanized Korean finds the hangul —
+`gukmin` OR `gungmin` finds 국민. Architecture: forward-generate at build
+time (hangul → RR is deterministic), never invert at runtime. Pure-Latin
+typed queries run BOTH interpreters (Dubeolsik and romanization); when
+both survive, BOTH result sets render, preferred first by frequency.
+This section supersedes the QWERTY addendum's `converted` response field:
+`interpretations` (below) replaces it everywhere.
+
+### Data (pipeline/build.py)
+
+- New RR module: decompose hangul to jamo, then two forms per string:
+  - NAIVE: RR letter rules per syllable, positional (initial ㄱ=g, final
+    ㄱ=k; initial ㄹ=r, final ㄹ=l), no cross-syllable changes: 국민 →
+    gukmin.
+  - OFFICIAL: apply the standard's sound-change rules across syllable
+    boundaries FIRST, then romanize: nasalization, liquid assimilation
+    (ㄴㄹ adjacency → ll), palatalization (ㄷㅌ before 이/히), the ㅎ
+    rules (aspiration merger; ㅎ before a vowel drops), and linking
+    (연음). Tensification is NOT marked (per the standard).
+  - BINDING anchor pairs, asserted in the build's verify step (all from
+    the standard's own examples): 백마 baengma, 신문로 sinmunno, 종로
+    jongno, 왕십리 wangsimni, 별내 byeollae, 신라 silla, 학여울
+    hangnyeoul, 알약 allyak, 해돋이 haedoji, 같이 gachi, 좋고 joko,
+    놓다 nota, 잡혀 japyeo, 낳지 nachi, 국민 gungmin (naive gukmin).
+- Emit `extension/data/rr.json`:
+  `{v:1, words: {rr: [hangul...]}, syllables: {rr: [syllable...]}}` —
+  every byHangul key and every reading-index syllable under BOTH forms,
+  deduped (identical forms collapse), word values sorted most-frequent
+  first, sort_keys, deterministic across runs.
+- Frequency bucket: words.json entries gain `f` (integer 0-9, 0 = most
+  frequent, log-scaled from the hermitdave ranks the build already
+  loads; absent = unranked). Deterministic; the ONLY change to existing
+  data files (hanja.json and variants.json must emerge byte-identical).
+- DATA-LICENSE.md: rr.json is a transform of existing sources, no new
+  attribution.
+
+### Runtime: interpreters and the input-channel rule
+
+- Interpretation runs ONLY for free-typed user input: the search shell's
+  typed path, the omnibox, `?q=` deep links, and the pending query. Every
+  internal navigation (reading/homophone clicks, eum chips, saved-row
+  opens, drill-downs, crumb jumps, the wordmark) requests a LITERAL
+  lookup. Mechanically: the lookup path takes an `interpret` flag set
+  only by the typed entry points; content.js's navigateTo/fetchLookup
+  and all programmatic searches stay literal. Interpretation must never
+  depend on string shape alone.
+- Two generators for an interpreted pure-Latin query (/^[A-Za-z]+$/
+  after trimming; existing length cap):
+  1. DUBEOLSIK: qwertyToHangul → normal lookup. Validity = the
+     dictionary filter (no composition gate).
+  2. ROMANIZATION: normalize (lowercase; strip hyphens, apostrophes,
+     spaces), expand a BOUNDED variant set — v1 list, deliberately
+     short: (a) as normalized; (b) leading consonant devoiced (k→g,
+     t→d, p→b, one variant each when applicable); (c) oo→u; (d) "sh"
+     before a vowel → "s". Combinations capped at 8 variants total.
+     Look each up in rr.words and rr.syllables; every candidate hangul
+     runs the NORMAL lookup (word path or single-syllable reading path).
+- Merge: interpretations that yield zero matches are dropped. One left →
+  render as today. Two left → matches of both, preferred group first.
+  PREFERENCE: best (lowest) `f` among each side's word matches wins;
+  reading-list vs reading-list compares the top candidates' cwCount;
+  a word interpretation beats a syllable-only one; remaining ties →
+  Dubeolsik first. The response carries
+  `interpretations: [{kind: "dubeolsik"|"rr", from, to, start}]` where
+  `start` is the index in `matches` where that group begins; present
+  whenever interpretation produced the results (single or dual).
+- buildOmniboxSuggestions: same generators and ordering; suggestions
+  deduped by canonical content; suggestion `content` stays the canonical
+  searchable string.
+
+### Rendering and labeling (no menu may assert an unchosen reading)
+
+- ONE interpretation: root identity and crumbs use the converted hangul
+  (unchanged from the QWERTY addendum's behavior).
+- TWO: the root view's identity and crumb label are the TYPED TEXT (the
+  multi-match-root rule: no single canonical exists), so the trail reads
+  `su › 女` whichever group was entered. Each group is introduced by a
+  slim divider naming its mapping: `su → 수` for rr, `su → 녀 (keyboard)`
+  for dubeolsik (the "(keyboard)" suffix appears only in the dual case).
+  Inside a group, cards and list headers keep their normal labels
+  ("15 hanja read 수"). No divider in the single case.
+- renderCurrentView must support TWO reading-list matches in one view
+  (today it assumes at most one); generalize before wiring dividers.
+  Drill-downs from either group are ordinary navigation with standard
+  crumbs, cache, and cycle handling.
+
+### Tests
+
+- Build verify: the binding anchor pairs; a determinism double-run;
+  hanja.json/variants.json byte-identical to before.
+- Node: rr-map consumption over schema-exact inline fixtures; variant
+  expansion (bounded, each rule, cap honored); the merge matrix
+  (dubeolsik-only, rr-only, both, neither); preference rule (f compare,
+  cwCount compare, word-beats-syllable, dubeolsik tiebreak);
+  interpretations shape incl. `start`; literal flag (interpret absent →
+  Latin query returns empty as before the QWERTY feature? NO — literal
+  means no interpretation: a Latin literal lookup returns empty);
+  omnibox merge and dedupe. Real-data smokes: gukmin AND gungmin →
+  국민; kukmin → 국민 (variant); toddlf → 생일 (unchanged); su → both
+  수 and 녀 with 수 first; a literal navigateTo-style lookup of "su" →
+  empty.
+- Harness: shared fixture blocks (byte-identical) gain a mini rr map and
+  a canned dual response; embed checks: dual groups render with dividers
+  in preference order, root label = typed text, drill from the SECOND
+  group and the crumb reads typed › entity, back restores both groups,
+  single-interpretation rendering and labels unchanged, internal
+  navigation (a homophone click) never re-interprets. index.html:
+  fixture parity only (selections are never Latin).
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
