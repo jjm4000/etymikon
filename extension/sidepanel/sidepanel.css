@@ -30,6 +30,8 @@
   --action-fg: #6b6b73;
   --action-hover: rgba(0, 0, 0, 0.06);
   --seal: rgba(46, 107, 87, 0.3);
+  --danger: #b3261e;
+  --danger-fg: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -50,6 +52,8 @@
     --action-fg: #9a9aa4;
     --action-hover: rgba(255, 255, 255, 0.09);
     --seal: rgba(124, 195, 163, 0.32);
+    --danger: #e06a60;
+    --danger-fg: #1c1013;
   }
 }
 
@@ -477,6 +481,32 @@ body {
 
 /* Items sit visibly inside their folder in grouped lists. */
 .saved-list--grouped .saved-row { padding-left: 28px; }
+
+/* A forgiving hit target around each checkbox: the label stretches to the
+   full row height and absorbs near-misses, so aiming a few pixels off
+   toggles selection instead of opening the card or folding the folder. */
+.saved-hit {
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  margin: 0 -4px 0 -9px;
+  cursor: pointer;
+}
+
+/* Destructive actions read as destructive: the Delete button warns, and
+   the confirm button that actually deletes is filled. */
+.saved-remove {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.saved-confirm-yes {
+  color: var(--danger-fg);
+  background: var(--danger);
+  border-color: var(--danger);
+}
 
 /* Corner seal (낙관): the jade stamp in the bottom-right. On the search
    view it marks only the genuinely empty state (.view--blank, toggled by

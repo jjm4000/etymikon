@@ -425,7 +425,12 @@
       else delete selected[item.id];
       syncSelectionUi();
     });
-    row.appendChild(check);
+    // The label is a forgiving hit target (user-directed): a near-miss around
+    // the small checkbox toggles selection instead of opening the card.
+    var hit = document.createElement("label");
+    hit.className = "saved-hit";
+    hit.appendChild(check);
+    row.appendChild(hit);
 
     var text = el("div", "saved-text");
     text.appendChild(el("span", "saved-primary", item.key));
@@ -442,7 +447,7 @@
     // The row is a link to the card: anywhere but the checkbox opens it in the
     // search view, with the searchbar showing what was searched.
     row.addEventListener("click", function (ev) {
-      if (ev.target === check || (ev.target.closest && ev.target.closest(".saved-check"))) {
+      if (ev.target === check || (ev.target.closest && ev.target.closest(".saved-hit"))) {
         return;
       }
       openInSearch(item.key);
@@ -475,7 +480,12 @@
       renderActions();
       renderBar();
     });
-    header.appendChild(check);
+    // Same forgiving hit target as item rows: a near-miss around the folder
+    // checkbox selects the folder instead of folding it away.
+    var hit = document.createElement("label");
+    hit.className = "saved-hit";
+    hit.appendChild(check);
+    header.appendChild(hit);
 
     // The triangle is decorative; the header itself carries the state, so a
     // screen reader is told by aria-expanded rather than by a rotated glyph.
@@ -488,7 +498,7 @@
     // count and the checkbox stay, so a collapsed folder is still a working
     // batch target.
     header.addEventListener("click", function (ev) {
-      if (ev.target === check || (ev.target.closest && ev.target.closest(".saved-folder-check"))) {
+      if (ev.target === check || (ev.target.closest && ev.target.closest(".saved-hit"))) {
         return;
       }
       if (collapsed[folder.id] === true) delete collapsed[folder.id];
