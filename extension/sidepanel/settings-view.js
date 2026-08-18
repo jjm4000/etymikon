@@ -48,7 +48,7 @@
       key: "defaultFolderId",
       group: "Saving",
       type: "folder-select",
-      label: "Save new items to",
+      label: "By default, save new items to",
       default: "f0"
     },
     {

@@ -991,7 +991,8 @@ eumhun/hangul instead).
   control-builder switch — nothing else may special-case a setting.
 - Rendered controls write through `settingsSet` immediately (no save
   button); `onShow` re-reads settings and folders.
-- Shipping entries — group "Saving": "Save new items to" (folder-select,
+- Shipping entries — group "Saving": "By default, save new items to"
+  (wording user-directed: the bubble can override per save) (folder-select,
   key defaultFolderId); group "Anki export": "Word cards: front" (select
   hanja/hangul), "Word cards: back" (checkset hanja/hangul/defs),
   "Character cards: front" (select char/eumhun), "Character cards: back"
