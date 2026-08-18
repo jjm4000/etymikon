@@ -478,29 +478,34 @@ body {
 /* Items sit visibly inside their folder in grouped lists. */
 .saved-list--grouped .saved-row { padding-left: 28px; }
 
-/* Corner seal (낙관): a faint stamp marking genuinely empty views — the
-   search view before a query, the saved view before a first save. The
-   .view--blank class is toggled by the views themselves; the seal never
-   sits behind content. Decorative only: no pointer events, no selection,
-   invisible to screen readers (pseudo-element content in an aria-free
-   position is not announced as meaningful structure). */
+/* Corner seal (낙관): the jade stamp in the bottom-right. On the search
+   view it marks only the genuinely empty state (.view--blank, toggled by
+   the shell's state callback); on the saved and settings views it is a
+   permanent fixture (.view--sealed, set at mount — user-directed). It is
+   faint enough to sit under content when a long list scrolls past it.
+   Decorative only: no pointer events, no selection, not announced by
+   screen readers. */
 .view { position: relative; }
 
-.view--blank::after {
+.view--blank::after,
+.view--sealed::after {
   content: "玉篇";
   position: absolute;
-  right: 18px;
-  bottom: 18px;
+  right: 16px;
+  bottom: 16px;
   writing-mode: vertical-rl;
-  letter-spacing: 3px;
+  letter-spacing: 6px;
   font-family: Batang, BatangChe, "Noto Serif CJK KR", serif;
-  font-size: 20px;
-  line-height: 1.15;
+  font-size: 44px;
+  line-height: 1.12;
   color: var(--seal);
-  border: 1.5px solid var(--seal);
-  border-radius: 4px;
-  padding: 8px 5px;
+  border: 2.5px solid var(--seal);
+  border-radius: 6px;
+  padding: 14px 9px;
   transform: rotate(-2deg);
+  /* Behind the view's content, above the page background: a watermark
+     never competes with text, even when a long list reaches the corner. */
+  z-index: -1;
   pointer-events: none;
   user-select: none;
 }

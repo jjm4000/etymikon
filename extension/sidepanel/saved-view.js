@@ -321,9 +321,10 @@
           error.hidden = false;
           return;
         }
-        // A newly created folder becomes the filter: the user made it to put
-        // something in it, so showing it is the useful next state.
-        if (mode === "new" && res.folder && res.folder.id) filterId = res.folder.id;
+        // Creating a folder stays on the current filter (user-directed):
+        // jumping into the new, empty folder abandoned the list the user was
+        // looking at. Under "All" the new folder appears as its own group,
+        // and it is in the filter and Move selects from here on.
         closeBarInline();
         refresh();
       });
@@ -505,12 +506,6 @@
     // the class keeps that a stylesheet concern (flat lists keep full width).
     list.classList.toggle("saved-list--grouped", !filterId);
 
-    // The corner seal marks the view only while nothing is saved at all
-    // (sidepanel.css .view--blank::after) — not over lists, not over the
-    // storage-unavailable line.
-    if (root) {
-      root.classList.toggle("view--blank", available === true && items.length === 0);
-    }
 
     if (!available) {
       list.appendChild(el("p", "saved-unavailable",
@@ -831,6 +826,9 @@
     mount: function (container, viewCtx) {
       ctx = viewCtx;
       root = container;
+      // The jade seal is a permanent fixture of this view (user-directed),
+      // not an empty-state mark — see sidepanel.css .view--sealed.
+      container.classList.add("view--sealed");
       container.appendChild(buildBar());
       var list = el("div", "saved-list");
       list.id = "okp-saved-list";

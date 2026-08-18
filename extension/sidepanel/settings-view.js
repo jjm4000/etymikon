@@ -377,6 +377,9 @@
     title: "Saving and export settings",
     mount: function (container) {
       root = container;
+      // The jade seal is a permanent fixture of this view (user-directed),
+      // not an empty-state mark — see sidepanel.css .view--sealed.
+      container.classList.add("view--sealed");
       body = document.createElement("div");
       body.id = "okp-settings";
       body.className = "settings-body";

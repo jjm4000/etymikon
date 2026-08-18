@@ -2277,13 +2277,15 @@
     barInline.querySelector(".saved-name-ok").click();
     await wait(TAIL);
     var madeId = store.state().folders[2] && store.state().folders[2].id;
-    check("creating the folder makes it, closes the form and filters to it",
+    check("creating the folder makes it, closes the form and STAYS on the current filter",
       store.state().folders.length === 3 &&
       store.state().folders[2].name === "Readings" &&
-      savedView.filter() === madeId && barInline.hidden === true &&
-      savedRows().length === 0 && !!savedList.querySelector(".saved-empty"),
-      JSON.stringify(store.state().folders));
+      savedView.filter() === "" && barInline.hidden === true &&
+      !!savedList.querySelector('.saved-folder[data-folder="' + madeId + '"]'),
+      "filter=" + JSON.stringify(savedView.filter()) + " " +
+        JSON.stringify(store.state().folders));
 
+    setFilter(madeId);
     byId("okp-saved-rename").click();
     check("Rename opens the same form, prefilled with the folder's name",
       !!byId("okp-saved-name-input") &&
