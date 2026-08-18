@@ -531,14 +531,14 @@ body {
   right: 16px;
   bottom: 16px;
   writing-mode: vertical-rl;
-  letter-spacing: 6px;
+  letter-spacing: 9px;
   font-family: Batang, BatangChe, "Noto Serif CJK KR", serif;
-  font-size: 44px;
-  line-height: 1.12;
+  font-size: 68px;
+  line-height: 1.1;
   color: var(--seal);
-  border: 2.5px solid var(--seal);
-  border-radius: 6px;
-  padding: 14px 9px;
+  border: 3px solid var(--seal);
+  border-radius: 8px;
+  padding: 20px 13px;
   transform: rotate(-2deg);
   /* Behind the view's content, above the page background: a watermark
      never competes with text, even when a long list reaches the corner. */

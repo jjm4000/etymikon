@@ -109,6 +109,19 @@
   var selected = Object.create(null);
   var collapsed = Object.create(null);
   var filterId = "";         // "" = All
+
+  // A transient note in the actions bar's count slot ("Moved 2 to Exam
+  // words"): holds off the normal count text until it expires, then the
+  // next renderActions restores it.
+  var flashUntil = 0;
+  function flashCount(text) {
+    flashUntil = Date.now() + 2500;
+    if (els.count) els.count.textContent = text;
+    setTimeout(function () {
+      flashUntil = 0;
+      renderActions();
+    }, 2600);
+  }
   var lastDownload = null;
 
   // Bar / actions elements, built once in mount().
@@ -571,7 +584,14 @@
       if (!target) return;
       var ids = effectiveIds();
       if (!ids.length) return;
-      sendToWorker({ type: "savedMove", ids: ids, folderId: target }).then(function () {
+      sendToWorker({ type: "savedMove", ids: ids, folderId: target }).then(function (res) {
+        // Moves are reversible, so no confirmation — but not silent either:
+        // under a folder filter the moved rows vanish from view, which reads
+        // as deletion without this note (user-raised).
+        if (res && res.ok === true) {
+          var folder = folders.filter(function (f) { return f.id === target; })[0];
+          flashCount("Moved " + ids.length + " to " + (folder ? folder.name : "folder"));
+        }
         refresh();
       });
     });
@@ -731,9 +751,11 @@
 
     var picked = selectedIds();
     var target = picked.length ? picked.length : filteredItems().length;
-    els.count.textContent = picked.length
-      ? picked.length + " selected"
-      : (target ? "all " + target + " shown" : "");
+    els.count.textContent = flashUntil > Date.now()
+      ? els.count.textContent
+      : picked.length
+        ? picked.length + " selected"
+        : (target ? "all " + target + " shown" : "");
     var inert = target === 0 || !available;
     move.disabled = inert;
     els.removeBtn.disabled = inert;
