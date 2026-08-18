@@ -512,7 +512,15 @@ Service worker behavior:
   back to its cached view (scroll position restored), the current level is the
   non-clickable last crumb. Scroll restoration applies ONLY to navigation
   within a popup session: a NEW selection always opens scrolled to the top,
-  with the nav stack and any retained scroll offsets cleared. Long trails middle-truncate. Clickable rows carry a
+  with the nav stack and any retained scroll offsets cleared.
+  Trail truncation is WIDTH-BASED (REVISED 2026-08-18, user-directed —
+  the old fixed depth cap of 3 wasted the row): the trail renders every
+  crumb and elides only on genuine overflow of the nav row, collapsing
+  middle crumbs (keeping the root and as many trailing crumbs as fit,
+  never fewer than the last two) behind the one "…" button, whose
+  existing click behavior (expand the full trail) is unchanged.
+  Re-measured on every render, on window resize (the sidebar edge drag),
+  and after the in-page popup's resize gesture. Clickable rows carry a
   subtle chevron (›) affordance and a hover state; view changes use a fast,
   subtle transition (~120ms fade or slide — no jank, no layout pop), and the
   popup stays anchored to the original selection throughout. The bare "← back"
