@@ -49,10 +49,10 @@ the 1.0 review clears anyway.
   and store-listing refresh covering the sidebar and saved words (the
   current screenshot 5 and search copy show the removed toolbar popup).
 
-### In final QA (joins the release when verified)
+### Saved words and settings (merged and verified)
 
-On the `saved-words` branch, complete and suite-verified, awaiting manual
-QA and merge:
+Merged to `main` after manual QA and an adversarial pass; ships with the
+release:
 
 - **Saved words.** A star on every card (selection popup and sidebar)
   saves the entry, with a bookmark-style bubble to pick or create a folder
