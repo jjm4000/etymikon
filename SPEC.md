@@ -1389,6 +1389,17 @@ character cards only; no level chips on part rows.
   short gloss + chevron and navigates on tap. A reading-less part
   renders greyed: glyph + its `n` name when present, no chevron, inert.
 - Word cards are unchanged. Characters without an entry show no row.
+- MODULARITY (user-directed): the whole section is ONE self-contained
+  unit — a single `appendMadeOf(card, m)` in the appendCompounds style,
+  called from exactly one place in the char-card build, reading `parts`
+  off the match and nothing else. No other code knows the feature
+  exists. Moving the section is changing the one call site; removing it
+  is deleting the one call. The function's first act is a single
+  enabled-predicate check (`decompEnabled(settings)`, default true, no
+  UI in this release); surfacing a settings toggle later is ONE
+  SETTINGS_SCHEMA entry plus nothing — the predicate already reads it.
+  The harness asserts the single-call-site property (grep-level check:
+  one call, one definition).
 
 ### Tests
 
