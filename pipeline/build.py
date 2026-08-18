@@ -38,6 +38,11 @@ import time
 import unicodedata
 import zipfile
 
+# Revised Romanization tables and sound-change rules (pipeline/rr.py). Local
+# module, stdlib only; sys.path[0] is this directory whenever build.py runs as
+# a script, which is the only supported way to run it.
+import rr
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CACHE = os.path.join(HERE, "cache")
@@ -895,6 +900,39 @@ def parse_ext_freq(path):
     return freq
 
 
+# ---------------------------------------------------------------- freq bucket
+#
+# `f` on a words.json sense-set: an integer 0-9, 0 = most frequent, absent when
+# the hangul has no rank at all. The romanized-search merge rule compares these
+# to decide which interpretation of an ambiguous latin query goes first, so it
+# only has to be monotone and stable, not precise.
+#
+# Definition, fixed here so the buckets never drift:
+#   rank  = 1-based position of the hangul stem in the hermitdave stem list
+#           sorted by count descending, ties broken by the stem itself (so the
+#           rank is a pure function of the cached file, not of dict order).
+#   f     = min(9, floor(log4(rank))) — bucket boundaries are powers of four:
+#           0: ranks 1-3        3: 64-255        6: 4,096-16,383
+#           1: 4-15             4: 256-1,023     7: 16,384-65,535
+#           2: 16-63            5: 1,024-4,095   8: 65,536-262,143
+#                                                9: 262,144 and up
+# Computed with bit_length, not math.log, so it is exact integer arithmetic
+# with no float rounding at a boundary.
+
+FREQ_BUCKETS = 10
+
+
+def freq_ranks(ext_freq):
+    """hangul stem -> 1-based frequency rank (deterministic ordering)."""
+    ordered = sorted(ext_freq.items(), key=lambda kv: (-kv[1], kv[0]))
+    return {w: i + 1 for i, (w, _) in enumerate(ordered)}
+
+
+def freq_bucket(rank):
+    """floor(log4(rank)), clamped to 0-9."""
+    return min(FREQ_BUCKETS - 1, (rank.bit_length() - 1) // 2)
+
+
 def parse_japanese(path):
     """Harvest variant -> canonical links from the ja.wiktionary extract."""
     out = []
@@ -1054,7 +1092,7 @@ def write_json(name, obj):
     return os.path.getsize(path)
 
 
-def verify(hanja_obj, words_obj, variants_obj):
+def verify(hanja_obj, words_obj, variants_obj, rr_obj=None):
     chars_out = hanja_obj["chars"]
     words_out = words_obj["words"]
     by_hangul = words_obj["byHangul"]
@@ -1335,6 +1373,95 @@ def verify(hanja_obj, words_obj, variants_obj):
             max((sp for sp in words_out), key=len, default=""),
             max((h for h in by_hangul), key=len, default="")))
 
+    # --- romanized search (SPEC addendum) ------------------------------
+    # The BINDING anchor pairs. Every one is an example from the standard
+    # itself; if the implementation disagrees, the implementation is wrong.
+    rr_anchors = [
+        ("백마", "baengma"), ("신문로", "sinmunno"),
+        ("종로", "jongno"), ("왕십리", "wangsimni"),
+        ("별내", "byeollae"), ("신라", "silla"),
+        ("학여울", "hangnyeoul"), ("알약", "allyak"),
+        ("해돋이", "haedoji"), ("같이", "gachi"),
+        ("좋고", "joko"), ("놓다", "nota"),
+        ("잡혀", "japyeo"), ("낳지", "nachi"),
+        ("국민", "gungmin"),
+    ]
+    bad = ["%s -> %s (want %s)" % (w, rr.official(w), want)
+           for w, want in rr_anchors if rr.official(w) != want]
+    add("rr OFFICIAL anchors (the standard's own examples)", not bad,
+        "%d/%d pass%s" % (len(rr_anchors) - len(bad), len(rr_anchors),
+                          "" if not bad else "; FAILED " + ", ".join(bad)))
+    naive_anchors = [("국민", "gukmin")]
+    bad = ["%s -> %s (want %s)" % (w, rr.naive(w), want)
+           for w, want in naive_anchors if rr.naive(w) != want]
+    add("rr NAIVE anchors (positional letters, no cross-syllable change)",
+        not bad, "%d/%d pass%s" % (len(naive_anchors) - len(bad),
+                                   len(naive_anchors),
+                                   "" if not bad else "; FAILED " + ", ".join(bad)))
+    tr_anchors = [("국민", "gugmin"), ("좋다", "johda"),
+                  ("먹는", "meogneun"), ("값", "gabs")]
+    bad = ["%s -> %s (want %s)" % (w, rr.translit(w), want)
+           for w, want in tr_anchors if rr.translit(w) != want]
+    add("rr TRANSLITERATION anchors (RR Article 8, one letter per jamo)",
+        not bad, "%d/%d pass%s" % (len(tr_anchors) - len(bad), len(tr_anchors),
+                                   "" if not bad else "; FAILED " + ", ".join(bad)))
+
+    if rr_obj is not None:
+        rw = rr_obj["words"]
+        rs = rr_obj["syllables"]
+        add("rr.json schema", rr_obj.get("v") == 1
+            and isinstance(rw, dict) and isinstance(rs, dict)
+            and all(isinstance(k, str) and k and k.isascii() and k.isalpha()
+                    for k in list(rw)[:2000]),
+            "v=%s, %s word keys, %s syllable keys"
+            % (rr_obj.get("v"), format(len(rw), ","), format(len(rs), ",")))
+        # every byHangul key reachable under all of its forms
+        missing = [h for h in list(by_hangul)[:5000]
+                   for form in rr.forms(h) if h not in rw.get(form, ())]
+        add("rr.json words: every byHangul key indexed under every form",
+            not missing, "checked %d keys; %d unreachable%s"
+            % (min(len(by_hangul), 5000), len(missing),
+               "" if not missing else " e.g. " + ", ".join(missing[:3])))
+        both = [f for f in ("gukmin", "gugmin", "gungmin")
+                if "국민" in rw.get(f, ())]
+        add("rr.json spot-check: naive/translit/official all find 국민",
+            len(both) == 3, "found under %s" % (both or "(none)"))
+        add("rr.json spot-check: single-syllable readings",
+            "수" in rs.get("su", ()) and "국" in rs.get("guk", ()),
+            "su -> %s | guk -> %s"
+            % (rs.get("su", [])[:4], rs.get("guk", [])[:4]))
+        # values are ordered most-frequent-first: the check that matters is
+        # that the order is a pure function of the data, i.e. reproducible.
+        unsorted_vals = [f for f, v in list(rw.items())[:5000]
+                         if len(v) != len(set(v))]
+        add("rr.json values are duplicate-free", not unsorted_vals,
+            "checked %d keys" % min(len(rw), 5000))
+
+    # --- frequency bucket (SPEC addendum) ------------------------------
+    f_vals = [s.get("f") for lst in words_out.values() for s in lst]
+    bad_f = [v for v in f_vals if v is not None and (not isinstance(v, int)
+                                                     or v < 0 or v > 9)]
+    ranked = [v for v in f_vals if v is not None]
+    add("words.json `f` bucket: integer 0-9 or absent",
+        not bad_f and ranked,
+        "%s of %s sense-sets ranked; distribution %s"
+        % (format(len(ranked), ","), format(len(f_vals), ","),
+           " ".join("f%d=%d" % (b, ranked.count(b)) for b in range(10))))
+    def fof(sp):
+        lst = words_out.get(sp) or [{}]
+        return lst[0].get("f")
+
+    # Anchors: the bucket must be present for attested words, absent for a word
+    # the corpus cannot see at all, and monotone in real frequency. Exact
+    # values are corpus-dependent, so the check is ordering, not magnitude.
+    f_guk, f_sigan, f_hakgyo, f_igwol = (fof("國民"), fof("時間"),
+                                         fof("學校"), fof("翌月"))
+    add("`f` anchors: ranked where attested, absent where not, monotone",
+        f_guk is not None and f_sigan is not None and f_hakgyo is not None
+        and f_igwol is None and f_sigan < f_guk and f_sigan <= 3,
+        "時間=%s 學校=%s 國民=%s 翌月=%s (unranked)"
+        % (f_sigan, f_hakgyo, f_guk, f_igwol))
+
     failed = 0
     log("=============== SPOT CHECKS ================")
     for name, ok, detail in checks:
@@ -1349,10 +1476,14 @@ def verify_only():
         with open(os.path.join(OUT, n), "r", encoding="utf-8") as fh:
             return json.load(fh)
     h, w, v = rd("hanja.json"), rd("words.json"), rd("variants.json")
+    try:
+        r = rd("rr.json")
+    except (OSError, ValueError):
+        r = None
     log("chars %s | words %s | byHangul %s | variants %s" % (
         format(len(h["chars"]), ","), format(len(w["words"]), ","),
         format(len(w["byHangul"]), ","), format(len(v["map"]), ",")))
-    return verify(h, w, v)
+    return verify(h, w, v, r)
 
 
 # ---------------------------------------------------------------- main
@@ -1650,7 +1781,28 @@ def main(argv):
             if is_rare(sp, sense["hangul"]):
                 sense["rare"] = True
                 n_rare += 1
+    # ---- frequency bucket (SPEC romanized-search addendum) -----------
+    # `f` is derived from the hangul, so every sense-set sharing a reading
+    # gets the same bucket; see freq_bucket() above for the boundaries.
+    ranks = freq_ranks(ext_freq)
+    f_dist = collections.Counter()
+    n_f = 0
+    for sp, lst in words_out.items():
+        for sense in lst:
+            rank = ranks.get(sense["hangul"])
+            if rank is None:
+                f_dist["-"] += 1
+                continue
+            sense["f"] = freq_bucket(rank)
+            f_dist[sense["f"]] += 1
+            n_f += 1
+
     n_sets = sum(len(l) for l in words_out.values())
+    log("  freq bucket: %s of %s sense-sets ranked; %s"
+        % (format(n_f, ","), format(n_sets, ","),
+           " ".join("f%d=%s" % (b, format(f_dist[b], ","))
+                    for b in range(FREQ_BUCKETS))
+           + " unranked=%s" % format(f_dist["-"], ",")))
     log("  rare flag: %s of %s sense-sets (%.1f%%), %s native-contested hangul"
         % (format(n_rare, ","), format(n_sets, ","),
            100.0 * n_rare / max(n_sets, 1), format(len(native_hangul), ",")))
@@ -1815,6 +1967,58 @@ def main(argv):
             by_hangul[hangul] = ([sp for sp in picked if sp not in rare_sp]
                                  + [sp for sp in picked if sp in rare_sp])
 
+    # ---- rr.json (SPEC romanized-search addendum) ---------------------
+    # Forward-generated romanization index: hangul -> latin is deterministic,
+    # so the build does it once and the runtime never inverts anything. Both
+    # halves are keyed by romanization; values are hangul.
+    #   words     every byHangul key, most-frequent-first
+    #   syllables every reading-index eum (the same set lookup.js derives from
+    #             hanja.json at runtime), most-used-first
+    # rr.forms() supplies all three forms (naive, Article 8 transliteration,
+    # official); identical forms collapse into one key.
+    rr_syllables = {}
+    for c, e in chars_out.items():
+        for eum in ([x["eum"] for x in e["eumhun"] if x["eum"]]
+                    + list(e.get("readings") or ())):
+            rr_syllables.setdefault(eum, set()).add(c)
+
+    def word_rank_key(h):
+        rank = ranks.get(h)
+        return (freq_bucket(rank) if rank else FREQ_BUCKETS,
+                -ext_freq.get(h, 0), len(h), h)
+
+    rr_words_map = {}
+    rr_syl_map = {}
+    n_word_forms = n_word_collapsed = n_syl_forms = n_syl_collapsed = 0
+    for h in by_hangul:
+        cands = rr.candidates(h)
+        fs = rr.forms(h)
+        n_word_forms += len(fs)
+        n_word_collapsed += len(cands) - len(fs)
+        for form in fs:
+            rr_words_map.setdefault(form, []).append(h)
+    for syl in rr_syllables:
+        cands = rr.candidates(syl)
+        fs = rr.forms(syl)
+        n_syl_forms += len(fs)
+        n_syl_collapsed += len(cands) - len(fs)
+        for form in fs:
+            rr_syl_map.setdefault(form, []).append(syl)
+    for form, lst in rr_words_map.items():
+        rr_words_map[form] = sorted(lst, key=word_rank_key)
+    for form, lst in rr_syl_map.items():
+        # most-used reading first: how many characters carry it.
+        rr_syl_map[form] = sorted(
+            lst, key=lambda s: (-len(rr_syllables[s]), s))
+    rr_obj = {"v": 1, "words": rr_words_map, "syllables": rr_syl_map}
+    log("  rr index: %s hangul -> %s keys (%s distinct forms, %s identical "
+        "forms collapsed); %s syllables -> %s keys (%s distinct forms, %s "
+        "collapsed)"
+        % (format(len(by_hangul), ","), format(len(rr_words_map), ","),
+           format(n_word_forms, ","), format(n_word_collapsed, ","),
+           format(len(rr_syllables), ","), format(len(rr_syl_map), ","),
+           format(n_syl_forms, ","), format(n_syl_collapsed, ",")))
+
     # ---- emit ---------------------------------------------------------
     hanja_obj = {"version": 1, "chars": chars_out}
     # Length metadata (SPEC ADDENDUM): the segmentation caps in lookup.js were
@@ -1834,6 +2038,7 @@ def main(argv):
     s_h = write_json("hanja.json", hanja_obj)
     s_w = write_json("words.json", words_obj)
     s_v = write_json("variants.json", variants_obj)
+    s_r = write_json("rr.json", rr_obj)
 
     # ---- report -------------------------------------------------------
     log("\n================= COUNTS ===================")
@@ -1859,9 +2064,10 @@ def main(argv):
     log("hanja.json    : %s" % mb(s_h))
     log("words.json    : %s" % mb(s_w))
     log("variants.json : %s" % mb(s_v))
-    log("total         : %s" % mb(s_h + s_w + s_v))
+    log("rr.json       : %s" % mb(s_r))
+    log("total         : %s" % mb(s_h + s_w + s_v + s_r))
 
-    failed = verify(hanja_obj, words_obj, variants_obj)
+    failed = verify(hanja_obj, words_obj, variants_obj, rr_obj)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     raise SystemExit(1 if failed else 0)

@@ -1,14 +1,15 @@
 # Hanja Hover — data pipeline (Agent A)
 
-Builds the three data files the extension ships with:
+Builds the four data files the extension ships with:
 
 ```
 extension/data/hanja.json      per-character: eumhun, readings, glosses, compounds
 extension/data/words.json      per-hanja-spelling words + byHangul reverse index
 extension/data/variants.json   variant character -> canonical (traditional) form
+extension/data/rr.json         romanization -> hangul, for romanized search
 ```
 
-All three are UTF-8 **without BOM** and compact (no indentation, no newlines).
+All four are UTF-8 **without BOM** and compact (no indentation, no newlines).
 Schemas are defined in `../SPEC.md`; this pipeline is the only thing that may
 write to `extension/data/`.
 
@@ -290,6 +291,33 @@ also go unflagged, because `alt_inbound` is too sparse to tell them apart from
 
 `byHangul` lists all non-rare spellings before rare ones, so a reverse lookup
 leads with a confident match; ordering within each group is unchanged.
+
+## Romanization (`rr.json`) and the `f` frequency bucket
+
+`pipeline/rr.py` turns hangul into Revised Romanization at build time, so the
+runtime never has to invert a romanization. Every byHangul key and every
+reading-index eum is indexed under three forms, identical ones collapsing:
+
+| form | rule | 국민 |
+| --- | --- | --- |
+| naive | RR letters, positional, no cross-syllable change | `gukmin` |
+| transliteration | RR Article 8: one fixed letter per jamo | `gugmin` |
+| official | sound changes across syllable boundaries, then romanize | `gungmin` |
+
+The official form applies ㄴ-insertion, linking (연음), palatalization, the ㅎ
+rules (both merger directions and ㅎ-dropping before a vowel), coda
+neutralization, nasalization and liquid assimilation. Tensification is not
+marked, per the standard. Two of those are lexically, not phonologically,
+determined — whether ㄴ-insertion applies at all (학여울 항녀울 but 금요일
+그묘일) and which way a ㄴ+ㄹ boundary assimilates (신라 실라 but 신문로
+신문노) — so both readings are indexed and only the anchor-bearing one is
+called "the" official form. The standard's own examples are asserted every run
+as binding anchors (백마 baengma … 국민 gungmin).
+
+`f` on a words.json sense-set is a 0-9 frequency bucket, 0 = most frequent,
+absent when the hangul is unranked. It is `floor(log4(rank))` clamped to 9,
+over the hermitdave stem ranks the build already loads; the romanized-search
+merge uses it to order two competing interpretations of a latin query.
 
 ## The character level taxonomy (`lvl`)
 
