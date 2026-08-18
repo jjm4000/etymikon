@@ -2608,6 +2608,46 @@
       savedView.handleStorageChanged({ okpSaved: {} }, "sync") === false &&
       savedView.handleStorageChanged({ okpOther: {} }, "local") === false);
 
+    // The seal marks empty paper only (.view--roomy from a room measurement
+    // after each render). This block is state-restoring: it grows the list
+    // with junk keys (missing rows are still rows), asserts the seal hides,
+    // collapses every folder to make room and asserts it returns, then
+    // expands and removes exactly the junk it added. Opacity is asserted
+    // only after the .18s fade has settled.
+    var sealView = byId("okp-view-saved");
+    var junkIds = [];
+    for (var sf = 0; sf < 14; sf++) {
+      var junkRes = await send({ type: "savedToggle", kind: "char", key: "빈" + sf });
+      if (junkRes && junkRes.item) junkIds.push(junkRes.item.id);
+    }
+    await savedView.refresh();
+    await wait(250);
+    check("a list that reaches the corner hides the seal",
+      savedRows().length >= 10 &&
+      !sealView.classList.contains("view--roomy") &&
+      getComputedStyle(sealView, "::after").opacity === "0",
+      "rows=" + savedRows().length +
+        " roomy=" + sealView.classList.contains("view--roomy"));
+    var sealHeads = Array.prototype.slice.call(
+      savedList.querySelectorAll(".saved-folder"));
+    for (var sh = 0; sh < sealHeads.length; sh++) sealHeads[sh].click();
+    await wait(250);
+    check("collapsing every folder makes room and the seal returns",
+      sealView.classList.contains("view--roomy") &&
+      getComputedStyle(sealView, "::after").opacity === "1",
+      "collapsed=" + savedView.collapsed().join(",") +
+        " opacity=" + getComputedStyle(sealView, "::after").opacity);
+    var sealHeads2 = Array.prototype.slice.call(
+      savedList.querySelectorAll(".saved-folder"));
+    for (var sh2 = 0; sh2 < sealHeads2.length; sh2++) sealHeads2[sh2].click();
+    await send({ type: "savedRemove", ids: junkIds });
+    await savedView.refresh();
+    await wait(TAIL);
+    check("the seal probe restored the list it found",
+      savedRows().length === rowsBeforeChange + 1 &&
+      savedView.collapsed().length === 0,
+      "rows=" + savedRows().length);
+
     store.fail("all", true);
     var absent = await savedView.refresh();
     check("a worker without storage reads as absent: one quiet line, no error",

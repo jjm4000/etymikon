@@ -835,6 +835,30 @@ views (crumbs, cached scroll, cycle handling all standard):
   a chip for a syllable with no homophones still renders a sane view
   (the reading view handles empty candidate lists already).
 
+## Corner seal (ADDENDUM)
+
+The jade 玉篇 seal (낙관 style: vertical-rl, bordered, slightly rotated,
+--seal color tokens, 68px) marks EMPTY PAPER in the sidebar, bottom-right
+of the view. Evolved through user iterations; binding rules as of
+2026-08-18:
+
+- Search view: shown only in the genuinely empty state (.view--blank,
+  toggled by the shell's onState callback) — never behind results, errors,
+  or the no-match line.
+- Saved and settings views (.view--sealed, set at mount): shown only when
+  it FITS (user-reported fix: with enough rows the behind-content
+  watermark read as clutter — folder bands striped it and row text sat on
+  top of it). After every render, and on window resize (debounced), the
+  view measures the space between its content's bottom edge and the view
+  bottom and toggles .view--roomy at a ~230px threshold. The seal is
+  visible only on .view--blank or .view--sealed.view--roomy, fading via
+  an opacity transition. Content can therefore never overlap it.
+- Layering: each .view is position:relative + isolation:isolate; the seal
+  is the view's ::after at z-index -1 (behind content, above the page
+  background — isolation is what keeps the page background from covering
+  it). pointer-events none, no selection, not announced by screen
+  readers.
+
 ## Saved words + settings (ADDENDUM)
 
 User-directed (2026-08-17): a saved-words list with folders and Anki

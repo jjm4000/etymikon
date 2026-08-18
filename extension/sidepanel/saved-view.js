@@ -122,6 +122,29 @@
       renderActions();
     }, 2600);
   }
+
+  // The seal only marks empty paper (SPEC "Corner seal"): with enough rows
+  // the behind-content watermark read as clutter, so each render measures
+  // the space left under the content and shows the seal only when it fits.
+  var SEAL_ROOM = 230;
+  function updateSealRoom() {
+    if (!root || !root.getBoundingClientRect) return;
+    var edge = 0;
+    for (var i = 0; i < root.children.length; i++) {
+      var r = root.children[i].getBoundingClientRect();
+      if (r.height > 0 && r.bottom > edge) edge = r.bottom;
+    }
+    var room = root.getBoundingClientRect().bottom - edge;
+    root.classList.toggle("view--roomy", room >= SEAL_ROOM);
+  }
+
+  if (typeof window !== "undefined" && window.addEventListener) {
+    var sealTimer = null;
+    window.addEventListener("resize", function () {
+      clearTimeout(sealTimer);
+      sealTimer = setTimeout(updateSealRoom, 100);
+    });
+  }
   var lastDownload = null;
 
   // Bar / actions elements, built once in mount().
@@ -522,6 +545,11 @@
   }
 
   function renderList() {
+    renderListBody();
+    updateSealRoom();
+  }
+
+  function renderListBody() {
     var list = els.list;
     clear(list);
 
@@ -761,6 +789,7 @@
     els.removeBtn.disabled = inert;
     els.exportBtn.disabled = inert;
     els.actions.hidden = !available;
+    updateSealRoom();
   }
 
   // The cheap half of a refresh: checkbox states and the action labels, with

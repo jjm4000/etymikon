@@ -355,6 +355,7 @@
         settings = {};
         folders = [];
         renderSchema();
+        updateSealRoom();
         return false;
       }
       available = true;
@@ -363,7 +364,31 @@
         ? savedRes.folders
         : [];
       renderSchema();
+      updateSealRoom();
       return true;
+    });
+  }
+
+  // Same rule as the saved view (SPEC "Corner seal"): the seal shows only
+  // when the space under the content fits it, re-measured after render and
+  // on resize.
+  var SEAL_ROOM = 230;
+  function updateSealRoom() {
+    if (!root || !root.getBoundingClientRect) return;
+    var edge = 0;
+    for (var i = 0; i < root.children.length; i++) {
+      var r = root.children[i].getBoundingClientRect();
+      if (r.height > 0 && r.bottom > edge) edge = r.bottom;
+    }
+    var room = root.getBoundingClientRect().bottom - edge;
+    root.classList.toggle("view--roomy", room >= SEAL_ROOM);
+  }
+
+  if (typeof window !== "undefined" && window.addEventListener) {
+    var sealTimer = null;
+    window.addEventListener("resize", function () {
+      clearTimeout(sealTimer);
+      sealTimer = setTimeout(updateSealRoom, 100);
     });
   }
 

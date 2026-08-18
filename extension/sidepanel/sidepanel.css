@@ -540,6 +540,8 @@ body {
 .view--blank::after,
 .view--sealed::after {
   content: "玉篇";
+  opacity: 0;
+  transition: opacity .18s ease;
   position: absolute;
   right: 16px;
   bottom: 16px;
@@ -553,12 +555,18 @@ body {
   border-radius: 8px;
   padding: 20px 13px;
   transform: rotate(-2deg);
-  /* Behind the view's content, above the page background: a watermark
-     never competes with text, even when a long list reaches the corner. */
+  /* Behind the view's content, above the page background. */
   z-index: -1;
   pointer-events: none;
   user-select: none;
 }
+
+/* The seal marks empty paper only: the empty search state always has
+   room, and the sealed views toggle .view--roomy from a measurement after
+   each render (see updateSealRoom in the view scripts), so content never
+   overlaps it. */
+.view--blank::after,
+.view--sealed.view--roomy::after { opacity: 1; }
 
 .saved-check,
 .saved-folder-check {
