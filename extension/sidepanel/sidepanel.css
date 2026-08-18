@@ -496,17 +496,20 @@ body {
 }
 
 /* Destructive actions read as destructive: the Delete button warns, and
-   the confirm button that actually deletes is filled. */
-.saved-remove {
+   the confirm button that actually deletes is filled. Selector weight
+   matters: these must outweigh the `.saved-actions button` base rule. */
+.saved-actions button.saved-remove {
   color: var(--danger);
   border-color: var(--danger);
 }
 
-.saved-confirm-yes {
+.saved-actions button.saved-confirm-yes {
   color: var(--danger-fg);
   background: var(--danger);
   border-color: var(--danger);
 }
+
+.saved-actions button.saved-confirm-yes:hover { background: var(--danger); }
 
 /* Corner seal (낙관): the jade stamp in the bottom-right. On the search
    view it marks only the genuinely empty state (.view--blank, toggled by
@@ -515,7 +518,11 @@ body {
    faint enough to sit under content when a long list scrolls past it.
    Decorative only: no pointer events, no selection, not announced by
    screen readers. */
-.view { position: relative; }
+/* isolation makes each view its own stacking context, so the seal's
+   z-index:-1 lands behind the view's content but in front of the page
+   background — without it the body background paints over the seal and
+   it disappears entirely. */
+.view { position: relative; isolation: isolate; }
 
 .view--blank::after,
 .view--sealed::after {
