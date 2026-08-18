@@ -53,7 +53,9 @@ the 1.0 review clears anyway.
   cleaning no longer eats quoted glosses.
 - **Wiki links open in a background tab on every surface.** A foreground
   open would destroy ephemeral surfaces mid-read. Covered by the harness.
-- **Resizable popup, stage 1**: per-page-visit size, no persistence.
+- **Resizable popup**: per-page-visit size. Persistence across visits was
+  considered once storage existed and declined; the popup starting from
+  its default each visit is the intended behavior.
 - **Build hygiene**: deterministic data emit (`sort_keys`), canonical words
   keys, data-driven segmentation caps, geometry-derived expander state.
 - Listing updates at upload time: privacy policy URL on GitHub Pages,
@@ -88,13 +90,11 @@ release:
 
 ### Open question in this release
 
-- **Reading-row chip weight.** Level chips on reading-list rows are correct
-  but visually heavy in the worst case: an all-Rare homophone list renders a
-  column of identical grey pills that carries no information and drowns the
-  eumhun. Two mitigations identified: suppress the Rare chip on rows only
-  (keep it on card heads), or de-fill row chips generally (text-weight rather
-  than pill). Not decided; both are small and can land before or after
-  upload.
+- **Reading-row chip weight.** RESOLVED: keep the chips as they are. The
+  worst case (an all-Rare homophone list rendering a column of identical
+  grey pills) was reviewed against two mitigations, suppressing the Rare
+  chip on rows and de-filling row chips to plain text. Explicit labels on
+  every row won; no change ships.
 
 ### Declined
 
@@ -109,7 +109,6 @@ release:
 The settings page and `storage` permission now exist, so each of these is
 one schema entry plus its feature code:
 
-- In-page popup resize persistence (per-page-visit sizing shipped in 1.1)
 - Per-site disable, hover-mode toggle (hover mode itself is further out)
 - Japanese and Chinese pronunciations on character cards (see Later)
 
