@@ -119,6 +119,9 @@
   var MAX_SELECTION_CHARS = 30;
   var MAX_COMPOUNDS = 5;
   var COMPOUND_PAGE = 5; // compounds revealed per press of "Show 5 more"
+  // Homophone rows a reading group shows when it SHARES a view with another
+  // interpretation. Alone, a reading list is never capped.
+  var READING_PREVIEW = 5;
   // (The trail once capped at a fixed depth of 3. It elides by WIDTH now —
   //  see fitCrumbs — so there is no depth constant left to tune.)
   var GAP = 8;          // gap between selection rect and popup
@@ -595,6 +598,14 @@
     ".r-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }",
     ".r-eumhun { font-weight: 600; color: var(--accent); }",
     ".r-gloss { color: var(--muted); }",
+    // The preview's escape hatch. An .entry-row.nav, so the hover, the focus
+    // ring and the chevron are the same ones every other navigable row has;
+    // only the insets change, to line up with the reading rows above it.
+    ".reading-more {",
+    "  padding: 6px 12px; border-radius: 0;",
+    "  font-size: 12px; font-weight: 600; color: var(--accent);",
+    "}",
+    ".reading-more b { font-weight: 700; }",
     /* ---- shared affordance for navigable rows ---- */
     ".reading-row:hover, .part-row:hover, .entry-row.nav:hover {",
     "  background: var(--hover);",
@@ -2130,7 +2141,17 @@
   }
 
   // Homophone browse: "국 — 12 hanja" over a scrollable list of candidates.
-  function buildReadingCard(m) {
+  /**
+   * The homophone list for one syllable.
+   *
+   * `preview` is set only when this card is one of SEVERAL interpretation
+   * groups sharing a view: 수 has 102 readings, and at full length it buries
+   * whatever group follows it. Capped, the group shows its first few and
+   * offers the rest as an ordinary drill-down. A view showing ONE list — a
+   * selection, an eum chip, the Show-all push itself — is never capped: the
+   * homophone browser's contract is that it shows you every character.
+   */
+  function buildReadingCard(m, preview) {
     var candidates = asArray(m.candidates).filter(function (c) {
       return c && typeof c === "object" && nonEmptyString(c.char);
     });
@@ -2138,13 +2159,19 @@
 
     var card = el("div", "card reading");
     var syllable = nonEmptyString(m.surface) || nonEmptyString(m.eum);
+    // The heading counts the SYLLABLE's characters, not the rows below it, so
+    // a capped group still says how many there are.
     var title = el("div", "reading-title");
     title.appendChild(document.createTextNode(candidates.length + " hanja read "));
     title.appendChild(el("b", null, syllable));
     card.appendChild(title);
 
+    var shown = (preview === true && candidates.length > READING_PREVIEW)
+      ? candidates.slice(0, READING_PREVIEW)
+      : candidates;
+
     var list = el("div", "reading-list");
-    candidates.forEach(function (c) {
+    shown.forEach(function (c) {
       var glyph = nonEmptyString(c.char);
       var row = el("div", "reading-row");
       row.appendChild(el("span", "r-glyph", glyph));
@@ -2163,6 +2190,21 @@
       list.appendChild(row);
     });
     card.appendChild(list);
+
+    if (shown.length < candidates.length) {
+      // Plain navigateTo: a single syllable resolves to its reading view by
+      // rule 3c, which means the cache, the crumb label and the cycle guard
+      // are the ordinary ones, and the view it lands on is uncapped.
+      var more = el("div", "entry-row reading-more nav");
+      var text = el("span", "reading-more-text");
+      text.appendChild(document.createTextNode("Show all "));
+      text.appendChild(el("b", null, String(candidates.length)));
+      more.appendChild(text);
+      more.setAttribute("aria-label",
+        "Show all " + candidates.length + " hanja read " + syllable);
+      makeNavRow(more, syllable);
+      card.appendChild(more);
+    }
     return card;
   }
 
@@ -2621,7 +2663,10 @@
   // reset by renderCurrentView, not here, and the char regions are laid out
   // once at the end over every group. Each group gets its own top-chars box,
   // which is what keeps a dual view's cards from interleaving.
-  function appendMatchCards(list) {
+  // `preview` says this group is sharing the view with another, which is the
+  // only thing that caps a reading list. Passed in rather than read back off
+  // global state, so the rule stays a property of the CALL.
+  function appendMatchCards(list, preview) {
     adoptCharData(list);
 
     var readings = [];
@@ -2660,7 +2705,7 @@
       }
     }
     for (var r = 0; r < readings.length; r++) {
-      var readingCard = buildReadingCard(readings[r]);
+      var readingCard = buildReadingCard(readings[r], preview);
       if (readingCard) {
         viewRoot.appendChild(readingCard);
         count++;
@@ -3042,7 +3087,7 @@
         var divider = buildGroupDivider(group.interpretation);
         if (divider) viewRoot.appendChild(divider);
       }
-      count += appendMatchCards(group.matches);
+      count += appendMatchCards(group.matches, groups.length > 1);
     });
     // Char regions are laid out ONCE across every group, so a glyph both
     // interpretations turned up renders a single card.

@@ -294,8 +294,19 @@
     // RR reads "su" as 수 and the Dubeolsik keyboard mapping reads it 녀.
     // Both syllables need real entries here, or the canned dual response
     // below would be describing characters the fixture does not have.
+    //
+    // 수 carries SEVEN so the group-preview cap has something to cap: the real
+    // 수 has 102 readings, which is what buried the 녀 group and prompted the
+    // rule. Seven is enough to show five and offer the rest, and it keeps the
+    // preview count and the drilled-into view honest with each other — both
+    // come from this one list.
     "水": C("물", "수", "water"),
     "手": C("손", "수", "hand"),
+    "數": C("셈", "수", "number; to count"),
+    "首": C("머리", "수", "head; chief"),
+    "樹": C("나무", "수", "tree"),
+    "修": C("닦을", "수", "to cultivate; repair"),
+    "秀": C("빼어날", "수", "outstanding; excellent"),
     "女": C("계집", "녀", "woman; female"),
 
     // Reading-only character: hun is "" AND glosses is [] (Agent A reports
@@ -317,7 +328,7 @@
     "使": "m", "史": "m", "死": "m", "四": "m", "師": "m", "氣": "m",
     "器": "m", "武": "m", "本": "m", "主": "m", "天": "m", "外": "m",
     "活": "m", "會": "m", "者": "m", "海": "m", "水": "m", "手": "m",
-    "女": "m",
+    "女": "m", "數": "m", "首": "m", "樹": "h", "修": "h", "秀": "h",
     "法": "h", "局": "h", "詐": "h", "資": "h", "義": "h", "寺": "h",
     "沙": "h", "舍": "h",
     "菊": "a", "欺": "a", "衝": "a",
@@ -1816,7 +1827,7 @@
     await wait(TAIL);
     check("both interpretations render, preferred group first",
       api.cardCount() === 2 &&
-      readingTitles().join(" | ") === "2 hanja read 수 | 1 hanja read 녀",
+      readingTitles().join(" | ") === "7 hanja read 수 | 1 hanja read 녀",
       readingTitles().join(" | "));
     check("each group is introduced by a divider naming its mapping",
       dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)",
@@ -1831,15 +1842,78 @@
       api.viewKeys()[0] === "typed:su" && api.viewSrcText().indexOf("su") === 0,
       api.viewKeys().join(",") + " " + JSON.stringify(api.viewSrcText()));
 
+    // --- the group preview cap ------------------------------------------
+    // 수 has 102 readings in the real corpus, which buried the 녀 group
+    // entirely. A group SHARING a view previews five and offers the rest.
+    function glyphsIn(card) {
+      return api.queryAll(card + " .reading-row")
+        .map(function (r) { return r.querySelector(".r-glyph").textContent; })
+        .join("");
+    }
+    var readingCards = api.queryAll(".card.reading");
+    check("the long group previews five rows and keeps counting the rest",
+      readingCards[0].querySelectorAll(".reading-row").length === 5 &&
+      readingCards[0].querySelector(".reading-title").textContent ===
+        "7 hanja read 수",
+      readingCards[0].querySelectorAll(".reading-row").length + " rows");
+    var showAll = readingCards[0].querySelector(".reading-more");
+    check("...and offers the remainder on one Show all row",
+      !!showAll && showAll.textContent === "Show all 7",
+      showAll && JSON.stringify(showAll.textContent));
+    check("the Show all row is the house nav row: chevron, focus, keyboard",
+      showAll.classList.contains("nav") &&
+      showAll.getAttribute("role") === "button" &&
+      showAll.getAttribute("tabindex") === "0" &&
+      getComputedStyle(showAll, "::after").content.indexOf("›") >= 0,
+      showAll.className + " " + getComputedStyle(showAll, "::after").content);
+    check("a group that already fits renders whole, with no Show all",
+      readingCards[1].querySelectorAll(".reading-row").length === 1 &&
+      !readingCards[1].querySelector(".reading-more"),
+      readingCards[1].querySelectorAll(".reading-row").length + " rows");
+
+    showAll.click();
+    await wait(TAIL);
+    check("Show all drills into the syllable's COMPLETE list, uncapped",
+      api.viewDepth() === 2 && api.viewKeys()[1] === "reading:수" &&
+      api.queryAll(".reading-row").length === 7 &&
+      !api.query(".reading-more") &&
+      api.crumbLabels().join(" › ") === "su › 수",
+      api.crumbLabels().join(" › ") + " rows=" +
+      api.queryAll(".reading-row").length);
+    check("the drilled list opens at the top, like any drill-down",
+      api.viewDepth() === 2 && glyphsIn(".card.reading") === "水手數首樹修秀",
+      glyphsIn(".card.reading"));
+    api.query(".crumb").click();
+    await wait(TAIL);
+    check("back from Show all restores both groups, capped as before",
+      api.viewDepth() === 1 && api.cardCount() === 2 &&
+      api.queryAll(".card.reading")[0].querySelectorAll(".reading-row").length === 5 &&
+      !!api.query(".reading-more") &&
+      dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)",
+      dividers().join(" | "));
+
+    // A directly reached reading view is never capped: the homophone
+    // browser's contract is that it shows every character.
+    await embed.searchFor("수");
+    await wait(TAIL);
+    check("a reading view reached directly stays complete",
+      api.viewKeys().join(",") === "reading:수" &&
+      api.queryAll(".reading-row").length === 7 &&
+      !api.query(".reading-more"),
+      api.queryAll(".reading-row").length + " rows, more=" +
+      !!api.query(".reading-more"));
+
     // Drilling out of the SECOND group is ordinary navigation.
+    await embed.searchFor("su", { interpret: true });
+    await wait(TAIL);
     var rows = api.queryAll(".reading-row");
-    check("test setup: the second group's rows are the 녀 candidates",
-      rows.length === 3 &&
-      rows[2].querySelector(".r-glyph").textContent === "女",
+    check("test setup: the second group's row is the 녀 candidate",
+      rows.length === 6 &&
+      rows[rows.length - 1].querySelector(".r-glyph").textContent === "女",
       rows.map(function (r) { return r.querySelector(".r-glyph").textContent; })
         .join(""));
     var interpretsBefore = fake.__interpretCalls;
-    rows[2].click();
+    rows[rows.length - 1].click();
     await wait(TAIL);
     check("a drill from the SECOND group crumbs as typed › entity",
       api.viewDepth() === 2 && api.viewKeys()[1] === "char:女" &&
@@ -1861,7 +1935,7 @@
     check("going back restores BOTH groups, dividers and all",
       api.viewDepth() === 1 && api.cardCount() === 2 &&
       dividers().join(" | ") === "su → 수 | su → 녀 (keyboard)" &&
-      readingTitles().join(" | ") === "2 hanja read 수 | 1 hanja read 녀",
+      readingTitles().join(" | ") === "7 hanja read 수 | 1 hanja read 녀",
       dividers().join(" | "));
 
     // The SHELL is a typed channel: typing into the real input must carry the
