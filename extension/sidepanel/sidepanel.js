@@ -307,6 +307,21 @@
   });
 
   /* ------------------------------------------------------------------ *
+   * The searchbar is global chrome above the views, so typing in it while
+   * another view is up means "search" — the results have to be where the user
+   * can see them. Attached at load, before the shell's own input handler
+   * exists, so the view is already showing by the time the shell reacts.
+   * ------------------------------------------------------------------ */
+
+  (function () {
+    var inputEl = document.getElementById("okp-input");
+    if (!inputEl) return;
+    inputEl.addEventListener("input", function () {
+      if (activeKey && activeKey !== "search") showView("search");
+    });
+  })();
+
+  /* ------------------------------------------------------------------ *
    * Initial query
    *
    * Two sources, and `?q=` wins: it is an explicit deep link (the omnibox
@@ -473,6 +488,9 @@
   // is still there, so a panel that grabbed focus (or moved a caret in an input
   // that happens to be focused) would take the keystrokes meant for it.
   function applyPendingQuery(query) {
+    // The search has to be VISIBLE: an omnibox query that landed behind the
+    // saved or settings view would look like nothing happened.
+    showView("search");
     var shellModule = globalThis.__okpyeonSearchShell;
     var controller = shellModule && typeof shellModule.controller === "function"
       ? shellModule.controller()

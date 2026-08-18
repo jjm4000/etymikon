@@ -50,10 +50,12 @@
 </div>
 
 <!--
-  Load order is load-bearing and all four are CLASSIC scripts (no
+  Load order is load-bearing and every one of these is a CLASSIC script (no
   type=module / defer / async): the boot flag must be set before content.js
-  evaluates, search-shell.js needs the embed API content.js exposes, and
-  sidepanel.js needs the shell. They sit AFTER the markup so mount() sees a
+  evaluates, search-shell.js needs the embed API content.js exposes,
+  sidepanel.js needs the shell, and the view scripts need the registry
+  sidepanel.js exposes — each of them self-registers on load, which is what
+  makes the nav row appear. They sit AFTER the markup so mount() sees a
   laid-out container. MV3's extension-page CSP forbids inline script, so none
   of this can be collapsed into the page.
 
@@ -64,6 +66,8 @@
 <script src="../content/content.js"></script>
 <script src="search-shell.js"></script>
 <script src="sidepanel.js"></script>
+<script src="saved-view.js"></script>
+<script src="settings-view.js"></script>
 
 </body>
 </html>
