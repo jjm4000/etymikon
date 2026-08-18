@@ -1503,8 +1503,8 @@
     api.queryAll(".part-row")[0].click();          // → 大學
     await wait(90);
     check("four levels deep", api.viewDepth() === 4, "depth=" + api.viewDepth());
-    check("long trail middle-truncates to first + … + last two",
-      api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
+    check("a four-level trail that FITS the row shows every level, no ellipsis",
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學",
       api.crumbLabels().join(" › "));
 
     var callsBeforeJump = fake.__calls;
@@ -2563,12 +2563,22 @@
     await wait(90);
     api.queryAll(".part-row")[0].click();       // → 大學
     await wait(90);
-    check("four levels deep, trail is truncated", api.viewDepth() === 4 &&
+    check("four levels deep, the trail fits a default-width panel in full",
+      api.viewDepth() === 4 &&
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學",
+      api.crumbLabels().join(" › "));
+
+    // Narrow the panel until the row genuinely cannot hold the trail: the
+    // middle elides behind the …, keeping the root and the last two.
+    api.resizePanel(210, 420);
+    await wait(220);
+    check("a genuinely overflowing row elides the middle behind …",
       api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
     var gap = api.query(".crumb-gap");
-    check("the … is a real BUTTON, not decoration",
-      !!gap && gap.tagName === "BUTTON" && gap.type === "button" &&
+    check("the … is a real, visible BUTTON, not decoration",
+      !!gap && !gap.hasAttribute("hidden") &&
+      gap.tagName === "BUTTON" && gap.type === "button" &&
       /show all/i.test(gap.getAttribute("aria-label") || ""),
       gap ? gap.tagName + " " + gap.getAttribute("aria-label") : "none");
     var depthBeforeExpand = api.viewDepth();
@@ -2577,7 +2587,8 @@
     await wait(60);
     check("pressing … expands the trail in place to every level",
       api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學" &&
-      !api.query(".crumb-gap"), api.crumbLabels().join(" › "));
+      api.query(".crumb-gap").hasAttribute("hidden"),
+      api.crumbLabels().join(" › "));
     check("expanding navigates nowhere and queries nothing",
       api.viewDepth() === depthBeforeExpand && fake.__calls === callsBeforeExpand2,
       "depth " + depthBeforeExpand + " → " + api.viewDepth());
@@ -2603,10 +2614,21 @@
     await wait(90);
     api.queryAll(".part-row")[0].click();       // → 大學, depth 4 again
     await wait(90);
-    check("the trail re-collapses after the next navigation",
-      api.viewDepth() === 4 && !!api.query(".crumb-gap") &&
+    check("the trail re-collapses after the next navigation (still narrow)",
+      api.viewDepth() === 4 &&
+      !api.query(".crumb-gap").hasAttribute("hidden") &&
       api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學",
       api.crumbLabels().join(" › "));
+
+    // Re-widening restores the full trail without any rebuild or click.
+    api.resizePanel(360, 480);
+    await wait(220);
+    check("re-widening the panel brings the hidden levels back",
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學" &&
+      api.query(".crumb-gap").hasAttribute("hidden"),
+      api.crumbLabels().join(" › "));
+    api.resetPanelSize();
+    await wait(220);
 
     // --- ADDENDUM: resizable panel (stage 1, no persistence) -------------
     var LONG_SENSE = "A very long sense that runs on and on and on so that it " +

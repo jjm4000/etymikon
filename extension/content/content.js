@@ -119,7 +119,8 @@
   var MAX_SELECTION_CHARS = 30;
   var MAX_COMPOUNDS = 5;
   var COMPOUND_PAGE = 5; // compounds revealed per press of "Show 5 more"
-  var MAX_CRUMBS = 3;   // first + last two, everything between is elided
+  // (The trail once capped at a fixed depth of 3. It elides by WIDTH now —
+  //  see fitCrumbs — so there is no depth constant left to tune.)
   var GAP = 8;          // gap between selection rect and popup
   var VIEWPORT_MARGIN = 8;
   var Z_INDEX = "2147483646";
@@ -598,7 +599,11 @@
     "  border-bottom: 1px solid var(--rule);",
     "  font-size: 12px; overflow: hidden;",
     "}",
+    // `flex: 0 0 auto` is load-bearing for the width-based truncation below:
+    // a shrinkable crumb would squeeze instead of overflowing, so the row
+    // could never report that it had run out of space.
     ".crumb {",
+    "  flex: 0 0 auto;",
     "  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.3;",
     "  margin: 0; padding: 2px 5px; border: 0; border-radius: 5px;",
     "  background: transparent; color: var(--accent); cursor: pointer;",
@@ -830,6 +835,9 @@
   function settleResize() {
     resizeTimer = null;
     clampPanelSize();
+    // A narrower row may no longer hold the whole trail, and a wider one may
+    // hold more of it than it did a moment ago.
+    fitCrumbs();
     syncClamps();
     // A tick that lands during (or right after) a drag must not let the
     // content shift under the user.
@@ -1157,6 +1165,7 @@
 
   // Re-measure clamps, settle the scroll offset, then re-anchor.
   function refreshLayout() {
+    fitCrumbs();
     syncClamps();
     applyPendingScroll();
     reposition();
@@ -2718,24 +2727,57 @@
     view.selection = wordStates.map(function (state) { return state.index; });
   }
 
-  // Crumbs: every level except the last jumps straight to that cached view.
-  // Long trails keep the first and the last two, eliding the middle — but the
-  // elision is a button that expands the trail in place, so no intermediate
-  // level is ever unreachable. The expansion lasts until the next navigation.
+  /* ---- Breadcrumbs ------------------------------------------------------ *
+   * Every level except the last jumps straight to that cached view.
+   *
+   * The trail renders in FULL and elides only when the row genuinely runs out
+   * of width (a fixed depth cap used to hide levels while most of the row sat
+   * empty). What survives is the root, as many trailing levels as fit, and
+   * never fewer than the last two; the middle collapses behind one "…", which
+   * is a button that expands the trail in place, so no level is ever
+   * unreachable. The expansion lasts until the next navigation.
+   *
+   * The elided crumbs stay in the DOM, hidden. Re-fitting is then a matter of
+   * unhiding and re-measuring, which is what makes widening the panel restore
+   * the trail without a rebuild.
+   * -------------------------------------------------------------------- */
+
   function buildCrumbs() {
     var bar = el("div", "crumbs");
     var last = viewStack.length - 1;
-    var indices = [];
-    var i;
-    if (viewStack.length <= MAX_CRUMBS || crumbsExpanded) {
-      for (i = 0; i < viewStack.length; i++) indices.push(i);
-      if (crumbsExpanded) bar.classList.add("expanded");
-    } else {
-      indices = [0, -1, last - 1, last];
-    }
-    indices.forEach(function (idx, pos) {
-      if (pos > 0) bar.appendChild(el("span", "crumb-sep", "›"));
-      if (idx === -1) {
+    if (crumbsExpanded) bar.classList.add("expanded");
+
+    // Kept for fitCrumbs: it needs the pieces, not a DOM query per re-fit.
+    var parts = { crumbs: [], seps: [], gap: null, gapSep: null };
+    bar.hhCrumbs = parts;
+
+    viewStack.forEach(function (view, idx) {
+      if (idx > 0) {
+        // The separator that PRECEDES this crumb, hidden whenever it is.
+        var sep = el("span", "crumb-sep", "›");
+        parts.seps.push(sep);
+        bar.appendChild(sep);
+      }
+      var label = view.label || "?";
+      var crumb;
+      if (idx === last) {
+        crumb = el("span", "crumb current", label);
+        crumb.setAttribute("aria-current", "true");
+      } else {
+        crumb = el("button", "crumb", label);
+        crumb.type = "button";
+        crumb.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          goToDepth(idx);
+        });
+      }
+      parts.crumbs.push(crumb);
+      bar.appendChild(crumb);
+
+      // The "…" and its own separator live right after the root, so eliding
+      // is only ever a matter of hiding, never of re-ordering.
+      if (idx === 0 && last > 0) {
         var gap = el("button", "crumb-gap", "…");
         gap.type = "button";
         gap.setAttribute("aria-label",
@@ -2747,27 +2789,110 @@
           refreshCrumbs();
           refreshLayout();
         });
+        var gapSep = el("span", "crumb-sep", "›");
+        parts.gap = gap;
+        parts.gapSep = gapSep;
         bar.appendChild(gap);
-        return;
+        bar.appendChild(gapSep);
       }
-      var view = viewStack[idx];
-      var label = view.label || "?";
-      if (idx === last) {
-        var current = el("span", "crumb current", label);
-        current.setAttribute("aria-current", "true");
-        bar.appendChild(current);
-        return;
-      }
-      var crumb = el("button", "crumb", label);
-      crumb.type = "button";
-      crumb.addEventListener("click", function (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        goToDepth(idx);
-      });
-      bar.appendChild(crumb);
     });
     return bar;
+  }
+
+  function showCrumb(node, on) {
+    if (!node) return;
+    if (on) node.removeAttribute("hidden");
+    else node.setAttribute("hidden", "");
+  }
+
+  /**
+   * Decide how much of the trail fits, and hide the rest.
+   *
+   * Deliberately arithmetic rather than iterative: every width is read in ONE
+   * pass with the whole trail visible, and the answer is then computed, so a
+   * deep trail costs one reflow instead of one per crumb dropped.
+   */
+  function fitCrumbs() {
+    if (!viewRoot) return;
+    var bar = viewRoot.querySelector(".crumbs");
+    if (!bar || !bar.hhCrumbs) return;
+    var parts = bar.hhCrumbs;
+    var crumbs = parts.crumbs;
+    var count = crumbs.length;
+
+    // Expanded: the row wraps and shows everything, so there is nothing to fit.
+    if (crumbsExpanded) {
+      crumbs.forEach(function (c) { showCrumb(c, true); });
+      parts.seps.forEach(function (s) { showCrumb(s, true); });
+      showCrumb(parts.gap, false);
+      showCrumb(parts.gapSep, false);
+      return;
+    }
+
+    // WRITE: everything visible, so the widths read below are the natural ones
+    // rather than whatever the last fit left behind.
+    crumbs.forEach(function (c) { showCrumb(c, true); });
+    parts.seps.forEach(function (s) { showCrumb(s, true); });
+    showCrumb(parts.gap, true);
+    showCrumb(parts.gapSep, true);
+
+    // READ: one measurement pass, no writes in between.
+    var style = getComputedStyle(bar);
+    var available = bar.clientWidth -
+      (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    // No layout yet (the panel is still display:none): leave the full trail
+    // rendered and let the next call, which has geometry, decide.
+    if (!(available > 0)) {
+      showCrumb(parts.gap, false);
+      showCrumb(parts.gapSep, false);
+      return;
+    }
+    var widths = crumbs.map(function (c) { return c.offsetWidth; });
+    var sepW = parts.seps.length ? parts.seps[0].offsetWidth : 0;
+    var gapW = parts.gap ? parts.gap.offsetWidth : 0;
+    var cssGap = parseFloat(style.columnGap) || 0;
+
+    // Width of the row for a given first-shown suffix index. `start` 0 means
+    // the whole trail with no "…" at all.
+    function widthFor(start) {
+      var sum = 0;
+      var items;
+      var i;
+      if (start === 0) {
+        for (i = 0; i < count; i++) sum += widths[i];
+        items = count;
+      } else {
+        sum = widths[0] + gapW;
+        for (i = start; i < count; i++) sum += widths[i];
+        items = 2 + (count - start);   // root, the "…", and the suffix
+      }
+      var seps = items - 1;
+      // One css gap between every pair of adjacent elements, separators too.
+      return sum + seps * sepW + (items + seps - 1) * cssGap;
+    }
+
+    var start = 0;
+    if (widthFor(0) > available) {
+      // Elide as little as possible: the smallest suffix start that fits.
+      // `count - 2` keeps the last two, which is the floor whatever happens —
+      // with fewer than four levels there is no middle to hide at all.
+      for (start = 2; start <= count - 2; start++) {
+        if (widthFor(start) <= available) break;
+      }
+      if (start > count - 2) start = count - 2;
+      if (start < 2) start = 0;
+    }
+
+    // WRITE: apply the decision.
+    var eliding = start > 0;
+    showCrumb(parts.gap, eliding);
+    showCrumb(parts.gapSep, eliding);
+    for (var idx = 1; idx < count; idx++) {
+      var on = !eliding || idx >= start;
+      showCrumb(crumbs[idx], on);
+      // seps[i] is the separator PRECEDING crumbs[i + 1].
+      showCrumb(parts.seps[idx - 1], on);
+    }
   }
 
   // Swaps just the nav bar, so expanding the trail keeps the cards below
@@ -3044,7 +3169,9 @@
     host.style.setProperty("display", "block", "important");
     host.style.setProperty("left", "0px", "important");
     host.style.setProperty("top", "0px", "important");
-    // Clamp overflow and scrollTop both need the popup to have layout.
+    // Trail width, clamp overflow and scrollTop all need the popup to have
+    // layout, which is what the measurable-but-invisible step above buys.
+    fitCrumbs();
     syncClamps();
     applyPendingScroll();
     if (!IS_EMBED) positionAt(rect);
@@ -3299,6 +3426,20 @@
       left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0
     };
 
+    // The one window listener embed installs. In the in-page popup a resize
+    // dismisses the popup outright, so there is nothing to re-measure; here
+    // the panel simply gets narrower or wider under a sidebar edge drag, and
+    // the trail has to be re-fitted to it. Debounced: a drag is a stream of
+    // these.
+    var embedResizeTimer = null;
+    window.addEventListener("resize", function () {
+      if (embedResizeTimer) clearTimeout(embedResizeTimer);
+      embedResizeTimer = setTimeout(function () {
+        embedResizeTimer = null;
+        if (visible) refreshLayout();
+      }, RESIZE_DEBOUNCE);
+    });
+
     globalThis.__okpyeonEmbedApi = {
       // The container must already be in the document: ensureHost appends into
       // it immediately and the first render measures inside it.
@@ -3409,7 +3550,10 @@
       },
       crumbLabels: function () {
         ensureHost();
+        // Visible crumbs only: width-based elision hides rather than removes,
+        // and the harness asserts what the user sees.
         return Array.prototype.slice.call(panel.querySelectorAll(".crumb, .crumb-gap"))
+          .filter(function (c) { return !c.hasAttribute("hidden"); })
           .map(function (c) { return c.textContent; });
       },
       scrollTop: function (v) {

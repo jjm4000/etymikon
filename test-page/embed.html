@@ -1490,6 +1490,38 @@
     check("the first crumb jumps back to the root view",
       api.viewDepth() === 1, "depth=" + api.viewDepth());
 
+    // --- width-based crumb elision in embed ------------------------------
+    // Build a four-level trail, then drive the PANEL width through the
+    // harness frame: content.js's embed resize listener refits the trail on
+    // window resize (a synthetic event stands in for the sidebar edge drag).
+    await embed.searchFor("해외대학생활");
+    api.queryAll(".part-row")[1].click();
+    await wait(TAIL);
+    api.queryAll(".part-row")[0].click();
+    await wait(TAIL);
+    api.queryAll(".part-row")[0].click();
+    await wait(TAIL);
+    check("a four-level trail fits the 360px frame in full",
+      api.viewDepth() === 4 &&
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學",
+      api.crumbLabels().join(" › "));
+    var crumbFrame = document.querySelector(".panel-frame");
+    var crumbFrameW = crumbFrame.style.width;
+    crumbFrame.style.width = "210px";
+    window.dispatchEvent(new Event("resize"));
+    await wait(300);
+    check("narrowing the panel elides the middle behind a visible …",
+      api.crumbLabels().join(" › ") === "海外大學生活 › … › 大學生 › 大學" &&
+      !api.query(".crumb-gap").hasAttribute("hidden"),
+      api.crumbLabels().join(" › "));
+    crumbFrame.style.width = crumbFrameW;
+    window.dispatchEvent(new Event("resize"));
+    await wait(300);
+    check("re-widening restores the full trail, ellipsis hidden",
+      api.crumbLabels().join(" › ") === "海外大學生活 › 大學生活 › 大學生 › 大學" &&
+      api.query(".crumb-gap").hasAttribute("hidden"),
+      api.crumbLabels().join(" › "));
+
     await embed.searchFor("학생");
     check("used-in disclosure renders in embed", !!api.query(".usedin-row"),
       api.query(".usedin-row") && api.query(".usedin-row").textContent);

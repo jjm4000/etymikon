@@ -35,8 +35,9 @@ the 1.0 review clears anyway.
   each character has a complete paginated compound index ("Show 5 more (N)"),
   word cards offer "Used in N larger words" as a dedicated ranked list, and a
   sticky breadcrumb trail with canonical labels, cycle handling and cached
-  scroll positions holds the whole descent together. Eumhun chips scroll to
-  and flash their component card.
+  scroll positions holds the whole descent together. The trail elides by
+  width, not depth: every level shows until the row actually runs out of
+  room. Eumhun chips scroll to and flash their component card.
 - **Card correctness.** Cards head with the canonical character; variant
   surfaces move to a view-scoped "国 → 國" note. "Wiktionary ↗" source links
   appear on every card and target the hanja-titled page where that page hosts
