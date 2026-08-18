@@ -3719,6 +3719,49 @@
       wordStar.textContent === "☆" && !api.saveBubble() &&
       store.state().items.length === 0,
       JSON.stringify(store.state().items));
+
+    // --- ADDENDUM: "New folder…" from inside the bubble -------------------
+    function folderSelect() { return api.query(".savebubble-folder"); }
+    function chooseNewFolder() {
+      var sel = folderSelect();
+      sel.value = sel.options[sel.options.length - 1].value;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    wordStar.click();
+    await wait(60);
+    check("the folder select's LAST option is New folder…",
+      folderSelect().options.length === store.state().folders.length + 1 &&
+      folderSelect().options[folderSelect().options.length - 1].textContent ===
+        "New folder…",
+      api.queryAll(".savebubble-folder option")
+        .map(function (o) { return o.textContent; }).join("|"));
+
+    chooseNewFolder();
+    await wait(30);
+    check("choosing it swaps the select for a name input with create/cancel",
+      !folderSelect() && !!api.query(".savebubble-name") &&
+      !!api.query(".savebubble-create") && !!api.query(".savebubble-cancel"));
+    api.query(".savebubble-cancel").click();
+    await wait(30);
+    check("cancel restores the select, still on the folder it was showing",
+      !api.query(".savebubble-name") && !!folderSelect() &&
+      folderSelect().value === "f0" && store.state().folders.length === 1,
+      folderSelect() && folderSelect().value);
+
+    chooseNewFolder();
+    await wait(30);
+    api.query(".savebubble-name").value = "Exam";
+    api.query(".savebubble-create").click();
+    await wait(60);
+    var made = store.state();
+    check("create makes the folder, moves the item into it, and reselects",
+      made.folders.length === 2 && made.folders[1].name === "Exam" &&
+      made.items.length === 1 && made.items[0].folderId === made.folders[1].id &&
+      !api.query(".savebubble-name") &&
+      folderSelect().value === made.folders[1].id &&
+      folderSelect().selectedOptions[0].textContent === "Exam",
+      JSON.stringify(made.folders) + " " + JSON.stringify(made.items));
+
     api.hide();
     store.reset();
 

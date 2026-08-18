@@ -368,10 +368,25 @@
     "  display: block; margin-bottom: 5px; font-size: 11px; font-weight: 700;",
     "  letter-spacing: 0.05em; text-transform: uppercase; color: var(--faint);",
     "}",
-    ".savebubble-folder {",
+    ".savebubble-folder, .savebubble-name {",
     "  width: 100%; font: inherit; font-size: 12px; color: var(--fg);",
     "  background: var(--bg); border: 1px solid var(--edge); border-radius: 5px;",
     "  padding: 2px 4px;",
+    "}",
+    ".savebubble-controls { display: flex; gap: 6px; margin-top: 6px; }",
+    ".savebubble-create, .savebubble-cancel {",
+    "  flex: 0 0 auto; font: inherit; font-size: 11px; font-weight: 600;",
+    "  padding: 2px 8px; border: 1px solid var(--edge); border-radius: 5px;",
+    "  background: var(--chip-bg); color: var(--fg); cursor: pointer;",
+    "}",
+    ".savebubble-create { border-color: var(--accent); color: var(--accent); }",
+    ".savebubble-create:hover, .savebubble-cancel:hover { background: var(--hover); }",
+    ".savebubble-create:focus-visible, .savebubble-cancel:focus-visible {",
+    "  outline: 2px solid var(--accent); outline-offset: 1px;",
+    "}",
+    // Empty until the worker refuses a name, so it takes no space until then.
+    ".savebubble-error:not(:empty) {",
+    "  margin-top: 5px; font-size: 11px; color: var(--hedge-fg);",
     "}",
     ".savebubble-remove {",
     "  display: inline-block; margin: 7px 0 0; padding: 0; border: 0;",
@@ -1429,6 +1444,10 @@
 
   var saveBubble = null;   // { node, star }
 
+  // Sentinel value of the select's trailing option. Real folder ids are
+  // "f<n>", so this can never collide with one.
+  var NEW_FOLDER_OPTION = "okp:new-folder";
+
   function saveBubbleIsOpen() { return saveBubble !== null; }
 
   function closeSaveBubble() {
@@ -1474,22 +1493,113 @@
     node.setAttribute("aria-label", "Saved");
     node.appendChild(el("span", "savebubble-title", "Saved to"));
 
-    var select = el("select", "savebubble-folder");
-    select.setAttribute("aria-label", "Folder");
-    folders.forEach(function (folder) {
-      var option = el("option", "", nonEmptyString(folder.name) || folder.id);
-      option.value = folder.id;
-      if (folder.id === currentId) option.selected = true;
-      select.appendChild(option);
-    });
-    if (!folders.length || !item) select.disabled = true;
-    // Chrome-bookmarks behaviour: the move happens on the change itself, with
-    // no confirm step — the bubble is already the confirmation.
-    select.addEventListener("change", function () {
+    // The folder row swaps between two states in place: the select, and the
+    // name input that creates a folder the reader does not have yet. Both are
+    // rebuilt from `folders` and `currentId`, so the two renderers below stay
+    // the only description of either state.
+    var folderRow = el("div", "savebubble-row");
+    node.appendChild(folderRow);
+
+    function moveToCurrent() {
       if (!item) return;
-      sendToWorker({ type: "savedMove", ids: [item.id], folderId: select.value });
-    });
-    node.appendChild(select);
+      sendToWorker({ type: "savedMove", ids: [item.id], folderId: currentId });
+    }
+
+    function renderFolderSelect() {
+      clearNode(folderRow);
+      var select = el("select", "savebubble-folder");
+      select.setAttribute("aria-label", "Folder");
+      folders.forEach(function (folder) {
+        var option = el("option", "", nonEmptyString(folder.name) || folder.id);
+        option.value = folder.id;
+        if (folder.id === currentId) option.selected = true;
+        select.appendChild(option);
+      });
+      // Always last: the folder that does not exist yet.
+      var creator = el("option", "", "New folder…");
+      creator.value = NEW_FOLDER_OPTION;
+      select.appendChild(creator);
+      if (!item) select.disabled = true;
+      // Chrome-bookmarks behaviour: the move happens on the change itself,
+      // with no confirm step — the bubble is already the confirmation.
+      select.addEventListener("change", function () {
+        if (select.value === NEW_FOLDER_OPTION) {
+          renderNewFolder();
+          return;
+        }
+        currentId = select.value;
+        moveToCurrent();
+      });
+      folderRow.appendChild(select);
+    }
+
+    function renderNewFolder() {
+      clearNode(folderRow);
+      var input = el("input", "savebubble-name");
+      input.type = "text";
+      input.placeholder = "Folder name";
+      input.setAttribute("aria-label", "New folder name");
+      var error = el("div", "savebubble-error");
+      var busy = false;
+
+      function create() {
+        if (busy) return;
+        busy = true;
+        error.textContent = "";
+        sendToWorker({ type: "folderCreate", name: input.value }).then(function (result) {
+          busy = false;
+          if (!result || result.ok !== true || !result.folder) {
+            // What counts as a usable name is the worker's rule, not ours, so
+            // its complaint is what the reader sees and the input stays put.
+            error.textContent = (result && nonEmptyString(result.error)) ||
+              "Could not create that folder";
+            input.focus({ preventScroll: true });
+            return;
+          }
+          folders.push({
+            id: result.folder.id,
+            name: nonEmptyString(result.folder.name) || result.folder.id
+          });
+          currentId = result.folder.id;
+          moveToCurrent();
+          renderFolderSelect();
+        });
+      }
+
+      var confirm = el("button", "savebubble-create", "Create");
+      confirm.type = "button";
+      confirm.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        create();
+      });
+      var cancel = el("button", "savebubble-cancel", "Cancel");
+      cancel.type = "button";
+      cancel.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        renderFolderSelect();   // currentId never moved, so this restores it
+      });
+      // Typing must not reach the page underneath. Escape is unaffected: the
+      // window listener that closes the bubble runs in the CAPTURE phase, so
+      // it has already fired by the time this one is reached.
+      input.addEventListener("keydown", function (ev) {
+        ev.stopPropagation();
+        if (ev.key !== "Enter") return;
+        ev.preventDefault();
+        create();
+      });
+
+      var controls = el("div", "savebubble-controls");
+      controls.appendChild(confirm);
+      controls.appendChild(cancel);
+      folderRow.appendChild(input);
+      folderRow.appendChild(controls);
+      folderRow.appendChild(error);
+      input.focus({ preventScroll: true });
+    }
+
+    renderFolderSelect();
 
     var remove = el("button", "savebubble-remove", "Remove");
     remove.type = "button";
