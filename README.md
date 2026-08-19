@@ -22,7 +22,7 @@ typing `hj` in the address bar searches from anywhere.
   主義). Everything is clickable, and a breadcrumb trail returns to any
   earlier step.
 - **Character breakdown.** A character's card shows what it is made of
-  (學 = 臼 + 爻 + 冖 + 子), each part clickable with its own reading,
+  (樂 = 幺 + 白 + 幺 + 木), each part clickable with its own reading,
   and which other characters use it as a part. Pictographs like 心 stay
   whole instead of being split into pen strokes.
 - **Browse by sound.** Highlight a single syllable (국) to list every hanja
@@ -61,7 +61,7 @@ typing `hj` in the address bar searches from anywhere.
 
 ![Character breakdown](screenshots/9-decomposition.png)
 
-*學 split into its parts, each with a reading.*
+*樂 split into its parts, each with a reading.*
 
 ![Sidebar search](screenshots/5-sidebar-search.png)
 

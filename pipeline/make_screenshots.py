@@ -120,11 +120,12 @@ SHOTS = [
         "n": 1,
         "name": "1-character-lookup.png",
         "kind": "page",
-        # 學 highlighted in the opening paragraph: one character, its eumhun,
-        # its glosses and the compounds it builds.
+        # 愛 highlighted in the opening paragraph: one character, its eumhun,
+        # its glosses and the compounds it builds. 愛 replaced 學 for variety:
+        # 學生 already fronts the Japanese shot.
         "page": {"scene": "1", "scroll": 0},
-        "checks": [POPUP_UP, head_is("\u5b78"),
-                   has_text("compounds listed", ".compounds .cpd-hangul", "\ud559\uad50")],
+        "checks": [POPUP_UP, head_is("\u611b"),
+                   has_text("compounds listed", ".compounds .cpd-hangul", "\uc560\uad6d")],
     },
     {
         "n": 2,
@@ -227,13 +228,13 @@ SHOTS = [
         "name": "9-decomposition.png",
         "kind": "composite",
         "page": {"scene": "0", "scroll": 120},
-        # 學 searched in the panel, its "Made of" row opened: the four parts
-        # with their readings, and the "Part of" row underneath. 學 is the one
-        # candidate that has both — 依, 性 and 記 are parts of nothing, so
-        # their cards carry no recomposition row at all.
-        "panel": {"view": "search", "q": "學", "expand": "madeof"},
+        # 樂 searched in the panel, its "Made of" row opened: four parts with
+        # their readings (幺's arrives via the readings[0] fallback), and the
+        # "Part of" row underneath — 樂 is inside 9 characters, 藥 among them.
+        # Replaced 學 here for variety: 學生 already fronts the Japanese shot.
+        "panel": {"view": "search", "q": "樂", "expand": "madeof"},
         "checks": [
-            head_is("學"),
+            head_is("樂"),
             ("made-of row is open",
              'globalThis.__hanjaHover.query(".madeof-row")'
              '.getAttribute("aria-expanded") === "true"'),
@@ -247,7 +248,7 @@ SHOTS = [
              '[...globalThis.__hanjaHover.queryAll(".madeof-part")]'
              '.every((n) => n.classList.contains("nav") &&'
              ' (n.querySelector(".r-eumhun") || {}).textContent)'),
-            has_text("아들 자 among the parts", ".madeof-part", "자"),
+            has_text("나무 목 among the parts", ".madeof-part", "나무 목"),
             ("part-of row present",
              '!!globalThis.__hanjaHover.query(".foundin-row")'),
             ("part-of names a plausible count",
