@@ -32,6 +32,25 @@ the 1.0 review clears anyway.
   introduced by a small header naming its reading; long homophone lists
   preview five characters with a Show all link. Only typed input is
   interpreted. Navigation inside the dictionary never is.
+- **Character decomposition.** Char cards carry a collapsed "Made of 囗 +
+  或" row between the definitions and the compounds, expanding in place
+  into part rows with readings, each an ordinary drill-down. Data is
+  BabelStone IDS (public domain), built into decomp.json with pinned
+  anchors: radical forms alias to their parent (亻 opens 人), parts that
+  cannot render are skipped through to their own parts, and a card-less
+  part whose split is entirely card-bearing shows the split instead
+  (雙 = 隹 + 隹 + 又). Pictographs and stroke-soup splits show no row by
+  rule. The section is one function behind one predicate, so a settings
+  toggle later is a single schema entry.
+- **Recomposition.** The upward mirror: "Part of 64 characters" on any
+  character used inside others, opening a ranked list (most compounds
+  first). Component-only characters like 辶 finally have card content.
+  The lists are derived from decomp.json at runtime and stored nowhere,
+  so decomposition edits reshape them automatically.
+- **Whole-card compounds.** When a character's full compound index fits
+  within what a card shows inline, it renders whole; the Show-more
+  control only appears when there is a genuine second page. Curated-empty
+  cards (又) no longer show a header with nothing under it.
 - **Character level taxonomy.** Every character carries exactly one `lvl` of
   m/h/a/r, rendered as one of four level chips on char cards and reading-list
   rows: Middle school and High school (MOE curriculum tiers, from the CC BY-SA
