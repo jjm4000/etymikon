@@ -2796,6 +2796,9 @@ await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays cl
       `every target in hanja.json; every glyph BMP)`
   );
 
+  // Dead-end rule: 雔 has no card, so 雙 flattens to 隹 + 隹 + 又.
+  assert.deepEqual(parts["雙"], [["隹"], ["隹"], ["又"]]);
+
   // End-to-end join over the REAL files, exactly as the worker holds them:
   // whole hanja.json, guarded decomp.json. This is the seam the unit fixture
   // cannot cover, and where the chars-wrapper bug lived.

@@ -1357,6 +1357,15 @@ character cards only; no level chips on part rows.
   depth-capped at 6; if it cannot be fully reduced to BMP parts, drop
   the decomposition. BMP parts (including CJK Strokes block and radical
   blocks) are considered displayable.
+- Dead-end expansion (user-directed 2026-08-18): a part with no card of
+  its own (after aliasing) is replaced by its OWN parts when every
+  resulting piece carries a card, recursively, same depth cap: 雔 has no
+  card and splits into 隹 + 隹, so 雙 shows 隹 + 隹 + 又. All-or-nothing
+  by design: a split that would introduce even one new inert piece
+  teaches less than the whole glyph (虫 must never become 中 plus
+  strokes), so such parts stay as they are. Graphically-true splits into
+  single-stroke characters (罒 as 囗 + 丨 + 丨) are accepted; a curated
+  blocklist was considered and deferred until a real card annoys.
 - Radical aliasing: a display glyph maps to a TARGET dictionary
   character when one exists: NFKD over the Kangxi Radicals and CJK
   Radicals Supplement blocks, plus a pinned hand table for

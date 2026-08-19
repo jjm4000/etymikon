@@ -229,21 +229,57 @@ def build(ids_text: str, dict_chars, unihan_defs):
     stats = {"considered": 0, "nosource": 0,
              "operator": 0, "placeholder": 0, "skipthrough": 0,
              "visibility": 0, "emitted": 0, "rows": 0, "aliased": 0,
-             "named": 0, "unnamed": 0}
+             "named": 0, "unnamed": 0, "deadend": 0}
+
+    def expand_dead(g, depth):
+        """Dead-end rule (SPEC): a card-less part is replaced by its own
+        parts when EVERY resulting piece carries a card (雔 -> 隹 + 隹 on
+        雙). All-or-nothing: a split that would introduce even one new
+        inert piece teaches less than the whole glyph (虫 must not become
+        中 plus strokes), so the part stays as it is. Returns (g, t) pairs
+        or None."""
+        if depth >= MAX_DEPTH:
+            return None
+        sub, _ = resolve(g, seqs, placeholders)
+        if not sub or sub == [g] or len(sub) < 2:
+            return None
+        out = []
+        for s in sub:
+            t = alias(s) or s
+            if t in dict_chars:
+                out.append((s, t))
+                continue
+            deeper = expand_dead(s, depth + 1)
+            if deeper is None:
+                return None
+            out.extend(deeper)
+        return out
+
     for ch in dict_chars:
         stats["considered"] += 1
         glyphs, reason = resolve(ch, seqs, placeholders)
         if glyphs is None:
             stats[reason] += 1
             continue
-        targets = [alias(g) or g for g in glyphs]
+        pairs = []
+        for g in glyphs:
+            t = alias(g) or g
+            if t in dict_chars:
+                pairs.append((g, t))
+                continue
+            expanded = expand_dead(g, 0)
+            if expanded:
+                stats["deadend"] += 1
+                pairs.extend(expanded)
+            else:
+                pairs.append((g, t))
         # Visibility: a two-part split with nothing clickable in it is
         # stroke soup (匕 = 乚 + ㇒), and the card is better with no row.
-        if len(glyphs) < 2 or not any(t in dict_chars for t in targets):
+        if len(pairs) < 2 or not any(t in dict_chars for _, t in pairs):
             stats["visibility"] += 1
             continue
         rows = []
-        for g, t in zip(glyphs, targets):
+        for g, t in pairs:
             stats["rows"] += 1
             if t != g:
                 stats["aliased"] += 1

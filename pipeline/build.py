@@ -1470,6 +1470,9 @@ def verify(hanja_obj, words_obj, variants_obj, rr_obj=None, decomp_obj=None):
             # the skip-through rule would otherwise have no way to produce.
             ("飮", [["食"], ["欠"]]),
             ("學", [["臼"], ["爻"], ["冖"], ["子"]]),
+            # dead-end rule: 雔 has no card and splits cleanly into two 隹,
+            # so 雙 shows 隹 + 隹 + 又 instead of an inert 雔 row.
+            ("雙", [["隹"], ["隹"], ["又"]]),
         ]
         bad = ["%s -> %s (want %s)" % (c, json.dumps(dp.get(c), ensure_ascii=False),
                                        json.dumps(want, ensure_ascii=False))
