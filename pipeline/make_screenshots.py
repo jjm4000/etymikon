@@ -70,10 +70,14 @@ STAGE_DIR = "pipeline/screenshots"
 CHROME = r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 
 SHOT_W, SHOT_H = 1280, 800
-# A side panel is 360 wide; Chrome draws a 1px separator, leaving 919 for the
-# page. 919 + 1 + 360 = 1280.
+# A side panel defaults to 360 wide; Chrome draws a 1px separator, leaving 919
+# for the page. 919 + 1 + 360 = 1280. The panel is user-resizable, so a shot
+# may override the split with "panel_w". A shot may also set "dark": True to
+# capture under prefers-color-scheme: dark (both staging pages and all the
+# product surfaces restyle themselves).
 PAGE_W, PANEL_W = 919, 360
 SEPARATOR = (218, 220, 224)
+SEPARATOR_DARK = (60, 64, 67)
 
 
 # --------------------------------------------------------------------------
@@ -448,7 +452,7 @@ class Chrome:
 
 
 class Tab:
-    def __init__(self, chrome, width, height):
+    def __init__(self, chrome, width, height, dark=False):
         self.chrome = chrome
         result = chrome.call("Target.createTarget", {"url": "about:blank"})
         self.target = result["targetId"]
@@ -463,7 +467,8 @@ class Tab:
             "width": width, "height": height, "deviceScaleFactor": 1, "mobile": False,
         })
         self.call("Emulation.setEmulatedMedia", {
-            "features": [{"name": "prefers-color-scheme", "value": "light"}],
+            "features": [{"name": "prefers-color-scheme",
+                          "value": "dark" if dark else "light"}],
         })
 
     def call(self, method, params=None):
@@ -517,8 +522,8 @@ def run_checks(tab, checks, shot_name):
             raise AssertionError(f"{shot_name}: check failed -- {label}")
 
 
-def capture(chrome, port, page, params, width, checks=()):
-    tab = Tab(chrome, width, SHOT_H)
+def capture(chrome, port, page, params, width, checks=(), dark=False):
+    tab = Tab(chrome, width, SHOT_H, dark)
     try:
         tab.navigate(stage_url(port, page, params))
         tab.wait_ready()
@@ -531,12 +536,13 @@ def capture(chrome, port, page, params, width, checks=()):
     return image
 
 
-def compose(page_image, panel_image):
+def compose(page_image, panel_image, dark=False):
     """Dock the panel to the right edge of the page, with the 1px separator
     Chrome draws between them."""
-    out = Image.new("RGB", (SHOT_W, SHOT_H), SEPARATOR)
+    out = Image.new("RGB", (SHOT_W, SHOT_H),
+                    SEPARATOR_DARK if dark else SEPARATOR)
     out.paste(page_image, (0, 0))
-    out.paste(panel_image, (PAGE_W + 1, 0))
+    out.paste(panel_image, (page_image.width + 1, 0))
     return out
 
 
@@ -565,16 +571,18 @@ def assert_seal(image, name):
 
 
 def build(shot, chrome, port, work_dir):
-    page_width = SHOT_W if shot["kind"] == "page" else PAGE_W
+    dark = shot.get("dark", False)
+    panel_w = shot.get("panel_w", PANEL_W)
+    page_width = SHOT_W if shot["kind"] == "page" else SHOT_W - panel_w - 1
     page_checks = shot["checks"] if shot["kind"] == "page" else ()
     page_image = capture(chrome, port, "shots-page.html", shot["page"],
-                         page_width, page_checks)
+                         page_width, page_checks, dark)
     if shot["kind"] == "page":
         image = page_image
     else:
         panel_image = capture(chrome, port, "shots-panel.html", shot["panel"],
-                              PANEL_W, shot["checks"])
-        image = compose(page_image, panel_image)
+                              panel_w, shot["checks"], dark)
+        image = compose(page_image, panel_image, dark)
 
     assert_image(image, shot["name"])
     if shot.get("pixels") == "seal":

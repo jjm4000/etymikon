@@ -39,6 +39,11 @@
     border-bottom: 1px solid #e6e6ec; padding: 20px 0 19px;
   }
   .wrap { width: 704px; margin: 0 0 0 176px; }
+  /* Composite shots may give the page less than its usual 919px (the panel is
+     user-resizable); the article reflows instead of clipping. */
+  @media (max-width: 918px) {
+    .wrap { width: auto; max-width: 704px; margin: 0 32px; }
+  }
   .brand { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
   .masthead .wrap { display: flex; align-items: baseline; gap: 28px; }
   .masthead nav { display: flex; gap: 22px; font-size: 14px; color: #6b6b73; }
@@ -79,6 +84,19 @@
   .ja h1 { line-height: 1.45; }
   .ja article p { margin: 0 0 24px; }
   [hidden] { display: none !important; }
+  /* The article restyles itself for dark captures (make_screenshots.py sets
+     prefers-color-scheme per shot), the way a real dark-themed site would. */
+  @media (prefers-color-scheme: dark) {
+    html { color-scheme: dark; }
+    body { background: #131316; color: #e6e6ea; }
+    .masthead, .byline { border-color: #26262c; }
+    .masthead nav { color: #8f8f98; }
+    .masthead nav .on { color: #e6e6ea; }
+    .kicker, .byline, figcaption { color: #8f8f98; }
+    .standfirst { color: #b9b9c2; }
+    blockquote { border-color: #3a3a42; color: #cfcfd6; }
+    .photo { background: #1e1e23; color: #46464e; }
+  }
 </style>
 </head>
 <body>
