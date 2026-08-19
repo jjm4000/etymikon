@@ -135,8 +135,11 @@ SHOTS = [
     {
         "n": 2,
         "name": "2-hangul-reverse-lookup.png",
-        # 국민 (hangul) highlighted: the hangul-to-hanja direction.
+        # 국민 (hangul) highlighted: the hangul-to-hanja direction. Captured
+        # dark: one shot of the five-store set answers "does it do dark mode",
+        # and this one reads best inverted.
         "kind": "page",
+        "dark": True,
         "page": {"scene": "2", "scroll": 262},
         "checks": [POPUP_UP, head_is("\u570b\u6c11"),
                    has_text("hangul headline", ".card .hangul", "\uad6d\ubbfc")],
@@ -167,6 +170,7 @@ SHOTS = [
         "n": 5,
         "name": "5-sidebar-search.png",
         "kind": "composite",
+        "panel_w": 560,
         "page": {"scene": "0", "scroll": 0},
         "panel": {"view": "search", "q": "\uad6d\ubbfc"},
         # The search view renders through content.js, so its nodes live in the
@@ -180,6 +184,7 @@ SHOTS = [
         "n": 6,
         "name": "6-saved-words.png",
         "kind": "composite",
+        "panel_w": 560,
         "page": {"scene": "0", "scroll": 430},
         # Six rendered rows is the most the seal's room rule tolerates: with a
         # seventh the view stops being .view--roomy and the seal correctly
@@ -200,6 +205,7 @@ SHOTS = [
         "n": 7,
         "name": "7-settings.png",
         "kind": "composite",
+        "panel_w": 560,
         "page": {"scene": "0", "scroll": 200},
         "panel": {"view": "settings"},
         "checks": [
@@ -232,6 +238,7 @@ SHOTS = [
         "n": 9,
         "name": "9-decomposition.png",
         "kind": "composite",
+        "panel_w": 560,
         "page": {"scene": "0", "scroll": 120},
         # 樂 searched in the panel, its "Made of" row opened: four parts with
         # their readings (幺's arrives via the readings[0] fallback), and the

@@ -73,7 +73,7 @@ typing `hj` in the address bar searches from anywhere.
 
 ## Install
 
-From the Chrome Web Store: (pending review)
+From the [Chrome Web Store](https://chromewebstore.google.com/detail/enjmfjcemaiabocebnfokcmglfmnfjhl).
 
 From source: clone this repo, open `chrome://extensions`, enable Developer
 mode, and use **Load unpacked** on the `extension/` folder. The dictionary
