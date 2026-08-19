@@ -21,6 +21,10 @@ typing `hj` in the address bar searches from anywhere.
 - **Word breakdown.** Compounds split into component words (자본주의 → 資本 +
   主義). Everything is clickable, and a breadcrumb trail returns to any
   earlier step.
+- **Character breakdown.** A character's card shows what it is made of
+  (學 = 臼 + 爻 + 冖 + 子), each part clickable with its own reading,
+  and which other characters use it as a part. Pictographs like 心 stay
+  whole instead of being split into pen strokes.
 - **Browse by sound.** Highlight a single syllable (국) to list every hanja
   read that way. Readings on cards are links too: a character's eum opens its
   homophone list, and a word's hangul shows its other spellings.
@@ -54,6 +58,10 @@ typing `hj` in the address bar searches from anywhere.
 ![Japanese page lookup](screenshots/8-japanese-lookup.png)
 
 *学生 selected on a Japanese page, resolving to 學生.*
+
+![Character breakdown](screenshots/9-decomposition.png)
+
+*學 split into its parts, each with a reading.*
 
 ![Sidebar search](screenshots/5-sidebar-search.png)
 
