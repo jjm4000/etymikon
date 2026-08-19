@@ -1139,8 +1139,24 @@
     return wrap;
   }
 
+  /* ---- Card sections ---------------------------------------------------- *
+   * Settings reach every section's enabled-predicate through this one
+   * accessor. It returns null until the first real toggle ships, and a
+   * predicate reads null as enabled, so populating it is the only plumbing
+   * that toggle needs.
+   * -------------------------------------------------------------------- */
+
+  function sectionSettings() {
+    return null;
+  }
+
+  function glossesEnabled(settings) {
+    return true;
+  }
+
   // Numbered sense list with hanging indent; a lone sense needs no number.
   function appendGlosses(parent, glosses) {
+    if (!glossesEnabled(sectionSettings())) return;
     var list = asArray(glosses).map(nonEmptyString).filter(Boolean);
     if (!list.length) return;
     var box = el("div", "glosses");
@@ -1861,10 +1877,14 @@
    * Card builders
    * ------------------------------------------------------------------ */
 
-  // Fills (or refills) the swappable body of a word card for one spelling.
-  function fillWordBody(body, m) {
-    clearNode(body);
+  function wordHeadEnabled(settings) {
+    return true;
+  }
 
+  // The head of a word card: big spelling, hangul chip, variant note, actions,
+  // link. Rebuilt with the body, so a spelling swap re-points all of it.
+  function appendWordHead(body, m) {
+    if (!wordHeadEnabled(sectionSettings())) return;
     var head = el("div", "head");
     // The hanja spelling is always the big text; `surface` may be either script
     // depending on what the user highlighted.
@@ -1902,10 +1922,15 @@
     // Rebuilt with the rest of the body, so a chip swap re-points it too.
     appendWikiLink(head, m.hp === true ? (big || hangul) : (hangul || big));
     body.appendChild(head);
+  }
 
-    appendGlosses(body, m.glosses);
+  function charChipsEnabled(settings) {
+    return true;
+  }
 
-    // Per-character eumhun chips — only for chars whose data we actually have.
+  // Per-character eumhun chips — only for chars whose data we actually have.
+  function appendCharChips(body, m) {
+    if (!charChipsEnabled(sectionSettings())) return;
     var chars = uniqStrings(asArray(m.chars));
     var chips = el("div", "chips");
     var chipCount = 0;
@@ -1926,6 +1951,17 @@
       chipCount++;
     }
     if (chipCount) body.appendChild(chips);
+  }
+
+  // Fills (or refills) the swappable body of a word card for one spelling.
+  function fillWordBody(body, m) {
+    clearNode(body);
+
+    appendWordHead(body, m);
+
+    appendGlosses(body, m.glosses);
+
+    appendCharChips(body, m);
 
     appendUsedInRow(body, m);
   }
@@ -1993,11 +2029,16 @@
     }, SCROLL_SETTLE_MS);
   }
 
+  function usedInEnabled(settings) {
+    return true;
+  }
+
   // Used-in disclosure (design option C): ONE collapsed line at the end of the
   // word body, never an inline list — the card stays about this word and its
   // components. Rebuilt with the body, so a homograph chip swap re-points it at
   // the newly selected spelling (and drops it when that spelling has no count).
   function appendUsedInRow(body, m) {
+    if (!usedInEnabled(sectionSettings())) return;
     var count = (typeof m.usedInCount === "number" && isFinite(m.usedInCount) &&
       m.usedInCount > 0) ? Math.floor(m.usedInCount) : 0;
     var word = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
@@ -2120,6 +2161,37 @@
     renderParts(state);
   }
 
+  function spellingsEnabled(settings) {
+    return true;
+  }
+
+  // The homograph selector. Its slice of the match is the whole group, since
+  // the row exists only to choose between them; the chips are handed to the
+  // state so a swap can restyle them without rebuilding the card.
+  function appendSpellings(card, state) {
+    if (!spellingsEnabled(sectionSettings())) return;
+    if (state.items.length < 2) return;
+    var selector = el("div", "spellings");
+    state.items.forEach(function (m, i) {
+      var chip = el("button", "spell-chip", spellingKey(m));
+      chip.type = "button";
+      chip.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+      if (i === 0) chip.classList.add("sel");
+      if (m.rare === true) {
+        chip.classList.add("rare");
+        chip.appendChild(el("sup", "chip-rare", "rare"));
+      }
+      chip.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        selectSpelling(state, i);
+      });
+      state.chips.push(chip);
+      selector.appendChild(chip);
+    });
+    card.appendChild(selector);
+  }
+
   // One card per word surface. Homographs (사기 → 詐欺 / 士氣 / 沙器) get a
   // spelling selector; every word card gets nested regions for its component
   // words and component hanja, so the hierarchy is legible at a glance.
@@ -2136,27 +2208,7 @@
     card.appendChild(hedgeBox);
     state.hedgeBox = hedgeBox;
 
-    if (state.items.length > 1) {
-      var selector = el("div", "spellings");
-      state.items.forEach(function (m, i) {
-        var chip = el("button", "spell-chip", spellingKey(m));
-        chip.type = "button";
-        chip.setAttribute("aria-pressed", i === 0 ? "true" : "false");
-        if (i === 0) chip.classList.add("sel");
-        if (m.rare === true) {
-          chip.classList.add("rare");
-          chip.appendChild(el("sup", "chip-rare", "rare"));
-        }
-        chip.addEventListener("click", function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          selectSpelling(state, i);
-        });
-        state.chips.push(chip);
-        selector.appendChild(chip);
-      });
-      card.appendChild(selector);
-    }
+    appendSpellings(card, state);
 
     card.appendChild(body);
 
@@ -2293,9 +2345,14 @@
     return count;
   }
 
-  function buildCharCard(m) {
-    var card = el("div", "card");
+  function charHeadEnabled(settings) {
+    return true;
+  }
 
+  // The head of a char card: big glyph, reading line, badges, actions, link.
+  // Returns the meta box, because the variant note below renders inside it.
+  function appendCharHead(card, m) {
+    if (!charHeadEnabled(sectionSettings())) return null;
     var head = el("div", "head");
     // The canonical hanja is always the big glyph, mirroring word cards: the
     // entry IS the canonical character, and a simplified/shinjitai surface
@@ -2321,17 +2378,36 @@
     }
     // Classification badges, tucked onto the end of the reading line.
     appendBadges(readingLine || meta, m);
-    // The variant note belongs to the view, not to the cached match: it says
-    // "you highlighted 学, this entry is 學", which is only true where 学 was
-    // actually in the looked-up text (see noteApplies).
-    if (surface && surface !== big && noteApplies(surface)) {
-      meta.appendChild(el("div", "canonical", surface + " → " + big));
-    }
     head.appendChild(meta);
     appendCardActions(head, m);
     // The entry IS the canonical character, so that is the page we link to.
     appendWikiLink(head, big);
     card.appendChild(head);
+    return meta;
+  }
+
+  function variantNoteEnabled(settings) {
+    return true;
+  }
+
+  // The variant note belongs to the view, not to the cached match: it says
+  // "you highlighted 学, this entry is 學", which is only true where 学 was
+  // actually in the looked-up text (see noteApplies).
+  function appendVariantNote(meta, m) {
+    if (!variantNoteEnabled(sectionSettings())) return;
+    if (!meta) return;
+    var surface = nonEmptyString(m.surface);
+    var big = nonEmptyString(m.canonical) || surface;
+    if (surface && surface !== big && noteApplies(surface)) {
+      meta.appendChild(el("div", "canonical", surface + " → " + big));
+    }
+  }
+
+  function buildCharCard(m) {
+    var card = el("div", "card");
+
+    var meta = appendCharHead(card, m);
+    appendVariantNote(meta, m);
 
     appendGlosses(card, m.glosses);
 
@@ -2363,7 +2439,7 @@
   // `hun`/`eum`/`gloss` the target's, `name` the English name of a
   // reading-less shape when Unihan has one.
   function appendMadeOf(card, m) {
-    if (!decompEnabled(null)) return;
+    if (!decompEnabled(sectionSettings())) return;
     var parts = asArray(m.parts).filter(function (p) {
       return p && typeof p === "object" && nonEmptyString(p.g);
     });
@@ -2436,7 +2512,7 @@
   // "Part of N characters ›", opening the list as its own view. Reads only
   // `m.foundInCount`; the list is fetched on tap, like the used-in row.
   function appendFoundIn(card, m) {
-    if (!recompEnabled(null)) return;
+    if (!recompEnabled(sectionSettings())) return;
     var count = (typeof m.foundInCount === "number" && isFinite(m.foundInCount) &&
       m.foundInCount > 0) ? Math.floor(m.foundInCount) : 0;
     var char = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
@@ -2558,6 +2634,10 @@
     }
   }
 
+  function compoundsEnabled(settings) {
+    return true;
+  }
+
   // COMPOUNDS: the inline five, plus a "Show 5 more (N)" control when the
   // char's full index (cwCount) holds more. The first press fetches that index
   // once; later presses reveal five more from the cached list. When everything
@@ -2566,6 +2646,7 @@
   // and a card whose curated inline list is empty would otherwise show a
   // Compounds header with nothing under it.
   function appendCompounds(card, m) {
+    if (!compoundsEnabled(sectionSettings())) return;
     var box = el("div", "compounds");
     var shown = Object.create(null);   // hanja spellings already on screen
     var shownCount = 0;

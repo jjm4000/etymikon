@@ -1309,10 +1309,22 @@ Normative section inventory (user-directed 2026-08-18, the "sections"
 refactor): char cards are exactly appendCharHead (big glyph +
 eumhun/readings line + badges + card actions + wiki link),
 appendVariantNote, appendGlosses, appendMadeOf, appendFoundIn,
-appendCompounds. Word cards are exactly their head section, glosses,
-component-character list, homograph chips, and appendUsedInRow, each as
-one named appendX. Reading cards, group dividers, and list views are
-view-level, NOT card sections, and stay outside this convention.
+appendCompounds. The note renders inside the head's meta box, so
+appendCharHead returns that box and the build hands it to
+appendVariantNote; that return value is all one char-card section ever
+knows about another. Word cards are appendWordHead, appendGlosses,
+appendCharChips (the per-character eumhun chips, this card's
+component-character list), appendSpellings (the homograph selector),
+and appendUsedInRow. appendSpellings takes the card state instead of
+one match, because its slice IS the group of spellings and the chips it
+builds are what a swap restyles. Two word-card regions stayed outside
+the convention: the hedge banner and the "Component words" region
+(renderParts) are re-rendered from state on every spelling swap rather
+than built once. The "Component hanja" region is view-level, not a
+section: the card build makes an empty box, and renderCharRegions
+decides across all cards which char card lands in it. Reading cards,
+group dividers, and list views are view-level, NOT card sections, and
+stay outside this convention.
 Predicates: every section calls its enabled-predicate with settings from
 ONE shared sectionSettings() accessor, which returns null until the
 first real toggle ships (predicates return true on null); populating
