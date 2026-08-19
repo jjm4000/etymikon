@@ -2,7 +2,7 @@
 
     python pipeline/make_screenshots.py
 
-Writes screenshots/1-character-lookup.png through 8-japanese-lookup.png, all
+Writes screenshots/1-character-lookup.png through 9-decomposition.png, all
 1280x800 24-bit RGB with no alpha channel, which is what the store accepts.
 The promotional tiles are a separate script (make_promo.py); this one only
 touches the numbered shots.
@@ -220,6 +220,41 @@ SHOTS = [
             ("both component heads are in frame",
              '[...globalThis.__hanjaHover.queryAll(".card .surface")]'
              ".every((n) => n.getBoundingClientRect().bottom < 800)"),
+        ],
+    },
+    {
+        "n": 9,
+        "name": "9-decomposition.png",
+        "kind": "composite",
+        "page": {"scene": "0", "scroll": 120},
+        # 學 searched in the panel, its "Made of" row opened: the four parts
+        # with their readings, and the "Part of" row underneath. 學 is the one
+        # candidate that has both — 依, 性 and 記 are parts of nothing, so
+        # their cards carry no recomposition row at all.
+        "panel": {"view": "search", "q": "學", "expand": "madeof"},
+        "checks": [
+            head_is("學"),
+            ("made-of row is open",
+             'globalThis.__hanjaHover.query(".madeof-row")'
+             '.getAttribute("aria-expanded") === "true"'),
+            ("part list is showing",
+             '!globalThis.__hanjaHover.query(".madeof-list").hidden'),
+            ("four part rows",
+             'globalThis.__hanjaHover.queryAll(".madeof-part").length === 4'),
+            # Every row must carry a reading: a bare glyph in the shot would
+            # advertise the feature failing to join.
+            ("every part row reads as a character",
+             '[...globalThis.__hanjaHover.queryAll(".madeof-part")]'
+             '.every((n) => n.classList.contains("nav") &&'
+             ' (n.querySelector(".r-eumhun") || {}).textContent)'),
+            has_text("아들 자 among the parts", ".madeof-part", "자"),
+            ("part-of row present",
+             '!!globalThis.__hanjaHover.query(".foundin-row")'),
+            ("part-of names a plausible count",
+             '(globalThis.__hanjaHover.query(".foundin-row b").textContent | 0) >= 1'),
+            ("the whole section is in frame",
+             'globalThis.__hanjaHover.query(".foundin-row")'
+             ".getBoundingClientRect().bottom < 800"),
         ],
     },
 ]

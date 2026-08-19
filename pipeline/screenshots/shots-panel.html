@@ -18,6 +18,7 @@
     view=search|saved|settings   which view to show
     q=TEXT                       type TEXT into the search field and search
     collapse=NAME,NAME           collapse these saved folders by name (or prefix)
+    expand=madeof                open the card's "Made of" row, as a tap does
 
   Signals completion by setting documentElement.dataset.shotReady.
 -->
@@ -67,17 +68,25 @@ import {
   removeItems, moveItems, createFolder, renameFolder, deleteFolder,
   resolveExportSelection, buildAnkiTsv, buildCsv,
 } from "/extension/saved.js";
+/* The decomposition join is the worker's, not a copy of it: background.js
+   guards every chrome.* touch, so importing it here runs the real
+   attachDecomp / attachFoundIn / buildFoundIn against the real decomp.json. */
+import { guardDecomp, attachDecomp, attachFoundIn, buildFoundIn, buildFoundInIndex }
+  from "/extension/background.js";
 
 const params = new URLSearchParams(location.search);
 const view = params.get("view") || "search";
 
-const [hanja, words, variants] = await Promise.all(
-  ["hanja", "words", "variants"].map((n) =>
+const [hanja, words, variants, decompRaw] = await Promise.all(
+  ["hanja", "words", "variants", "decomp"].map((n) =>
     fetch("/extension/data/" + n + ".json").then((r) => r.json())));
 
 let readingIndex = null;
+const decomp = guardDecomp(decompRaw);
+let foundInIndex = null;
+const getFoundInIndex = () => (foundInIndex ||= buildFoundInIndex(decomp.parts));
 const data = {
-  hanja, words, variants,
+  hanja, words, variants, decomp,
   getReadingIndex: () => (readingIndex ||= buildReadingIndex(hanja)),
 };
 
@@ -111,7 +120,11 @@ let settings = normalizeSettings({ v: 1, defaultFolderId: "f1" }, savedState);
 function handle(msg) {
   const m = msg || {};
   switch (m.type) {
-    case "lookup": return lookup(String(m.text || ""), data);
+    case "lookup":
+      return attachFoundIn(
+        attachDecomp(lookup(String(m.text || ""), data), data), getFoundInIndex);
+    case "foundIn":
+      return { ok: true, chars: buildFoundIn(String(m.char || ""), getFoundInIndex(), hanja) };
     case "compounds": return { ok: true, compounds: buildFullCompounds(m.char, data) };
     case "usedIn": return { ok: true, words: buildUsedIn(m.word, data) };
     case "openTab": return { ok: true };
@@ -228,6 +241,13 @@ if (params.get("q")) {
     if (document.querySelector("#okp-results .card")) break;
     await sleep(50);
   }
+  await sleep(400);
+}
+// Opened the way a user opens it: the row's own click handler expands the
+// part list in place.
+if (params.get("expand") === "madeof") {
+  const row = globalThis.__hanjaHover.query(".madeof-row");
+  if (row) row.click();
   await sleep(400);
 }
 if (view === "saved" && params.get("collapse")) {

@@ -496,7 +496,7 @@ A failed check exits non-zero.
 python make_screenshots.py
 ```
 
-Regenerates all eight numbered shots in `screenshots/` (the promotional tiles
+Regenerates all nine numbered shots in `screenshots/` (the promotional tiles
 are `make_promo.py`, which is unrelated). Every shot is 1280x800 24-bit RGB
 with no alpha, which is what the store accepts.
 
@@ -518,7 +518,11 @@ the shipped `extension/data/*.json` — behind `__hanjaHoverTestRuntime`, the
 message-transport stub those scripts already accept in place of
 `chrome.runtime` (the same hook `test-page/embed.html` uses). The panel page
 copies the sidepanel markup verbatim, ids and all, and seeds an in-memory saved
-store where `chrome.storage` would be. Selections are real DOM ranges handed to
+store where `chrome.storage` would be. It also imports `extension/background.js`
+itself for the decomposition join, so the Made of rows and the Part of count are
+the worker's own output over the shipped `decomp.json` rather than a second
+implementation of them (every `chrome.*` touch in that file is already guarded,
+so importing it into a plain page is safe). Selections are real DOM ranges handed to
 the content script's own `handleSelection()`; the popup is sized by the
 product's own `resizePanel`, the code path a drag runs. Every pixel of UI in
 the output is the product rendering itself.
