@@ -3778,6 +3778,30 @@
         /appendMadeOf\(card, m\);\s*appendFoundIn\(card, m\);/.test(recompSrc));
     }
 
+    /* --- MODULARITY: the rest of the card sections (SPEC) ---------------- *
+     * Same source-text rule for the sections the "sections" refactor pulled
+     * out of the two card builds, plus the one settings accessor they all
+     * reach through.                                                       */
+    if (location.protocol === "file:") {
+      skip("each extracted card section is defined once and called once",
+        "file:// blocks fetching the content script; serve the repo over http://");
+    } else {
+      var sectionSrc = await (await fetch("../extension/content/content.js")).text();
+      ["appendCharHead", "appendVariantNote", "appendWordHead", "appendCharChips",
+        "appendSpellings"].forEach(function (name) {
+        var secDefs = sectionSrc.match(new RegExp("function " + name + "\\s*\\(", "g")) || [];
+        var secUses = sectionSrc.match(new RegExp(name + "\\s*\\(", "g")) || [];
+        check(name + " is defined once and called once",
+          secDefs.length === 1 && secUses.length === 2,
+          "definitions=" + secDefs.length + " mentions=" + secUses.length);
+      });
+      var accessors = sectionSrc.match(/function sectionSettings\s*\(/g) || [];
+      var bypasses = sectionSrc.match(/Enabled\(null\)/g) || [];
+      check("one settings accessor, and no predicate bypasses it",
+        accessors.length === 1 && !bypasses.length,
+        "accessors=" + accessors.length + " bypasses=" + bypasses.length);
+    }
+
     // Leave the page in a usable state for manual poking.
     tabsSpy.reset();
     shell = reinit();
