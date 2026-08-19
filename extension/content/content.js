@@ -2455,7 +2455,11 @@
 
   // COMPOUNDS: the inline five, plus a "Show 5 more (N)" control when the
   // char's full index (cwCount) holds more. The first press fetches that index
-  // once; later presses reveal five more from the cached list.
+  // once; later presses reveal five more from the cached list. When everything
+  // fits in a single page the index is fetched up front and rendered whole:
+  // a button whose one press would reveal all it ever could is only a delay,
+  // and a card whose curated inline list is empty would otherwise show a
+  // Compounds header with nothing under it.
   function appendCompounds(card, m) {
     var box = el("div", "compounds");
     var shown = Object.create(null);   // hanja spellings already on screen
@@ -2499,6 +2503,9 @@
       }
       button.textContent =
         "Show " + Math.min(COMPOUND_PAGE, remaining) + " more (" + remaining + ")";
+      // If the index turned out to hold more than the single-page estimate,
+      // the auto-reveal path must surface the control again.
+      button.hidden = false;
     }
 
     function revealNext() {
@@ -2528,19 +2535,14 @@
       keepInView(anchorEl);
     }
 
-    button.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();     // never read as a click on a compound row
-      if (button.disabled) return;
-      if (pending) { revealNext(); return; }
-
+    function loadIndex(onFail) {
       var seq = requestSeq;     // dismissal or a new selection cancels this
       button.disabled = true;
       fetchCompounds(char).then(function (list) {
         if (seq !== requestSeq) return;
         button.disabled = false;
         // Failure: leave the rows alone and stay pressable for a retry.
-        if (!list) return;
+        if (!list) { if (onFail) onFail(); return; }
         pending = list.filter(function (c) {
           var hanja = nonEmptyString(c.hanja);
           return !!hanja && !shown[hanja];
@@ -2548,10 +2550,28 @@
         remaining = pending.length;
         revealNext();
       });
+    }
+
+    button.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();     // never read as a click on a compound row
+      if (button.disabled) return;
+      if (pending) { revealNext(); return; }
+      loadIndex();
     });
 
     syncButton();
     card.appendChild(button);
+
+    if (rowCount + remaining <= MAX_COMPOUNDS) {
+      // The whole index fits in what a card normally displays inline: render
+      // it whole. MAX_COMPOUNDS deliberately, not COMPOUND_PAGE — the rule is
+      // "no smaller than a normal card", and it must follow the inline cap if
+      // that cap ever changes. The button stays in the DOM but hidden, so a
+      // failed fetch can fall back to the press-to-retry path.
+      button.hidden = true;
+      loadIndex(function () { button.hidden = false; });
+    }
   }
 
   /* ------------------------------------------------------------------ *

@@ -379,6 +379,15 @@ Service worker behavior:
     keeps itself in view (no scroll jump), and re-anchors the popup after
     growth. Revealed rows are nav rows identical to the inline five; rows
     for `rare` words render with the muted rare treatment.
+  - Whole-card rule (user-directed 2026-08-18): when the inline rows plus
+    the remaining count fit within the inline display cap (MAX_COMPOUNDS,
+    NOT the page size — the rule tracks "what a card normally shows" and
+    must follow that cap if it ever changes), fetch the index up front
+    and render the section whole, no control. A curated-empty card (又:
+    inline 0, index 3) must never show a Compounds header with nothing
+    under it. On fetch failure the control reappears as the retry path;
+    if the fetched index exceeds the estimate, the control surfaces with
+    the corrected count.
   - Applies to char cards everywhere they appear (top-level, nested
     component cards, drill-down views).
 - Wiktionary links (ADDENDUM): every word card and char card carries a small

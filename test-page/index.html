@@ -299,6 +299,12 @@
     "革": C("가죽", "혁", "leather; hide"),
     "人": C("사람", "인", "person; human being"),
 
+    // Single-page compounds rule (SPEC): 又's curated inline list is empty
+    // while its cw index holds three rare words, so its card must render the
+    // whole index up front with no control. The eum 우 is new: nothing pinned
+    // by count moves.
+    "又": C("또", "우", "again; and, also"),
+
     // --- the romanized-search example, so "su" has two honest readings ----
     // RR reads "su" as 수 and the Dubeolsik keyboard mapping reads it 녀.
     // Both syllables need real entries here, or the canned dual response
@@ -399,6 +405,10 @@
     "入學": [{ hangul: "입학", glosses: ["entering a school"] }],
     // The one rare entry in the index: revealed rows must render it muted.
     "晩學": [{ hangul: "만학", glosses: ["taking up study late in life"], rare: true }],
+    // --- 又's index: all rare, so its curated inline list is empty --------
+    "又玄": [{ hangul: "우현", glosses: ["mystery upon mystery"], rare: true }],
+    "又況": [{ hangul: "우황", glosses: ["still more; much less"], rare: true }],
+    "又日新": [{ hangul: "우일신", glosses: ["renewing day after day"], rare: true }],
     // --- larger words containing 學生, for the used-in disclosure ---------
     "中學生": [{ hangul: "중학생", glosses: ["middle school student"] }],
     "女學生": [{ hangul: "여학생", glosses: ["female student"] }],
@@ -415,7 +425,9 @@
     "學": [
       "學生", "大學", "學校", "科學", "數學", "文學", "哲學", "醫學", "化學",
       "學者", "學問", "學院", "學術", "留學", "入學", "大學生", "晩學"
-    ]
+    ],
+    // Single-page rule: three entries, all rare, none curated inline.
+    "又": ["又玄", "又況", "又日新"]
   };
 
   // ADDENDUM decomposition: rows exactly as decomp.json emits them. [g] is a
@@ -2437,6 +2449,32 @@
     check("the failed attempt was not cached (a second request went out)",
       fake.__compoundCalls === cpdCallsBeforeFail + 2,
       "compoundCalls=" + fake.__compoundCalls);
+
+    // --- whole-card rule: an index no larger than the inline cap ----------
+    var u = fake.__lookup("又").matches;
+    var cpdCallsBeforeU = fake.__compoundCalls;
+    api.showAt(anchor, u);
+    await wait(90);
+    check("a curated-empty card fetches its small index up front",
+      fake.__compoundCalls === cpdCallsBeforeU + 1 && fake.__lastChar === "又",
+      "compoundCalls " + cpdCallsBeforeU + " → " + fake.__compoundCalls);
+    check("the whole index renders with no visible control",
+      cpdRows().length === 3 &&
+      (!api.query(".cpd-more") || api.query(".cpd-more").hidden === true),
+      "rows=" + cpdRows().length);
+    fake.__failCompounds = true;
+    api.showAt(anchor, u);
+    await wait(90);
+    check("up-front fetch failure surfaces the control as the retry path",
+      cpdRows().length === 0 && !!api.query(".cpd-more") &&
+      api.query(".cpd-more").hidden === false &&
+      moreBtnText() === "Show 3 more (3)", moreBtnText());
+    fake.__failCompounds = false;
+    api.query(".cpd-more").click();
+    await wait(90);
+    check("the retry renders the section whole and drops the control",
+      cpdRows().length === 3 && !api.query(".cpd-more"),
+      "rows=" + cpdRows().length);
 
     // --- pagination applies to nested and drill-down char cards ----------
     api.showAt(anchor, [hak]);
