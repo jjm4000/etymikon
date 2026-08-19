@@ -120,12 +120,12 @@ SHOTS = [
         "n": 1,
         "name": "1-character-lookup.png",
         "kind": "page",
-        # 愛 highlighted in the opening paragraph: one character, its eumhun,
-        # its glosses and the compounds it builds. 愛 replaced 學 for variety:
+        # 電 highlighted in the opening paragraph: one character, its eumhun,
+        # its glosses and the compounds it builds. 電 replaced 學 for variety:
         # 學生 already fronts the Japanese shot.
         "page": {"scene": "1", "scroll": 0},
-        "checks": [POPUP_UP, head_is("\u611b"),
-                   has_text("compounds listed", ".compounds .cpd-hangul", "\uc560\uad6d")],
+        "checks": [POPUP_UP, head_is("\u96fb"),
+                   has_text("compounds listed", ".compounds .cpd-hangul", "\uc804\ud654")],
     },
     {
         "n": 2,
