@@ -432,10 +432,13 @@
 
   // ADDENDUM decomposition: rows exactly as decomp.json emits them. [g] is a
   // self-target row, [g,t] an alias row, [g,null] an inert part and
-  // [g,null,name] an inert part Unihan has a name for. Only 靴 has an entry;
-  // every other fixture char is the ordinary "no Made of row" case.
+  // [g,null,name] an inert part Unihan has a name for. 靴 covers all four row
+  // kinds; 鞠 is here so 革 is a part of TWO characters and its Found-in list
+  // has an order to prove. Every other fixture char is the ordinary "no Made
+  // of row" case.
   var DECOMP = {
-    "靴": [["革"], ["亻", "人"], ["乚", null, "hidden"], ["㇒", null]]
+    "靴": [["革"], ["亻", "人"], ["乚", null, "hidden"], ["㇒", null]],
+    "鞠": [["革"], ["匊", null, "handful"]]
   };
 
   // The worker's join. The content script never sees hanja.json, so the click
@@ -459,6 +462,50 @@
         gloss: (d.glosses || [])[0] || ""
       };
     });
+  }
+
+  // ADDENDUM recomposition: the reverse index, DERIVED from DECOMP here exactly
+  // as the worker derives it from decomp.json. Nothing is hand-listed, so a
+  // change to DECOMP moves the Found-in lists with it. Each CLICKABLE row
+  // credits its target (an 亻 row credits 人), deduped per containing character,
+  // and a character is never found in itself.
+  var FOUND_IN = (function () {
+    var index = {};
+    Object.keys(DECOMP).forEach(function (char) {
+      var credited = {};
+      DECOMP[char].forEach(function (row) {
+        var clickable = row.length === 1 || typeof row[1] === "string";
+        if (!clickable) return;
+        var target = typeof row[1] === "string" ? row[1] : row[0];
+        if (target === char || credited[target]) return;
+        credited[target] = true;
+        (index[target] = index[target] || []).push(char);
+      });
+    });
+    return index;
+  })();
+
+  // The worker's join and ranking: cw index size descending, ties by codepoint.
+  // A containing character with no entry is dropped rather than rendered as a
+  // row that would navigate nowhere.
+  function buildFoundIn(char) {
+    var canon = canonicalize(String(char || "").normalize("NFC"));
+    return (FOUND_IN[canon] || [])
+      .filter(function (c) { return !!CHARS[c]; })
+      .sort(function (a, b) {
+        return ((CW[b] || []).length - (CW[a] || []).length) ||
+          (a.codePointAt(0) - b.codePointAt(0));
+      })
+      .map(function (c) {
+        var d = CHARS[c];
+        var pair = (d.eumhun || [])[0] || {};
+        var row = {
+          char: c, hun: pair.hun || "", eum: pair.eum || "",
+          gloss: (d.glosses || [])[0] || ""
+        };
+        if (d.lvl) row.lvl = d.lvl;   // the level chip renders on these rows too
+        return row;
+      });
   }
 
   // ADDENDUM used-in: the words.json spellings that STRICTLY contain a word
@@ -624,6 +671,10 @@
     // Decomposition rows, joined; omitted for characters with no entry.
     var parts = decompParts(canon);
     if (parts.length) m.parts = parts;
+    // How many characters this one is a part of, from the derived index.
+    // Omitted when 0, so the UI renders no Found-in row at all.
+    var foundIn = (FOUND_IN[canon] || []).length;
+    if (foundIn > 0) m.foundInCount = foundIn;
     return m;
   }
 
@@ -1123,6 +1174,9 @@
     __usedInCalls: 0,    // {type:"usedIn"} only
     __lastWord: null,
     __failUsedIn: false,
+    __foundInCalls: 0,   // {type:"foundIn"} only
+    __lastFoundInChar: null,
+    __failFoundIn: false,
     // {type:"openTab"} — the in-page popup's route to a background tab, since
     // a content script cannot reach chrome.tabs itself. The real worker
     // validates the url against the Wiktionary base; flip __failOpenTab to
@@ -1154,6 +1208,12 @@
           resp = this.__failUsedIn
             ? { ok: false, error: "simulated failure" }
             : { ok: true, words: buildUsedIn(msg.word) };
+        } else if (msg && msg.type === "foundIn") {
+          this.__foundInCalls++;
+          this.__lastFoundInChar = msg.char;
+          resp = this.__failFoundIn
+            ? { ok: false, error: "simulated failure" }
+            : { ok: true, chars: buildFoundIn(msg.char) };
         } else if (msg && msg.type === "openTab") {
           this.__openTabCalls++;
           this.__lastOpenTabUrl = msg.url;
@@ -1174,6 +1234,7 @@
     __lookup: lookup,
     __fullCompounds: fullCompounds,
     __usedIn: buildUsedIn,
+    __foundIn: buildFoundIn,
     __savedStore: savedStore
   };
 })();
@@ -4284,6 +4345,120 @@
       check("appendMadeOf is defined once and called once",
         defs.length === 1 && mentions.length === 2,
         "definitions=" + defs.length + " mentions=" + mentions.length);
+    }
+
+    /* ==================================================================
+     * Recomposition: the "Found in" row and the list view behind it.
+     *
+     * The fixture DERIVES these lists from the same DECOMP table the Made of
+     * rows come from: 革 is a part of 靴 and 鞠, and 人 is credited by 靴's 亻
+     * row. Nothing about them is written down.
+     * ================================================================== */
+    function foundInRow() { return api.query(".foundin-row"); }
+    function foundInRows() { return api.queryAll(".card.foundin .foundin-item"); }
+
+    check("fixture: the found-in lists are derived from the decomp table",
+      fake.__foundIn("革").map(function (r) { return r.char; }).join("") === "靴鞠" &&
+      fake.__foundIn("人").map(function (r) { return r.char; }).join("") === "靴" &&
+      fake.__foundIn("學").length === 0,
+      fake.__foundIn("革").map(function (r) { return r.char; }).join(",") + " | " +
+        fake.__foundIn("人").map(function (r) { return r.char; }).join(","));
+
+    api.hide();
+    api.showAt(anchor, fake.__lookup("革").matches);
+    await wait(60);
+    check("a character used as a part shows one collapsed Found in row",
+      !!foundInRow() && api.queryAll(".foundin-row").length === 1 &&
+      foundInRow().textContent === "Found in 2 characters" &&
+      !api.query(".card.foundin") &&
+      foundInRow().getAttribute("role") === "button" &&
+      foundInRow().getAttribute("tabindex") === "0",
+      foundInRow() && JSON.stringify(foundInRow().textContent));
+
+    var foundCallsBefore = fake.__foundInCalls;
+    var depthBeforeFound = api.viewDepth();
+    foundInRow().click();
+    await wait(90);
+    check("tapping it opens the list as its own view, one request",
+      api.viewDepth() === depthBeforeFound + 1 &&
+      fake.__foundInCalls === foundCallsBefore + 1 &&
+      fake.__lastFoundInChar === "革" &&
+      api.viewKeys()[api.viewDepth() - 1] === "foundin:革",
+      "depth=" + api.viewDepth() + " calls=" + fake.__foundInCalls +
+        " key=" + api.viewKeys()[api.viewDepth() - 1]);
+    check("the view lists the characters, ranked, with the level chips",
+      foundInRows().length === 2 &&
+      foundInRows()[0].textContent === "靴신 화Rare  shoe; boot" &&
+      foundInRows()[1].textContent === "鞠공 국Rare  leather ball; to rear" &&
+      api.query(".card.foundin .reading-title").textContent === "2 characters contain 革",
+      foundInRows().map(function (r) { return r.textContent; }).join(" | "));
+    check("the crumb names the list, not the gesture",
+      api.crumbLabels().join(" › ") === "革 › Found in",
+      api.crumbLabels().join(" › "));
+
+    var callsBeforeDrill = fake.__calls;
+    foundInRows()[0].click();                  // 靴
+    await wait(90);
+    check("a row is an ordinary literal drill-down",
+      api.viewDepth() === depthBeforeFound + 2 &&
+      api.query(".card .surface").textContent === "靴" &&
+      fake.__calls === callsBeforeDrill + 1 && fake.__lastText === "靴" &&
+      fake.__lastInterpret !== true,
+      "depth=" + api.viewDepth() + " text=" + fake.__lastText);
+
+    var callsBeforeBack = fake.__foundInCalls;
+    api.queryAll(".crumb")[1].click();          // back to the list
+    await wait(90);
+    check("coming back restores the list without re-querying",
+      api.viewDepth() === depthBeforeFound + 1 && foundInRows().length === 2 &&
+      fake.__foundInCalls === callsBeforeBack,
+      "depth=" + api.viewDepth() + " calls " + callsBeforeBack + " → " +
+        fake.__foundInCalls);
+
+    // The alias credit, end to end: 靴's 亻 row is why 人 has a list at all.
+    api.hide();
+    api.showAt(anchor, fake.__lookup("人").matches);
+    await wait(60);
+    check("an aliased part is credited, and one container reads singular",
+      !!foundInRow() && foundInRow().textContent === "Found in 1 character",
+      foundInRow() && JSON.stringify(foundInRow().textContent));
+
+    // Placement, on a card carrying BOTH sections: no fixture character is
+    // decomposed AND used as a part, so the count is set on 靴's own match.
+    var bothSections = fake.__lookup("靴").matches;
+    bothSections[0].foundInCount = 2;
+    api.hide();
+    api.showAt(anchor, bothSections);
+    await wait(60);
+    check("the row sits after the Made of row and before the compounds",
+      inDocOrder(api.query(".glosses"), api.query(".foundin-row")) &&
+      inDocOrder(api.query(".madeof"), api.query(".foundin-row")) &&
+      inDocOrder(api.query(".foundin-row"), api.query(".compounds")));
+
+    api.hide();
+    api.showAt(anchor, fake.__lookup("民").matches);
+    await wait(60);
+    check("a character used nowhere shows no row at all",
+      !api.query(".foundin-row") && !api.query(".card.foundin"));
+    api.showAt(anchor, fake.__lookup("학생").matches);
+    await wait(60);
+    check("word cards are unchanged", !api.query(".foundin-row"),
+      "cards=" + api.cardCount());
+    api.hide();
+
+    /* --- MODULARITY: one definition, one call site (SPEC) ---------------- */
+    if (location.protocol === "file:") {
+      skip("appendFoundIn is defined once and called once",
+        "file:// blocks fetching the content script; serve the repo over http://");
+    } else {
+      var recompSrc = await (await fetch("../extension/content/content.js")).text();
+      var foundDefs = recompSrc.match(/function appendFoundIn\s*\(/g) || [];
+      var foundMentions = recompSrc.match(/appendFoundIn\s*\(/g) || [];
+      check("appendFoundIn is defined once and called once",
+        foundDefs.length === 1 && foundMentions.length === 2,
+        "definitions=" + foundDefs.length + " mentions=" + foundMentions.length);
+      check("its call site follows the Made of one, with nothing between",
+        /appendMadeOf\(card, m\);\s*appendFoundIn\(card, m\);/.test(recompSrc));
     }
 
     api.hide();

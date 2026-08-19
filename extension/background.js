@@ -11,6 +11,7 @@ import {
   buildOmniboxSuggestions,
   buildReadingIndex,
   buildUsedIn,
+  isLevel,
   lookup,
   toErrorMessage,
 } from "./lookup.js";
@@ -67,6 +68,24 @@ export function guardDecomp(raw) {
 }
 
 /**
+ * The reading a joined row shows for one hanja.json entry. Some entries carry
+ * an empty `eumhun` list and a non-empty `readings` array (或 reads 혹 with no
+ * hun recorded); without the fallback those rows would render as a bare gloss.
+ * The first eumhun pair still wins whenever there is one.
+ */
+function joinReading(entry) {
+  const pair = (Array.isArray(entry.eumhun) ? entry.eumhun : [])[0];
+  if (pair && typeof pair === "object") {
+    return {
+      hun: typeof pair.hun === "string" ? pair.hun : "",
+      eum: typeof pair.eum === "string" ? pair.eum : "",
+    };
+  }
+  const eum = (Array.isArray(entry.readings) ? entry.readings : [])[0];
+  return { hun: "", eum: typeof eum === "string" ? eum : "" };
+}
+
+/**
  * Decomposition ADDENDUM: turn one emitted row into the response row the
  * renderer draws. Emitted rows are [g], [g,t], [g,null] or [g,null,name];
  * a row is clickable when its length is 1 or slot 2 is a string. The target's
@@ -87,12 +106,12 @@ function decompRow(row, hanjaTable) {
   const t = typeof row[1] === "string" ? row[1] : g;
   const entry = hasOwn(hanjaTable, t) ? hanjaTable[t] : null;
   if (!entry || typeof entry !== "object") return { g };
-  const pair = (Array.isArray(entry.eumhun) ? entry.eumhun : [])[0];
+  const reading = joinReading(entry);
   return {
     g,
     t,
-    hun: pair && typeof pair.hun === "string" ? pair.hun : "",
-    eum: pair && typeof pair.eum === "string" ? pair.eum : "",
+    hun: reading.hun,
+    eum: reading.eum,
     gloss: (Array.isArray(entry.glosses) ? entry.glosses : [])[0] ?? "",
   };
 }
@@ -118,6 +137,101 @@ export function attachDecomp(result, data) {
 }
 
 /**
+ * Recomposition ADDENDUM: the reverse of decomp.json, DERIVED at runtime and
+ * stored nowhere. Scan the table once and credit each row's TARGET (the aliased
+ * character: an 亻 row credits 人) with the character the row belongs to. Only
+ * clickable rows count, since an inert row names no character.
+ *
+ * Pure in the decomp table alone: no hanja.json, no ranking. Any change to a
+ * decomposition changes the lists on the next worker start, and nothing else
+ * has to be rebuilt. The eumhun join and the ranking happen per query.
+ *
+ * @param {Record<string, Array>} decompTable decomp.parts
+ * @returns {Record<string, string[]>} target -> containing characters
+ */
+export function buildFoundInIndex(decompTable) {
+  const table = decompTable !== null && typeof decompTable === "object" ? decompTable : {};
+  /** @type {Record<string, string[]>} */
+  const index = Object.create(null);
+  for (const char of Object.keys(table)) {
+    const rows = table[char];
+    if (!Array.isArray(rows)) continue;
+    // Per containing character, so 雙 (隹 twice) appears once in 隹's list.
+    const credited = new Set();
+    for (const row of rows) {
+      if (!Array.isArray(row)) continue;
+      const g = typeof row[0] === "string" ? row[0] : "";
+      if (!g) continue;
+      const clickable = row.length === 1 || typeof row[1] === "string";
+      if (!clickable) continue;
+      const target = typeof row[1] === "string" ? row[1] : g;
+      // A character is never found in itself.
+      if (target === char || credited.has(target)) continue;
+      credited.add(target);
+      if (index[target] === undefined) index[target] = [];
+      index[target].push(char);
+    }
+  }
+  return index;
+}
+
+/**
+ * Recomposition ADDENDUM: one target's list, joined against hanja.json into the
+ * fields the reading-list rows draw, ranked by cwCount descending with ties by
+ * codepoint so the order is stable across runs. A containing character with no
+ * hanja.json entry is dropped rather than rendered as a row that would navigate
+ * nowhere (the emit is restricted to hanja.json characters, so this is a guard,
+ * not a case).
+ */
+export function buildFoundIn(char, index, hanjaData) {
+  if (typeof char !== "string" || char === "") return [];
+  const charTable = (hanjaData && hanjaData.chars) || {};
+  const list = hasOwn(index, char) ? index[char] : null;
+  if (!Array.isArray(list)) return [];
+  const ranks = new Map();
+  const rows = [];
+  for (const containing of list) {
+    const entry = hasOwn(charTable, containing) ? charTable[containing] : null;
+    if (!entry || typeof entry !== "object") continue;
+    const reading = joinReading(entry);
+    const row = {
+      char: containing,
+      hun: reading.hun,
+      eum: reading.eum,
+      gloss: (Array.isArray(entry.glosses) ? entry.glosses : [])[0] ?? "",
+    };
+    if (isLevel(entry.lvl)) row.lvl = entry.lvl;
+    ranks.set(containing, Array.isArray(entry.cw) ? entry.cw.length : 0);
+    rows.push(row);
+  }
+  rows.sort(
+    (a, b) =>
+      (ranks.get(b.char) || 0) - (ranks.get(a.char) || 0) ||
+      a.char.codePointAt(0) - b.char.codePointAt(0)
+  );
+  return rows;
+}
+
+/**
+ * Hang `foundInCount` on every char match the index knows about, usedInCount
+ * style (omitted when 0). `getIndex` is a thunk so a lookup with no char match
+ * never pays for building the index.
+ */
+export function attachFoundIn(result, getIndex) {
+  if (!result || result.ok !== true || !Array.isArray(result.matches)) return result;
+  let index = null;
+  for (const match of result.matches) {
+    if (!match || match.kind !== "char") continue;
+    const char = typeof match.canonical === "string" ? match.canonical : "";
+    if (!char) continue;
+    if (index === null) index = getIndex();
+    const list = hasOwn(index, char) ? index[char] : null;
+    if (Array.isArray(list) && list.length > 0) match.foundInCount = list.length;
+  }
+  return result;
+}
+
+/**
  * Rule 5: module-level cache. The service worker may be torn down and
  * restarted at any time; the data is simply re-fetched on the next lookup.
  * @type {Promise<{hanja:object, words:object, variants:object}>|null}
@@ -131,6 +245,14 @@ let dataPromise = null;
  * @type {Record<string, object[]>|null}
  */
 let readingIndex = null;
+
+/**
+ * Recomposition ADDENDUM: target -> containing characters, derived from
+ * decomp.json at runtime (not a data file). Cached and cleared exactly like the
+ * reading index, so an updated bundle rebuilds it with no other work.
+ * @type {Record<string, string[]>|null}
+ */
+let foundInIndex = null;
 
 async function fetchJson(path) {
   const url = chrome.runtime.getURL(path);
@@ -159,9 +281,16 @@ function getData() {
     dataPromise.catch(() => {
       dataPromise = null;
       readingIndex = null;
+      foundInIndex = null;
     });
   }
   return dataPromise;
+}
+
+/** The found-in index for the loaded bundle, built on first use. */
+function getFoundInIndex(data) {
+  if (foundInIndex === null) foundInIndex = buildFoundInIndex(data.decomp.parts);
+  return foundInIndex;
 }
 
 /**
@@ -187,7 +316,7 @@ export async function handleLookup(text, interpret) {
       },
       { interpret: interpret === true }
     );
-    return attachDecomp(result, data);
+    return attachFoundIn(attachDecomp(result, data), () => getFoundInIndex(data));
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -216,6 +345,25 @@ export async function handleUsedIn(word) {
   try {
     const data = await getData();
     return { ok: true, words: buildUsedIn(word, data) };
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) };
+  }
+}
+
+/**
+ * Handle a {type:"foundIn", char} message (recomposition ADDENDUM): every
+ * character this one is a part of, ranked, joined against hanja.json. The
+ * incoming char is NFC-normalized and variant-mapped like any lookup input.
+ * @returns {Promise<{ok:true, chars:object[]}|{ok:false, error:string}>}
+ */
+export async function handleFoundIn(char) {
+  try {
+    const data = await getData();
+    if (typeof char !== "string" || char === "") return { ok: true, chars: [] };
+    const variantMap = data.variants?.map ?? {};
+    const normalized = char.normalize("NFC");
+    const canonical = hasOwn(variantMap, normalized) ? variantMap[normalized] : normalized;
+    return { ok: true, chars: buildFoundIn(canonical, getFoundInIndex(data), data.hanja) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -572,6 +720,7 @@ export const MESSAGE_HANDLERS = {
   lookup: (m) => handleLookup(m.text, m.interpret === true),
   compounds: (m) => handleCompounds(m.char),
   usedIn: (m) => handleUsedIn(m.word),
+  foundIn: (m) => handleFoundIn(m.char),
   openTab: (m) => handleOpenTab(m.url),
   getPendingQuery: () => handleGetPendingQuery(),
   savedGet: () => handleSavedGet(),

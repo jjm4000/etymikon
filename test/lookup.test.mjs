@@ -1878,6 +1878,7 @@ await testAsync("decomp: rows are joined onto char matches, targets resolved", a
     parts: {
       "依": [["亻", "人"], ["衣"]],
       "疑": [["匕"], ["龴", null], ["㇒", null, "downward stroke"]],
+      "國": [["囗"], ["或"]],          // 或 has readings but no eumhun
       "乁": [["丿", "丿"]],            // target with no dictionary entry
     },
   });
@@ -1890,17 +1891,21 @@ await testAsync("decomp: rows are joined onto char matches, targets resolved", a
       "人": { eumhun: [{ hun: "사람", eum: "인" }], glosses: ["person; human"] },
       "衣": { eumhun: [{ hun: "옷", eum: "의" }], glosses: ["clothing"] },
       "匕": { eumhun: [], glosses: [] },
+      "囗": { eumhun: [{ hun: "에울", eum: "위" }], glosses: ["enclosure"] },
+      // The fallback case: no eumhun pair at all, but a reading is recorded.
+      "或": { eumhun: [], readings: ["혹"], glosses: ["some; perhaps"] },
     },
   };
   const matches = [
     { kind: "char", canonical: "依" },
     { kind: "char", canonical: "疑" },
+    { kind: "char", canonical: "國" },
     { kind: "char", canonical: "乁" },
     { kind: "char", canonical: "一" },                       // no entry
     { kind: "word", canonical: "依存", parts: [{ type: "word" }] },
   ];
   const out = attachDecomp({ ok: true, matches }, { decomp, hanja });
-  const [uy, ui, ye, il, word] = out.matches;
+  const [uy, ui, guk, ye, il, word] = out.matches;
 
   // Alias: the display glyph stays 亻, the reading comes from 人.
   assert.deepEqual(uy.parts, [
@@ -1913,11 +1918,141 @@ await testAsync("decomp: rows are joined onto char matches, targets resolved", a
     { g: "龴" },
     { g: "㇒", name: "downward stroke" },
   ]);
+  // An empty eumhun list falls back to readings[0], so the row is never a
+  // bare gloss.
+  assert.deepEqual(guk.parts, [
+    { g: "囗", t: "囗", hun: "에울", eum: "위", gloss: "enclosure" },
+    { g: "或", t: "或", hun: "", eum: "혹", gloss: "some; perhaps" },
+  ]);
   // A target outside the dictionary degrades to an inert row.
   assert.deepEqual(ye.parts, [{ g: "丿" }]);
   assert.equal("parts" in il, false);
   // Word `parts` (component words) are a different field on a different kind.
   assert.deepEqual(word.parts, [{ type: "word" }]);
+});
+
+// --- recomposition: the derived found-in index ---------------------------
+
+// One inline decomp table, shaped to carry every rule the index has to obey.
+const RECOMP_PARTS = {
+  "依": [["亻", "人"], ["衣"]],            // alias: the row credits 人, not 亻
+  "袋": [["代"], ["衣"]],
+  "雙": [["隹"], ["隹"], ["又"]],          // the same part twice
+  "雜": [["隹"], ["木"]],
+  "衣": [["亠", null], ["衣"]],            // a row targeting its own character
+};
+
+const RECOMP_HANJA = {
+  version: 1,
+  chars: {
+    "依": { eumhun: [{ hun: "의지할", eum: "의" }], glosses: ["to rely on"],
+      lvl: "h", cw: ["依存"] },
+    // No eumhun pair, but a reading: the join falls back to readings[0].
+    "袋": { eumhun: [], readings: ["대"], glosses: ["bag; sack"], lvl: "a",
+      cw: ["布袋", "魚袋", "紙袋"] },
+    "雙": { eumhun: [{ hun: "두", eum: "쌍" }], glosses: ["a pair"], lvl: "h" },
+    "雜": { eumhun: [{ hun: "섞일", eum: "잡" }], glosses: ["mixed"], lvl: "h" },
+    "人": { eumhun: [{ hun: "사람", eum: "인" }], glosses: ["person"], lvl: "m" },
+    "衣": { eumhun: [{ hun: "옷", eum: "의" }], glosses: ["clothing"], lvl: "m" },
+  },
+};
+
+await testAsync("recomposition: the index is derived from the decomp table alone", async () => {
+  const { buildFoundInIndex } = await import("../extension/background.js");
+  const index = buildFoundInIndex(RECOMP_PARTS);
+
+  // Alias crediting: the TARGET is indexed, the display glyph never is.
+  assert.deepEqual(index["人"], ["依"]);
+  assert.equal("亻" in index, false, "a display glyph is not a list of its own");
+  // Reading-less rows name no character, so they credit nothing.
+  assert.equal("亠" in index, false);
+  // A part used twice by one character is credited once.
+  assert.deepEqual(index["隹"], ["雙", "雜"]);
+  // Self-exclusion: 衣's own row for 衣 does not put 衣 in its own list.
+  assert.deepEqual(index["衣"], ["依", "袋"]);
+  // An empty or malformed table is simply an empty index.
+  assert.deepEqual(Object.keys(buildFoundInIndex(null)), []);
+  assert.deepEqual(Object.keys(buildFoundInIndex({ "依": "nonsense" })), []);
+});
+
+await testAsync("recomposition: lists are joined and ranked by cw, ties by codepoint", async () => {
+  const { buildFoundInIndex, buildFoundIn } = await import("../extension/background.js");
+  const index = buildFoundInIndex(RECOMP_PARTS);
+
+  // 袋 has three compounds to 依's one, so it leads despite the later codepoint.
+  assert.deepEqual(buildFoundIn("衣", index, RECOMP_HANJA), [
+    { char: "袋", hun: "", eum: "대", gloss: "bag; sack", lvl: "a" },
+    { char: "依", hun: "의지할", eum: "의", gloss: "to rely on", lvl: "h" },
+  ]);
+  // Neither has a cw index, so the codepoint decides: 雙 U+96D9 before 雜 U+96DC.
+  assert.deepEqual(
+    buildFoundIn("隹", index, RECOMP_HANJA).map((r) => r.char),
+    ["雙", "雜"]
+  );
+  // A character nothing is built from, and one outside the dictionary.
+  assert.deepEqual(buildFoundIn("依", index, RECOMP_HANJA), []);
+  // A container with no dictionary entry is dropped, never rendered as a row
+  // that would navigate nowhere.
+  assert.deepEqual(buildFoundIn("木", index, { version: 1, chars: {} }), []);
+  assert.deepEqual(buildFoundIn("", index, RECOMP_HANJA), []);
+});
+
+await testAsync("recomposition: the index FOLLOWS the table it was built from", async () => {
+  const { buildFoundInIndex } = await import("../extension/background.js");
+  const before = buildFoundInIndex(RECOMP_PARTS);
+
+  // The binding property: nothing is stored, so editing the decomposition is
+  // the whole change. A mutated copy yields the mutated lists, and the index
+  // built from the original is untouched by it.
+  const mutated = JSON.parse(JSON.stringify(RECOMP_PARTS));
+  delete mutated["雜"];                       // 隹 loses a container
+  mutated["依"] = [["亻", "儿"], ["衣"]];      // the alias now credits 儿
+  mutated["祖"] = [["礻", "示"], ["且"]];      // a new character appears
+  const after = buildFoundInIndex(mutated);
+
+  assert.deepEqual(after["隹"], ["雙"]);
+  assert.equal("人" in after, false);
+  assert.deepEqual(after["儿"], ["依"]);
+  assert.deepEqual(after["示"], ["祖"]);
+  assert.deepEqual(before["隹"], ["雙", "雜"]);
+  assert.deepEqual(before["人"], ["依"]);
+  assert.equal("儿" in before, false);
+});
+
+await testAsync("recomposition: char matches carry foundInCount, omitted when 0", async () => {
+  const { buildFoundInIndex, attachFoundIn } = await import("../extension/background.js");
+  const index = buildFoundInIndex(RECOMP_PARTS);
+  let builds = 0;
+  const getIndex = () => {
+    builds++;
+    return index;
+  };
+
+  const out = attachFoundIn(
+    {
+      ok: true,
+      matches: [
+        { kind: "char", canonical: "衣" },
+        { kind: "char", canonical: "隹" },
+        { kind: "char", canonical: "雜" },          // a part of nothing
+        { kind: "word", canonical: "依存", usedInCount: 2 },
+      ],
+    },
+    getIndex
+  );
+  const [ui, chu, jap, word] = out.matches;
+  assert.equal(ui.foundInCount, 2);
+  assert.equal(chu.foundInCount, 2);
+  assert.equal("foundInCount" in jap, false);
+  assert.equal("foundInCount" in word, false);
+  assert.equal(builds, 1, "the index is resolved once per response");
+
+  // A response with no char match never asks for the index at all.
+  attachFoundIn({ ok: true, matches: [{ kind: "word", canonical: "依存" }] }, getIndex);
+  assert.equal(builds, 1);
+  // Error envelopes pass straight through.
+  const err = { ok: false, error: "boom" };
+  assert.equal(attachFoundIn(err, getIndex), err);
 });
 
 // --- saved words: every handler answers when there is no chrome.storage ---
@@ -1948,6 +2083,7 @@ await testAsync("the router carries every SPEC message type", async () => {
     "lookup",
     "compounds",
     "usedIn",
+    "foundIn",
     "openTab",
     "getPendingQuery",
     "savedGet",
@@ -2805,7 +2941,7 @@ await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays cl
   const { attachDecomp, guardDecomp } = await import("../extension/background.js");
   const hanjaFile = JSON.parse(await readFile(join(dataDir, "hanja.json"), "utf8"));
   const joined = attachDecomp(
-    { ok: true, matches: [{ kind: "char", canonical: "依" }] },
+    { ok: true, matches: [{ kind: "char", canonical: "依" }, { kind: "char", canonical: "國" }] },
     { decomp: guardDecomp(decomp), hanja: hanjaFile }
   );
   const uy = joined.matches[0].parts;
@@ -2815,6 +2951,71 @@ await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays cl
   assert.equal(uy[0].eum, "인", "the 亻 row must carry 人's reading after the real-file join");
   assert.equal(uy[1].t, "衣");
   assert.equal(uy[1].eum, "의");
+
+  // 或 has readings but no eumhun pair, so its row rides the readings fallback.
+  // Without it the row would render as a bare gloss.
+  const guk = joined.matches[1].parts;
+  assert.deepEqual(guk.map((p) => p.g), ["囗", "或"], "國 = 囗 + 或");
+  assert.equal(hanjaFile.chars["或"].eumhun.length, 0, "或 has no eumhun pair");
+  assert.equal(guk[1].eum, "혹", "the 或 row must fall back to readings[0]");
+  assert.equal(guk[1].hun, "");
+});
+
+// --- recomposition against the real emitted decomp.json ------------------
+
+await testAsync("smoke: the real found-in index holds 人 ⊃ 依, 辶 ⊃ 道, 隹 ⊃ 雙", async () => {
+  let decomp, hanjaFile;
+  try {
+    const [d, h] = await Promise.all([
+      readFile(join(dataDir, "decomp.json"), "utf8"),
+      readFile(join(dataDir, "hanja.json"), "utf8"),
+    ]);
+    decomp = JSON.parse(d);
+    hanjaFile = JSON.parse(h);
+  } catch (err) {
+    console.log(`      (skipped — decomp.json unreadable: ${err.code || err.name})`);
+    return;
+  }
+
+  const { buildFoundInIndex, buildFoundIn, guardDecomp } =
+    await import("../extension/background.js");
+  const index = buildFoundInIndex(guardDecomp(decomp).parts);
+
+  // The alias credit, over the shipped file: 依's 亻 row credits 人.
+  assert.ok(index["人"].includes("依"), "人 must be found in 依");
+  // A component-only character: no compounds, no words, and now card content.
+  assert.ok(index["辶"] && index["辶"].length > 0, "辶 must be found in something");
+  assert.ok(index["辶"].includes("道"), "辶 must be found in 道");
+  // 雙 carries 隹 twice and must appear exactly once.
+  assert.equal(
+    index["隹"].filter((c) => c === "雙").length,
+    1,
+    "雙 must appear once in 隹's list"
+  );
+  // Nothing is found in itself, anywhere in the shipped data.
+  const selfCredited = Object.keys(index).filter((t) => index[t].includes(t));
+  assert.deepEqual(selfCredited.slice(0, 5), [], `${selfCredited.length} self-credited targets`);
+
+  // The join and the ranking, over the real tables.
+  const rows = buildFoundIn("辶", index, hanjaFile);
+  assert.equal(rows.length, index["辶"].length, "every container joins to an entry");
+  const cw = (ch) => (hanjaFile.chars[ch].cw || []).length;
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1].char, b = rows[i].char;
+    assert.ok(
+      cw(a) > cw(b) || (cw(a) === cw(b) && a.codePointAt(0) < b.codePointAt(0)),
+      `${a} before ${b} breaks the ranking`
+    );
+  }
+  assert.ok(rows.every((r) => typeof r.char === "string" && r.char.length > 0));
+
+  const sizes = Object.keys(index).map((t) => index[t].length);
+  const biggest = Object.keys(index).sort((a, b) => index[b].length - index[a].length)[0];
+  console.log(
+    `      (found-in ${Object.keys(index).length} targets, ` +
+      `${sizes.reduce((n, s) => n + s, 0)} credits, ` +
+      `biggest ${biggest} in ${index[biggest].length}; 辶 in ${index["辶"].length})`
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -516,6 +516,16 @@
     // An inert part has no reading to show, so the whole row recedes.
     ".madeof-part.inert, .madeof-part.inert .r-glyph { color: var(--faint); }",
     ".card.component .madeof-row { font-size: 11px; }",
+    /* ---- recomposition: "Found in N characters" and its list view ---- */
+    // Quiet like the used-in row it copies; the list view reuses the reading
+    // browser's rows, so there is nothing else to style.
+    ".foundin-row {",
+    "  margin: 9px -6px 0; padding: 4px 6px;",
+    "  color: var(--muted); font-size: 12px;",
+    "}",
+    ".foundin-row b { font-weight: 600; color: var(--fg-soft); }",
+    ".card.component .foundin-row { font-size: 11px; }",
+    ".view > .card.foundin { padding: 0; }",
     /* ---- nested sections: component words + component hanja ---- */
     // Sections are built only when populated; an empty one must take no space.
     ".parts:empty, .components:empty, .hedge:empty, .top-chars:empty { display: none; }",
@@ -784,6 +794,8 @@
   var compoundsPending = null;// char -> in-flight promise, so two cards share it
   var usedInCache = null;     // word -> larger words containing it
   var usedInPending = null;   // word -> in-flight promise
+  var foundInCache = null;    // char -> characters it is a part of
+  var foundInPending = null;  // char -> in-flight promise
   var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
   var charDataIndex = null;   // char -> char match data (accumulates)
   var charCardIndex = null;   // char -> the card element showing it, this view
@@ -1018,6 +1030,8 @@
     compoundsPending = Object.create(null);
     usedInCache = Object.create(null);
     usedInPending = Object.create(null);
+    foundInCache = Object.create(null);
+    foundInPending = Object.create(null);
     crumbsExpanded = false;
     charDataIndex = Object.create(null);
     charCardIndex = Object.create(null);
@@ -2323,6 +2337,8 @@
 
     appendMadeOf(card, m);
 
+    appendFoundIn(card, m);
+
     appendCompounds(card, m);
 
     return card;
@@ -2404,6 +2420,95 @@
       if (open) keepInView(list);
     });
     card.appendChild(box);
+  }
+
+  /* ---- Recomposition ---------------------------------------------------- *
+   * The upward mirror of the section above, and self-contained in the same
+   * way: this predicate, this function, and the single call in the char-card
+   * build. The list itself is a view, not an in-place expansion, because a
+   * common radical is found in hundreds of characters.
+   * -------------------------------------------------------------------- */
+
+  function recompEnabled(settings) {
+    return true;
+  }
+
+  // "Found in N characters ›", opening the list as its own view. Reads only
+  // `m.foundInCount`; the list is fetched on tap, like the used-in row.
+  function appendFoundIn(card, m) {
+    if (!recompEnabled(null)) return;
+    var count = (typeof m.foundInCount === "number" && isFinite(m.foundInCount) &&
+      m.foundInCount > 0) ? Math.floor(m.foundInCount) : 0;
+    var char = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
+    if (!count || !char) return;
+
+    var row = el("div", "entry-row foundin-row nav");
+    var text = el("span", "foundin-text");
+    text.appendChild(document.createTextNode("Found in "));
+    text.appendChild(el("b", null, String(count)));
+    text.appendChild(document.createTextNode(
+      count === 1 ? " character" : " characters"));
+    row.appendChild(text);
+
+    var busy = false;
+    makeNavRow(row, function () {
+      if (busy) return;
+      busy = true;
+      row.setAttribute("aria-busy", "true");
+      var seq = requestSeq;
+      fetchFoundIn(char).then(function (chars) {
+        if (seq !== requestSeq) return;
+        busy = false;
+        row.removeAttribute("aria-busy");
+        // Failure (or an empty list): stay on the card, keep the row pressable.
+        if (!chars || !chars.length) return;
+        pushView({
+          key: "foundin:" + char,
+          label: "Found in",
+          matches: [{ kind: "foundin", char: char, rows: chars }]
+        });
+      });
+    });
+    card.appendChild(row);
+  }
+
+  // The found-in list: the homophone browser's rows, one per character this
+  // one is a part of. Never capped: a view showing ONE list shows all of it,
+  // which is the reading card's own contract.
+  function buildFoundInCard(m) {
+    var rows = asArray(m.rows).filter(function (c) {
+      return c && typeof c === "object" && nonEmptyString(c.char);
+    });
+    if (!rows.length) return null;
+
+    var card = el("div", "card foundin");
+    var title = el("div", "reading-title");
+    title.appendChild(document.createTextNode(
+      rows.length + (rows.length === 1 ? " character contains " : " characters contain ")));
+    title.appendChild(el("b", null, nonEmptyString(m.char)));
+    card.appendChild(title);
+
+    var list = el("div", "reading-list");
+    rows.forEach(function (c) {
+      var glyph = nonEmptyString(c.char);
+      var row = el("div", "reading-row foundin-item");
+      row.appendChild(el("span", "r-glyph", glyph));
+
+      var text = el("span", "r-text");
+      var hun = nonEmptyString(c.hun);
+      var eum = nonEmptyString(c.eum);
+      var label = hun && eum ? hun + " " + eum : (eum || hun);
+      if (label) text.appendChild(el("span", "r-eumhun", label));
+      appendBadges(text, c);
+      var gloss = nonEmptyString(c.gloss);
+      if (gloss) text.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
+      row.appendChild(text);
+
+      makeNavRow(row, glyph);
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+    return card;
   }
 
   // One dictionary line: "국민 (國民): the people of a nation". Shared by the
@@ -2790,11 +2895,13 @@
 
     var readings = [];
     var usedIns = [];
+    var foundIns = [];
     var words = [];
     var responseChars = [];
     for (var i = 0; i < list.length; i++) {
       if (list[i].kind === "reading") readings.push(list[i]);
       else if (list[i].kind === "usedin") usedIns.push(list[i]);
+      else if (list[i].kind === "foundin") foundIns.push(list[i]);
       else if (list[i].kind === "word") words.push(list[i]);
       else if (list[i].kind === "char") {
         var ck = spellingKey(list[i]);
@@ -2820,6 +2927,13 @@
       var usedInCard = buildUsedInCard(usedIns[u]);
       if (usedInCard) {
         viewRoot.appendChild(usedInCard);
+        count++;
+      }
+    }
+    for (var f = 0; f < foundIns.length; f++) {
+      var foundInCard = buildFoundInCard(foundIns[f]);
+      if (foundInCard) {
+        viewRoot.appendChild(foundInCard);
         count++;
       }
     }
@@ -2882,9 +2996,10 @@
     var list = usableMatches(matches);
     if (!list.length) return null;
 
-    var usedIns = [], readings = [], words = [], chars = [];
+    var usedIns = [], foundIns = [], readings = [], words = [], chars = [];
     list.forEach(function (m) {
       if (m.kind === "usedin") usedIns.push(m);
+      else if (m.kind === "foundin") foundIns.push(m);
       else if (m.kind === "reading") readings.push(m);
       else if (m.kind === "word") words.push(m);
       else if (m.kind === "char") chars.push(m);
@@ -3605,6 +3720,27 @@
       return list;
     });
     if (usedInPending) usedInPending[word] = promise;
+    return promise;
+  }
+
+  // The characters this one is a part of. Same caching contract as the used-in
+  // list: one request per char per popup session, failures resolve to null and
+  // are not cached, so the row can simply be pressed again.
+  function fetchFoundIn(char) {
+    if (foundInCache && Object.prototype.hasOwnProperty.call(foundInCache, char)) {
+      return Promise.resolve(foundInCache[char]);
+    }
+    if (foundInPending && foundInPending[char]) return foundInPending[char];
+    var promise = sendToWorker({ type: "foundIn", char: char }).then(function (response) {
+      if (foundInPending) delete foundInPending[char];
+      if (!response || response.ok !== true || !Array.isArray(response.chars)) return null;
+      var list = response.chars.filter(function (c) {
+        return c && typeof c === "object";
+      });
+      if (foundInCache) foundInCache[char] = list;
+      return list;
+    });
+    if (foundInPending) foundInPending[char] = promise;
     return promise;
   }
 

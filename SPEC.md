@@ -1437,7 +1437,9 @@ character cards only; no level chips on part rows.
   `{g, t, hun, eum, gloss}` (`g` display glyph, `t` the character the row
   opens, the rest the TARGET's first eumhun pair and first gloss); a
   reading-less row becomes `{g}` or `{g, name}`. A row whose target has no
-  hanja.json entry degrades to `{g}`, so a click can never land nowhere.
+  hanja.json entry degrades to `{g}`, so a click can never land nowhere. The
+  reading falls back to `readings[0]` when the target's `eumhun` list is empty
+  (或 reads 혹 with no hun recorded), so such a row is never a bare gloss.
   Char `parts` and word `parts` (component words) are disjoint by kind and
   read by different sections.
 - Part clicks are ordinary LITERAL navigation to the target character
@@ -1503,11 +1505,14 @@ index is a pure function of the decomp table it was built from).
   an 亻 row credits 人), deduped per containing char. Cleared with the
   data cache.
 - Char matches gain `foundInCount` (omitted when 0, usedInCount style).
-- New message type `{type:"foundIn", char}` returns the full list,
-  ranked: by each containing character's cwCount descending (the
-  existing "how much Korean this unlocks" signal), ties by codepoint for
-  determinism. Each entry carries what the reading-list rows need
-  (char, eumhun, lvl, gloss).
+- New message type `{type:"foundIn", char}` returns the full list as
+  `{ok:true, chars:[...]}`, ranked: by each containing character's
+  cwCount descending (the existing "how much Korean this unlocks"
+  signal), ties by codepoint for determinism. Each entry carries what
+  the reading-list rows need (char, hun, eum, gloss, lvl when known).
+  The incoming char is NFC-normalized and variant-mapped like any lookup
+  input. Ranking and the hanja.json join happen per query, so the cached
+  index itself stays a function of decomp.json alone.
 - The character itself never appears in its own list; a char containing
   the same part twice (雙 contains 隹 twice) appears ONCE in that part's
   list.
@@ -1524,7 +1529,9 @@ index is a pure function of the decomp table it was built from).
   the part, rows in the homophone-browser format (glyph, eumhun, level
   chip, muted rare), each an ordinary literal drill-down. Crumb label
   "Found in". Cached per view, scroll restored, no re-query on back.
-- Long lists use the reading-view pagination/preview conventions.
+- Long lists use the reading-view pagination/preview conventions, which
+  for this view means UNCAPPED: the cap exists only where several lists
+  share one view, and a Found-in view always shows exactly one list.
 
 ### Tests
 
