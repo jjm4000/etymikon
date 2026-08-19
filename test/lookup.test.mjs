@@ -1881,10 +1881,16 @@ await testAsync("decomp: rows are joined onto char matches, targets resolved", a
       "乁": [["丿", "丿"]],            // target with no dictionary entry
     },
   });
+  // The real hanja.json shape: chars under a `chars` key, version beside it.
+  // A bare table here once hid a join bug that degraded every part to an
+  // inert glyph in the shipped extension.
   const hanja = {
-    "人": { eumhun: [{ hun: "사람", eum: "인" }], glosses: ["person; human"] },
-    "衣": { eumhun: [{ hun: "옷", eum: "의" }], glosses: ["clothing"] },
-    "匕": { eumhun: [], glosses: [] },
+    version: 1,
+    chars: {
+      "人": { eumhun: [{ hun: "사람", eum: "인" }], glosses: ["person; human"] },
+      "衣": { eumhun: [{ hun: "옷", eum: "의" }], glosses: ["clothing"] },
+      "匕": { eumhun: [], glosses: [] },
+    },
   };
   const matches = [
     { kind: "char", canonical: "依" },
@@ -2789,6 +2795,23 @@ await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays cl
       `${clicky} clickable, ${rowCount - clicky} reading-less; ` +
       `every target in hanja.json; every glyph BMP)`
   );
+
+  // End-to-end join over the REAL files, exactly as the worker holds them:
+  // whole hanja.json, guarded decomp.json. This is the seam the unit fixture
+  // cannot cover, and where the chars-wrapper bug lived.
+  const { attachDecomp, guardDecomp } = await import("../extension/background.js");
+  const hanjaFile = JSON.parse(await readFile(join(dataDir, "hanja.json"), "utf8"));
+  const joined = attachDecomp(
+    { ok: true, matches: [{ kind: "char", canonical: "依" }] },
+    { decomp: guardDecomp(decomp), hanja: hanjaFile }
+  );
+  const uy = joined.matches[0].parts;
+  assert.equal(uy.length, 2);
+  assert.equal(uy[0].g, "亻");
+  assert.equal(uy[0].t, "人");
+  assert.equal(uy[0].eum, "인", "the 亻 row must carry 人's reading after the real-file join");
+  assert.equal(uy[1].t, "衣");
+  assert.equal(uy[1].eum, "의");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

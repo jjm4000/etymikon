@@ -504,7 +504,9 @@
     ".madeof-row { padding: 4px 6px; color: var(--muted); font-size: 12px; }",
     ".madeof-glyph { font-weight: 600; font-size: 14px; color: var(--fg); }",
     // Open state: the same chevron slot, turned down.
-    ".madeof-row.open::after { content: '\\2304'; }",
+    // Three classes: must outweigh the generic .entry-row.nav::after chevron
+    // rule, which is declared later in this sheet and would win a tie.
+    ".entry-row.madeof-row.open::after { content: '\\2304'; }",
     ".madeof-list { padding: 2px 0 1px; }",
     ".madeof-part { padding: 3px 6px; }",
     // An inert part has no reading to show, so the whole row recedes.

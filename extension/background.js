@@ -101,13 +101,17 @@ function decompRow(row, hanjaTable) {
 export function attachDecomp(result, data) {
   if (!result || result.ok !== true || !Array.isArray(result.matches)) return result;
   const table = data.decomp.parts;
+  // hanja.json is {chars, version}; the join reads the chars table, the same
+  // reach-through lookup.js does. Passing the whole file would miss every
+  // target and silently degrade every part to an inert glyph.
+  const charTable = (data.hanja && data.hanja.chars) || {};
   for (const match of result.matches) {
     if (!match || match.kind !== "char") continue;
     const char = typeof match.canonical === "string" ? match.canonical : "";
     if (!char || !hasOwn(table, char)) continue;
     const rows = table[char];
     if (!Array.isArray(rows)) continue;
-    const parts = rows.map((row) => decompRow(row, data.hanja)).filter(Boolean);
+    const parts = rows.map((row) => decompRow(row, charTable)).filter(Boolean);
     if (parts.length) match.parts = parts;
   }
   return result;
