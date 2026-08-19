@@ -3694,7 +3694,7 @@
     }
 
     /* ==================================================================
-     * Recomposition: the "Found in" row and the list view on this surface.
+     * Recomposition: the "Part of" row and the list view on this surface.
      *
      * The fixture DERIVES these lists from the same DECOMP table the Made of
      * rows come from: 革 is a part of 靴 and 鞠, and 人 is credited by 靴's 亻
@@ -3711,9 +3711,9 @@
 
     await embed.searchFor("革");
     await wait(TAIL);
-    check("a character used as a part shows one collapsed Found in row in embed",
+    check("a character used as a part shows one collapsed Part of row in embed",
       !!foundInRow() && api.queryAll(".foundin-row").length === 1 &&
-      foundInRow().textContent === "Found in 2 characters" &&
+      foundInRow().textContent === "Part of 2 characters" &&
       !api.query(".card.foundin") &&
       foundInRow().getAttribute("role") === "button" &&
       foundInRow().getAttribute("tabindex") === "0",
@@ -3729,7 +3729,7 @@
       foundInRows().length === 2 &&
       foundInRows()[0].textContent === "靴신 화Rare  shoe; boot" &&
       foundInRows()[1].textContent === "鞠공 국Rare  leather ball; to rear" &&
-      api.crumbLabels().join(",") === "革,Found in",
+      api.crumbLabels().join(",") === "革,Part of",
       api.viewKeys().join(",") + " | " + api.crumbLabels().join(",") + " | " +
         foundInRows().map(function (r) { return r.textContent; }).join(" | "));
 
@@ -3752,7 +3752,7 @@
     await embed.searchFor("人");
     await wait(TAIL);
     check("an aliased part is credited, and one container reads singular",
-      !!foundInRow() && foundInRow().textContent === "Found in 1 character",
+      !!foundInRow() && foundInRow().textContent === "Part of 1 character",
       foundInRow() && JSON.stringify(foundInRow().textContent));
 
     await embed.searchFor("民");

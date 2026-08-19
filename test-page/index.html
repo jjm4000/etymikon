@@ -4348,7 +4348,7 @@
     }
 
     /* ==================================================================
-     * Recomposition: the "Found in" row and the list view behind it.
+     * Recomposition: the "Part of" row and the list view behind it.
      *
      * The fixture DERIVES these lists from the same DECOMP table the Made of
      * rows come from: 革 is a part of 靴 and 鞠, and 人 is credited by 靴's 亻
@@ -4367,9 +4367,9 @@
     api.hide();
     api.showAt(anchor, fake.__lookup("革").matches);
     await wait(60);
-    check("a character used as a part shows one collapsed Found in row",
+    check("a character used as a part shows one collapsed Part of row",
       !!foundInRow() && api.queryAll(".foundin-row").length === 1 &&
-      foundInRow().textContent === "Found in 2 characters" &&
+      foundInRow().textContent === "Part of 2 characters" &&
       !api.query(".card.foundin") &&
       foundInRow().getAttribute("role") === "button" &&
       foundInRow().getAttribute("tabindex") === "0",
@@ -4393,7 +4393,7 @@
       api.query(".card.foundin .reading-title").textContent === "2 characters contain 革",
       foundInRows().map(function (r) { return r.textContent; }).join(" | "));
     check("the crumb names the list, not the gesture",
-      api.crumbLabels().join(" › ") === "革 › Found in",
+      api.crumbLabels().join(" › ") === "革 › Part of",
       api.crumbLabels().join(" › "));
 
     var callsBeforeDrill = fake.__calls;
@@ -4420,7 +4420,7 @@
     api.showAt(anchor, fake.__lookup("人").matches);
     await wait(60);
     check("an aliased part is credited, and one container reads singular",
-      !!foundInRow() && foundInRow().textContent === "Found in 1 character",
+      !!foundInRow() && foundInRow().textContent === "Part of 1 character",
       foundInRow() && JSON.stringify(foundInRow().textContent));
 
     // Placement, on a card carrying BOTH sections: no fixture character is

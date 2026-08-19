@@ -1488,13 +1488,13 @@ character cards only; no level chips on part rows.
 ## Recomposition (ADDENDUM)
 
 User-directed (2026-08-18): the upward mirror of decomposition. A
-character used as a part in other characters gets a "Found in N
+character used as a part in other characters gets a "Part of N
 characters" row; component-only characters (辶: no compounds, no words)
 finally have card content. Binding architectural property, user-raised:
 recomposition is DERIVED, never stored. There is no reverse list in any
 data file and no build step; the worker computes the index from
 decomp.json at runtime, so any change to a decomposition (pipeline edit,
-dead-end rule change, alias change) changes the Found-in lists on the
+dead-end rule change, alias change) changes the Part-of lists on the
 next worker start with no other work. A test pins the derivation (the
 index is a pure function of the decomp table it was built from).
 
@@ -1523,15 +1523,15 @@ index is a pure function of the decomp table it was built from).
   convention: single call site, reads `foundInCount` plus its predicate.
 - Placement: directly after the Made of row (identity block), before
   Compounds.
-- Collapsed row: "Found in N characters ›" in the used-in row's quiet
+- Collapsed row: "Part of N characters ›" in the used-in row's quiet
   style. Tap navigates (usedIn style, NOT in-place expansion: lists run
   to hundreds for common radicals) to a `foundin:<char>` view titled by
   the part, rows in the homophone-browser format (glyph, eumhun, level
   chip, muted rare), each an ordinary literal drill-down. Crumb label
-  "Found in". Cached per view, scroll restored, no re-query on back.
+  "Part of". Cached per view, scroll restored, no re-query on back.
 - Long lists use the reading-view pagination/preview conventions, which
   for this view means UNCAPPED: the cap exists only where several lists
-  share one view, and a Found-in view always shows exactly one list.
+  share one view, and a Part-of view always shows exactly one list.
 
 ### Tests
 

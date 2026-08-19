@@ -516,7 +516,7 @@
     // An inert part has no reading to show, so the whole row recedes.
     ".madeof-part.inert, .madeof-part.inert .r-glyph { color: var(--faint); }",
     ".card.component .madeof-row { font-size: 11px; }",
-    /* ---- recomposition: "Found in N characters" and its list view ---- */
+    /* ---- recomposition: "Part of N characters" and its list view ---- */
     // Quiet like the used-in row it copies; the list view reuses the reading
     // browser's rows, so there is nothing else to style.
     ".foundin-row {",
@@ -2433,7 +2433,7 @@
     return true;
   }
 
-  // "Found in N characters ›", opening the list as its own view. Reads only
+  // "Part of N characters ›", opening the list as its own view. Reads only
   // `m.foundInCount`; the list is fetched on tap, like the used-in row.
   function appendFoundIn(card, m) {
     if (!recompEnabled(null)) return;
@@ -2444,7 +2444,7 @@
 
     var row = el("div", "entry-row foundin-row nav");
     var text = el("span", "foundin-text");
-    text.appendChild(document.createTextNode("Found in "));
+    text.appendChild(document.createTextNode("Part of "));
     text.appendChild(el("b", null, String(count)));
     text.appendChild(document.createTextNode(
       count === 1 ? " character" : " characters"));
@@ -2464,7 +2464,7 @@
         if (!chars || !chars.length) return;
         pushView({
           key: "foundin:" + char,
-          label: "Found in",
+          label: "Part of",
           matches: [{ kind: "foundin", char: char, rows: chars }]
         });
       });
