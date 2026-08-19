@@ -138,6 +138,11 @@ release:
   design, and faking continuity in an ephemeral surface teaches the wrong
   model. The question later resolved itself when the toolbar popup was
   replaced by the sidebar, which persists for real.
+- **One example sentence per word.** Declined after a mockup and a coverage
+  measurement: the cached kaikki extracts carry sentences for only 7.8% of
+  words, and a sentence on the card duplicates what one click into
+  Wiktionary already gives. Simplicity won. If it ever returns, the natural
+  home is Anki-export enrichment, not the card.
 
 ## Future settings entries
 
@@ -149,8 +154,6 @@ one schema entry plus its feature code:
 
 ## Later / unscheduled
 
-- Character decomposition (國 = 囗 + 或) via the openly licensed cjkvi-ids data
-- One example sentence per word (already present in the cached kaikki extracts)
 - Selection support inside `<textarea>`/`<input>`; `all_frames` for iframes
 - 대법원 인명용 badge ("usable in given names", ~8,000 chars from the Supreme
   Court rules annex; Korean law excludes statutes/rules from copyright, so
