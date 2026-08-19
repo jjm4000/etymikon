@@ -1363,7 +1363,7 @@ character cards only; no level chips on part rows.
   whole IDS (`^𥫗$`), so under skip-through-first every bamboo and jade
   character would have been dropped instead of showing 竹 and 王. The
   same case pins three more aliases, without which their characters
-  drop: 𩙿→食 (57 chars: 飯 館 飮), 𠆢→人 (39: 今 全 余 食), 𦥑→臼
+  drop: 𩙿→食 (57 chars: 飯 館 飮), 𠆢→人 (38: 今 全 余 食), 𦥑→臼
   (11: 學 覺 興). The remaining above-BMP blockers are stroke shapes
   (𠃌 𠃊 𠃍 𠄌) and 𧘇, the bottom of 衣, which have no parent character
   to alias to, so their characters still drop.
