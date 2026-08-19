@@ -3528,7 +3528,9 @@
       !!madeOfRow() && api.queryAll(".madeof-row").length === 1 &&
       madeOfRow().textContent === "Made of 革 + 亻 + 乚 + ㇒" &&
       api.query(".madeof-list").hidden === true &&
-      madeOfRow().getAttribute("aria-expanded") === "false",
+      madeOfRow().getAttribute("aria-expanded") === "false" &&
+      madeOfRow().getAttribute("role") === "button" &&
+      madeOfRow().getAttribute("tabindex") === "0",
       madeOfRow() && JSON.stringify(madeOfRow().textContent));
     check("the section sits after the definitions and before the compounds",
       inDocOrder(api.query(".glosses"), api.query(".madeof")) &&
@@ -3552,7 +3554,8 @@
     check("clickable parts are nav rows, reading-less parts are inert",
       partRows().filter(function (r) { return r.classList.contains("nav"); }).length === 2 &&
       partRows().slice(0, 2).every(function (r) {
-        return r.getAttribute("role") === "button";
+        return r.getAttribute("role") === "button" &&
+          r.getAttribute("tabindex") === "0";
       }) &&
       partRows().slice(2).every(function (r) {
         return r.classList.contains("inert") && !r.classList.contains("nav") &&

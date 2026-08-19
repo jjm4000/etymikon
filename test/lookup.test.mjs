@@ -2706,5 +2706,90 @@ await testAsync("smoke: real extension/data corpus resolves 國民 / 国 / 국�
   );
 });
 
+// --- decomposition against the real emitted decomp.json ------------------
+// No harness covers the shipped file: both pages run on a hand-written fixture.
+// Read-only, and skipped (not failed) if the file is absent.
+
+await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays clickable", async () => {
+  let decomp, chars;
+  try {
+    const [d, h] = await Promise.all([
+      readFile(join(dataDir, "decomp.json"), "utf8"),
+      readFile(join(dataDir, "hanja.json"), "utf8"),
+    ]);
+    decomp = JSON.parse(d);
+    chars = JSON.parse(h).chars;
+  } catch (err) {
+    console.log(`      (skipped — decomp.json unreadable: ${err.code || err.name})`);
+    return;
+  }
+
+  assert.equal(decomp.v, 1);
+  const parts = decomp.parts;
+  assert.ok(parts && typeof parts === "object", "decomp.json must carry a parts map");
+
+  // A row is clickable iff its length is 1 or its slot 2 is a string. The
+  // target is slot 2 when present, else the display glyph itself.
+  const clickable = (row) => row.length === 1 || typeof row[1] === "string";
+  const targetOf = (row) => (typeof row[1] === "string" ? row[1] : row[0]);
+  const glyphs = (ch) => (parts[ch] || []).map((r) => r[0]).join("+");
+
+  // SPEC binding anchors, including the two the above-BMP aliases exist for.
+  assert.equal(glyphs("依"), "亻+衣", "依 = 亻 + 衣");
+  assert.equal(parts["依"][0][1], "人", "亻 aliases to 人");
+  assert.equal(glyphs("學"), "臼+爻+冖+子", "學 = 臼 + 爻 + 冖 + 子");
+  assert.equal(glyphs("疑"), "匕+矢+龴+疋", "疑 = 匕 + 矢 + 龴 + 疋");
+  // 龴 is a reading-less shape row, so it must not be clickable.
+  assert.equal(clickable(parts["疑"][2]), false, "龴 is a reading-less row");
+
+  // ABSENT by rule: 無 substitutes to ？, 乙 is atomic.
+  for (const absent of ["無", "乙"]) {
+    assert.equal(absent in parts, false, `${absent} must have no entry`);
+  }
+
+  // Whole-file invariants. A click can never land nowhere, and nothing the
+  // card renders may be unrenderable.
+  const badTarget = [];
+  const aboveBmp = [];
+  const tooShort = [];
+  const opaque = [];
+  const illegal = [];
+  const ILLEGAL = /[\u2ff0-\u2fff\u303e{}？]/;
+  for (const [ch, rows] of Object.entries(parts)) {
+    if (rows.length < 2) tooShort.push(ch);
+    let anyResolves = false;
+    for (const row of rows) {
+      const g = row[0];
+      if ([...g].some((c) => c.codePointAt(0) > 0xffff)) aboveBmp.push(`${ch}:${g}`);
+      if (ILLEGAL.test(g)) illegal.push(`${ch}:${g}`);
+      if (!clickable(row)) continue;
+      const t = targetOf(row);
+      if (Object.prototype.hasOwnProperty.call(chars, t)) anyResolves = true;
+      else badTarget.push(`${ch}:${g}->${t}`);
+    }
+    if (!anyResolves) opaque.push(ch);
+  }
+  assert.deepEqual(aboveBmp.slice(0, 5), [], `${aboveBmp.length} parts above the BMP`);
+  assert.deepEqual(illegal.slice(0, 5), [], `${illegal.length} parts carry IDC or placeholder characters`);
+  assert.deepEqual(tooShort.slice(0, 5), [], `${tooShort.length} entries with fewer than 2 parts`);
+  assert.deepEqual(badTarget.slice(0, 5), [], `${badTarget.length} clickable parts miss hanja.json`);
+  assert.deepEqual(opaque.slice(0, 5), [], `${opaque.length} entries resolve to no dictionary character`);
+
+  // The emit is restricted to hanja.json characters: the runtime never asks
+  // about anything else.
+  const stray = Object.keys(parts).filter(
+    (ch) => !Object.prototype.hasOwnProperty.call(chars, ch)
+  );
+  assert.deepEqual(stray.slice(0, 5), [], `${stray.length} decomposed chars are not in hanja.json`);
+
+  const rowCount = Object.values(parts).reduce((n, r) => n + r.length, 0);
+  const clicky = Object.values(parts).reduce((n, r) => n + r.filter(clickable).length, 0);
+  console.log(
+    `      (decomp ${Object.keys(parts).length} chars, ${rowCount} part rows, ` +
+      `${clicky} clickable, ${rowCount - clicky} reading-less; ` +
+      `every target in hanja.json; every glyph BMP)`
+  );
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
