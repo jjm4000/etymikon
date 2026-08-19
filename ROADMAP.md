@@ -70,6 +70,13 @@ the 1.0 review clears anyway.
   appear on every card and target the hanja-titled page where that page hosts
   the fuller CJK entry (`hp`). Badges became a declarative registry; gloss
   cleaning no longer eats quoted glosses.
+- **Hedging is a group verdict.** The "likely native Korean" banner and
+  the muted card styling appear only when every hanja spelling of a
+  hangul-sourced word is rare. In a mixed group (가장: 家長 beside the
+  rare 假裝) the card stays normal on every chip, and the chip's own
+  RARE marker carries the rarity. The renderer had drifted to judging
+  the selected spelling alone, which claimed a demonstrably Sino-Korean
+  word was likely native.
 - **Wiki links open in a background tab on every surface.** A foreground
   open would destroy ephemeral surfaces mid-read. Covered by the harness.
 - **Resizable popup**: per-page-visit size. Persistence across visits was
