@@ -1473,6 +1473,10 @@ def verify(hanja_obj, words_obj, variants_obj, rr_obj=None, decomp_obj=None):
             # dead-end rule: 雔 has no card and splits cleanly into two 隹,
             # so 雙 shows 隹 + 隹 + 又 instead of an inert 雔 row.
             ("雙", [["隹"], ["隹"], ["又"]]),
+            # supplement alias + substantiality together: ⺊ aliases to 卜
+            # (2 strokes), which is what keeps 上 emitted at all.
+            ("上", [["⺊", "卜"], ["一"]]),
+            ("玉", [["王"], ["丶"]]),
         ]
         bad = ["%s -> %s (want %s)" % (c, json.dumps(dp.get(c), ensure_ascii=False),
                                        json.dumps(want, ensure_ascii=False))
@@ -1481,9 +1485,11 @@ def verify(hanja_obj, words_obj, variants_obj, rr_obj=None, decomp_obj=None):
             "%d/%d pass%s" % (len(d_anchors) - len(bad), len(d_anchors),
                               "" if not bad else "; FAILED " + "; ".join(bad)))
         # 無 is ⿱{56}灬 and {56} substitutes to ？; 乙 and 一 are their own
-        # IDS, so they have one part and fail the visibility rule.
-        absent = [c for c in ("無", "乙", "一") if c in dp]
-        add("decomp absences (無 placeholder, 乙/一 atomic)", not absent,
+        # IDS, so they have one part and fail the visibility rule; 心, 戈
+        # and 竹 split into single strokes only, which the substantiality
+        # rule suppresses.
+        absent = [c for c in ("無", "乙", "一", "心", "戈", "竹") if c in dp]
+        add("decomp absences (placeholder, atomic, strokes-only)", not absent,
             "present but should not be: %s" % (absent or "(none)"))
         # Negative invariants over the whole emit.
         bad_char, short, blind = [], [], []
@@ -2107,9 +2113,19 @@ def main(argv):
     # ---- decomp.json (SPEC character-decomposition addendum) ----------
     # Built last: the visibility rule and the click targets both need the
     # finished chars_out key set to know what the dictionary can open.
+    # kTotalStrokes feeds the substantiality rule (a split of nothing but
+    # single strokes shows no row).
+    uni_strokes = {}
+    with zipfile.ZipFile(UNIHAN_FILE) as z:
+        for raw in z.read("Unihan_IRGSources.txt").decode("utf-8").splitlines():
+            if raw.startswith("#"):
+                continue
+            p = raw.split("\t")
+            if len(p) == 3 and p[1] == "kTotalStrokes":
+                uni_strokes[chr(int(p[0][2:], 16))] = int(p[2].split()[0])
     with open(IDS_FILE, "r", encoding="utf-8-sig") as fh:
         decomp_obj, decomp_stats = decomp.build(fh.read(), set(chars_out),
-                                                uni_defs)
+                                                uni_defs, uni_strokes)
     log("  decomp: %s of %s chars decomposed (%s parts, %s aliased, %s named "
         "shape rows, %s unnamed)"
         % (format(decomp_stats["emitted"], ","),
@@ -2126,6 +2142,8 @@ def main(argv):
            format(decomp_stats["placeholder"], ","),
            format(decomp_stats["skipthrough"], ","),
            format(decomp_stats["visibility"], ",")))
+    log("  decomp suppressed: %s substantiality (splits of single strokes "
+        "only)" % format(decomp_stats["insubstantial"], ","))
 
     # ---- emit ---------------------------------------------------------
     hanja_obj = {"version": 1, "chars": chars_out}

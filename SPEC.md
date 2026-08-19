@@ -1398,8 +1398,11 @@ character cards only; no level chips on part rows.
   Radicals Supplement blocks, plus a pinned hand table for
   non-normalizing forms (at minimum 亻→人, 訁→言, 釒→金, 𥫗→竹,
   𤣩→王, 氵→水, 忄→心, 扌→手, 犭→犬, 衤→衣, 礻→示, 刂→刀, 灬→火,
-  ⺌→小, 艹→艸, ⺼→肉, ⺝→月, 罒→网, ⻏→邑, 阝→阜, and the three the IDS
-  file's own section 7 names: 糹→糸, 飠→食, 牜→牛). The DISPLAY glyph
+  ⺌→小, 艹→艸, ⺼→肉, ⺝→月, 罒→网, ⻏→邑, 阝→阜, the three the IDS
+  file's own section 7 names: 糹→糸, 飠→食, 牜→牛, and the Radicals
+  Supplement forms Unicode gives no NFKD decomposition, targets read off
+  the Unicode names: ⺂→乙, ⺄→乙, ⺆→冂, ⺈→刀, ⺊→卜, ⺕→彐, ⺗→心,
+  ⺻→聿; ⺀ stays unaliased, it has no single parent). The DISPLAY glyph
   stays as written in the IDS (the card shows 亻, not 人); the alias
   affects only the reading/click target.
 - Aliasing runs BEFORE skip-through, and an aliased part above the BMP
@@ -1417,6 +1420,16 @@ character cards only; no level chips on part rows.
   dictionary character. Stroke-soup splits of simple characters (匕 =
   乚 + ㇒) and fully-opaque splits are suppressed; the card then simply
   has no Made of row, exactly like an atomic character.
+- Substantiality rule (user-directed 2026-08-18): additionally, at least
+  one part must carry Unihan kTotalStrokes >= 2 (checked on the display
+  glyph and its target). Rationale: every glyph is trivially made of
+  strokes, so a split of nothing but single strokes carries no
+  information, and cardedness alone does not filter it because Korean
+  tradition gives some strokes dictionary entries (丶 점 주 let 心 =
+  curve + dots through). Drops ~36 primitives (心 戈 竹 舟 小 川 寸
+  numerals), every one an atom whose correct pedagogy is no row. The
+  alias table must be right FIRST: 上 and 尹 fail only when their
+  supplement forms (⺊ ⺕) miss their aliases.
 - Emit `extension/data/decomp.json`:
   `{v:1, parts: {char: [[g], [g,t], [g,null,n], [g,null], ...]}}` where
   `g` is the display glyph, `t` the dictionary character its row opens

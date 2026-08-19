@@ -48,6 +48,12 @@ RADICAL_ALIASES = {
     # use (57 chars, 飯 館 飮), 𠆢 the 人 top (39 chars, 今 全 余 食), 𦥑 the
     # two-hands form filed under radical 134 (11 chars, 學 覺 興).
     "𩙿": "食", "𠆢": "人", "𦥑": "臼",
+    # Radicals Supplement forms with no NFKD decomposition, so the block
+    # scan in alias() has nothing to undo. Targets read off the Unicode
+    # names (SECOND ONE -> 乙 etc.). ⺀ is deliberately absent: it has no
+    # single parent to name.
+    "⺂": "乙", "⺄": "乙", "⺆": "冂", "⺈": "刀", "⺊": "卜",
+    "⺕": "彐", "⺗": "心", "⺻": "聿",
 }
 
 # Skip-through recursion cap (SPEC). Real chains are 1-2 deep; the cap only
@@ -218,18 +224,25 @@ def short_name(defn: str) -> str:
 
 # ---------------------------------------------------------------- build
 
-def build(ids_text: str, dict_chars, unihan_defs):
+def build(ids_text: str, dict_chars, unihan_defs, unihan_strokes=None):
     """decomp.json object plus a counts dict.
 
     Emitted only for characters the dictionary has a card for; the runtime
     never asks about anything else.
     """
     seqs, placeholders = parse_ids(ids_text)
+    strokes = unihan_strokes or {}
     parts_out = {}
     stats = {"considered": 0, "nosource": 0,
              "operator": 0, "placeholder": 0, "skipthrough": 0,
-             "visibility": 0, "emitted": 0, "rows": 0, "aliased": 0,
-             "named": 0, "unnamed": 0, "deadend": 0}
+             "visibility": 0, "insubstantial": 0, "emitted": 0, "rows": 0,
+             "aliased": 0, "named": 0, "unnamed": 0, "deadend": 0}
+
+    def substantial(g, t):
+        """More than a pen stroke: kTotalStrokes >= 2 on the display glyph
+        or its target. Every glyph is trivially made of strokes, so a
+        split of nothing but strokes carries no information."""
+        return max(strokes.get(g, 0), strokes.get(t, 0)) >= 2
 
     def expand_dead(g, depth):
         """Dead-end rule (SPEC): a card-less part is replaced by its own
@@ -277,6 +290,12 @@ def build(ids_text: str, dict_chars, unihan_defs):
         # stroke soup (匕 = 乚 + ㇒), and the card is better with no row.
         if len(pairs) < 2 or not any(t in dict_chars for _, t in pairs):
             stats["visibility"] += 1
+            continue
+        # Substantiality: at least one part must be more than a single
+        # stroke. Korean tradition gives some strokes dictionary entries
+        # (丶 점 주), so cardedness alone let 心 = curve + dots through.
+        if not any(substantial(g, t) for g, t in pairs):
+            stats["insubstantial"] += 1
             continue
         rows = []
         for g, t in pairs:

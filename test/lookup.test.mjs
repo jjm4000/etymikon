@@ -2889,6 +2889,13 @@ await testAsync("smoke: real decomp.json decomposes 依 / 學 / 疑 and stays cl
     assert.equal(absent in parts, false, `${absent} must have no entry`);
   }
 
+  // ABSENT by the substantiality rule: splits of single strokes only.
+  for (const absent of ["心", "戈", "竹"]) {
+    assert.equal(absent in parts, false, `${absent} must have no entry`);
+  }
+  // The supplement aliases are what keep 上 emitted under that rule.
+  assert.deepEqual(parts["上"], [["⺊", "卜"], ["一"]], "上 = ⺊(→卜) + 一");
+
   // Whole-file invariants. A click can never land nowhere, and nothing the
   // card renders may be unrenderable.
   const badTarget = [];
