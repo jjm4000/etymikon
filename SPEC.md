@@ -319,10 +319,14 @@ Service worker behavior:
   (distinct surfaces, unmatched chars) are untouched by a chip swap.
 - Word cards: display `canonical` (hanja) as the big text with `hangul` beside
   it — `surface` may be either script depending on what was highlighted.
-- Rare homographs (ADDENDUM): a HANGUL-sourced word match with `rare: true`
-  renders hedged — muted styling under a small label in the house label style,
-  e.g. "RARE HANJA HOMOGRAPH", communicating "the word you selected is likely
-  native Korean; an obscure hanja spelling happens to exist." When a hangul
+- Rare homographs (ADDENDUM): a HANGUL-sourced word card whose spellings are
+  ALL `rare: true` renders hedged — muted styling under a small label in the
+  house label style, e.g. "RARE HANJA HOMOGRAPH", communicating "the word you
+  selected is likely native Korean; an obscure hanja spelling happens to
+  exist." The verdict is a property of the GROUP, never of the selected
+  spelling: a single non-rare sibling (가장: 家長 beside rare 假裝) proves the
+  word Sino-Korean, so neither the banner nor the muted card styling may
+  appear on any chip of a mixed group. When a hangul
   span yields ONLY rare matches, the whole card group gets this treatment; when
   rare and non-rare spellings mix in a homograph selector, rare chips are muted
   and marked (e.g. superscript "rare") while the card stays normal. Component

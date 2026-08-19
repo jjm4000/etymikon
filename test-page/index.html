@@ -2021,12 +2021,20 @@
 
     api.queryAll(".spell-chip")[2].click();     // select the rare spelling
     await wait(90);
-    check("selecting the rare chip hedges the card",
-      !!api.query(".card.hedged") &&
+    // Hedging is a group verdict: a non-rare sibling (詐欺) proves the word
+    // Sino-Korean, so even the rare spelling renders unhedged. The chip's own
+    // RARE superscript is the only rarity marker in a mixed group.
+    check("rare chip in a MIXED group does NOT hedge the card",
+      !api.query(".card.hedged") &&
+      api.queryAll(".hedge:not(:empty)").length === 0 &&
       api.query(".word-body .surface").textContent === "沙器");
+    check("rare spelling's headword keeps normal (unmuted) color",
+      getComputedStyle(api.query(".word-body .surface")).color ===
+        api.panelStyle("color"),
+      getComputedStyle(api.query(".word-body .surface")).color);
     api.queryAll(".spell-chip")[0].click();     // back to a normal spelling
     await wait(90);
-    check("selecting a normal chip un-hedges the card",
+    check("normal chip stays unhedged too",
       !api.query(".card.hedged") && api.queryAll(".hedge:not(:empty)").length === 0);
 
     // --- gloss-less data must render without blanks ---------------------

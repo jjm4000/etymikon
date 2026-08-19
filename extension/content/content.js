@@ -2135,12 +2135,19 @@
     });
   }
 
-  // A rare spelling only warrants hedging when the user highlighted HANGUL:
-  // then the word is probably native Korean and the hanja spelling is a
-  // coincidence. If they highlighted the hanja itself, the flag is ignored.
-  function isHedged(m) {
-    if (!m || m.rare !== true) return false;
-    var surface = nonEmptyString(m.surface);
+  // Hedging is a GROUP verdict, not a spelling verdict: the banner claims the
+  // word is likely native Korean, which is only defensible when EVERY hanja
+  // spelling of the group is rare. In a mixed group (가장: 家長 + rare 假裝)
+  // the word is demonstrably Sino-Korean, so selecting a rare chip must not
+  // hedge; the chip's own RARE marker carries the rarity. And only when the
+  // user highlighted HANGUL: if they highlighted the hanja itself, the flag
+  // is ignored.
+  function isHedged(items) {
+    if (!items || !items.length) return false;
+    for (var i = 0; i < items.length; i++) {
+      if (!items[i] || items[i].rare !== true) return false;
+    }
+    var surface = nonEmptyString(items[0].surface);
     return !!surface && !HAN_RE.test(surface);
   }
 
@@ -2149,7 +2156,7 @@
     closeSaveBubble();   // the body carrying it is about to be refilled
     syncChips(state);
     var m = state.items[state.index];
-    var hedged = isHedged(m);
+    var hedged = isHedged(state.items);
     state.card.classList.toggle("hedged", hedged);
     clearNode(state.hedgeBox);
     if (hedged) {
