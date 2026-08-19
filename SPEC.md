@@ -1483,6 +1483,62 @@ character cards only; no level chips on part rows.
   single-call-site check reads content.js over fetch, so it needs the
   repo served over http:// and reports itself skipped on file://.
 
+## Recomposition (ADDENDUM)
+
+User-directed (2026-08-18): the upward mirror of decomposition. A
+character used as a part in other characters gets a "Found in N
+characters" row; component-only characters (辶: no compounds, no words)
+finally have card content. Binding architectural property, user-raised:
+recomposition is DERIVED, never stored. There is no reverse list in any
+data file and no build step; the worker computes the index from
+decomp.json at runtime, so any change to a decomposition (pipeline edit,
+dead-end rule change, alias change) changes the Found-in lists on the
+next worker start with no other work. A test pins the derivation (the
+index is a pure function of the decomp table it was built from).
+
+### Worker
+
+- Lazily built, module-cached index in the readingIndex style: scan
+  decomp.parts once, crediting each row's TARGET (the aliased character:
+  an 亻 row credits 人), deduped per containing char. Cleared with the
+  data cache.
+- Char matches gain `foundInCount` (omitted when 0, usedInCount style).
+- New message type `{type:"foundIn", char}` returns the full list,
+  ranked: by each containing character's cwCount descending (the
+  existing "how much Korean this unlocks" signal), ties by codepoint for
+  determinism. Each entry carries what the reading-list rows need
+  (char, eumhun, lvl, gloss).
+- The character itself never appears in its own list; a char containing
+  the same part twice (雙 contains 隹 twice) appears ONCE in that part's
+  list.
+
+### Renderer (char cards only, both surfaces)
+
+- One self-contained `appendFoundIn(card, m)` per the card section
+  convention: single call site, reads `foundInCount` plus its predicate.
+- Placement: directly after the Made of row (identity block), before
+  Compounds.
+- Collapsed row: "Found in N characters ›" in the used-in row's quiet
+  style. Tap navigates (usedIn style, NOT in-place expansion: lists run
+  to hundreds for common radicals) to a `foundin:<char>` view titled by
+  the part, rows in the homophone-browser format (glyph, eumhun, level
+  chip, muted rare), each an ordinary literal drill-down. Crumb label
+  "Found in". Cached per view, scroll restored, no re-query on back.
+- Long lists use the reading-view pagination/preview conventions.
+
+### Tests
+
+- Node: index derivation from an inline decomp fixture (incl. alias
+  crediting, dedupe of twice-used parts, self-exclusion, ranking rule);
+  DERIVATION pin: rebuild the index from a mutated copy of the table and
+  assert the lists follow the mutation; real-data smokes: 人's list
+  contains 依; 辶's list is non-empty and contains 道; 隹's list
+  contains 雙 once.
+- Harness (fixture blocks byte-identical): row renders with the count;
+  tap opens the view with ranked rows and crumb; drill-down from a row;
+  back restores without re-query; a char used nowhere shows no row;
+  word cards unchanged; single-call-site check for appendFoundIn.
+
 ## Verification expectations
 
 - A: after build, spot-check in the output: 國 has eumhun 나라/국 and compounds;
