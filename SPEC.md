@@ -1305,6 +1305,21 @@ building a speculative language-abstraction layer now. New sections MUST
 follow this; existing sections are brought into line opportunistically
 when touched, never in a big rewrite.
 
+Normative section inventory (user-directed 2026-08-18, the "sections"
+refactor): char cards are exactly appendCharHead (big glyph +
+eumhun/readings line + badges + card actions + wiki link),
+appendVariantNote, appendGlosses, appendMadeOf, appendFoundIn,
+appendCompounds. Word cards are exactly their head section, glosses,
+component-character list, homograph chips, and appendUsedInRow, each as
+one named appendX. Reading cards, group dividers, and list views are
+view-level, NOT card sections, and stay outside this convention.
+Predicates: every section calls its enabled-predicate with settings from
+ONE shared sectionSettings() accessor, which returns null until the
+first real toggle ships (predicates return true on null); populating
+that accessor is the entire plumbing left for the first toggle. The
+refactor that established this was behavior-zero by contract: no CSS
+renames, no DOM changes, byte-identical rendered card HTML.
+
 ## Character decomposition (ADDENDUM)
 
 User-directed (2026-08-18): character cards show what a character is made
