@@ -501,7 +501,11 @@
     // Quiet like the used-in row, except the glyphs themselves, which carry
     // full text colour because they are the content.
     ".madeof { margin: 9px -6px 0; }",
-    ".madeof-row { padding: 4px 6px; color: var(--muted); font-size: 12px; }",
+    // user-select none: a quick second tap on this row is a double-click, and
+    // the word-selection it would create trips makeNavRow's selection guard,
+    // eating the collapse. The row toggles in place, so unlike navigating
+    // rows it gets clicked twice in normal use.
+    ".madeof-row { padding: 4px 6px; color: var(--muted); font-size: 12px; user-select: none; }",
     ".madeof-glyph { font-weight: 600; font-size: 14px; color: var(--fg); }",
     // Open state: the same chevron slot, turned down.
     // Three classes: must outweigh the generic .entry-row.nav::after chevron
