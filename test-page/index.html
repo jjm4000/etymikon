@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Etymikon — content script test page</title>
+<title>Etymikon content script test page</title>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -39,7 +39,7 @@
 </head>
 <body>
 
-<h1>Etymikon — content script test page</h1>
+<h1>Etymikon content script test page</h1>
 <p class="hint">
   Select (highlight) any word below. This page installs a fake
   <code>chrome.runtime</code> that answers the SPEC message protocol
@@ -215,6 +215,13 @@
     berry: {
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
+    },
+    // A shipped word that also shadows an inflection of another one: the
+    // see-also row points at the lemma the reader may have been after.
+    ran: {
+      senses: [{ pos: "noun", defs: ["A coarse mat woven from coir."] }],
+      fr: 47000,
+      seeAlso: "run"
     },
     // The wordmark's own lookup.
     etymology: {
@@ -453,6 +460,7 @@
       var root = ROOTS[entry.org.r];
       if (root && root.gloss) match.org.gloss = root.gloss;
     }
+    if (entry.seeAlso) match.seeAlso = entry.seeAlso;
     if (inflected) match.formOf = { surface: surface, lemma: lemma };
     return match;
   }
@@ -616,7 +624,10 @@
         });
       });
       row.defs = defs;
-      row.tier = tierOf(word.fr);
+      // The export says "Rare", the way the chip says it; the protocol value
+      // stays lowercase.
+      var zone = tier(word.fr);
+      row.tier = zone.charAt(0).toUpperCase() + zone.slice(1);
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
       }
@@ -952,8 +963,11 @@
     return { left: left, top: top, right: left + w, bottom: top + h, width: w, height: h };
   }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
+  // Takes an array (queryAll) or a NodeList (querySelectorAll) alike.
   function texts(nodes) {
-    return nodes.map(function (n) { return n.textContent.trim(); });
+    return Array.prototype.slice.call(nodes).map(function (n) {
+      return n.textContent.trim();
+    });
   }
 
   document.getElementById("run").addEventListener("click", async function () {
@@ -1113,14 +1127,18 @@
 
     // --- the root card ---------------------------------------------------
     check("the root card sections render in SPEC order",
-      sectionOrder().join(" | ") === "head | glosses | label | family",
+      sectionOrder().join(" | ") ===
+        "head | glosses | label | family | fam-more",
       sectionOrder().join(" | "));
     check("the label line says what kind of root this is",
       api.query(".rootlabel").textContent === "Latin root",
       api.query(".rootlabel").textContent);
-    check("a root card renders NO tier chip",
-      api.queryAll(".tier-chip.tier-chip--everyday").length === 8 &&
-      !api.query(".head .tier-chip"),
+    check("a root card renders NO tier chip, though every family row carries one",
+      !api.query(".head .tier-chip") &&
+      api.queryAll(".fam-row").length === 8 &&
+      api.queryAll(".fam-row").every(function (row) {
+        return row.querySelectorAll(".tier-chip").length === 1;
+      }),
       "head chips=" + api.queryAll(".head .tier-chip").length);
     check("the gloss renders as one sense line",
       api.query(".gloss-text").textContent === "Earth, land",
@@ -1264,6 +1282,25 @@
     check("the linked chip beside it still navigates",
       chips[1].classList.contains("nav"));
 
+    // --- the see-also row ---------------------------------------------------
+    show("ran");
+    check("a word that shadows an inflection points at the lemma, last in the card",
+      !!api.query(".origin-row") &&
+      api.query(".origin-row").textContent === "Also a form of run" &&
+      sectionOrder().pop() === "entry-row origin-row nav",
+      sectionOrder().join(" | "));
+    var callsBeforeSeeAlso = fake.__calls;
+    api.query(".origin-row").click();
+    await wait(60);
+    check("the see-also row is an ordinary lookup drill-down",
+      api.viewDepth() === 2 && api.query(".surface").textContent === "run" &&
+      fake.__calls === callsBeforeSeeAlso + 1 &&
+      api.crumbLabels().join(" › ") === "ran › run",
+      api.crumbLabels().join(" › "));
+    show("berry");
+    check("a word with nothing to point at renders no such row",
+      !api.query(".origin-row"));
+
     // --- the inflection note ------------------------------------------------
     show("territories");
     check("the head notes the form that was selected",
@@ -1275,15 +1312,22 @@
       !api.query(".canonical"),
       api.query(".canonical") ? api.query(".canonical").textContent : "");
     // The stale-surface rule: the note belongs to the view that was looked up
-    // from that surface, never to a match cached from an earlier one.
-    var stale = matches("territories");
-    api.showAt(anchor, stale, "terrain");
-    check("a surface the current view was NOT looked up from renders no note",
+    // from that surface, and must not follow the lemma into a later one.
+    show("territories");
+    api.query(".origin-row").click();          // → terra
+    await wait(60);
+    api.queryAll(".fam-row")[0].click();       // → territory, reached as itself
+    await wait(60);
+    check("the note does not follow the lemma into a later view",
+      api.query(".surface").textContent === "territory" &&
       !api.query(".canonical"),
-      api.query(".canonical") ? api.query(".canonical").textContent : "");
-    api.showAt(anchor, stale, "the territories were mapped");
-    check("the same match DOES note it in a view that owns that surface",
-      !!api.query(".canonical"));
+      api.query(".canonical") ? api.query(".canonical").textContent : "no note");
+    api.queryAll(".crumb")[0].click();
+    await wait(60);
+    check("going back to the view that owns the surface restores its note",
+      !!api.query(".canonical") &&
+      api.query(".canonical").textContent === "territories → territory",
+      api.query(".canonical") ? api.query(".canonical").textContent : "no note");
 
     // --- the whole-card rule -------------------------------------------------
     var famCallsBeforeWhole = fake.__familyCalls;
@@ -1375,6 +1419,10 @@
       "calls=" + fake.__familyCalls + " offset=" + fake.__lastFamilyOffset);
 
     // --- geometry ------------------------------------------------------------
+    // Re-read the viewport here rather than trusting the size the page had at
+    // load: the window may have been resized while the suite was running.
+    vw = document.documentElement.clientWidth;
+    vh = document.documentElement.clientHeight;
     show("subterranean");
     var box = api.hostRect();
     check("width ≈ 340", Math.abs(box.width - 340) < 2, "w=" + Math.round(box.width));
@@ -1415,17 +1463,26 @@
     check("the control expands the sense in place and re-labels itself",
       api.query(".clamp.expanded") && api.query(".more").textContent === "less",
       api.query(".more").textContent);
-    api.resizePanel(760, 420);
-    await wait(40);
-    check("a width where the text fits removes the control and the expansion",
-      api.queryAll(".more").length === 0 && !api.query(".clamp.expanded"),
-      "controls=" + api.queryAll(".more").length);
-    api.resizePanel(300, 260);
-    await wait(40);
-    check("re-narrowing brings the control back, collapsed",
-      api.queryAll(".more").length >= 1 && !api.query(".clamp.expanded") &&
-      api.query(".more").textContent === "more",
-      api.query(".more").textContent);
+    // The panel is bounded to 90% of the viewport, so a window too narrow to
+    // hold a width where the sense FITS cannot exercise the geometry rule.
+    var wide = Math.min(760, Math.floor(vw * 0.85));
+    if (wide < 560) {
+      skip("a width where the text fits removes the control and the expansion",
+        "window too narrow (" + vw + "px) to widen the panel past the clamp");
+      skip("re-narrowing brings the control back, collapsed", "same");
+    } else {
+      api.resizePanel(wide, 420);
+      await wait(40);
+      check("a width where the text fits removes the control and the expansion",
+        api.queryAll(".more").length === 0 && !api.query(".clamp.expanded"),
+        "controls=" + api.queryAll(".more").length + " at " + wide + "px");
+      api.resizePanel(300, 260);
+      await wait(40);
+      check("re-narrowing brings the control back, collapsed",
+        api.queryAll(".more").length >= 1 && !api.query(".clamp.expanded") &&
+        api.query(".more").textContent === "more",
+        api.query(".more").textContent);
+    }
     api.resetPanelSize();
 
     // --- the save star and its bubble ------------------------------------------

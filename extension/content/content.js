@@ -2250,9 +2250,9 @@
   }
 
   // Only the CURRENT view is protected from duplication. Arriving at a place
-  // that is further back in the trail is still forward travel — terra › terrain
-  // › terra is a legitimate descent, the same way browser history records a
-  // revisit — so an ancestor match pushes normally rather than collapsing.
+  // further back in the trail is still forward travel: terra › terrain › terra
+  // is a legitimate descent, the way browser history records a revisit, so an
+  // ancestor match pushes normally rather than collapsing.
   function isCurrentView(key) {
     if (!key) return false;
     var top = viewStack[viewStack.length - 1];

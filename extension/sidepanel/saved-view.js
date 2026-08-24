@@ -752,7 +752,12 @@
         filename: filename, format: format, body: res.tsv,
         count: res.count, skipped: res.skipped
       };
-      anchor.click();
+      // The anchor is fully built either way; only the gesture that hands the
+      // file to the browser is skipped when a harness asks for it. A page
+      // driving these checks in a real browser would otherwise open a Save As
+      // dialog per run, and everything worth asserting (href, download name,
+      // format, counts, body) is already on the element and in lastDownload.
+      if (globalThis.__okpyeonSuppressDownload !== true) anchor.click();
       setTimeout(function () { URL.revokeObjectURL(url); }, 0);
       closeActionsInline();
     });
