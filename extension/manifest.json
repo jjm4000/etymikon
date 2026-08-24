@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Okpyeon: Hanja Popup Dictionary",
-  "version": "1.1.0",
-  "description": "A study tool for Korean learners. Highlight hanja, hanzi, or kanji to read them in Korean, or a hangul word to see its hanja.",
+  "name": "Etymikon",
+  "version": "0.1.0",
+  "description": "Select an English word on any page to see its definitions and its morpheme breakdown: subterranean = sub- + terra + -an.",
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -19,7 +19,7 @@
     "default_path": "sidepanel/sidepanel.html"
   },
   "omnibox": {
-    "keyword": "hj"
+    "keyword": "et"
   },
   "content_scripts": [
     {

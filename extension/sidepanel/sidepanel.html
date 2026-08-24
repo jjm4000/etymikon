@@ -2,30 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Okpyeon — Hanja search</title>
+<title>Etymikon</title>
 <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
 
 <div class="app">
   <!--
-    One slim header row. The wordmark is decorative CJK, so it carries
-    role="img" + aria-label to give a screen reader the readable name rather
-    than the two characters. Both containers ship EMPTY and are filled
+    One slim header row. Both containers ship EMPTY and are filled
     declaratively from sidepanel.js: #okp-actions from HEADER_ACTIONS,
     #okp-nav from SIDEBAR_VIEWS (which renders tabs only once a second view
-    exists, so the nav is invisible today).
+    exists).
   -->
   <header class="header">
     <button type="button" id="okp-brand" class="brand"
-            aria-label="Okpyeon: look up 玉篇" title="Look up 玉篇">玉篇</button>
+            aria-label="Etymikon" title="Look up etymology">Etymikon</button>
     <nav id="okp-nav" class="nav" aria-label="Views"></nav>
     <div id="okp-actions" class="actions"></div>
   </header>
   <div class="searchbar">
     <input id="okp-input" type="text" class="query"
-           placeholder="한자 · 한글 · 음절"
-           aria-label="Search hanja, a sino-Korean word, or a single syllable"
+           placeholder="Search a word or a root"
+           aria-label="Search an English word or a root"
            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
   </div>
   <!--

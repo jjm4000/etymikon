@@ -34,7 +34,13 @@ needs its full binding detail.
   root card. Root cards are for affixes and Latin/Greek lemmas only.
 - Dictionary cap, the hybrid rule: every dictionary word ranked in the
   top 50,000 of the frequency list ships unconditionally; beyond rank
-  50,000 a word ships only if it carries a morpheme breakdown.
+  50,000 a word ships only if it carries a morpheme breakdown AND is
+  attested anywhere in the frequency corpus. The attestation clause was
+  added at build bring-up (2026-08-24, flagged for owner ratification):
+  without it Wiktionary's ~270k unattested affix coinages
+  (nanovoltmeter, extremistical) ship and words.json is 53 MB; with it
+  the dictionary is 76,496 words at 17.9 MB and the tail stays real
+  (snarkiness, parapsychological, glucoside).
   Proper-noun-only entries never ship.
 - Word tiers, from frequency rank: Everyday (rank 1 to 3,000), Common
   (to 15,000), Advanced (to 50,000), Rare (beyond, and unranked). Roots
@@ -102,11 +108,21 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   `[{ "f": "muse", "w": "muse" }, { "f": "-ic", "r": "en:-ic" }]`.
 - `fr`: rank in the frequency list; omitted when unranked. Tier is
   derived at runtime from `fr` by one pure function in lookup.js
-  (cutoffs 3000/15000/50000); tiers are never stored.
+  (cutoffs 3000/15000/50000); tiers are never stored in data files.
+  The worker DOES join the derived `tier` string
+  ("everyday" | "common" | "advanced" | "rare") onto every word match
+  and family row, because the renderer is a classic script that cannot
+  import lookup.js; the cutoffs still live in exactly one place.
 - `org`: optional origin chain, present when the word has no `morphs`
   but its etymology chain reaches a shipped Latin/Greek root:
   `"org": { "r": "la:terra", "f": "terra" }`. A word never carries both
   `morphs` and `org`.
+- `fo`: optional, on shipped words that ALSO carry form-of senses
+  pointing at a shipped lemma (ran has a marginal noun sense, so it
+  ships as a word and shadows run at lookup time): the lemma key.
+  Rationale: a reader selecting "ran" wants run; the shadow entry must
+  hand them a way there. The worker passes it through as `seeAlso` on
+  the word match and the renderer shows a quiet nav row (below).
 
 ### roots.json
 
@@ -156,7 +172,7 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 ### forms.json
 
 ```json
-{ "v": 1, "map": { "territories": "territory", "ran": "run" } }
+{ "v": 1, "map": { "territories": "territory", "walked": "walk" } }
 ```
 
 - Inflected form to lemma, harvested from kaikki form-of entries.
@@ -211,10 +227,16 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 ```
 
 - `family`: the first 8 of the derived index (ranked as specified under
-  roots.json), each with the word's first def and `fr`.
-- `{ "type": "family", "key": "la:terra" }` returns the full ranked
-  list in the same row shape (the compounds/`cw` pattern: the paginated
-  "Show 5 more (N)" UI requests it once and pages locally).
+  roots.json), each with the word's first def, `fr`, and `tier`.
+- `{ "type": "family", "key": "la:terra", "offset": 0 }` returns ONE
+  CHUNK of the ranked list: `{ "ok": true, "rows": [...], "total": N,
+  "offset": 0 }`, chunk size 200, same row shape. Rationale (found in
+  build bring-up, 2026-08-24): Germanic affix families run to five
+  figures (en:-ly builds 14,335 shipped words, about 1 MB serialized),
+  so the old fetch-once contract is replaced by chunks. The UI's "Show
+  5 more (N)" pages locally within fetched chunks and requests the
+  next chunk only when its local rows are exhausted. The whole-card
+  rule keys on `total` against the inline cap. `offset` defaults to 0.
 - Unknown key: `{ "ok": true, "root": null }`.
 
 `{ "type": "openTab", "url" }` carries over unchanged, validating the
@@ -274,6 +296,9 @@ Sections in order:
   style: "From Latin terra (earth, land) ›", navigating to the root
   card. Absent when no `org`. A word card never renders both this and
   the breakdown (data invariant).
+- `appendSeeAlso`: for matches carrying `seeAlso`, one quiet nav row
+  last in the word body: "Also a form of run ›", an ordinary lookup
+  drill-down to the lemma. Absent otherwise.
 
 ### Root card
 
@@ -320,7 +345,11 @@ tier chip; the family count line is the root's weight signal.
   `buildOmniboxSuggestions(text, data)`: prefix matches on word keys
   first (ranked by `fr`), then root forms (ranked by family count),
   max 5, description shows the first gloss, content is the canonical
-  key. The pending-query handshake and sidebar retarget carry over
+  key. For root rows the canonical key IS the root key (la:terra,
+  en:-ful), so the search shell detects `^(en|la|grc):` on any typed
+  or handed-off query (typed input, ?q= deep link, pending query) and
+  requests `{type:"root", key}` instead of a lookup; all other queries
+  stay ordinary lookups. The pending-query handshake and sidebar retarget carry over
   unchanged.
 - Saved items: `kind` is `"word"` or `"root"`, `key` is the word key or
   root key. The bubble, folders, grouped saved view, live star sync all
@@ -387,7 +416,10 @@ Parsing rules, English extract:
   but, been, little, no, none, never, yeah; `FORCED_SPLITS`, hand
   splits that override harvest; `ROOT_ALIASES`, surface form to root
   key (terr- to la:terra); `ROOT_SKIPS`, chain nodes never emitted as
-  roots (Old French steps, Middle English steps). Every list is data,
+  roots (Old French steps, Middle English steps); `ROOT_GLOSSES`,
+  hand glosses overriding the harvested one where Wiktionary's sense
+  ordering picks a bad card gloss, seeded with en:-ness, en:-ly, and
+  en:-y (their harvested first senses are usage notes, not glosses). Every list is data,
   reviewed in PR diffs, and each entry carries a one-line reason
   comment.
 - Origin chains: for words without an accepted split, walk der/bor/inh
@@ -435,17 +467,23 @@ when an anchor breaks; anchors are verified against the source before
 being asserted here, and this list is corrected to match reality, never
 silently diverged from):
 
-- Provisional anchors, to verify and pin during build bring-up:
+- Anchors, verified against the extracts and pinned 2026-08-24:
   information = inform + -ation; security = secure + -ity; television =
-  tele- + vision; impossible = im- + possible; music = muse + -ic;
-  subterranean resolves a breakdown containing a terra-rooted morpheme;
-  music = muse + -ic with muse as a `w` chip; beautiful = beauty + -ful
-  with en:-ful shipping as a root; en:un- ships with a family of 5 or
-  more; la:terra ships with gloss containing "earth" and family
-  containing terrain and territory; understand ships with no morphs
-  (BLOCKED);
-  had ships (or resolves) with no morphs (inflectional); "running"
-  resolves to run via forms.json; "territories" to territory.
+  tele- + vision; impossible = im- + possible; music = muse + -ic with
+  muse as a `w` chip; subterranean resolves a breakdown containing a
+  terra-rooted morpheme (via FORCED_SPLITS: the extract analyses the
+  word as Latin subterrāneus + -an, which puts a macronised Latin word
+  on a chip); beautiful = beauty + -ful with en:-ful shipping as a
+  root; en:un- ships with a family of 5 or more; la:terra ships with
+  gloss containing "land" (the Latin extract's first sense reads "dry
+  land", verified 2026-08-24) and family containing terrain and
+  territory; understand ships with no morphs (BLOCKED); had ships with
+  no morphs (its -ed split is inflectional, and it carries auxiliary
+  senses of its own so it is a word, not a forms.json entry); "running"
+  ships as a word with no morphs (same reason: it carries adjective,
+  adverb and noun senses, so it is not in forms.json either);
+  "territories" resolves to territory via forms.json, "walked" to walk,
+  "children" to child.
 - Distribution sanity, printed in the build report: total words around
   81k (46k ranked plus the split-bearing tail, both moving with the
   corpus), morphs coverage 18 to 25% of ranked words, roots in the low

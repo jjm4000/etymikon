@@ -1,5 +1,5 @@
 /**
- * Okpyeon — pure saved-words + settings logic.
+ * Etymikon: pure saved-items and settings logic.
  *
  * This module deliberately contains NO chrome.* API usage so that it can be
  * imported and unit-tested in plain Node (see test/lookup.test.mjs), exactly
@@ -7,8 +7,14 @@
  * read storage -> call a function here -> write the returned state back.
  *
  * Every function takes state in and returns NEW state; input state is never
- * mutated. Implements SPEC.md "Saved words + settings (ADDENDUM)".
+ * mutated. Implements SPEC.md "Saved items" plus the Anki and CSV field spec.
+ *
+ * The one import is ./lookup.js, the sibling pure module, for the tier
+ * function and the root label line. Both must have exactly one definition in
+ * the extension, and that definition is there.
  */
+
+import { rootLabel, tierOf, TIER_LABELS } from "./lookup.js";
 
 /** Schema version of the `okpSaved` record. */
 export const SAVED_VERSION = 1;
@@ -20,32 +26,41 @@ export const DEFAULT_FOLDER_ID = "f0";
 /** Name given to the default folder when storage carries none. */
 export const DEFAULT_FOLDER_NAME = "Saved";
 
-/** Anki field tokens for word items. */
-export const WORD_FIELDS = ["hanja", "hangul", "defs"];
-/** Anki field tokens for character items. */
-export const CHAR_FIELDS = ["char", "eumhun", "readings", "defs", "lvl"];
+/** Anki front tokens for word items. */
+export const WORD_FRONT_FIELDS = ["word", "defs"];
+/** Anki back tokens for word items. */
+export const WORD_BACK_FIELDS = ["word", "defs", "breakdown", "tier"];
+/** Anki front tokens for root items. */
+export const ROOT_FRONT_FIELDS = ["root", "gloss"];
+/** Anki back tokens for root items. */
+export const ROOT_BACK_FIELDS = ["root", "source", "gloss", "family"];
+
+/** The Anki family field lists this many words. */
+export const FAMILY_FIELD_WORDS = 5;
 
 /** SPEC defaults for `okpSettings`. */
 export const DEFAULT_SETTINGS = Object.freeze({
   v: SETTINGS_VERSION,
   defaultFolderId: DEFAULT_FOLDER_ID,
   anki: Object.freeze({
-    wordFront: "hanja",
-    wordBack: Object.freeze(["hangul", "defs"]),
-    charFront: "char",
-    charBack: Object.freeze(["eumhun", "defs"]),
+    wordFront: "word",
+    wordBack: Object.freeze(["defs", "breakdown"]),
+    rootFront: "root",
+    rootBack: Object.freeze(["gloss", "family"]),
   }),
 });
 
-/** Columns of the CSV export, in order. */
+/**
+ * Columns of the CSV export, in order. The `defs` column carries the
+ * definitions of a word row and the gloss of a root row: one text column, per
+ * the SPEC's "defs/gloss".
+ */
 export const CSV_COLUMNS = [
   "kind",
   "key",
-  "hangul",
-  "eumhun",
-  "readings",
-  "definitions",
-  "level",
+  "defs",
+  "breakdown",
+  "tier",
   "folder",
   "added",
 ];
@@ -54,14 +69,21 @@ export const CSV_COLUMNS = [
 const FIELD_SEPARATOR = " · ";
 /** Separator between the entries inside one multi-value field. */
 const ENTRY_SEPARATOR = ", ";
+/** Separator between the morphemes of a breakdown. */
+const MORPH_SEPARATOR = " + ";
 
 const hasOwn = (obj, key) =>
   obj !== null && typeof obj === "object" &&
   Object.prototype.hasOwnProperty.call(obj, key);
 
-/** The `savedCheck` map key for an identity: "c:<glyph>" / "w:<spelling>". */
+/** The `savedCheck` map key for an identity: "r:<root key>" / "w:<word>". */
 export function savedMapKey(kind, key) {
-  return `${kind === "char" ? "c" : "w"}:${key}`;
+  return `${kind === "root" ? "r" : "w"}:${key}`;
+}
+
+/** The two saved kinds, or null for anything else. */
+function validKind(kind) {
+  return kind === "root" ? "root" : kind === "word" ? "word" : null;
 }
 
 /** Numeric tail of an "f12" / "i7" style id, or null when the id is not one. */
@@ -115,8 +137,8 @@ export function normalizeSavedState(raw) {
   const identities = new Set();
   for (const item of Array.isArray(src.items) ? src.items : []) {
     if (item === null || typeof item !== "object") continue;
-    const kind = item.kind === "char" ? "char" : item.kind === "word" ? "word" : null;
-    const key = typeof item.key === "string" ? item.key.normalize("NFC") : "";
+    const kind = validKind(item.kind);
+    const key = typeof item.key === "string" ? item.key : "";
     if (kind === null || key === "") continue;
     const identity = savedMapKey(kind, key);
     if (identities.has(identity)) continue;
@@ -200,10 +222,10 @@ export function normalizeSettings(raw, savedState) {
     v: SETTINGS_VERSION,
     defaultFolderId,
     anki: {
-      wordFront: oneOf(anki.wordFront, WORD_FIELDS, DEFAULT_SETTINGS.anki.wordFront),
-      wordBack: manyOf(anki.wordBack, WORD_FIELDS, DEFAULT_SETTINGS.anki.wordBack),
-      charFront: oneOf(anki.charFront, CHAR_FIELDS, DEFAULT_SETTINGS.anki.charFront),
-      charBack: manyOf(anki.charBack, CHAR_FIELDS, DEFAULT_SETTINGS.anki.charBack),
+      wordFront: oneOf(anki.wordFront, WORD_FRONT_FIELDS, DEFAULT_SETTINGS.anki.wordFront),
+      wordBack: manyOf(anki.wordBack, WORD_BACK_FIELDS, DEFAULT_SETTINGS.anki.wordBack),
+      rootFront: oneOf(anki.rootFront, ROOT_FRONT_FIELDS, DEFAULT_SETTINGS.anki.rootFront),
+      rootBack: manyOf(anki.rootBack, ROOT_BACK_FIELDS, DEFAULT_SETTINGS.anki.rootBack),
     },
   };
 }
@@ -217,12 +239,12 @@ export function normalizeSettings(raw, savedState) {
  */
 export function toggleItem(state, kind, key, defaultFolderId, now) {
   const next = normalizeSavedState(state);
-  const validKind = kind === "char" ? "char" : kind === "word" ? "word" : null;
-  const cleanKey = typeof key === "string" ? key.normalize("NFC") : "";
-  if (validKind === null || cleanKey === "") return { state: next, saved: false };
+  const clean = validKind(kind);
+  const cleanKey = typeof key === "string" ? key : "";
+  if (clean === null || cleanKey === "") return { state: next, saved: false };
 
   const index = next.items.findIndex(
-    (item) => item.kind === validKind && item.key === cleanKey
+    (item) => item.kind === clean && item.key === cleanKey
   );
   if (index !== -1) {
     const items = next.items.filter((_, i) => i !== index);
@@ -234,7 +256,7 @@ export function toggleItem(state, kind, key, defaultFolderId, now) {
     : DEFAULT_FOLDER_ID;
   const item = {
     id: `i${next.nextItem}`,
-    kind: validKind,
+    kind: clean,
     key: cleanKey,
     folderId,
     addedAt: Number.isFinite(now) && now >= 0 ? now : 0,
@@ -252,7 +274,7 @@ export function toggleItem(state, kind, key, defaultFolderId, now) {
  *
  * @param {object} state saved state
  * @param {Array<{kind:string, key:string}>} keys
- * @returns {Record<string, boolean>} keyed "c:<key>" / "w:<key>"
+ * @returns {Record<string, boolean>} keyed "r:<key>" / "w:<key>"
  */
 export function checkKeys(state, keys) {
   const next = normalizeSavedState(state);
@@ -260,8 +282,8 @@ export function checkKeys(state, keys) {
   const out = {};
   for (const entry of Array.isArray(keys) ? keys : []) {
     if (entry === null || typeof entry !== "object") continue;
-    const kind = entry.kind === "char" ? "char" : entry.kind === "word" ? "word" : null;
-    const key = typeof entry.key === "string" ? entry.key.normalize("NFC") : "";
+    const kind = validKind(entry.kind);
+    const key = typeof entry.key === "string" ? entry.key : "";
     if (kind === null || key === "") continue;
     const mapKey = savedMapKey(kind, key);
     out[mapKey] = saved.has(mapKey);
@@ -291,7 +313,7 @@ export function createFolder(state, name) {
 }
 
 /**
- * Rename a folder. f0 may be renamed, but never to an empty name — it is the
+ * Rename a folder. f0 may be renamed, but never to an empty name: it is the
  * one folder that must always be nameable in the UI.
  * @returns {{state:object, folder:object|null, error:string|null}}
  */
@@ -390,114 +412,125 @@ export function resolveExportSelection(state, selection) {
   return sel.all === true ? next.items.slice() : [];
 }
 
-/** Merge the glosses of every homograph sense, in order, deduped. */
-function mergeGlosses(senses) {
+/** Every definition of a words.json entry, in POS order, empties dropped. */
+function allDefs(entry) {
   const out = [];
-  for (const sense of senses) {
-    for (const gloss of Array.isArray(sense.glosses) ? sense.glosses : []) {
-      if (typeof gloss !== "string" || gloss === "" || out.includes(gloss)) continue;
-      out.push(gloss);
+  for (const sense of Array.isArray(entry.senses) ? entry.senses : []) {
+    if (sense === null || typeof sense !== "object") continue;
+    for (const def of Array.isArray(sense.defs) ? sense.defs : []) {
+      if (typeof def === "string" && def !== "") out.push(def);
     }
   }
   return out;
 }
 
-/** words.json entry -> display row, or null when the spelling is unknown. */
+/** words.json entry -> display row, or null when the word is unknown. */
 function joinWord(item, wordTable) {
   if (!hasOwn(wordTable, item.key)) return null;
-  const raw = wordTable[item.key];
-  const senses = (Array.isArray(raw) ? raw : [raw]).filter(
-    (sense) => sense !== null && typeof sense === "object"
-  );
-  if (senses.length === 0) return null;
+  const entry = wordTable[item.key];
+  if (entry === null || typeof entry !== "object") return null;
+  const morphs = (Array.isArray(entry.morphs) ? entry.morphs : [])
+    .map((morph) => (morph && typeof morph.f === "string" ? morph.f : ""))
+    .filter((form) => form !== "");
   const row = {
     ...item,
-    hangul: typeof senses[0].hangul === "string" ? senses[0].hangul : "",
-    glosses: mergeGlosses(senses),
+    defs: allDefs(entry),
+    breakdown: morphs.join(MORPH_SEPARATOR),
+    tier: tierOf(entry.fr),
   };
-  // rare only when EVERY sense is rare, matching lookup.js's join semantics.
-  if (senses.every((sense) => sense.rare === true)) row.rare = true;
+  if (Number.isInteger(entry.fr) && entry.fr > 0) row.fr = entry.fr;
   return row;
 }
 
-/** hanja.json entry -> display row, or null when the glyph is unknown. */
-function joinChar(item, charTable, variantMap) {
-  let entry = hasOwn(charTable, item.key) ? charTable[item.key] : null;
-  if (entry === null && hasOwn(variantMap, item.key)) {
-    // Saved keys are canonical, but a variant key from an older save (or a
-    // data rebuild that moved a glyph) still resolves rather than going missing.
-    const canonical = variantMap[item.key];
-    entry = hasOwn(charTable, canonical) ? charTable[canonical] : null;
-  }
+/** roots.json entry -> display row, or null when the root is unknown. */
+function joinRoot(item, rootTable, familyIndex) {
+  if (!hasOwn(rootTable, item.key)) return null;
+  const entry = rootTable[item.key];
   if (entry === null || typeof entry !== "object") return null;
+  const lang = typeof entry.lang === "string" ? entry.lang : item.key.split(":")[0];
+  const kind = typeof entry.kind === "string" ? entry.kind : "root";
+  const family = hasOwn(familyIndex, item.key) ? familyIndex[item.key] : [];
   const row = {
     ...item,
-    eumhun: Array.isArray(entry.eumhun) ? entry.eumhun : [],
-    readings: Array.isArray(entry.readings) ? entry.readings : [],
-    glosses: Array.isArray(entry.glosses) ? entry.glosses : [],
+    form: typeof entry.form === "string" ? entry.form : "",
+    gloss: typeof entry.gloss === "string" ? entry.gloss : "",
+    lang,
+    // `kind` on the item is "word" or "root", so the root's own prefix/suffix
+    // kind travels under a name that cannot collide with it.
+    rootKind: kind,
+    source: rootLabel(lang, kind),
+    family: Array.isArray(family) ? family.slice() : [],
+    familyCount: Array.isArray(family) ? family.length : 0,
   };
-  if (typeof entry.lvl === "string" && entry.lvl !== "") row.lvl = entry.lvl;
+  if (typeof entry.rom === "string" && entry.rom !== "") row.rom = entry.rom;
   return row;
 }
 
 /**
  * Join identity-only saved items against live data (the worker's cache), the
- * same shape background.js's getData() returns. An item whose entry is gone
- * from the dictionary becomes a `{missing:true}` row rather than vanishing —
- * the saved view says so, and the exporter skips and counts it.
+ * same shape background.js's getData() returns plus the derived family index.
+ * An item whose entry is gone from the dictionary becomes a `{missing:true}`
+ * row rather than vanishing: the saved view says so, and the exporter skips
+ * and counts it.
  *
  * @param {object[]} items saved items
- * @param {{hanja:object, words:object, variants:object}} data
+ * @param {{words:object, roots:object, familyIndex?:object}} data
  * @returns {object[]} display rows, one per item, in the given order
  */
 export function joinItems(items, data) {
-  const charTable = data?.hanja?.chars ?? {};
   const wordTable = data?.words?.words ?? {};
-  const variantMap = data?.variants?.map ?? {};
+  const rootTable = data?.roots?.roots ?? {};
+  const familyIndex = data?.familyIndex ?? {};
   const out = [];
   for (const item of Array.isArray(items) ? items : []) {
     if (item === null || typeof item !== "object") continue;
     const row =
-      item.kind === "char"
-        ? joinChar(item, charTable, variantMap)
+      item.kind === "root"
+        ? joinRoot(item, rootTable, familyIndex)
         : joinWord(item, wordTable);
     out.push(row === null ? { ...item, missing: true } : row);
   }
   return out;
 }
 
-/** SPEC: definitions render as one numbered string over ALL glosses. */
-function numberedDefs(glosses) {
-  return (Array.isArray(glosses) ? glosses : [])
-    .filter((gloss) => typeof gloss === "string" && gloss !== "")
-    .map((gloss, i) => `${i + 1}. ${gloss}`)
+/** SPEC: definitions render as one numbered string over ALL definitions. */
+function numberedDefs(defs) {
+  return (Array.isArray(defs) ? defs : [])
+    .filter((def) => typeof def === "string" && def !== "")
+    .map((def, i) => `${i + 1}. ${def}`)
     .join("; ");
 }
 
 /** One Anki field token rendered from a joined row. */
 function fieldValue(row, token) {
   switch (token) {
-    // "key" is not an Anki token: it is how the CSV asks for the same value
+    // "key" is not an Anki token: it is how the CSV asks for the identity
     // under a kind-neutral name.
-    case "hanja":
-    case "char":
+    case "word":
     case "key":
       return typeof row.key === "string" ? row.key : "";
-    case "hangul":
-      return typeof row.hangul === "string" ? row.hangul : "";
-    case "eumhun":
-      return (Array.isArray(row.eumhun) ? row.eumhun : [])
-        .map((e) => `${e?.hun ?? ""} ${e?.eum ?? ""}`.trim())
-        .filter((text) => text !== "")
-        .join(ENTRY_SEPARATOR);
-    case "readings":
-      return (Array.isArray(row.readings) ? row.readings : [])
-        .filter((r) => typeof r === "string" && r !== "")
-        .join(ENTRY_SEPARATOR);
+    case "root":
+      // The card's headword is the root's form, not its "<lang>:<form>" key.
+      return typeof row.form === "string" && row.form !== ""
+        ? row.form
+        : typeof row.key === "string"
+          ? row.key
+          : "";
     case "defs":
-      return numberedDefs(row.glosses);
-    case "lvl":
-      return typeof row.lvl === "string" ? row.lvl : "";
+      return numberedDefs(row.defs);
+    case "gloss":
+      return typeof row.gloss === "string" ? row.gloss : "";
+    case "breakdown":
+      return typeof row.breakdown === "string" ? row.breakdown : "";
+    case "tier":
+      return TIER_LABELS[row.tier] ?? "";
+    case "source":
+      return typeof row.source === "string" ? row.source : "";
+    case "family":
+      return (Array.isArray(row.family) ? row.family : [])
+        .filter((word) => typeof word === "string" && word !== "")
+        .slice(0, FAMILY_FIELD_WORDS)
+        .join(ENTRY_SEPARATOR);
     default:
       return "";
   }
@@ -526,8 +559,8 @@ function folderName(folderId, folders) {
 
 /**
  * A folder name as an Anki tag: whitespace separates tags in Anki, so every
- * whitespace run collapses to a single underscore ("HSK words  2" ->
- * "HSK_words_2"). Leading and trailing whitespace goes first, so a name never
+ * whitespace run collapses to a single underscore ("GRE words  2" ->
+ * "GRE_words_2"). Leading and trailing whitespace goes first, so a name never
  * turns into a tag that starts or ends with "_".
  */
 function ankiTag(name) {
@@ -550,9 +583,9 @@ export function buildAnkiTsv(joinedRows, settings, folders) {
   const lines = ["#separator:tab", "#html:false", "#tags column:3"];
   for (const row of Array.isArray(joinedRows) ? joinedRows : []) {
     if (row === null || typeof row !== "object" || row.missing === true) continue;
-    const isChar = row.kind === "char";
-    const front = fieldValue(row, isChar ? anki.charFront : anki.wordFront);
-    const back = (isChar ? anki.charBack : anki.wordBack)
+    const isRoot = row.kind === "root";
+    const front = fieldValue(row, isRoot ? anki.rootFront : anki.wordFront);
+    const back = (isRoot ? anki.rootBack : anki.wordBack)
       .map((token) => fieldValue(row, token))
       .filter((value) => value !== "")
       .join(FIELD_SEPARATOR);
@@ -579,10 +612,11 @@ function isoDate(addedAt) {
 
 /**
  * Build the CSV export: a full-data spreadsheet, independent of the Anki field
- * settings — every column is always written, so the file is a complete record
- * of what was saved. Header row first, then one row per item in CSV_COLUMNS
- * order. Missing rows are skipped (the caller counts them), exactly like
- * buildAnkiTsv. Lines end with LF, like the Anki file.
+ * settings, so the file is a complete record of what was saved. Header row
+ * first, then one row per item in CSV_COLUMNS order. A root row writes its
+ * gloss in the text column and leaves breakdown and tier empty, since roots
+ * carry neither. Missing rows are skipped (the caller counts them), exactly
+ * like buildAnkiTsv. Lines end with LF, like the Anki file.
  *
  * @param {object[]} joinedRows rows from joinItems
  * @param {Array<{id:string, name:string}>} folders folder list, for the name column
@@ -592,14 +626,13 @@ export function buildCsv(joinedRows, folders) {
   const lines = [CSV_COLUMNS.join(",")];
   for (const row of Array.isArray(joinedRows) ? joinedRows : []) {
     if (row === null || typeof row !== "object" || row.missing === true) continue;
+    const isRoot = row.kind === "root";
     const cells = [
-      row.kind === "char" ? "char" : "word",
+      isRoot ? "root" : "word",
       fieldValue(row, "key"),
-      fieldValue(row, "hangul"),
-      fieldValue(row, "eumhun"),
-      fieldValue(row, "readings"),
-      fieldValue(row, "defs"),
-      fieldValue(row, "lvl"),
+      isRoot ? fieldValue(row, "gloss") : fieldValue(row, "defs"),
+      isRoot ? "" : fieldValue(row, "breakdown"),
+      isRoot ? "" : fieldValue(row, "tier"),
       folderName(row.folderId, folders),
       isoDate(row.addedAt),
     ];

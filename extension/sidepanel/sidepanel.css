@@ -1,5 +1,5 @@
 /*
- * Okpyeon — side panel page chrome.
+ * Etymikon, side panel page chrome.
  *
  * Only the page around the results: the cards themselves are rendered by
  * content.js inside a CLOSED shadow root, so its palette tokens do not reach
@@ -75,8 +75,7 @@ body {
   /* No width and no max-width anywhere in this file: the user drags the panel
      edge, and the cards inside the shadow root are already width:100%. */
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Malgun Gothic", "Apple SD Gothic Neo",
-    "Noto Sans KR", "Noto Sans CJK KR", sans-serif;
+    "Helvetica Neue", Arial, sans-serif;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -107,13 +106,12 @@ body {
   background: var(--page-bg);
 }
 
-/* A real <button> since it looks up 玉篇, styled to look exactly like the
-   plain wordmark it used to be. */
+/* A real <button> since it looks up "etymology", styled to look exactly like
+   the plain wordmark it used to be. System stack, like everything else. */
 .brand {
   flex: none;
-  font-family: Batang, 바탕, BatangChe, AppleMyungjo, "Nanum Myeongjo",
-    "Noto Serif KR", "Source Han Serif K", "Songti SC", SimSun, serif;
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.3;
   letter-spacing: .04em;
   color: var(--brand);
@@ -524,7 +522,8 @@ body {
 
 .saved-actions button.saved-confirm-yes:hover { background: var(--danger); }
 
-/* Corner seal (낙관): the jade stamp in the bottom-right. One rule for
+/* Corner seal: the stamp in the bottom-right, reading ἔτυμον, the Greek
+   word the name is built from. One rule for
    every view (.view--sealed at mount): it shows only while it FITS under
    the content (.view--roomy, measured per render — see updateSealRoom in
    the view scripts), so text never sits on it and an empty view shows it
@@ -537,16 +536,16 @@ body {
 .view { position: relative; isolation: isolate; }
 
 .view--sealed::after {
-  content: "玉篇";
+  content: "ἔτυμον";
   opacity: 0;
   transition: opacity .18s ease;
   position: absolute;
   right: 16px;
   bottom: 16px;
-  writing-mode: vertical-rl;
-  letter-spacing: 9px;
-  font-family: Batang, BatangChe, "Noto Serif CJK KR", serif;
-  font-size: 68px;
+  /* Greek reads across, so the seal is a horizontal stamp. The frame, the
+     tint, the rotation and the fit gating are the mechanism carried over. */
+  letter-spacing: 4px;
+  font-size: 34px;
   line-height: 1.1;
   color: var(--seal);
   border: 3px solid var(--seal);
@@ -580,9 +579,8 @@ body {
 }
 
 .saved-primary {
-  font-family: Batang, 바탕, BatangChe, AppleMyungjo, "Nanum Myeongjo",
-    "Noto Serif KR", "Source Han Serif K", "Songti SC", SimSun, serif;
   font-size: 15px;
+  font-weight: 600;
   line-height: 1.2;
   color: var(--page-fg);
 }

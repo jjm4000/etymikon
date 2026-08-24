@@ -1,5 +1,5 @@
 /*
- * Okpyeon — search shell.
+ * Etymikon, search shell.
  *
  * The reusable half of every typed-search surface. It owns ALL of the
  * behavior: mounting the renderer, debounced search-as-you-type, IME
@@ -34,7 +34,7 @@
   // multi-line hint would make an empty search look like a reserved panel.
   var DEFAULT_MESSAGES = {
     // Shown before anything has been typed.
-    empty: "Search hanja, a Korean word, or a syllable.",
+    empty: "Search an English word or a root.",
     // The search ran and the dictionary had nothing. Receives the query.
     none: function (query) { return "No entry for “" + query + "”."; },
     // The service worker failed or went away. Quiet and retryable — the next
@@ -128,11 +128,9 @@
         setState("empty");
         return Promise.resolve({ ok: true, count: 0 });
       }
-      // The shell IS a typed channel (romanized search ADDENDUM): everything
-      // that reaches it was typed or deep-linked by the user, so it opts into
-      // interpretation. Non-typed shell rides (wordmark, saved-row opens)
-      // pass hanja/hangul, which the interpreters' Latin gate ignores.
-      return api.searchFor(query, { interpret: true }).then(function (res) {
+      // Every query is a literal lookup: the worker extracts the word from
+      // whatever it is handed, and there is no interpretation layer above it.
+      return api.searchFor(query).then(function (res) {
         // A newer search already owns the panel; its own .then will set state.
         if (destroyed || (res && res.stale)) return res;
         // A fresh query always starts at the top of the results.

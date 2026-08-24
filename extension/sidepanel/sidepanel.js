@@ -1,5 +1,5 @@
 /*
- * Okpyeon — side panel bootstrapper.
+ * Etymikon, side panel bootstrapper.
  *
  * Deliberately thin. Everything about how search BEHAVES lives in
  * search-shell.js, which knows nothing about this page; this file only finds
@@ -289,7 +289,7 @@
   SIDEBAR_VIEWS.push({
     key: "search",
     label: "Search",
-    title: "Search hanja and words",
+    title: "Search words and roots",
     mount: function (container, ctx) {
       // Corner seal (SPEC "Corner seal"): sealed like the other views, shown
       // only while it fits under the content. The content is the renderer's
@@ -369,11 +369,13 @@
   })();
 
   /* ------------------------------------------------------------------ *
-   * The wordmark looks up itself (SPEC "Reading navigation"): 玉篇 is a
-   * real entry — the dictionary this one is named after — so clicking the
-   * brand fills the search input and searches for it. Clicks that land
-   * before boot finishes queue on `ready` rather than being dropped.
+   * The wordmark looks up the word the name is built from: "etymology" is
+   * itself an entry, so clicking the brand fills the search input and
+   * searches for it. Clicks that land before boot finishes queue on `ready`
+   * rather than being dropped.
    * ------------------------------------------------------------------ */
+
+  var BRAND_QUERY = "etymology";
 
   (function () {
     var brand = document.getElementById("okp-brand");
@@ -384,9 +386,9 @@
         var controller = shell && shell.controller && shell.controller();
         if (!controller) return;
         var inputEl = document.getElementById("okp-input");
-        if (inputEl) inputEl.value = "玉篇";
+        if (inputEl) inputEl.value = BRAND_QUERY;
         showView("search");
-        controller.search("玉篇");
+        controller.search(BRAND_QUERY);
       });
     });
   })();
