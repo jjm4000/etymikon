@@ -20,10 +20,18 @@ needs its full binding detail.
 - Audience: native speakers building vocabulary (GRE/SAT register).
   Wiktionary definitions ship as harvested, no simplification pass.
 - Dictionary scope: general English dictionary. Every shipped word gets
-  a definition card. The breakdown row renders when a split exists.
+  a definition card. The breakdown row renders when a split exists,
+  whatever the split's origin (Latinate and Germanic alike).
 - Root node set: English affix entries (sub-, -an) and Latin/Greek
   lemmas (terra, logos). Drill-down stops there. Proto-Indo-European is
   out of scope everywhere, permanently for v1.
+- Germanic affixes are IN (Jesse decision 2026-08-25, overriding the
+  kickoff default): un-, fore-, -ful, -ness, -ly and their kin ship as
+  ordinary en: roots with family lists. No origin filter applies to
+  affix cards. Origin chains (`org`) stay Latin/Greek only.
+- Morpheme chips split by target: a part that is itself a shipped word
+  (muse in music, beauty in beautiful) links to that WORD card, not a
+  root card. Root cards are for affixes and Latin/Greek lemmas only.
 - Dictionary cap, the hybrid rule: every dictionary word ranked in the
   top 50,000 of the frequency list ships unconditionally; beyond rank
   50,000 a word ships only if it carries a morpheme breakdown.
@@ -32,8 +40,9 @@ needs its full binding detail.
   (to 15,000), Advanced (to 50,000), Rare (beyond, and unranked). Roots
   are not tiered; a root card shows how many shipped words it builds.
 - v1 non-goals: hover mode, pronunciation (audio and IPA), PIE
-  etymology, Germanic affix cards (un-, fore-), browse-roots-by-surface
-  (ped as pes vs pais), any runtime network request.
+  etymology, browse-roots-by-surface (ped as pes vs pais), non-classical
+  origin chains (a Hebrew or Old Norse org row is future work, pending a
+  measurement of family sizes), any runtime network request.
 
 ## Directory layout and ownership
 
@@ -84,9 +93,13 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   dropped by a ~400 char safety cap).
 - `morphs`: the breakdown, present only when the word has an accepted
   English-surface split (acceptance rules under Pipeline). `f` is the
-  display form in split order. `r` is the root key when the morpheme
-  resolved to a shipped root card; omitted when it did not (the chip
-  then renders inert).
+  display form in split order. Exactly one of two link fields, or
+  neither: `r` is the root key when the morpheme resolved to a shipped
+  root card; `w` is a words.json key when the part is itself a shipped
+  word (muse in music). A chip with neither renders inert. A morph
+  never carries both.
+- Word-part example: music carries
+  `[{ "f": "muse", "w": "muse" }, { "f": "-ic", "r": "en:-ic" }]`.
 - `fr`: rank in the frequency list; omitted when unranked. Tier is
   derived at runtime from `fr` by one pure function in lookup.js
   (cutoffs 3000/15000/50000); tiers are never stored.
@@ -170,9 +183,11 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 }
 ```
 
-- The worker joins each morph's root gloss into the response (the
-  content script never reads roots.json). Morphs without `r` come back
-  as `{ "f": "..." }` only.
+- The worker joins each morph's gloss into the response (the content
+  script never reads roots.json): `r` chips get the root gloss, `w`
+  chips get the word's first def. Morphs with neither come back as
+  `{ "f": "..." }` only. `w` chips keep `w` in the response so the
+  renderer navigates them as word lookups.
 - A lookup resolved through lemmatization carries
   `"formOf": { "surface": "territories", "lemma": "territory" }` and
   the match body is the lemma's.
@@ -251,8 +266,10 @@ Sections in order:
   root gloss beneath in small muted text (gloss absent: form only).
   Chips with `r` are nav chips (hover, chevron-free, keyboard
   activation) opening that root card as an ordinary drill-down with
-  breadcrumbs. Chips without `r` are inert and render without the
-  hover affordance. Section absent when no `morphs`.
+  breadcrumbs. Chips with `w` are nav chips opening that word's card
+  via an ordinary lookup drill-down. Chips with neither are inert and
+  render without the hover affordance. Section absent when no
+  `morphs`.
 - `appendOrigin`: for `org` words, one quiet nav row in the used-in
   style: "From Latin terra (earth, land) ›", navigating to the root
   card. Absent when no `org`. A word card never renders both this and
@@ -393,10 +410,15 @@ Parsing rules, English extract:
   split anchors as itself. Words whose story lives in their morphs
   (television = tele- + vision) need no chain at all; org is only for
   split-less words, per the schema invariant.
-- Morpheme resolution, `morphs[].r`: a part maps to `en:<part>` when
-  the part has an English affix or lemma entry; through ROOT_ALIASES
-  when listed; else no `r`. en: affix roots get `src` when their own
-  etymology chain reaches a Latin/Greek lemma by the chain rule.
+- Morpheme resolution, `morphs[].r` and `morphs[].w`, in order: a part
+  carrying a hyphen (or whose entry pos is prefix, suffix, infix, or
+  "combining form") maps to `en:<part>` when that affix entry exists;
+  a hyphen-free part that is a shipped words.json key maps to `w`;
+  ROOT_ALIASES override either (terr- to la:terra); else the chip is
+  inert. Germanic affixes resolve exactly like Latinate ones; there is
+  no origin filter on `r`. en: affix roots get `src` when their own
+  etymology chain reaches a Latin/Greek lemma by the chain rule; a
+  Germanic affix simply has no src row.
 - Root emission: collect every referenced root key; keep those with 2
   or more referencing words; gloss la:/grc: keys from the Latin/Greek
   extracts (first gloss of the lemma entry, macrons preserved for
@@ -417,8 +439,11 @@ silently diverged from):
   information = inform + -ation; security = secure + -ity; television =
   tele- + vision; impossible = im- + possible; music = muse + -ic;
   subterranean resolves a breakdown containing a terra-rooted morpheme;
-  la:terra ships with gloss containing "earth" and family containing
-  terrain and territory; understand ships with no morphs (BLOCKED);
+  music = muse + -ic with muse as a `w` chip; beautiful = beauty + -ful
+  with en:-ful shipping as a root; en:un- ships with a family of 5 or
+  more; la:terra ships with gloss containing "earth" and family
+  containing terrain and territory; understand ships with no morphs
+  (BLOCKED);
   had ships (or resolves) with no morphs (inflectional); "running"
   resolves to run via forms.json; "territories" to territory.
 - Distribution sanity, printed in the build report: total words around
