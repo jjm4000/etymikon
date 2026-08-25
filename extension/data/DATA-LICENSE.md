@@ -6,10 +6,11 @@ are a derived database compiled from the following sources by
 
 - **English Wiktionary** (https://en.wiktionary.org), via the machine-readable
   extracts published by **kaikki.org** (https://kaikki.org), themselves
-  produced by the wiktextract project. Source of every definition, every
-  morpheme breakdown, and every inflected form in `forms.json`. Wiktionary
-  text is dual-licensed under the **Creative Commons Attribution-ShareAlike
-  License (CC BY-SA)** and the GNU Free Documentation License.
+  produced by the wiktextract project. Source of the definitions and morpheme
+  breakdowns in `words.json`, and of the inflected forms in `forms.json`.
+  Wiktionary text is dual-licensed under the **Creative Commons
+  Attribution-ShareAlike License (CC BY-SA)** and the GNU Free Documentation
+  License.
 - **Latin Wiktionary entries** and **Ancient Greek Wiktionary entries**, from
   the same kaikki.org extracts and under the same CC BY-SA license. Source of
   the root-card glosses and headword forms for `la:` and `grc:` keys in

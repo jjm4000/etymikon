@@ -103,7 +103,7 @@
 <h2>Automated checks</h2>
 <p class="note">
   Embed layout, inert dismissal, the drill-down surface inside embed, the
-  shell's debounce / deep-link / no-result wiring, root-key routing, the side
+  shell's debounce / IME / deep-link / no-result wiring, root-key routing, the side
   panel page's own boot sequence, view registry, header actions, the
   single-scroll-container invariant, the pending-query handshake, and the
   three shipped views: the save star and its bubble on cards, the saved list
@@ -225,6 +225,30 @@
       fr: 47000,
       seeAlso: "run"
     },
+    // The re-entry guard's own case: a form-of link that resolves back to the
+    // entry it sits on. Degenerate data, and absorbing it is what the guard is
+    // for, so the row orients the reader on the card they are already reading
+    // instead of stacking a copy of it. Five senses, so the card is tall
+    // enough for "scrolls back to the top" to mean something.
+    terrace: {
+      senses: [
+        { pos: "noun", defs: [
+          "A raised level place, often paved, cut into a slope or built out " +
+            "from a building so that the ground beside it falls away.",
+          "A row of houses built as a single block along one frontage, each " +
+            "sharing its side walls with the house next door.",
+          "An open paved area beside a building, used for sitting out.",
+          "A step cut into a hillside so that a crop can be grown on ground " +
+            "too steep to plough in the ordinary way."
+        ] },
+        { pos: "verb", defs: [
+          "To shape land into raised level steps for planting.",
+          "To provide a building with an open paved area beside it."
+        ] }
+      ],
+      fr: 14200,
+      seeAlso: "terrace"
+    },
     // The wordmark's own lookup.
     etymology: {
       senses: [{ pos: "noun", defs: [
@@ -240,6 +264,17 @@
       senses: [{ pos: "noun", defs: ["The study of correct reasoning."] }],
       fr: 6100,
       org: { r: "grc:logos", f: "λόγος" }
+    },
+    // The long-gloss case. Real root glosses run to the 160-character safety
+    // cap and thousands of word cards carry one past 80, so a chip here has a
+    // gloss the clamp has to hold.
+    photograph: {
+      senses: [{ pos: "noun", defs: ["A picture made with light."] }],
+      fr: 7300,
+      morphs: [
+        { f: "photo-", r: "grc:phos" },
+        { f: "-graph", r: "grc:graphe" }
+      ]
     }
   };
 
@@ -351,6 +386,26 @@
         { word: "etymology", fr: 32000 },
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
       ]
+    },
+    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    "grc:phos": {
+      form: "φῶς", rom: "phos", lang: "grc",
+      gloss: "light, the light of day; the light of a torch or a fire, and " +
+        "by extension the light of life, of deliverance, of happiness, or of " +
+        "a great man who sheds light around him",
+      kind: "root",
+      family: [
+        { word: "photograph", fr: 7300 },
+        { word: "photosynthesis", def: "The making of food from light.", fr: 44000 }
+      ]
+    },
+    "grc:graphe": {
+      form: "γραφή", rom: "graphe", lang: "grc", gloss: "writing, drawing",
+      kind: "root",
+      family: [
+        { word: "photograph", fr: 7300 },
+        { word: "biography", def: "An account of a life.", fr: 16400 }
+      ]
     }
   };
 
@@ -366,6 +421,12 @@
     if (fr <= 15000) return "common";
     if (fr <= 50000) return "advanced";
     return "rare";
+  }
+
+  // The worker joins the chip's WORDING beside the tier, so no surface has to
+  // re-word a classification. The protocol value stays lowercase.
+  function tierLabel(zone) {
+    return zone.charAt(0).toUpperCase() + zone.slice(1);
   }
 
   /* ------------------------------------------------------------------ *
@@ -456,6 +517,7 @@
     };
     if (typeof entry.fr === "number") match.fr = entry.fr;
     match.tier = tier(entry.fr);
+    match.tierLabel = tierLabel(match.tier);
     if (entry.morphs) match.morphs = joinMorphs(entry.morphs);
     if (entry.org) {
       match.org = { r: entry.org.r, f: entry.org.f };
@@ -494,6 +556,7 @@
       var row = { word: entry.word, def: entry.def || firstDef(entry.word) };
       if (typeof entry.fr === "number") row.fr = entry.fr;
       row.tier = tier(entry.fr);
+      row.tierLabel = tierLabel(row.tier);
       return row;
     });
   }
@@ -505,10 +568,19 @@
     var out = {
       key: key, form: root.form, lang: root.lang, gloss: root.gloss,
       kind: root.kind, familyCount: family.length,
+      // The card's label line, joined here so the card and the export cannot
+      // word a root differently.
+      label: rootLabel(root),
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
-    if (root.src) out.src = root.src;
+    // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
+    // the form to print, and the source root's gloss when it has one. It is
+    // never a bare key on the wire.
+    if (root.src && ROOTS[root.src]) {
+      out.src = { r: root.src, f: ROOTS[root.src].form };
+      if (ROOTS[root.src].gloss) out.src.gloss = ROOTS[root.src].gloss;
+    }
     return { ok: true, root: out };
   }
 
@@ -626,10 +698,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it; the protocol value
-      // stays lowercase.
-      var zone = tier(word.fr);
-      row.tier = zone.charAt(0).toUpperCase() + zone.slice(1);
+      // The export says "Rare", the way the chip says it.
+      row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
       }
@@ -652,7 +722,11 @@
   }
 
   function savedField(row, token) {
-    if (token === "word" || token === "root" || token === "key") return row.key || "";
+    // "root" is the card's HEADWORD, which is the form and never the
+    // "<lang>:<form>" key (saved.js fieldValue). "key" is how the CSV asks
+    // for the identity under a kind-neutral name.
+    if (token === "root") return row.form || row.key || "";
+    if (token === "word" || token === "key") return row.key || "";
     if (token === "defs") return numberedDefs(row.defs);
     if (token === "gloss") return row.gloss || "";
     if (token === "source") return row.source || "";
@@ -1225,6 +1299,44 @@
       api.query(".surface").textContent === "music",
       api.query(".surface").textContent);
 
+    // --- the shell under an IME ---------------------------------------------
+    // Synthetic composition events only. Real IME timing (and the Chromium
+    // trailing-input quirk that compositionend covers) is manual QA; this
+    // proves the branch, not the browser. English needs no IME of its own, but
+    // the field is a plain text input and a reader composing in any script must
+    // not fire a lookup per keystroke of a half-formed word.
+    await search("");
+    var composing = new InputEvent("input", { bubbles: true, isComposing: true });
+    check("fixture sanity: InputEvent.isComposing is settable here",
+      composing.isComposing === true);
+    callsBefore = fake.__calls;
+    input.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    input.value = "mus";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+    input.value = "musi";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
+    await wait(DEBOUNCE + 90);
+    check("mid-composition input events never trigger a search",
+      fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
+
+    var composingEnter = new KeyboardEvent("keydown", {
+      key: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true
+    });
+    check("fixture sanity: KeyboardEvent.isComposing and keyCode are settable here",
+      composingEnter.isComposing === true && composingEnter.keyCode === 229);
+    input.dispatchEvent(composingEnter);
+    await wait(90);
+    check("Enter while composing is a no-op",
+      fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
+
+    input.value = "music";
+    input.dispatchEvent(new CompositionEvent("compositionend",
+      { bubbles: true, data: "music" }));
+    await wait(DEBOUNCE + 90);
+    check("compositionend triggers exactly one search",
+      fake.__calls === callsBefore + 1 && fake.__lastText === "music",
+      "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
+
     await search("");
     check("an empty query shows the quiet empty state and no panel",
       !api.isVisible() && status.textContent === "Search an English word or a root." &&
@@ -1526,8 +1638,11 @@
       download.body.indexOf(
         "subterranean\t1. Below the ground; underground. · sub- + terra + -an\tSaved") >= 0,
       JSON.stringify(download.body.split("\n")[3]));
-    check("a root row exports its gloss and its top family words",
-      download.body.indexOf("la:terra\tearth, land · territory, terrain") >= 0,
+    // The root front is the card's HEADWORD, which is the form: an Anki card
+    // asking "la:terra" would be asking about a storage key.
+    check("a root row fronts the FORM and backs its gloss and top family words",
+      download.body.indexOf("terra\tearth, land · territory, terrain") >= 0 &&
+      download.body.indexOf("la:terra\t") < 0,
       JSON.stringify(download.body.split("\n")[4]));
     check("the missing row is skipped and counted, never exported",
       download.count === 2 && download.skipped === 1,

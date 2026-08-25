@@ -18,10 +18,13 @@ import { dirname, join } from "node:path";
 
 import {
   buildFamily,
+  buildFamilyCounts,
   buildFamilyIndex,
   buildMatches,
   buildOmniboxSuggestions,
   buildRoot,
+  buildSearchIndex,
+  escapeXml,
   extractToken,
   firstDef,
   fold,
@@ -34,6 +37,7 @@ import {
   MAX_OMNIBOX_SUGGESTIONS,
   MAX_TOKEN_CHARS,
   TIER_CUTOFFS,
+  TIER_LABELS,
 } from "../extension/lookup.js";
 
 import {
@@ -53,6 +57,7 @@ import {
   toggleItem,
   CSV_COLUMNS,
   DEFAULT_SETTINGS,
+  FAMILY_FIELD_WORDS,
 } from "../extension/saved.js";
 
 // ---------------------------------------------------------------------------
@@ -172,6 +177,14 @@ const roots = {
   v: 1,
   roots: {
     "en:-an": { form: "-an", lang: "en", gloss: "forming adjectives", kind: "suffix" },
+    // The two kinds the old shape-guessing pass could not produce.
+    "en:-o-": { form: "-o-", lang: "en", gloss: "joining two elements", kind: "infix" },
+    "en:cir-...-cle": {
+      form: "cir-...-cle",
+      lang: "en",
+      gloss: "around a thing",
+      kind: "circumfix",
+    },
     // A Germanic affix: an ordinary en: root, with no src row.
     "en:-ful": { form: "-ful", lang: "en", gloss: "full of", kind: "suffix" },
     "en:-ic": { form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix" },
@@ -307,6 +320,45 @@ test("an all-caps selection resolves to the same key", () => {
   assert.equal(fold("TERRAIN"), "terrain");
 });
 
+// The composed and decomposed spellings of the Greek root form. Every key the
+// pipeline emits is composed, and a Greek keyboard can hand us either.
+const NFC_LOGOS = "λόγος";
+const NFD_LOGOS = "λόγος";
+
+test("the fold is NFC then lowercase, so NFD input reaches a composed key", () => {
+  assert.notEqual(NFD_LOGOS, NFC_LOGOS, "the two spellings differ byte for byte");
+  assert.equal(fold(NFD_LOGOS), NFC_LOGOS);
+  assert.equal(fold(NFC_LOGOS), NFC_LOGOS);
+  assert.equal(fold("ΛΌΓΟΣ".normalize("NFD")).normalize("NFC"), fold("ΛΌΓΟΣ"));
+  assert.equal(fold(null), "");
+});
+
+test("token extraction normalizes before it matches", () => {
+  // Composed, the accented letter is not a token character at all; decomposed,
+  // its bare "e" would have been one.
+  assert.equal(extractToken("café au lait"), "caf");
+  assert.equal(extractToken("café au lait".normalize("NFD")), "caf");
+  assert.equal(extractToken("terrain".normalize("NFD")), "terrain");
+});
+
+test("an NFD root key reaches its composed card", () => {
+  const key = `grc:${NFD_LOGOS}`;
+  const root = buildRoot(key, data, familyIndex);
+  assert.ok(root, "the decomposed key must resolve");
+  assert.equal(root.key, `grc:${NFC_LOGOS}`, "the response carries the shipped key");
+  assert.equal(root.gloss, "word, reason");
+  const chunk = buildFamily(key, data, familyIndex);
+  assert.equal(chunk.total, 2);
+  assert.deepEqual(chunk.rows.map((r) => r.word), ["logic", "dialogue"]);
+});
+
+test("an NFD omnibox query matches the composed root form", () => {
+  assert.deepEqual(
+    buildOmniboxSuggestions(NFD_LOGOS, joinData).map((r) => r.content),
+    [`grc:${NFC_LOGOS}`]
+  );
+});
+
 test("surrounding punctuation and whitespace never reach the key", () => {
   const match = one("  (terrain), ");
   assert.equal(match.surface, "terrain");
@@ -415,6 +467,31 @@ test("the match carries both fr and the derived tier", () => {
   assert.equal(one("territory").tier, "common");
   assert.equal(one("subterranean").tier, "rare");
   assert.equal(one("subterranean").fr, 61254);
+});
+
+test("the match carries the tier's display label beside the tier", () => {
+  assert.equal(one("teach").tierLabel, "Everyday");
+  assert.equal(one("territory").tierLabel, "Common");
+  assert.equal(one("terrarium").tierLabel, "Rare", "an unranked word is labelled too");
+  // The label map has exactly one definition, and this field is how it leaves
+  // the worker: no surface holds a second copy.
+  assert.deepEqual(TIER_LABELS, {
+    everyday: "Everyday",
+    common: "Common",
+    advanced: "Advanced",
+    rare: "Rare",
+  });
+  assert.equal(one("subterranean").tierLabel, TIER_LABELS[one("subterranean").tier]);
+});
+
+test("family rows carry the tier label the word matches carry", () => {
+  const root = buildRoot("la:terra", data, familyIndex);
+  assert.deepEqual(
+    root.family.map((r) => r.tierLabel),
+    ["Common", "Common", "Rare", "Rare", "Rare"]
+  );
+  const chunk = buildFamily("la:terra", data, familyIndex);
+  assert.equal(chunk.rows[0].tierLabel, "Common");
 });
 
 test("an unranked word carries a tier and no fr", () => {
@@ -569,11 +646,13 @@ test("a root card carries its own fields plus the family preview", () => {
   assert.equal(root.lang, "la");
   assert.equal(root.gloss, "earth, land");
   assert.equal(root.kind, "root");
+  assert.equal(root.label, "Latin root", "the label line is joined by the worker");
   assert.equal(root.familyCount, 5);
   assert.deepEqual(root.family[0], {
     word: "territory",
     def: "A geographic area under the jurisdiction of a state.",
     tier: "common",
+    tierLabel: "Common",
     fr: 3204,
   });
 });
@@ -678,20 +757,36 @@ test("an unknown root key builds nothing", () => {
   });
 });
 
-test("a family row whose word left the bundle is dropped", () => {
+test("the family index is read directly, with no per-request filter pass", () => {
+  // The index derives from the same word table the rows are read from, so a
+  // filter against that table dropped nothing and copied every family to do
+  // it. A hand-made index naming a word that is not there renders an empty row
+  // rather than throwing.
   const stale = { "la:terra": ["terrain", "ghost", "territory"] };
-  assert.deepEqual(
-    buildFamily("la:terra", data, stale).rows.map((r) => r.word),
-    ["terrain", "territory"]
-  );
+  const { rows } = buildFamily("la:terra", data, stale);
+  assert.deepEqual(rows.map((r) => r.word), ["terrain", "ghost", "territory"]);
+  assert.deepEqual(rows[1], { word: "ghost", def: "", tier: "rare", tierLabel: "Rare" });
 });
 
-test("root label lines read in plain English", () => {
+test("root label lines read in plain English, one per kind in the enum", () => {
   assert.equal(rootLabel("en", "prefix"), "Prefix");
   assert.equal(rootLabel("en", "suffix"), "Suffix");
+  assert.equal(rootLabel("en", "infix"), "Interfix");
+  assert.equal(rootLabel("en", "circumfix"), "Circumfix");
   assert.equal(rootLabel("la", "root"), "Latin root");
   assert.equal(rootLabel("grc", "root"), "Greek root");
   assert.equal(rootLabel("en", "root"), "English root");
+  // Classical affixes keep their language: a bare "Suffix" on a Greek card
+  // would read as an English affix.
+  assert.equal(rootLabel("la", "prefix"), "Latin prefix");
+  assert.equal(rootLabel("grc", "suffix"), "Greek suffix");
+});
+
+test("a root response carries the label line for every kind in the enum", () => {
+  const labels = ["en:-o-", "en:cir-...-cle", "en:sub-", "en:-an", "grc:λόγος"].map(
+    (key) => buildRoot(key, data, familyIndex).label
+  );
+  assert.deepEqual(labels, ["Interfix", "Circumfix", "Prefix", "Suffix", "Greek root"]);
 });
 
 // --- omnibox --------------------------------------------------------------
@@ -765,6 +860,88 @@ test("omnibox escapes the description and leaves content raw", () => {
   );
 });
 
+test("omnibox order and text are pinned, word rows before root rows", () => {
+  assert.deepEqual(buildOmniboxSuggestions("sub", joinData), [
+    {
+      content: "subway",
+      description: "<match>subway</match> <dim>An underground railway.</dim>",
+    },
+    {
+      content: "suburban",
+      description:
+        "<match>suburban</match> <dim>Of the outlying districts of a city.</dim>",
+    },
+    {
+      content: "subterranean",
+      description:
+        "<match>subterranean</match> <dim>Below the ground; underground.</dim>",
+    },
+    {
+      content: "en:sub-",
+      description: "<match>sub-</match> Prefix <dim>under, beneath</dim>",
+    },
+    { content: "la:sub", description: "<match>sub</match> Latin root <dim>under</dim>" },
+  ]);
+});
+
+test(`omnibox caps its input at ${MAX_TOKEN_CHARS} characters, like the token rule`, () => {
+  const long = "supercalifragilistic".repeat(3);
+  const bundle = {
+    words: { v: 1, words: { [long]: { senses: [{ pos: "noun", defs: ["A long word."] }], fr: 1 } } },
+    roots: { v: 1, roots: {} },
+  };
+  // The first 40 characters are the word's prefix and the tail is junk, so
+  // only a capped query can match: the uncapped one is a prefix of nothing.
+  const query = `${long.slice(0, MAX_TOKEN_CHARS)}zzzz`;
+  assert.ok(query.length > MAX_TOKEN_CHARS);
+  assert.deepEqual(buildOmniboxSuggestions(query, bundle).map((r) => r.content), [long]);
+  assert.deepEqual(buildOmniboxSuggestions(long, bundle).map((r) => r.content), [long]);
+});
+
+test("the prebuilt omnibox index answers exactly like a fresh one", () => {
+  const index = buildSearchIndex(data);
+  for (const query of ["t", "te", "terr", "sub", "sub-", "-an", "-", "λ", "zzz"]) {
+    assert.deepEqual(
+      buildOmniboxSuggestions(query, { ...data, searchIndex: index }),
+      buildOmniboxSuggestions(query, data),
+      `query ${query}`
+    );
+  }
+  assert.deepEqual(index.keys, Object.keys(words.words).sort(), "keys are sorted for the search");
+  assert.equal(index.ranks.length, index.keys.length, "ranks run parallel to the keys");
+  assert.deepEqual(
+    index.roots.slice(0, 4).map((r) => r.key),
+    ["la:terra", "en:sub-", "en:-an", "en:-ful"],
+    "roots are pre-ranked by family size, then by key"
+  );
+});
+
+test("the family counts agree with the ranked index, without building it", () => {
+  const counts = buildFamilyCounts(words);
+  assert.deepEqual(Object.keys(counts).sort(), Object.keys(familyIndex).sort());
+  for (const key of Object.keys(familyIndex)) {
+    assert.equal(counts[key], familyIndex[key].length, key);
+  }
+  const twice = {
+    v: 1,
+    words: {
+      transterrestrial: {
+        senses: [{ pos: "adj", defs: ["Across the earth."] }],
+        morphs: [{ f: "terra", r: "la:terra" }, { f: "terr-", r: "la:terra" }],
+      },
+    },
+  };
+  assert.equal(buildFamilyCounts(twice)["la:terra"], 1, "a repeated morpheme counts once");
+});
+
+test("escapeXml is exported for the query background.js echoes back", () => {
+  assert.equal(
+    escapeXml("a & b <c> \"d\" 'e'"),
+    "a &amp; b &lt;c&gt; &quot;d&quot; &apos;e&apos;"
+  );
+  assert.equal(escapeXml(null), "");
+});
+
 // --- the response envelope ------------------------------------------------
 
 test("lookup never throws on junk data", () => {
@@ -819,6 +996,30 @@ test("a duplicate identity collapses to the first item", () => {
   });
   assert.equal(state.items.length, 1);
   assert.equal(state.items[0].id, "i1");
+});
+
+test("an NFD saved key dedupes against its composed identity", () => {
+  const state = normalizeSavedState({
+    items: [
+      { id: "i1", kind: "root", key: `grc:${NFC_LOGOS}`, folderId: "f0", addedAt: 1 },
+      { id: "i2", kind: "root", key: `grc:${NFD_LOGOS}`, folderId: "f0", addedAt: 2 },
+    ],
+  });
+  assert.equal(state.items.length, 1, "one root, saved once");
+  assert.equal(state.items[0].key, `grc:${NFC_LOGOS}`, "stored composed, like the data");
+});
+
+test("the saved key paths all fold, so a star cannot desync from its item", () => {
+  const decomposed = `grc:${NFD_LOGOS}`;
+  const composed = `grc:${NFC_LOGOS}`;
+  const first = toggleItem(undefined, "root", decomposed, "f0", 1);
+  assert.equal(first.saved, true);
+  assert.equal(first.item.key, composed);
+  // The same root arriving composed toggles the SAME item back off.
+  assert.equal(toggleItem(first.state, "root", composed, "f0", 2).saved, false);
+  assert.deepEqual(checkKeys(first.state, [{ kind: "root", key: decomposed }]), {
+    [savedMapKey("root", composed)]: true,
+  });
 });
 
 test("toggling an identity saves it, toggling again removes it", () => {
@@ -972,10 +1173,30 @@ test("a saved root row carries its gloss, label line and family", () => {
   ]);
   assert.equal(row.form, "terra");
   assert.equal(row.gloss, "earth, land");
-  assert.equal(row.rootKind, "root");
   assert.equal(row.source, "Latin root");
   assert.equal(row.familyCount, 5);
   assert.deepEqual(row.family.slice(0, 2), ["territory", "terrain"]);
+});
+
+test(`a saved root row carries only the ${FAMILY_FIELD_WORDS} family words the field prints`, () => {
+  const wide = { ...joinData, familyIndex: { "la:terra": Object.keys(words.words) } };
+  const [row] = joinItems(
+    [{ id: "i1", kind: "root", key: "la:terra", folderId: "f0", addedAt: 0 }],
+    wide
+  );
+  assert.equal(row.family.length, FAMILY_FIELD_WORDS);
+  assert.equal(row.familyCount, Object.keys(words.words).length, "the count is the whole family");
+  assert.deepEqual(row.family, Object.keys(words.words).slice(0, FAMILY_FIELD_WORDS));
+});
+
+test("a saved root row drops the fields nothing reads", () => {
+  const [row] = savedRows([
+    { id: "i1", kind: "root", key: "grc:λόγος", folderId: "f0", addedAt: 0 },
+  ]);
+  assert.equal("rootKind" in row, false, "the item's own kind is the only kind field");
+  assert.equal("rom" in row, false, "no saved surface renders a romanization");
+  assert.equal(row.lang, "grc");
+  assert.equal(row.source, "Greek root");
 });
 
 test("a row whose entry left the bundle is marked missing", () => {
@@ -1147,6 +1368,87 @@ await testAsync("the pending query is read once", async () => {
   assert.deepEqual(await worker.handleGetPendingQuery(), { ok: true, query: null });
 });
 
+// --- the lazy data paths --------------------------------------------------
+//
+// From here on a fake chrome is installed, so the worker's storage and data
+// paths can be driven from Node. It goes in AFTER the storage-unavailable
+// tests above on purpose: the worker reads chrome.* per call, so this takes
+// effect with no re-import, and the listener wiring at module scope already
+// ran (and skipped) while chrome was still absent.
+
+const storageMemory = {};
+let fetched = [];
+
+globalThis.chrome = {
+  runtime: { getURL: (path) => `mem://${path}` },
+  storage: {
+    local: {
+      get: async (key) => (key in storageMemory ? { [key]: storageMemory[key] } : {}),
+      set: async (patch) => {
+        Object.assign(storageMemory, patch);
+      },
+    },
+  },
+};
+
+globalThis.fetch = async (url) => {
+  fetched.push(String(url));
+  const body = { words, roots, forms }[String(url).split("/").pop().replace(".json", "")];
+  if (body === undefined) return { ok: false, status: 404 };
+  return { ok: true, json: async () => body };
+};
+
+await testAsync("savedGet with no saved items never reads the data files", async () => {
+  fetched = [];
+  const answer = await worker.handleSavedGet();
+  assert.deepEqual(answer, { ok: true, folders: [{ id: "f0", name: "Saved" }], items: [] });
+  // The settings view calls savedGet just for the folder list. On a cold
+  // worker that must not cost an 18.9 MB parse to fill one select.
+  assert.deepEqual(fetched, []);
+});
+
+await testAsync("an export of nothing reads the data files just as little", async () => {
+  fetched = [];
+  const answer = await worker.handleSavedExport({}, "csv");
+  assert.equal(answer.ok, true);
+  assert.equal(answer.count, 0);
+  assert.deepEqual(fetched, []);
+});
+
+await testAsync("a saved word row joins against the loaded bundle, once", async () => {
+  fetched = [];
+  assert.equal((await worker.handleSavedToggle("word", "subterranean")).saved, true);
+  const first = await worker.handleSavedGet();
+  assert.equal(first.items.length, 1);
+  assert.equal(first.items[0].breakdown, "sub- + terra + -an");
+  assert.equal(first.items[0].tier, "rare");
+  assert.equal(fetched.length, 3, "the three data files");
+  await worker.handleSavedGet();
+  assert.equal(fetched.length, 3, "and the cache answers every join after that");
+});
+
+await testAsync("a saved root row carries the family words the export prints", async () => {
+  assert.equal((await worker.handleSavedToggle("root", "la:terra")).saved, true);
+  const answer = await worker.handleSavedGet();
+  const row = answer.items.find((item) => item.kind === "root");
+  assert.equal(row.familyCount, 5);
+  assert.equal(row.family.length, FAMILY_FIELD_WORDS);
+  assert.equal(row.source, "Latin root");
+});
+
+await testAsync("the root and family handlers answer from the ranked index", async () => {
+  const root = await worker.handleRoot("la:terra");
+  assert.equal(root.ok, true);
+  assert.equal(root.root.label, "Latin root");
+  assert.equal(root.root.familyCount, 5);
+  const chunk = await worker.handleFamily("la:terra", 2);
+  assert.equal(chunk.total, 5);
+  assert.equal(chunk.offset, 2);
+  assert.equal(chunk.rows.length, 3);
+  // The same fold as every other boundary: a decomposed key reaches the card.
+  assert.equal((await worker.handleRoot(`grc:${NFD_LOGOS}`)).root.key, `grc:${NFC_LOGOS}`);
+});
+
 console.log("\nshipped data (skipped when extension/data is empty)");
 
 // --- smoke tests over the real files, asserting only SPEC anchors ---------
@@ -1254,6 +1556,71 @@ await testAsync("smoke: the shipped bundle resolves the SPEC's anchor words", as
       `${Object.keys(bundle.roots.roots).length} roots, ` +
       `${Object.keys(bundle.forms.map).length} forms` +
       `${placeholder ? ", placeholder" : ""})`
+  );
+});
+
+await testAsync("smoke: the shipped bundle folds, labels and indexes as specified", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const roots = bundle.roots.roots;
+  const rootKeys = Object.keys(roots);
+  const wordKeys = Object.keys(bundle.words.words);
+
+  // Every key the pipeline emits is already what the fold lands on, so the
+  // fold at a boundary can only ever help.
+  const unfolded = [...rootKeys, ...wordKeys].filter((key) => fold(key) !== key);
+  assert.deepEqual(unfolded.slice(0, 5), [], `${unfolded.length} keys are not fold-stable`);
+
+  // The NFD keyboard case, against the real Greek keys.
+  const greek = rootKeys.filter((key) => key.startsWith("grc:"));
+  if (greek.length > 0) {
+    const decomposed = greek[0].normalize("NFD");
+    const card = buildRoot(decomposed, bundle, {});
+    assert.ok(card, `${greek[0]} must answer to its decomposed key`);
+    assert.equal(card.key, greek[0], "the response carries the shipped key");
+    assert.ok(
+      card.label.startsWith("Greek "),
+      `a grc: card labels its language (got "${card.label}")`
+    );
+  }
+
+  // Every shipped kind is in the SPEC's enum and every card gets a label line.
+  const kinds = {};
+  for (const key of rootKeys) {
+    const kind = typeof roots[key].kind === "string" ? roots[key].kind : "";
+    kinds[kind] = (kinds[kind] || 0) + 1;
+    if (kinds[kind] > 1) continue;
+    assert.ok(
+      ["prefix", "suffix", "infix", "circumfix", "root"].includes(kind),
+      `${key} carries kind ${JSON.stringify(kind)}`
+    );
+    assert.ok(buildRoot(key, bundle, {}).label !== "", `${key} must have a label line`);
+  }
+
+  // The omnibox index over the real corpus: bounded rows, real keys, and the
+  // input cap holding on a query no word can match.
+  const index = buildSearchIndex(bundle);
+  assert.equal(index.keys.length, wordKeys.length);
+  for (const query of ["a", "te", "sub", "un", "-ly"]) {
+    const rows = buildOmniboxSuggestions(query, { ...bundle, searchIndex: index });
+    assert.ok(rows.length <= MAX_OMNIBOX_SUGGESTIONS, `${query} returns at most 5 rows`);
+    for (const row of rows) {
+      const shipped = /^(en|la|grc):/.test(row.content)
+        ? row.content in roots
+        : row.content in bundle.words.words;
+      assert.ok(shipped, `${row.content} must be a shipped key`);
+    }
+  }
+  assert.deepEqual(buildOmniboxSuggestions("q".repeat(MAX_TOKEN_CHARS + 5), bundle), []);
+
+  console.log(
+    `      (${greek.length} Greek root keys; kinds ` +
+      `${Object.keys(kinds).sort().map((k) => `${k}:${kinds[k]}`).join(" ")})`
   );
 });
 

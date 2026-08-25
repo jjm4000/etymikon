@@ -11,6 +11,8 @@ import {
   buildFamilyIndex,
   buildOmniboxSuggestions,
   buildRoot,
+  buildSearchIndex,
+  escapeXml,
   lookup,
   toErrorMessage,
 } from "./lookup.js";
@@ -45,12 +47,22 @@ let dataPromise = null;
 
 /**
  * Rule 4: the root-to-words index, DERIVED from words.json at runtime and
- * stored in no data file. Built on the first root or family request, since
- * most lookups never need it, and cleared with the data cache so an updated
- * bundle rebuilds it with no other work.
+ * stored in no data file. It costs 31 ms and 65 MB of allocation, so it builds
+ * only where a ranked family LIST is rendered: a root card, a family chunk, a
+ * saved root row. The omnibox and a word-only saved join never touch it.
+ * Cleared with the data cache so an updated bundle rebuilds it with no other
+ * work.
  * @type {Record<string, string[]>|null}
  */
 let familyIndex = null;
+
+/**
+ * Rule 4: the omnibox index, derived the same way and cached the same way. It
+ * carries family SIZES rather than lists, so a keystroke never pays for the
+ * ranked index above.
+ * @type {object|null}
+ */
+let searchIndex = null;
 
 async function fetchJson(path) {
   const url = chrome.runtime.getURL(path);
@@ -75,6 +87,7 @@ function getData() {
     dataPromise.catch(() => {
       dataPromise = null;
       familyIndex = null;
+      searchIndex = null;
     });
   }
   return dataPromise;
@@ -84,6 +97,12 @@ function getData() {
 function getFamilyIndex(data) {
   if (familyIndex === null) familyIndex = buildFamilyIndex(data.words);
   return familyIndex;
+}
+
+/** The omnibox index for the loaded bundle, built on the first keystroke. */
+function getSearchIndex(data) {
+  if (searchIndex === null) searchIndex = buildSearchIndex(data);
+  return searchIndex;
 }
 
 /**
@@ -273,12 +292,19 @@ function writeSettings(area, settings) {
 }
 
 /**
- * The data bundle the saved join reads: the parsed files plus the derived
- * family index, which is what a saved root row's family count comes from.
+ * Join saved items against the live cache. An empty list is answered without
+ * touching the cache at all: the settings view asks for the folder list through
+ * savedGet, and on a cold worker that used to cost an 18.9 MB parse and a full
+ * index build to fill one select. The ranked family index is built only when a
+ * ROOT row is in the list, since that is the only row that reads it.
  */
-async function joinData() {
+async function joinSaved(items) {
+  if (items.length === 0) return [];
   const data = await getData();
-  return { ...data, familyIndex: getFamilyIndex(data) };
+  const needsFamily = items.some(
+    (item) => item !== null && typeof item === "object" && item.kind === "root"
+  );
+  return joinItems(items, needsFamily ? { ...data, familyIndex: getFamilyIndex(data) } : data);
 }
 
 /**
@@ -309,7 +335,7 @@ function exportFilename(format, date = new Date()) {
 export async function handleSavedGet() {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    return { ok: true, folders: state.folders, items: joinItems(state.items, await joinData()) };
+    return { ok: true, folders: state.folders, items: await joinSaved(state.items) };
   });
 }
 
@@ -457,7 +483,7 @@ export async function handleSettingsSet(patch) {
 export async function handleSavedExport(selection, format) {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    const rows = joinItems(resolveExportSelection(state, selection), await joinData());
+    const rows = await joinSaved(resolveExportSelection(state, selection));
     const skipped = rows.filter((row) => row.missing === true).length;
     const csv = format === "csv";
     // The Anki file is shaped by the field settings; the CSV is not, so it
@@ -610,21 +636,26 @@ function openSearchTab(text, disposition) {
 // Omnibox keyword "et". Guarded like the listener above so this module still
 // imports cleanly in Node.
 if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputChanged) {
-  // Set once at wiring time, not per keystroke. %s is the user's input; the
-  // surrounding text is the only markup, so nothing needs escaping here.
-  chrome.omnibox.setDefaultSuggestion({
-    description: "Search Etymikon for <match>%s</match>",
-  });
+  // Chrome PARSES a suggestion description as XML, and the %s substitution is
+  // Chrome's own: a description set here can never escape the text that lands
+  // in it, whatever markup surrounds the placeholder. So the wiring-time
+  // default carries neither markup nor placeholder, and the row that echoes
+  // the query is set per keystroke below, where the typed text goes through
+  // the same escapeXml every suggestion row uses.
+  chrome.omnibox.setDefaultSuggestion({ description: "Search Etymikon" });
 
   chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+    const typed = typeof text === "string" ? text : "";
+    chrome.omnibox.setDefaultSuggestion({
+      description: typed === ""
+        ? "Search Etymikon"
+        : `Search Etymikon for <match>${escapeXml(typed)}</match>`,
+    });
     (async () => {
       try {
         const data = await getData();
-        // The root rows rank by family size, so the suggestion pass gets the
-        // same derived index the root cards use.
-        suggest(
-          buildOmniboxSuggestions(text, { ...data, familyIndex: getFamilyIndex(data) })
-        );
+        // Sizes, not ranked lists: the omnibox index is the cheap one.
+        suggest(buildOmniboxSuggestions(text, { ...data, searchIndex: getSearchIndex(data) }));
       } catch {
         // Data unavailable (offline install, mid-update): no rows, no noise.
         suggest([]);

@@ -86,8 +86,8 @@ RANK_CAP = 50000        # hybrid cap: everything to here ships unconditionally
 MAX_POS = 4             # POS sections per word
 MAX_DEFS = 4            # definitions per POS section
 DEF_MAX_CHARS = 400     # a longer sense is dropped whole, never cut
-ROOT_GLOSS_MAX = 160    # a longer root gloss falls back, never cut
-GLOSS_CLAUSE_MAX = 60   # past this, a root gloss keeps its first clause only
+ROOT_GLOSS_CARD = 80    # the card budget a root gloss should fit
+ROOT_GLOSS_MAX = 160    # safety cap: a longer root gloss is dropped, never cut
 MAX_ALT = 8             # alias forms listed on a root card
 
 # Word keys the runtime can actually reach. lookup.js takes the first token of
@@ -101,6 +101,13 @@ RE_WORD_KEY = re.compile(r"^[a-z](?:[a-z'-]*[a-z'])?$")
 # -ness are affix entries exactly as sub- and -ation are.
 AFFIX_POS = frozenset({"prefix", "suffix", "infix", "interfix", "circumfix",
                        "combining form", "combining_form"})
+# Harvested pos -> the SPEC's `kind` enum. The enum has no interfix member, so
+# an interfix page is an infix card (-o- in speedometer). A combining form is
+# not in this table: it is a root unless its page is hyphen-shaped, which is
+# what root_kind() falls through to.
+AFFIX_KIND = {"prefix": "prefix", "suffix": "suffix", "infix": "infix",
+              "interfix": "infix", "circumfix": "circumfix"}
+COMBINING_POS = frozenset({"combining form", "combining_form"})
 
 
 def mb(n: int) -> str:
@@ -220,14 +227,19 @@ def clean_def(s) -> str:
     return clean_text(s)
 
 
-def short_gloss(s) -> str:
-    """A root-card gloss: one clause, no trailing clarifier, never cut.
+# A clause end: a semicolon or a full stop that closes a word rather than an
+# abbreviation, so "U.S. Army" is not cut at the U.
+RE_CLAUSE_END = re.compile(r"[;.](?=\s|$)")
+CLAUSE_MIN = 12         # below this a first clause is a fragment, not a gloss
 
-    Root cards get one line. Wiktionary root senses are usually a short
-    gloss followed by a parenthesised clarifier, sometimes several clauses
-    joined by a semicolon. Taking the first clause and dropping the
-    clarifier is selection, not truncation: the string that ships is a
-    whole clause from the source.
+
+def gloss_line(s) -> str:
+    """One sense line, normalised for a root card. Nothing is cut here.
+
+    Wiktionary root senses are usually a gloss followed by a parenthesised
+    clarifier, and wiktextract sometimes leaves a usage label in front.
+    Dropping both is selection, not truncation: what survives is a whole
+    clause from the source.
     """
     g = clean_text(s)
     if not g:
@@ -237,17 +249,32 @@ def short_gloss(s) -> str:
     while prev != g:
         prev = g
         g = RE_TAIL_PAREN.sub("", g).strip()
-    if ";" in g and len(g) > GLOSS_CLAUSE_MAX:
-        head = g.split(";", 1)[0].strip()
-        if len(head) >= 3:
-            g = head
-    g = g.rstrip(":").strip()
-    if len(g) > ROOT_GLOSS_MAX:
-        return ""
-    return g
+    return g.rstrip(":").strip()
+
+
+def abbrev_dot(g: str, i: int) -> bool:
+    """True when the full stop at i closes an abbreviation, not a sentence."""
+    word = g[:i].rsplit(" ", 1)[-1]
+    return len(word) < 2 or "." in word
+
+
+def first_clause(g: str) -> str:
+    """The first clause of a sense line, split at a semicolon or full stop."""
+    for m in RE_CLAUSE_END.finditer(g):
+        if m.start() < CLAUSE_MIN:
+            continue
+        if g[m.start()] == "." and abbrev_dot(g, m.start()):
+            continue
+        return g[:m.start()].strip()
+    return g.rstrip(".").strip()
 
 
 # ------------------------------------------------------------- template sets
+#
+# These five tables are the authority for how the extracts are read. spike.py
+# and spike_size.py hold frozen copies of an older revision of them; those are
+# spike artifacts pinned to the numbers they published and are never a source
+# for this file.
 
 # Templates that split a word into morphemes.
 DECOMP_NAMES = frozenset({
@@ -399,7 +426,12 @@ def entry_chain(e):
 
 
 def pure_form_of(e):
-    """The lemma this entry points at, when every sense is a form-of sense."""
+    """The lemma this entry points at, when every sense is a form-of sense.
+
+    Structural only: it answers "does this page define anything of its
+    own", which is what decides whether the entry contributes senses. It
+    does NOT decide a forms.json mapping. See inflection_form_of.
+    """
     senses = e.get("senses") or []
     if not senses:
         return None
@@ -416,32 +448,114 @@ def pure_form_of(e):
     return target
 
 
-def best_gloss(e) -> str:
-    """The first sense of an entry that yields a usable root-card gloss.
+# The wiktextract tags that mark a sense as an INFLECTION of its lemma:
+# number, tense, aspect and mood, person, degree. Enumerated from a tag census
+# of the English extract (2026-08-24): every tagset above 1,000 senses is
+# covered here. The tags left out are the ones that mark a derivation or a
+# spelling relation rather than an inflection: agent, diminutive, feminine,
+# attributive, morpheme, and the whole alt_of vocabulary (abbreviation,
+# initialism, misspelling, pronunciation-spelling, alternative).
+INFLECTION_TAGS = frozenset({
+    "plural", "singular",
+    "past", "present", "future",
+    "participle", "gerund", "infinitive", "imperative", "subjunctive",
+    "indicative", "perfect", "imperfect", "pluperfect",
+    "first-person", "second-person", "third-person",
+    "comparative", "superlative",
+})
 
-    Walking past the first sense matters: nano- opens with a metric-prefix
-    definition far too long for a card, and -ly with a sentence about
-    behaving like a noun, while the sense after each is a clean one line.
+
+def inflection_form_of(e):
+    """The lemma this entry inflects, or None.
+
+    The only relation that may produce a forms.json row or a `fo` field.
+    The page has to be a pure form-of page, no sense on it may be an
+    `alt_of` link, and at least one sense has to be tagged as an
+    inflection. The lemma comes from the first sense that is.
+
+    An alt_of link never qualifies, whatever it is tagged. Without that
+    test the abbreviation, initialism, eye-dialect and alternative-form
+    pages of the extract all read as inflections, and they are the common
+    short words: "the" pointed at thee, "a" at to, "of" at outfield, "it"
+    at intrathecal, and "don't" redirected to done (review finding
+    2026-08-24; 202 of the top 3,000 corpus tokens carried a mapping that
+    this rule removed or corrected).
+
+    One qualifying sense is enough, rather than all of them, because a
+    plural page often carries a second sense that is not an inflection:
+    "wives" is the plural of wife and the obsolete genitive of wife, and
+    the commonest irregular plural in the language must not be lost to the
+    second line.
     """
+    senses = e.get("senses") or []
+    if not senses:
+        return None
+    target = None
+    for s in senses:
+        links = s.get("form_of")
+        if not links or s.get("alt_of"):
+            return None
+        if target is None and any(t in INFLECTION_TAGS
+                                  for t in (s.get("tags") or ())):
+            target = (links[0] or {}).get("word") or None
+    return target
+
+
+def best_gloss(e) -> str:
+    """A root-card gloss for one entry, inside the card budget.
+
+    The chip subtext is one short line, so the budget decides which sense
+    gets the card. A sense that fits 80 characters wins outright; walking
+    past the first sense matters, because nano- opens with a metric-prefix
+    definition far too long for a card and -ite with a sentence about
+    followers of a doctrine, while a later sense of each is a clean line.
+    When no sense fits, a sense keeps its first clause instead, again in
+    source order, and the 160 character safety cap decides which clause is
+    usable rather than cutting one. Four suffixes (-ese, -or, pico- and the
+    curated -ly) have no clause of the first sense inside the cap, so the
+    walk continues past it or the card would be lost outright.
+    ROOT_GLOSSES in curation.py overrides all of this.
+
+    SPEC reads "the shortest sense at or under 80 characters". Source order
+    is used instead of length (review 2026-08-24, reported to the owner):
+    the shortest sense is a marginal one often enough to matter, and it
+    contradicts the pinned la:terra anchor, whose gloss is sense 1 ("dry
+    land", 8 characters) while the shortest is sense 5 ("earth").
+    """
+    lines = []
     for s in e.get("senses") or []:
         for raw in s.get("glosses") or []:
-            g = short_gloss(raw)
+            g = gloss_line(raw)
             if g:
-                return g
+                lines.append(g)
+    for g in lines:
+        if len(g) <= ROOT_GLOSS_CARD:
+            return g
+    for g in lines:
+        head = first_clause(g)
+        if head and len(head) <= ROOT_GLOSS_MAX:
+            return head
     return ""
 
 
 # ---------------------------------------------------------------- frequency
 
 def parse_ranks(path):
-    """Word -> rank. First occurrence of each `^[a-z]+$` token, 1-based."""
+    """Word -> rank. First occurrence of each word-shaped token, 1-based.
+
+    The token test is RE_WORD_KEY, the same shape words.json keys take. A
+    narrower one here is not a filter, it is a hole: the rank drives the
+    attestation gate, so a token the rank table cannot hold is a word that
+    can never ship. This read ^[a-z]+$ until 2026-08-24, which barred every
+    hyphenated word in the language: x-ray and t-shirt among 1,850 such
+    tokens inside the top 50,000.
+    """
     ranks = {}
-    pat = re.compile(r"^[a-z]+$")
     n = 0
     with io.open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             w = line.split(" ", 1)[0]
-            if pat.match(w) and w not in ranks:
+            if RE_WORD_KEY.match(w) and w not in ranks:
                 n += 1
                 ranks[w] = n
     return ranks
@@ -473,7 +587,7 @@ def survey_english(path, ranks):
                 continue
             wl = w.lower()
             pos = e.get("pos") or ""
-            fo = pure_form_of(e)
+            fo = inflection_form_of(e)
 
             if pos in AFFIX_POS:
                 # Form-of senses are not a reason to skip an affix page. A
@@ -490,6 +604,8 @@ def survey_english(path, ranks):
             if not RE_WORD_KEY.match(wl):
                 continue
 
+            # Inflection pages only. An abbreviation or an alternative
+            # spelling is a different relation and gets no mapping at all.
             if fo:
                 t = fo.lower()
                 if t != wl and RE_WORD_KEY.match(t) and wl not in forms_raw:
@@ -603,14 +719,15 @@ def harvest_english(path, cand):
 def parse_classical(path, lang):
     """One streaming pass over the Latin or Ancient Greek extract.
 
-    A root card needs four things from here: a display form with its
-    macrons, a gloss, the lemma an inflection page points at, and the
-    entry's own decomposition. The last one is the root-unification hop:
+    A root card needs a display form with its macrons, a gloss, the entry
+    pos that decides its kind, the lemma an inflection page points at, and
+    the entry's own decomposition. The last one is the root-unification hop:
     territōrium splits as terra + -tōrium inside Latin, so every English
     word whose chain stops at territōrium lands on terra instead.
     """
     gloss = {}
     form = {}
+    kind_pos = {}
     rom = {}
     fo = {}
     base = {}
@@ -642,6 +759,9 @@ def parse_classical(path, lang):
                 if cur is None or weight > cur[0]:
                     gloss[k] = (weight, g)
                     form[k] = display_form(e, w, lang, k)
+                    # Latin and Greek have affix pages of their own (la:re-,
+                    # grc:-ος), and their pos says so.
+                    kind_pos[k] = pos
                     r = tagged_form(e, "romanization")
                     if lang == "grc" and r:
                         rom[k] = r
@@ -655,7 +775,8 @@ def parse_classical(path, lang):
                             base[k] = bk
     stats["lemmas"] = len(gloss)
     return {"gloss": {k: v[1] for k, v in gloss.items()}, "form": form,
-            "rom": rom, "fo": fo, "base": base, "stats": stats}
+            "pos": kind_pos, "rom": rom, "fo": fo, "base": base,
+            "stats": stats}
 
 
 def tagged_form(e, tag):
@@ -763,11 +884,33 @@ def resolve_part(part, word, affixes, shipped):
     return None, None
 
 
-def root_kind(form):
+def shape_kind(form):
+    """Prefix or suffix by hyphen shape, root when neither. Last resort."""
     if form.endswith("-") and not form.startswith("-"):
         return "prefix"
     if form.startswith("-"):
         return "suffix"
+    return "root"
+
+
+def root_kind(pos, form):
+    """The card's `kind`, from the harvested entry pos.
+
+    The pos is the only thing that knows what an affix is. Hyphen shape
+    guesses, and it guessed wrong on both ends of the extract: -o- and its
+    kin are interfixes that read as suffixes, and "en- -en" is a circumfix
+    that reads as a root (review finding 2026-08-24; 10 interfix cards and
+    the one circumfix card were mislabeled). Latin and Greek pages carry a
+    pos too, so la:re- stays a prefix rather than becoming a Latin root.
+    Shape survives for the one pos that does not settle the question: a
+    combining form is a root unless its own page is written with a hyphen
+    (electro-, -phile).
+    """
+    kind = AFFIX_KIND.get(pos)
+    if kind:
+        return kind
+    if pos in COMBINING_POS:
+        return shape_kind(form)
     return "root"
 
 
@@ -798,15 +941,24 @@ def show_fo(k, words):
 
 
 def family_index(words):
-    """root key -> word keys, the index the service worker derives at runtime."""
+    """root key -> word keys, the index the service worker derives at runtime.
+
+    A mirror, not a second implementation: lookup.js buildFamilyIndex is the
+    authority for this shape and this counting rule. A word credits a root
+    once, however many of its morphs name it, and an org row credits it the
+    same way. Verify has to see the families the reader will see.
+    """
     idx = collections.defaultdict(list)
     for k, w in words.items():
+        credited = set()
         for m in w.get("morphs") or ():
             if m.get("r"):
-                idx[m["r"]].append(k)
+                credited.add(m["r"])
         org = w.get("org")
         if org and org.get("r"):
-            idx[org["r"]].append(k)
+            credited.add(org["r"])
+        for r in sorted(credited):
+            idx[r].append(k)
     return idx
 
 
@@ -875,10 +1027,15 @@ def verify(words_obj, roots_obj, forms_obj):
     add("understand ships with no morphs (BLOCKED_SPLITS)",
         "understand" in words and not words["understand"].get("morphs"),
         show("understand"))
-    add("had ships or resolves, with no morphs (inflectional)",
-        ("had" in words or fmap.get("had") == "have")
-        and not (words.get("had") or {}).get("morphs"),
-        "forms[had]=%s words[had]=%s" % (fmap.get("had"), show("had")))
+    # had ships. Its -ed split is inflectional and its auxiliary senses are
+    # its own, so it is a word and not a forms.json row. Which of the two it
+    # is has to be asserted: a check reading "ships or resolves" passes
+    # either way and pins nothing (review finding 2026-08-24).
+    add("had ships as a word with no morphs, and is no forms.json key",
+        "had" in words and not words["had"].get("morphs")
+        and "had" not in fmap,
+        "forms[had]=%s words[had]=%s fo=%s"
+        % (fmap.get("had"), show("had"), (words.get("had") or {}).get("fo")))
     add("running ships as a word with no morphs (inflectional -ing)",
         "running" in words and not words["running"].get("morphs"),
         show("running"))
@@ -888,6 +1045,26 @@ def verify(words_obj, roots_obj, forms_obj):
     add("running carries fo run as well (it ships, so forms.json cannot)",
         (words.get("running") or {}).get("fo") == "run",
         show_fo("running", words))
+
+    # ---- form-of is inflection only ------------------------------------
+    # The short words the extract hands an alt_of link: an Early Modern
+    # spelling (the -> thee), a pronunciation spelling (a -> to), and two
+    # initialisms (of -> outfield, it -> intrathecal). None is an
+    # inflection, so none is a mapping.
+    for k in ("the", "a", "of", "it"):
+        add("%s carries no fo" % k,
+            k in words and not words[k].get("fo"), show_fo(k, words))
+
+    # don't is a contraction, and its one form-of-shaped sense is an alt_of
+    # ("Contraction of done + it"), so nothing may redirect it to done. It
+    # does not ship: the frequency corpus splits contractions into don + 't,
+    # so no apostrophe token is attested anywhere in it and the attestation
+    # gate keeps every contraction out of the dictionary.
+    add("don't never redirects to done",
+        fmap.get("don't") is None
+        and (words.get("don't") or {}).get("fo") is None,
+        "forms[don't]=%s words[don't]=%s"
+        % (fmap.get("don't"), "shipped" if "don't" in words else "not shipped"))
 
     for key in ("en:-ness", "en:-ly", "en:-y"):
         r = roots.get(key)
@@ -902,6 +1079,20 @@ def verify(words_obj, roots_obj, forms_obj):
             "forms[%s]=%s, %s shipped=%s"
             % (form, fmap.get(form), lemma, lemma in words))
 
+    # ---- rank charset ---------------------------------------------------
+    hyphenated = sorted(k for k in words if "-" in k)
+    xr = words.get("x-ray")
+    add("x-ray ships (the rank table admits hyphenated words)",
+        xr is not None and xr.get("fr") is not None and xr["fr"] <= RANK_CAP,
+        "x-ray fr=%s; %d hyphenated words ship, e.g. %s"
+        % ((xr or {}).get("fr"), len(hyphenated), ", ".join(hyphenated[:6])))
+
+    # ---- root kind ------------------------------------------------------
+    o = roots.get("en:-o-")
+    add("en:-o- ships with kind infix (an interfix page, not a suffix)",
+        o is not None and o.get("kind") == "infix",
+        json.dumps(o, ensure_ascii=False) if o else "MISSING")
+
     # ---- data invariants -----------------------------------------------
     both = [k for k, w in words.items() if w.get("morphs") and w.get("org")]
     add("no words.json entry carries both morphs and org", not both,
@@ -913,8 +1104,14 @@ def verify(words_obj, roots_obj, forms_obj):
         "%d offenders%s" % (len(rw), (": " + ", ".join(rw[:5])) if rw else ""))
 
     thin = [k for k in roots if len(idx.get(k) or ()) < 2]
-    add("no root under 2 referencing words", not thin,
+    add("no root under 2 distinct referencing words", not thin,
         "%d offenders%s" % (len(thin), (": " + ", ".join(sorted(thin)[:5])) if thin else ""))
+
+    KINDS = ("prefix", "suffix", "infix", "circumfix", "root")
+    badkind = sorted(k for k, r in roots.items() if r.get("kind") not in KINDS)
+    add("every root kind is one of the SPEC enum", not badkind,
+        "%d offenders%s" % (len(badkind),
+                            (": " + ", ".join(badkind[:5])) if badkind else ""))
 
     referenced = {m["r"] for w in words.values()
                   for m in (w.get("morphs") or ()) if m.get("r")}
@@ -1010,7 +1207,13 @@ def verify(words_obj, roots_obj, forms_obj):
         ("forms", format(len(fmap), ","), ""),
         ("shipped words carrying fo",
          format(sum(1 for w in words.values() if w.get("fo")), ","),
-         "shadow lemmas: ran, running, had"),
+         "shadow lemmas: ran, running"),
+        ("root kinds", " ".join(
+            "%s=%s" % (k, format(v, ","))
+            for k, v in sorted(collections.Counter(
+                r["kind"] for r in roots.values()).items())), ""),
+        ("hyphenated words", format(sum(1 for k in words if "-" in k), ","),
+         "0 before the rank charset fix"),
     ]
 
     failed = 0
@@ -1162,14 +1365,22 @@ def main(argv):
            format(anchors.hops, ",")))
 
     # ---- resolve morphemes to roots, count references -------------------
+    # One word credits a root once, however many of its morphs name it, and
+    # the org row counts in the same tally. This is the runtime's rule:
+    # lookup.js buildFamilyIndex is the authority, and the ship threshold has
+    # to agree with it or a root ships whose card renders a family of one
+    # (review finding 2026-08-24, 12 shipped words double-credited).
     refs = collections.Counter()
-    n_wchip = 0
+    n_wchip = n_repeat = 0
     for wl, w in shipped.items():
+        credited = set()
         for m in w.get("morphs") or ():
             field, k = resolve_part(m["f"], wl, affixes, shipped)
             if field == "r" and k not in curation.ROOT_SKIPS:
                 m["r"] = k
-                refs[k] += 1
+                if k in credited:
+                    n_repeat += 1
+                credited.add(k)
             elif field == "w":
                 m["w"] = k
                 n_wchip += 1
@@ -1178,7 +1389,9 @@ def main(argv):
             if org["r"] in curation.ROOT_SKIPS:
                 del w["org"]
             else:
-                refs[org["r"]] += 1
+                credited.add(org["r"])
+        for k in credited:
+            refs[k] += 1
 
     # ---- build the root set --------------------------------------------
     roots = {}
@@ -1190,18 +1403,19 @@ def main(argv):
             a = affixes.get(form)
             if not a:
                 continue
-            gloss, disp, rom = a["gloss"], form, ""
+            gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
         else:
             cl = classical[lang]
             gloss = cl["gloss"].get(form)
             disp = cl["form"].get(form) or form
             rom = cl["rom"].get(form, "")
+            pos = cl["pos"].get(form, "")
         # A hand gloss overrides the harvest and can carry a card on its own.
         gloss = curation.ROOT_GLOSSES.get(key) or gloss
         if not gloss:
             continue
         r = {"form": disp, "lang": lang, "gloss": gloss,
-             "kind": root_kind(disp)}
+             "kind": root_kind(pos, disp)}
         if rom:
             r["rom"] = rom
         roots[key] = r
@@ -1243,17 +1457,17 @@ def main(argv):
         elif org:
             org["f"] = roots[org["r"]]["form"]
     log("  %s roots kept (%s src links); %s word chips, %s morph chips left "
-        "inert, %s org rows dropped"
+        "inert, %s org rows dropped, %s repeated morphs credited once"
         % (format(len(roots), ","), format(n_src, ","), format(n_wchip, ","),
-           format(n_inert, ","), format(n_orgdrop, ",")))
+           format(n_inert, ","), format(n_orgdrop, ","), format(n_repeat, ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
-    # A word that ships AND has form-of senses shadows its lemma: a reader
+    # A word that ships AND inflects something shadows its lemma: a reader
     # selecting "ran" gets the noun about yarn on a winch, because the key
     # exists and the runtime never reaches its suffix rules. `fo` is the way
     # back to run. Such a word is a shipped word, so it stays out of
-    # forms.json by rule; the two fields divide the same harvest between
-    # them.
+    # forms.json by rule; the two fields divide one harvest between them,
+    # and inflection_form_of is what admits anything to that harvest.
     fmap = {}
     n_fo = 0
     for k, v in forms_raw.items():
@@ -1297,7 +1511,12 @@ def main(argv):
     log("roots         : %s (en=%s la=%s grc=%s)"
         % (format(len(roots), ","), format(langs["en"], ","),
            format(langs["la"], ","), format(langs["grc"], ",")))
+    kinds = collections.Counter(r["kind"] for r in roots.values())
+    log("  by kind     : %s"
+        % " ".join("%s=%s" % (k, format(v, ","))
+                   for k, v in sorted(kinds.items())))
     log("forms         : %s" % format(len(fmap), ","))
+    log("fo fields     : %s" % format(n_fo, ","))
     log("================= SIZES ====================")
     log("words.json    : %s" % mb(s_w))
     log("roots.json    : %s" % mb(s_r))

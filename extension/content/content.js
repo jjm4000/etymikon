@@ -99,9 +99,13 @@
    * ------------------------------------------------------------------ */
 
   // A selection is worth a lookup once it holds a letter. The worker extracts
-  // the first token itself, so anything past that is its business.
+  // the first token itself, so anything past that is its business: a drag that
+  // starts on a word and runs into the next clause still asks about the word.
+  // The cap below is a sanity bound on a runaway selection, not a word-length
+  // rule (review finding 2026-08-24: a 40-char cap rejected whole selections
+  // that began with a perfectly ordinary word).
   var WORD_RE = /[A-Za-z]/;
-  var MAX_SELECTION_CHARS = 40;
+  var MAX_SELECTION_CHARS = 200;
   var MAX_FAMILY = 8;   // family rows a root card shows inline
   var FAMILY_PAGE = 5;  // family rows revealed per press of "Show 5 more"
   // (The trail once capped at a fixed depth of 3. It elides by WIDTH now —
@@ -388,14 +392,25 @@
     // row aligns on the top edge and the plus signs are centred by hand.
     ".morphs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px;",
     "  margin-top: 3px; }",
+    // The chip is BOUNDED. Root glosses run to 160 characters and thousands of
+    // word cards carry one over 80, so an unbounded chip would swallow the card
+    // it belongs to. Width caps at a third of the default panel and the gloss
+    // clamps to two lines: the chip names the part, the root card tells the
+    // whole story (SPEC, appendBreakdown).
     ".morph {",
     "  display: inline-flex; flex-direction: column; gap: 1px;",
-    "  padding: 3px 8px 4px; border-radius: 8px;",
+    "  padding: 3px 8px 4px; border-radius: 8px; max-width: 120px;",
     "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
     "}",
     ".morph-form { font-size: 13px; font-weight: 600; color: var(--fg);",
-    "  white-space: nowrap; }",
-    ".morph-gloss { font-size: 10px; line-height: 1.3; color: var(--muted); }",
+    "  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+    // No "more" control here: syncClamps only reaches .clampwrap, and a chip is
+    // too small to carry an expander without crowding the row beside it.
+    ".morph-gloss {",
+    "  font-size: 10px; line-height: 1.3; color: var(--muted);",
+    "  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;",
+    "  overflow: hidden; overflow-wrap: anywhere;",
+    "}",
     // Chips that open a root card carry hover and a pointer. A chevron would
     // crowd a row of three or four chips, so the pill itself is the affordance.
     ".morph.nav { cursor: pointer; }",
@@ -630,6 +645,7 @@
   var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
   var viewStack = [];         // the descent; last entry is the current view
   var currentSrcText = "";    // source text of the view being rendered (see noteApplies)
+  var pendingFamilyReveal = 0; // family rows the view being rendered owes back
 
   function ensureHost() {
     if (host && host.isConnected) return;
@@ -1064,9 +1080,25 @@
   // the browser would otherwise restore the previous offset.
   var pendingScrollTop = null;
 
+  // A section that pages content in asynchronously holds the restore until its
+  // rows are back, so the offset is never applied against a card that is still
+  // short (see appendFamily's restore path).
+  var scrollHolds = 0;
+
+  function holdPendingScroll() { scrollHolds++; }
+
+  function releasePendingScroll() {
+    if (scrollHolds > 0) scrollHolds--;
+    applyPendingScroll();
+  }
+
   function applyPendingScroll() {
-    if (pendingScrollTop === null) return;
-    panel.scrollTop = pendingScrollTop;
+    if (pendingScrollTop === null || scrollHolds > 0) return;
+    // Clamp explicitly rather than leaving it to the browser: an offset with
+    // nowhere to go should read as "as far as this card goes", and saying so
+    // here keeps the intent legible.
+    var limit = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    panel.scrollTop = Math.max(0, Math.min(limit, pendingScrollTop));
     pendingScrollTop = null;
   }
 
@@ -1078,16 +1110,42 @@
     reposition();
   }
 
-  // True when the user has an active text selection inside the popup, so a
-  // click that merely ended a copy-drag doesn't navigate.
-  function hasShadowSelection() {
-    try {
-      if (shadow && typeof shadow.getSelection === "function") {
-        var sel = shadow.getSelection();
-        return !!sel && !sel.isCollapsed;
-      }
-    } catch (e) { /* not supported — fall through */ }
+  // True when a node sits inside the popup's shadow root. Crossing the closed
+  // boundary by hand covers engines whose ShadowRoot has no contains().
+  function nodeInShadow(node) {
+    if (!node || !shadow) return false;
+    if (typeof shadow.contains === "function" && shadow.contains(node)) return true;
+    var at = node;
+    while (at) {
+      if (at === shadow) return true;
+      at = at.parentNode || at.host || null;
+    }
     return false;
+  }
+
+  // True when the user has an active text selection INSIDE the popup, so a
+  // click that merely ended a copy-drag does not navigate.
+  //
+  // The question is CONTAINMENT, and it has to be asked that way. Chrome's
+  // ShadowRoot.getSelection() on a closed root reports the PAGE selection when
+  // there is nothing selected inside the shadow, so "is it collapsed?" answered
+  // yes to the selection that opened the popup in the first place and every nav
+  // row went dead in the primary flow (review finding 2026-08-24). Both
+  // endpoints must land in our own shadow before a click is read as a
+  // copy-drag. getComposedRanges is the standards-track way to ask the same
+  // question; anchorNode/focusNode work on every Chrome that ships this
+  // extension, so that is what this uses.
+  function hasShadowSelection() {
+    if (!shadow) return false;
+    var sel = null;
+    try {
+      if (typeof shadow.getSelection === "function") sel = shadow.getSelection();
+    } catch (e) { sel = null; }
+    if (!sel) {
+      try { sel = window.getSelection(); } catch (e2) { return false; }
+    }
+    if (!sel || sel.isCollapsed) return false;
+    return nodeInShadow(sel.anchorNode) && nodeInShadow(sel.focusNode);
   }
 
   /* ---- Wiktionary links ------------------------------------------------ *
@@ -1666,8 +1724,15 @@
         // An absent or unrecognised tier renders NO chip. Guessing a zone
         // would be worse than silence, and it is what keeps root cards clean:
         // how many words a root builds is its weight signal, not a tier.
+        //
+        // The WORKER is the authority on the wording: it joins a display label
+        // onto every word match and family row, and TIER_LABEL below is only
+        // the fallback for a response that predates it.
         return m.tier === tier &&
-          { label: TIER_LABEL[tier], title: TIER_TITLE[tier] };
+          {
+            label: nonEmptyString(m.tierLabel) || TIER_LABEL[tier],
+            title: TIER_TITLE[tier]
+          };
       }
     };
   }
@@ -1891,7 +1956,7 @@
     // rather than replacing it.
     var rom = nonEmptyString(r.rom);
     if (rom) meta.appendChild(el("div", "rom", rom));
-    var label = rootLabel(r);
+    var label = rootLabelOf(r);
     if (label) meta.appendChild(el("div", "rootlabel", label));
     head.appendChild(meta);
     appendCardActions(head, m);
@@ -1900,9 +1965,14 @@
     card.appendChild(head);
   }
 
-  // "Latin root", "Greek root", "Prefix", "Suffix". An affix says what it is
-  // and nothing more: the language it works in is the reader's own.
-  function rootLabel(r) {
+  // "Latin root", "Greek root", "Prefix", "Suffix". The WORKER owns this
+  // wording: lookup.js joins the label onto the root response so the card and
+  // the Anki export cannot disagree, and the kind vocabulary (infix,
+  // circumfix) grows there, not here. What follows is the fallback for a
+  // response that predates the joined field, and nothing else reads it.
+  function rootLabelOf(r) {
+    var joined = nonEmptyString(r.label);
+    if (joined) return joined;
     var kind = nonEmptyString(r.kind);
     if (kind === "prefix") return "Prefix";
     if (kind === "suffix") return "Suffix";
@@ -1926,17 +1996,25 @@
     return true;
   }
 
-  // "From Latin sub" on an English affix whose own entry descends from a
-  // shipped Latin or Greek lemma. Absent otherwise.
+  // "From Latin sub (under, beneath)" on an English affix whose own entry
+  // descends from a shipped Latin or Greek lemma. Absent otherwise.
+  //
+  // The worker joins `src` exactly the way it joins a word's `org`, as
+  // {r, f, gloss?}, so this reads it the way appendOrigin reads that (review
+  // finding 2026-08-24: reading it as a bare key meant the row never rendered
+  // on any of the 79 roots that carry one).
   function appendRootSource(card, m) {
     if (!rootSourceEnabled(sectionSettings())) return;
-    var key = nonEmptyString(rootOf(m).src);
-    if (!key) return;
+    var r = rootOf(m);
+    var src = r.src && typeof r.src === "object" ? r.src : null;
+    if (!src) return;
+    var key = nonEmptyString(src.r);
     var parts = splitRootKey(key);
-    if (!parts.form) return;
+    var form = nonEmptyString(src.f) || parts.form;
+    if (!key || !form) return;
 
     var row = el("div", "entry-row origin-row nav");
-    row.appendChild(buildOriginText(parts.lang, parts.form, ""));
+    row.appendChild(buildOriginText(parts.lang, form, src.gloss));
     makeNavRow(row, function () { navigateToRoot(key); });
     card.appendChild(row);
   }
@@ -2004,6 +2082,9 @@
     var pending = [];         // fetched rows not yet on screen
     var nextOffset = 0;       // where the next chunk request starts
     var exhausted = false;    // the worker has no more rows to give
+    // Rows this rebuild owes the reader (see the restore path below); 0 when
+    // the card is being built fresh.
+    var restoreTo = Math.min(pendingFamilyReveal, total);
     var button = el("button", "fam-more");
     button.type = "button";
 
@@ -2020,10 +2101,14 @@
     }
 
     // Reveals up to one page from what is already in hand. Returns how many
-    // rows it managed to add, so the caller knows whether to fetch.
+    // rows it managed to add, so the caller knows whether to fetch. A restore
+    // in progress asks for everything it is still owed in one go, because the
+    // reader is not pressing anything: they are coming back to a card they had
+    // already paged in.
     function revealPending() {
+      var cap = restoreTo > rowCount ? restoreTo - rowCount : FAMILY_PAGE;
       var added = 0;
-      while (added < FAMILY_PAGE && pending.length) {
+      while (added < cap && pending.length) {
         var next = pending.shift();
         var name = nonEmptyString(next.word);
         if (name && shown[name]) continue;
@@ -2077,7 +2162,34 @@
           remaining = pending.length;
           syncButton();
         }
+        if (restoreTo) pumpRestore();
       });
+    }
+
+    /* ---- coming back to a card the reader had paged in ------------------
+     * A crumb jump rebuilds this section from the preview rows the response
+     * carried, while the scroll offset it restores was measured against every
+     * row the reader had revealed. Rebuilding short and then restoring that
+     * offset landed them clamped at the bottom of a card they never saw
+     * (review finding 2026-08-24), so put the rows back FIRST and let the
+     * offset mean what it meant. The chunk is cached for the popup session,
+     * so the way back costs no request.
+     * ------------------------------------------------------------------ */
+    function finishRestore() {
+      restoreTo = 0;
+      releasePendingScroll();
+    }
+
+    function pumpRestore() {
+      if (rowCount >= restoreTo) { finishRestore(); return; }
+      // Rows in hand first, exactly as a press would take them.
+      if (pending.length) {
+        revealPending();
+        pumpRestore();
+        return;
+      }
+      if (exhausted) { finishRestore(); return; }
+      loadChunk(finishRestore);   // a failed fetch stops owing rows
     }
 
     button.addEventListener("click", function (ev) {
@@ -2099,7 +2211,16 @@
       // that cap ever changes. The button stays in the DOM but hidden, so a
       // failed fetch can fall back to the press-to-retry path.
       button.hidden = true;
+      restoreTo = 0;            // rendering it whole restores it by itself
       loadChunk(function () { button.hidden = false; });
+      return;
+    }
+
+    if (restoreTo > rowCount) {
+      holdPendingScroll();
+      pumpRestore();
+    } else {
+      restoreTo = 0;
     }
   }
 
@@ -2155,7 +2276,7 @@
     // request silently does nothing, which would strand the user. If the
     // offset has not budged at all by the time a normal animation would have
     // finished, land on the target outright. Any movement means the animation
-    // ran — or the user took over — so leave it alone.
+    // ran, or that the user took over. Either way, leave it alone.
     if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
     scrollSettleTimer = setTimeout(function () {
       scrollSettleTimer = null;
@@ -2307,6 +2428,12 @@
     var view = viewStack[viewStack.length - 1];
     if (!view) return;
     view.scrollTop = panel.scrollTop;
+    // How far the reader had paged the family in. The offset above was
+    // measured against those rows, so the rebuild has to put them back before
+    // it means anything (see appendFamily's restore path).
+    view.familyShown = viewRoot
+      ? viewRoot.querySelectorAll(".fam-row").length
+      : 0;
   }
 
   /* ---- Breadcrumbs ------------------------------------------------------ *
@@ -2501,12 +2628,18 @@
     currentSrcText = view.srcText || "";
     clearNode(panel);
     panel.scrollTop = 0;
+    // A render abandons whatever the previous one was still waiting on.
+    scrollHolds = 0;
     viewRoot = el("div", "view");
     panel.appendChild(viewRoot);
 
     if (viewStack.length > 1) viewRoot.appendChild(buildCrumbs());
 
+    // Read by appendFamily as it builds, so a rebuilt view comes back with the
+    // rows it had, not just its preview rows.
+    pendingFamilyReveal = view.familyShown || 0;
     var count = appendMatchCards(usableMatches(view.matches));
+    pendingFamilyReveal = 0;
 
     // Deferred: the panel may not have layout yet (see applyPendingScroll).
     pendingScrollTop = view.scrollTop || 0;
@@ -3076,6 +3209,22 @@
       hide: hide,
       handleSelection: handleSelection,
       readSelection: readSelection,
+      // The navigation selection guard, asked directly. A check can then prove
+      // what the predicate answers for a PAGE selection and for one inside the
+      // popup without inferring it from a navigation that did or did not run.
+      selectionSuppressesNav: hasShadowSelection,
+      // A node inside the shadow, so a check can build a selection there.
+      selectInShadow: function (sel) {
+        ensureHost();
+        var node = panel.querySelector(sel);
+        if (!node) return false;
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var pageSel = window.getSelection();
+        pageSel.removeAllRanges();
+        pageSel.addRange(range);
+        return true;
+      },
       isVisible: function () { return visible; },
       hostRect: function () { ensureHost(); return host.getBoundingClientRect(); },
       panelText: function () { ensureHost(); return panel.textContent; },

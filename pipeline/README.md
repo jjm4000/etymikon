@@ -62,11 +62,12 @@ zones for eyeball review.
 | `cache/en_full_opensubtitles.txt`   | `https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_full.txt`   | ~19 MB  |
 
 The English extract is the only source of definitions, morpheme splits and
-inflected forms. The Latin and Ancient Greek extracts supply root-card glosses
-and headword forms for `la:` and `grc:` keys, and one decomposition step
-described under "Root unification" below. The frequency list supplies the `fr`
-rank and nothing else; no wording from it reaches the output. Licences and
-attribution are in `../extension/data/DATA-LICENSE.md`.
+inflected forms. The Latin and Ancient Greek extracts supply the gloss, the
+headword form and the entry pos behind every `la:` and `grc:` card, plus one
+decomposition step described under "Root unification" below. The frequency
+list supplies the `fr` rank and nothing else; no wording from it reaches the
+output. Licences and attribution are in
+`../extension/data/DATA-LICENSE.md`.
 
 Files are read straight from gzip and never decompressed to disk. `cache/` is
 gitignored.
@@ -77,8 +78,8 @@ gitignored.
 
 An entry counts toward a word when its `word` field lowercases to the key and
 its `pos` is not `name`. A word whose entries are all `name` never ships, so
-proper nouns stay out of the dictionary. Entries whose every sense is a form-of
-sense contribute to `forms.json` instead of to `senses`.
+proper nouns stay out of the dictionary. An entry whose every sense is a
+form-of sense defines nothing of its own and contributes no `senses`.
 
 Definitions are the first gloss line of each sense, grouped by part of speech
 in source order, capped at four POS sections and four definitions each. A
@@ -88,6 +89,53 @@ off in an ellipsis. Nothing is ever cut mid-string.
 Word keys are restricted to the shape the runtime can reach: a lowercase
 letter followed by letters, apostrophes and internal hyphens. Affix pages and
 multiword phrases fail that test and never become words.
+
+### Inflected forms
+
+`forms.json` and the `fo` field on a word are the same harvest, split by
+whether the form itself ships. Both accept exactly one relation: a pure
+form-of page, carrying no `alt_of` sense at all, with at least one sense
+**tagged as an inflection**. The lemma comes from the first such sense. The
+accepted tags are enumerated in `INFLECTION_TAGS`, read off a tag census of
+the extract, and cover number, tense, aspect and mood, person, and degree.
+
+One qualifying sense is enough rather than all of them, because a plural page
+often carries a second sense that is not an inflection. `wives` is the plural
+of wife and the obsolete genitive of wife, and the commonest irregular plural
+in the language must not be lost to its second line.
+
+An `alt_of` link never qualifies, whatever it is tagged. That is the whole
+abbreviation, initialism, misspelling, eye-dialect, pronunciation-spelling and
+alternative-spelling vocabulary of Wiktionary, and it is not inflection. Read
+as one, it wires the commonest words in the language to nonsense: `the` to
+`thee`, `a` to `to`, `of` to `outfield`, `it` to `intrathecal`, `restarted` to
+`retarded`, and `don't` to `done` (review finding 2026-08-24). Landing the
+rule removed or corrected 202 mappings inside the top 3,000 corpus tokens and
+took `forms.json` from 105,512 rows to 82,553.
+
+A page that mixes inflection senses with lemma senses on ONE entry is not a
+pure form-of page, so it yields no mapping. `had` and `teeth` are that shape:
+both ship as words, and neither carries `fo` back to have or tooth. Whether
+the `fo` harvest should read senses instead of entries is an open question for
+the owner, not a pipeline decision.
+
+A word that ships **and** has inflection senses shadows its lemma, because the
+runtime finds the key and never reaches its suffix rules. It gets `fo`, the
+way back to the lemma, and stays out of `forms.json`. `ran` is the shape of
+it: a marginal noun sense about yarn on a winch makes it a word, and `fo`
+still points at `run`.
+
+The rule has a cost worth knowing. An alternative spelling whose page carries
+`alt_of` links defines nothing of its own, so it neither ships as a word nor
+resolves through `forms.json`, and a lookup of it returns no match. 918 such
+keys rank inside the top 50,000, and 22 of those inside the top 3,000: okay
+at rank 76, mr at 450, tv at 762, favorite at 1,237, neighbor at 2,949, with
+labor, humor and e-mail just past the line. Wiktionary is inconsistent
+here, which is why `colour` and `theater` are unaffected: their pages write
+the relation as a plain gloss ("Commonwealth and Ireland standard spelling of
+color") rather than as a link, so they ship as ordinary words. Closing that
+hole means a spelling-variant relation of its own, which is an owner
+decision, not a pipeline one.
 
 ### Splits
 
@@ -139,6 +187,24 @@ do, and Germanic affixes get root cards on the same terms as Latinate ones.
 `roots.json` en: keys are affix and combining-form pages only. An ordinary
 English word never becomes a root card, because it already has a word card.
 
+### Root cards
+
+A root ships when **two or more distinct shipped words** reference it, through
+a `morphs[].r` chip or an `org` row. A word whose split repeats a morpheme
+counts once, exactly as `lookup.js` `buildFamilyIndex` counts it at runtime.
+That function is the authority for the family index; the build only mirrors
+it, in the ship threshold and in verify, so that the number on a card and the
+number in the threshold are the same number. Nineteen shipped words repeat a
+morpheme today (great-great-grandson, ununoctium, fixer-upper).
+
+`kind` comes from the harvested entry `pos`, never from the shape of the form.
+An `interfix` page becomes kind `infix`, because the SPEC enum has no
+interfix member. A `circumfix` page becomes `circumfix`. A combining form is a
+root unless its own page is written with a hyphen. Latin and Greek pages carry
+a pos as well, so `la:re-` stays a prefix instead of becoming a Latin root.
+Shape-guessing labeled ten interfix cards as suffixes and the one circumfix
+card as a root (review finding 2026-08-24).
+
 ### Origin chains
 
 A word with no accepted split gets an `org` row instead, when its etymology
@@ -184,13 +250,26 @@ romanization kaikki records on the entry.
 
 ### Frequency ranks
 
-`fr` is the 1-based position of the first occurrence of each `^[a-z]+$` token
-in the frequency list. It is stored raw. The tier a word displays is derived
+`fr` is the 1-based position of the first occurrence of each word-shaped token
+in the frequency list, where word-shaped means the same `RE_WORD_KEY` charset
+a `words.json` key uses. It is stored raw. The tier a word displays is derived
 from it at runtime by one function in `lookup.js`; no tier is ever stored.
+
+The charset has to match. The rank is what the attestation gate reads, so a
+token the rank table cannot hold is a word that can never ship, whatever else
+is true of it. This test read `^[a-z]+$` until 2026-08-24, which silently
+barred every hyphenated word in the language: 1,850 of them rank inside the
+top 50,000, and 3,316 now ship (x-ray, t-shirt, hip-hop, brother-in-law).
+
+The corpus tokenizer splits contractions into `don` + `'t`, so no
+apostrophe-bearing token is attested anywhere in the frequency list and the
+attestation gate keeps every contraction out of the dictionary. `don't`,
+`isn't` and `can't` have real Wiktionary entries and do not ship. Nothing in
+the pipeline can fix that; it is a cap-rule question for the owner.
 
 ## Curation
 
-`curation.py` is data only, four tables, every entry carrying the reason it
+`curation.py` is data only, five tables, every entry carrying the reason it
 exists:
 
 | table            | what it holds                                                    |
@@ -199,6 +278,7 @@ exists:
 | `FORCED_SPLITS`  | hand splits that override the harvest                             |
 | `ROOT_ALIASES`   | surface form or chain lemma -> root key                           |
 | `ROOT_SKIPS`     | keys that must never become root cards                            |
+| `ROOT_GLOSSES`   | hand glosses overriding the harvested one                         |
 
 `understand` is the shape of a blocked split: under- + stand is correct and
 tells a reader nothing. `subterranean` is the shape of a forced split: the
@@ -218,24 +298,41 @@ That second condition is not in the original cap wording and it is the single
 largest shape decision in the build, so here are the numbers. Wiktionary
 carries about 270,000 English words with an affix split. Nearly all of them
 are unattested technical coinages: nanovoltmeter, nonradiometric,
-bigluconate, extremistical. Shipping them produces 289,811 words and a 53 MB
-`words.json`. Requiring a frequency rank produces 76,496 words and a 17.9 MB
-`words.json`, which is the size the SPEC's distribution note predicts. The
-tail that survives is the readable half: snarkiness, ringbearer,
+bigluconate, extremistical. Shipping them measured 289,811 words and a 53 MB
+`words.json` at bring-up (2026-08-24, before the rank charset fix). Requiring
+a frequency rank produces 79,380 words and an 18.6 MB `words.json`. The tail
+that survives is the readable half: snarkiness, ringbearer,
 parapsychological, glucoside.
 
 ## Nothing is ever truncated
 
 The no-truncation rule carries over from Okpyeon. No string in any output file
 is a cut string. An overlong definition is dropped whole rather than shortened,
-and so is one that trails off in a source ellipsis. Root glosses are selected
-rather than cut: a gloss keeps its first clause and loses a trailing
-parenthetical clarifier, so `terra` reads "dry land" instead of "dry land (as
-opposed to watery parts of the Earth)", and every surviving string is a whole
-clause from the source. A gloss that is still too long is not used at all; the
-next sense of the entry is tried instead.
+and so is one that trails off in a source ellipsis.
 
-The verify step asserts this over every definition and every root gloss.
+Root glosses are selected rather than cut. The chip subtext is one short line,
+so a budget decides which sense gets the card:
+
+1. the first sense at or under **80 characters**, in source order, wins;
+2. otherwise a sense keeps its first clause, split at a semicolon or a full
+   stop that closes a word rather than an abbreviation;
+3. the **160 character** safety cap decides which clause is usable. A gloss
+   over it is not used at all, and the walk moves to the next sense.
+
+A trailing parenthetical clarifier and a leading usage label are dropped
+before any of this, so `terra` reads "dry land" instead of "dry land (as
+opposed to watery parts of the Earth)". Every surviving string is a whole
+clause from the source. A hand gloss in `ROOT_GLOSSES` overrides the whole
+ladder.
+
+The SPEC bullet reads "the shortest sense at or under 80 characters". Source
+order is used instead of length, and the deviation is reported to the owner:
+the shortest sense is a marginal one often enough to matter (`terra` would
+read "earth", `λόγος` "subject matter"), and it contradicts the pinned
+la:terra anchor, whose gloss is sense 1.
+
+The verify step asserts the no-truncation rule over every definition and every
+root gloss.
 
 ## Verification
 
@@ -250,16 +347,30 @@ Root anchors: subterranean's breakdown contains a terra-rooted morpheme,
 la:terra ships with a gloss containing "land" and a family containing terrain
 and territory, en:un- ships with a family of five or more.
 
-Curation anchors: understand ships with no morphs, had and running ship with
-no morphs because their splits are inflectional, territories resolves to
-territory, walked to walk, children to child.
+Curation anchors: understand ships with no morphs; had ships as a word with no
+morphs, no fo and no forms.json row; running ships with no morphs because its
+split is inflectional; ran and running both carry fo run; territories resolves
+to territory, walked to walk, children to child.
+
+Form-of anchors: the, a, of and it carry no fo; nothing redirects don't to
+done.
+
+Charset anchor: x-ray ships, inside rank 50,000.
+
+Root-kind anchor: en:-o- ships with kind infix, since its page is an interfix
+rather than a suffix.
+
+Every anchor asserts one reality. A check written as a disjunction ("ships or
+resolves") is not an anchor, because it passes either way and pins nothing;
+the had anchor was rewritten for that reason on 2026-08-24.
 
 Data invariants: no entry carries both morphs and org, no morph carries both
-r and w, no root has fewer than two referencing words, every referenced root
-key and every word chip target exists, en: root keys are affixes only, no key
-outside en/la/grc and no reconstructed form anywhere, every root has a gloss,
-no output carries a `placeholder` key, every output carries `v: 1`, every
-forms.json key is absent from words.json and every target is present.
+r and w, no root has fewer than two distinct referencing words, every root
+kind is in the SPEC enum, every referenced root key and every word chip target
+exists, en: root keys are affixes only, no key outside en/la/grc and no
+reconstructed form anywhere, every root has a gloss, no output carries a
+`placeholder` key, every output carries `v: 1`, every forms.json key is absent
+from words.json and every target is present.
 
 Distribution numbers are printed next to the SPEC's expectation rather than
 asserted. They move with the corpus.
@@ -277,8 +388,14 @@ python pipeline/build.py && sha256sum extension/data/*.json | diff /tmp/h1 -
 `spike.py` and `spike_size.py` answered the feasibility questions before this
 pipeline existed: what fraction of common words decompose, and how large
 `words.json` would be at each frequency cap. `spike-report.md` records what
-they found. They are kept as reference for how the extracts parse. They are
-not part of the build and they are not extended.
+they found. They are not part of the build and they are not extended.
+
+Each holds a frozen copy of an early revision of the template tables and the
+parsing helpers. `build.py` is the authority for how the extracts are read and
+has moved on from those copies, so the spike numbers are pinned to a
+superseded parser and do not describe a current build. The copies are not
+replaced by an import: a spike that changes when the pipeline changes no
+longer reproduces what it published.
 
 ## Other tooling in this directory
 

@@ -505,7 +505,7 @@
    *
    * The boot pull above only covers a COLD panel. When the panel is already
    * open, the worker pokes it after sidePanel.open() resolves and the panel
-   * pulls again — otherwise a second `hj` query would sit unread until the
+   * pulls again. Otherwise a second `et` query would sit unread until the
    * next panel open, and then re-run as a stale search.
    *
    * The poke carries the window it was meant for. A panel that knows its own

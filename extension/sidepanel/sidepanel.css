@@ -590,15 +590,6 @@ body {
   color: var(--page-muted);
 }
 
-.saved-gloss {
-  flex: 1 1 100%;
-  font-size: 12px;
-  color: var(--page-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* An item whose entry has left the dictionary stays visible and says why —
    silently dropping it would look like the save was lost. */
 .saved-row.missing .saved-primary { opacity: .55; }

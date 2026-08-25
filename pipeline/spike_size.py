@@ -6,7 +6,12 @@ Builds mock shipped-format records for every frequency-listed word in
 the kaikki extract and prints cumulative JSON bytes by rank bucket.
 Record sketch per word: headword, per-POS definitions (max 3 senses,
 200 chars each), first en-language morpheme split, frequency rank.
-Spike code only.
+
+Spike code only. DECOMP_NAMES and load_ranks() below are a frozen copy of an
+early revision of what is now build.py, which is the authority for how the
+extracts are read. The size table this script prints is pinned to that
+superseded parser and to a cap rule with no attestation clause, so it does
+not predict the size of a current build.
 """
 from __future__ import annotations
 

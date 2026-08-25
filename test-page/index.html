@@ -98,7 +98,9 @@
 <h2>7 · Automated checks</h2>
 <div class="panelbox">
   <p class="hint">Exercises the card sections, the drill-downs, positioning,
-     the save star and the stub call count.</p>
+     the navigation selection guard, the selection length gate, the resizable
+     panel and its drag, the orientation flash, the save star and the stub call
+     count.</p>
   <p><button id="run">Run self-checks</button></p>
   <pre id="out">not run yet</pre>
 </div>
@@ -223,6 +225,30 @@
       fr: 47000,
       seeAlso: "run"
     },
+    // The re-entry guard's own case: a form-of link that resolves back to the
+    // entry it sits on. Degenerate data, and absorbing it is what the guard is
+    // for, so the row orients the reader on the card they are already reading
+    // instead of stacking a copy of it. Five senses, so the card is tall
+    // enough for "scrolls back to the top" to mean something.
+    terrace: {
+      senses: [
+        { pos: "noun", defs: [
+          "A raised level place, often paved, cut into a slope or built out " +
+            "from a building so that the ground beside it falls away.",
+          "A row of houses built as a single block along one frontage, each " +
+            "sharing its side walls with the house next door.",
+          "An open paved area beside a building, used for sitting out.",
+          "A step cut into a hillside so that a crop can be grown on ground " +
+            "too steep to plough in the ordinary way."
+        ] },
+        { pos: "verb", defs: [
+          "To shape land into raised level steps for planting.",
+          "To provide a building with an open paved area beside it."
+        ] }
+      ],
+      fr: 14200,
+      seeAlso: "terrace"
+    },
     // The wordmark's own lookup.
     etymology: {
       senses: [{ pos: "noun", defs: [
@@ -238,6 +264,17 @@
       senses: [{ pos: "noun", defs: ["The study of correct reasoning."] }],
       fr: 6100,
       org: { r: "grc:logos", f: "λόγος" }
+    },
+    // The long-gloss case. Real root glosses run to the 160-character safety
+    // cap and thousands of word cards carry one past 80, so a chip here has a
+    // gloss the clamp has to hold.
+    photograph: {
+      senses: [{ pos: "noun", defs: ["A picture made with light."] }],
+      fr: 7300,
+      morphs: [
+        { f: "photo-", r: "grc:phos" },
+        { f: "-graph", r: "grc:graphe" }
+      ]
     }
   };
 
@@ -349,6 +386,26 @@
         { word: "etymology", fr: 32000 },
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
       ]
+    },
+    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    "grc:phos": {
+      form: "φῶς", rom: "phos", lang: "grc",
+      gloss: "light, the light of day; the light of a torch or a fire, and " +
+        "by extension the light of life, of deliverance, of happiness, or of " +
+        "a great man who sheds light around him",
+      kind: "root",
+      family: [
+        { word: "photograph", fr: 7300 },
+        { word: "photosynthesis", def: "The making of food from light.", fr: 44000 }
+      ]
+    },
+    "grc:graphe": {
+      form: "γραφή", rom: "graphe", lang: "grc", gloss: "writing, drawing",
+      kind: "root",
+      family: [
+        { word: "photograph", fr: 7300 },
+        { word: "biography", def: "An account of a life.", fr: 16400 }
+      ]
     }
   };
 
@@ -364,6 +421,12 @@
     if (fr <= 15000) return "common";
     if (fr <= 50000) return "advanced";
     return "rare";
+  }
+
+  // The worker joins the chip's WORDING beside the tier, so no surface has to
+  // re-word a classification. The protocol value stays lowercase.
+  function tierLabel(zone) {
+    return zone.charAt(0).toUpperCase() + zone.slice(1);
   }
 
   /* ------------------------------------------------------------------ *
@@ -454,6 +517,7 @@
     };
     if (typeof entry.fr === "number") match.fr = entry.fr;
     match.tier = tier(entry.fr);
+    match.tierLabel = tierLabel(match.tier);
     if (entry.morphs) match.morphs = joinMorphs(entry.morphs);
     if (entry.org) {
       match.org = { r: entry.org.r, f: entry.org.f };
@@ -492,6 +556,7 @@
       var row = { word: entry.word, def: entry.def || firstDef(entry.word) };
       if (typeof entry.fr === "number") row.fr = entry.fr;
       row.tier = tier(entry.fr);
+      row.tierLabel = tierLabel(row.tier);
       return row;
     });
   }
@@ -503,10 +568,19 @@
     var out = {
       key: key, form: root.form, lang: root.lang, gloss: root.gloss,
       kind: root.kind, familyCount: family.length,
+      // The card's label line, joined here so the card and the export cannot
+      // word a root differently.
+      label: rootLabel(root),
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
-    if (root.src) out.src = root.src;
+    // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
+    // the form to print, and the source root's gloss when it has one. It is
+    // never a bare key on the wire.
+    if (root.src && ROOTS[root.src]) {
+      out.src = { r: root.src, f: ROOTS[root.src].form };
+      if (ROOTS[root.src].gloss) out.src.gloss = ROOTS[root.src].gloss;
+    }
     return { ok: true, root: out };
   }
 
@@ -624,10 +698,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it; the protocol value
-      // stays lowercase.
-      var zone = tier(word.fr);
-      row.tier = zone.charAt(0).toUpperCase() + zone.slice(1);
+      // The export says "Rare", the way the chip says it.
+      row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
       }
@@ -650,7 +722,11 @@
   }
 
   function savedField(row, token) {
-    if (token === "word" || token === "root" || token === "key") return row.key || "";
+    // "root" is the card's HEADWORD, which is the form and never the
+    // "<lang>:<form>" key (saved.js fieldValue). "key" is how the CSV asks
+    // for the identity under a kind-neutral name.
+    if (token === "root") return row.form || row.key || "";
+    if (token === "word" || token === "key") return row.key || "";
     if (token === "defs") return numberedDefs(row.defs);
     if (token === "gloss") return row.gloss || "";
     if (token === "source") return row.source || "";
@@ -1075,6 +1151,25 @@
       api.query(".tier-chip").textContent === "Advanced" &&
       api.query(".tier-chip").title === "Rank 15,001 to 50,000 by frequency");
 
+    // --- the worker owns the wording -----------------------------------------
+    // The tier chip's label and the root card's label line are JOINED by the
+    // worker, so a card and an export cannot word the same thing differently.
+    // The renderer prints what it is handed and keeps a local map only as the
+    // fallback for a response that predates the join.
+    var joinedMatch = matches("subterranean");
+    joinedMatch[0].tierLabel = "Seldom seen";
+    api.showAt(anchor, joinedMatch, "subterranean");
+    check("the chip prints the tier label the worker joined",
+      api.query(".tier-chip").textContent === "Seldom seen",
+      api.query(".tier-chip").textContent);
+    var labelledRoot = fake.__root("en:-ness").root;
+    labelledRoot.label = "Interfix";
+    api.showRoot(anchor, labelledRoot);
+    await wait(40);
+    check("the root label line prints the label the worker joined",
+      api.query(".rootlabel").textContent === "Interfix",
+      api.query(".rootlabel").textContent);
+
     // --- glosses ---------------------------------------------------------
     show("run");
     check("one POS section per part of speech, in source order",
@@ -1108,6 +1203,36 @@
           chip.getAttribute("role") === "button" &&
           chip.getAttribute("tabindex") === "0";
       }));
+
+    // --- a long chip gloss is bounded and clamped ------------------------
+    // The one place a root gloss could dominate the card it explains: real
+    // glosses reach the 160-character cap, so the chip caps its width and the
+    // gloss stops at two lines.
+    api.resetPanelSize();
+    show("photograph");
+    await wait(40);
+    var longGloss = api.queryAll(".morph-gloss")[0];
+    check("test setup: the fixture chip really does carry a long gloss",
+      longGloss.textContent.length > 120, "chars=" + longGloss.textContent.length);
+    var chipBox = api.queryAll(".morph")[0].getBoundingClientRect();
+    check("the chip is bounded and never spans the card",
+      chipBox.width <= 121 && chipBox.width < api.hostRect().width / 2,
+      "chip=" + Math.round(chipBox.width) +
+      " panel=" + Math.round(api.hostRect().width));
+    var glossStyle = getComputedStyle(longGloss);
+    var lineClamp = glossStyle.getPropertyValue("-webkit-line-clamp");
+    check("the gloss clamps to two lines rather than running on",
+      lineClamp === "2" && glossStyle.overflow === "hidden" &&
+      longGloss.scrollHeight > longGloss.clientHeight + 1,
+      "clamp=" + lineClamp +
+      " " + longGloss.scrollHeight + " vs " + longGloss.clientHeight);
+    check("the clamped chip carries no expander to crowd the row",
+      api.queryAll(".morph .more").length === 0 &&
+      api.queryAll(".morph").length === 2,
+      "controls=" + api.queryAll(".morph .more").length);
+    check("the whole card stays short despite the long gloss",
+      api.hostRect().height <= 360.5, "h=" + Math.round(api.hostRect().height));
+    show("subterranean");
 
     // --- a chip opens the root card --------------------------------------
     var rootCallsBefore = fake.__rootCalls;
@@ -1247,6 +1372,95 @@
       fake.__calls + fake.__rootCalls === callsBeforeJump,
       "calls " + callsBeforeJump + " → " + (fake.__calls + fake.__rootCalls));
 
+    // --- the navigation selection guard --------------------------------------
+    // The copy-drag affordance must not cost the primary flow. Chrome's closed
+    // shadow getSelection() reflects the PAGE selection, so a guard that only
+    // asked "is anything selected?" answered yes to the very selection that
+    // opened the popup, and every nav row went dead.
+    function selectPageText() {
+      var range = document.createRange();
+      range.selectNodeContents(document.querySelector(".panelbox p"));
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return String(sel).trim().length;
+    }
+    function clearSelection() {
+      var sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+    }
+
+    show("subterranean");
+    await wait(30);
+    var pageChars = selectPageText();
+    check("test setup: the page carries a live selection",
+      pageChars > 0 && !window.getSelection().isCollapsed,
+      "chars=" + pageChars);
+    check("a PAGE selection does not suppress navigation",
+      api.selectionSuppressesNav() === false);
+    var guardDepth = api.viewDepth();
+    api.queryAll(".morph")[1].click();      // terra, selection still up
+    await wait(80);
+    check("clicking a chip with the opening selection still up navigates",
+      api.viewDepth() === guardDepth + 1 &&
+      api.query(".surface").textContent === "terra",
+      "depth " + guardDepth + " → " + api.viewDepth() +
+      " text=" + api.query(".surface").textContent);
+    clearSelection();
+
+    // A selection INSIDE the popup is the one case the guard exists for.
+    show("subterranean");
+    await wait(30);
+    var inShadow = api.selectInShadow(".gloss-text");
+    check("a selection inside the popup DOES suppress navigation",
+      inShadow && api.selectionSuppressesNav() === true,
+      "selected=" + inShadow);
+    var copyDepth = api.viewDepth();
+    api.queryAll(".morph")[1].click();      // the click that ends a copy-drag
+    await wait(80);
+    check("the click that ends a copy-drag navigates nowhere",
+      api.viewDepth() === copyDepth, "depth=" + api.viewDepth());
+    clearSelection();
+    api.queryAll(".morph")[1].click();
+    await wait(80);
+    check("clearing the selection hands navigation straight back",
+      api.viewDepth() === copyDepth + 1, "depth=" + api.viewDepth());
+    clearSelection();
+
+    // --- the selection length gate --------------------------------------------
+    // A sanity bound on a runaway drag, never a word-length rule: the worker
+    // extracts the first token itself, so a long drag that starts on a word is
+    // still a lookup.
+    function selectFixtureText(text) {
+      var node = document.createElement("p");
+      node.textContent = text;
+      document.body.appendChild(node);
+      var range = document.createRange();
+      range.selectNodeContents(node);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return node;
+    }
+    var gate = selectFixtureText(
+      "subterranean chambers were mapped through one long cold season");
+    var gateSel = api.readSelection();
+    check("a drag well past 40 characters still opens a lookup",
+      !!gateSel && gateSel.text.length > 40 &&
+      gateSel.text.indexOf("subterranean") === 0,
+      gateSel ? "chars=" + gateSel.text.length : "rejected");
+    gate.remove();
+    gate = selectFixtureText(new Array(30).join("subterranean terrace "));
+    check("a runaway selection past the sanity bound is refused",
+      api.readSelection() === null,
+      "chars=" + String(window.getSelection()).trim().length);
+    gate.remove();
+    gate = selectFixtureText("··· 123 ···");
+    check("a selection holding no letter is refused, long or short",
+      api.readSelection() === null);
+    gate.remove();
+    clearSelection();
+
     // --- w chips and inert chips -------------------------------------------
     show("music");
     check("a part that is itself a word gets a chip like any other",
@@ -1351,10 +1565,16 @@
     check("an affix says just what it is",
       api.query(".rootlabel").textContent === "Prefix",
       api.query(".rootlabel").textContent);
+    // The worker joins `src` the way it joins a word's `org`, so the row reads
+    // the same both places: language, form, and the gloss when there is one.
     check("an affix with a source shows one quiet row for it",
       !!api.query(".origin-row") &&
-      api.query(".origin-row").textContent === "From Latin sub",
+      api.query(".origin-row").textContent === "From Latin sub (under)",
       api.query(".origin-row") ? api.query(".origin-row").textContent : "no row");
+    check("the source row prints the FORM, never the la:sub key",
+      api.query(".origin-row").textContent.indexOf("la:") < 0 &&
+      api.query(".origin-row b").textContent === "sub",
+      api.query(".origin-row b").textContent);
     api.query(".origin-row").click();
     await wait(60);
     check("the source row opens the lemma it names",
@@ -1417,6 +1637,107 @@
       fake.__familyCalls === famCallsBeforeChunk + 2 &&
       fake.__lastFamilyOffset === 200,
       "calls=" + fake.__familyCalls + " offset=" + fake.__lastFamilyOffset);
+
+    // --- coming back to a card the reader had paged in -------------------------
+    // A view saves its scroll offset measured against the rows that were on
+    // screen. Rebuilding from the eight preview rows and then restoring that
+    // offset landed the reader clamped at the bottom of a card they never saw,
+    // so the rebuild puts the revealed rows back first.
+    api.hide();
+    api.resetPanelSize();
+    api.resizePanel(320, 220);
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    await wait(60);
+    check("test setup: the root card starts at its eight preview rows",
+      api.queryAll(".fam-row").length === 8,
+      "rows=" + api.queryAll(".fam-row").length);
+    api.query(".fam-more").click();
+    await wait(80);
+    api.query(".fam-more").click();
+    await wait(80);
+    check("test setup: the reader pages the whole family in",
+      api.queryAll(".fam-row").length === 15 && !api.query(".fam-more"),
+      "rows=" + api.queryAll(".fam-row").length);
+    api.scrollTop(140);
+    var deepScroll = api.scrollTop();
+    check("test setup: and reads well down the list",
+      deepScroll > 60, "scrollTop=" + Math.round(deepScroll));
+    var backFamCalls = fake.__familyCalls;
+    api.queryAll(".fam-row")[1].click();       // terrain, a shipped word
+    await wait(120);
+    check("test setup: the drill-down landed on the word card",
+      api.viewDepth() === 2 && api.query(".surface").textContent === "terrain",
+      "depth=" + api.viewDepth());
+    api.queryAll(".crumb")[0].click();
+    await wait(160);
+    check("going back re-reveals every row the reader had open",
+      api.queryAll(".fam-row").length === 15,
+      "rows=" + api.queryAll(".fam-row").length);
+    check("the rows come back from the cache, asking the worker nothing",
+      fake.__familyCalls === backFamCalls,
+      "calls " + backFamCalls + " → " + fake.__familyCalls);
+    check("the restored offset lands where the reader left it",
+      Math.abs(api.scrollTop() - deepScroll) <= 2,
+      "want " + Math.round(deepScroll) + " got " + Math.round(api.scrollTop()));
+    api.resetPanelSize();
+
+    // --- the re-entry guard and its orientation cue -----------------------------
+    // A row whose target IS the view it sits on must not stack a copy of it.
+    // The card is already on screen, so the reader gets an orientation cue
+    // instead: back to the top, and a tint fade over the head.
+    async function until(fn, ms) {
+      var deadline = Date.now() + (ms || 1500);
+      while (Date.now() < deadline) {
+        if (fn()) return true;
+        await wait(30);
+      }
+      return fn();
+    }
+    api.resizePanel(300, 220);
+    show("terrace");
+    await wait(60);
+    api.scrollTop(60);
+    var selfScroll = api.scrollTop();
+    check("test setup: the card is tall enough to scroll, and is scrolled",
+      selfScroll > 20, "scrollTop=" + Math.round(selfScroll));
+    var selfDepth = api.viewDepth();
+    var selfCalls = fake.__calls;
+    api.query(".origin-row").click();
+    await wait(20);
+    check("a row pointing at its own view pushes nothing and queries nothing",
+      api.viewDepth() === selfDepth && fake.__calls === selfCalls,
+      "depth " + selfDepth + " → " + api.viewDepth() +
+      ", calls " + selfCalls + " → " + fake.__calls);
+    check("it flashes the card head as the orientation cue",
+      api.queryAll(".flash").length === 1 &&
+      api.query(".flash").classList.contains("head"),
+      api.query(".flash") ? api.query(".flash").className : "none");
+    check("the flash runs the popup's own keyframes",
+      getComputedStyle(api.query(".flash")).animationName === "hh-flash",
+      getComputedStyle(api.query(".flash")).animationName);
+    check("it scrolls back to the top",
+      await until(function () { return api.scrollTop() === 0; }, 2000),
+      "scrollTop=" + Math.round(api.scrollTop()));
+    check("the flash class is taken off again",
+      await until(function () { return api.queryAll(".flash").length === 0; }, 2000),
+      "flashing=" + api.queryAll(".flash").length);
+
+    // Reduced motion: the same orientation, with nothing moving or fading.
+    var realMatchMedia = window.matchMedia;
+    window.matchMedia = function (q) {
+      if (/prefers-reduced-motion/.test(q)) return { matches: true, media: q };
+      return realMatchMedia.call(window, q);
+    };
+    show("terrace");
+    await wait(60);
+    api.scrollTop(60);
+    api.query(".origin-row").click();
+    check("under reduced motion it jumps to the top with no flash at all",
+      api.scrollTop() === 0 && api.queryAll(".flash").length === 0,
+      "scrollTop=" + Math.round(api.scrollTop()) +
+      " flashing=" + api.queryAll(".flash").length);
+    window.matchMedia = realMatchMedia;
+    api.resetPanelSize();
 
     // --- geometry ------------------------------------------------------------
     // Re-read the viewport here rather than trusting the size the page had at
@@ -1484,6 +1805,167 @@
         api.query(".more").textContent);
     }
     api.resetPanelSize();
+
+    // --- the resizable panel (stage 1, no persistence) --------------------------
+    // Sizes are derived from the viewport, so the suite passes in any window.
+    var LIMIT_W = Math.floor(vw * 0.9);
+    var LIMIT_H = Math.floor(vh * 0.85);
+    var BIG_W = Math.min(520, LIMIT_W - 8);
+    var BIG_H = Math.min(300, LIMIT_H - 8);
+
+    api.hide();
+    api.resetPanelSize();
+    show("subterranean");
+    check("the panel advertises a native resize handle",
+      api.panelStyle("resize") === "both", api.panelStyle("resize"));
+    check("it starts at the default size and is not user-sized",
+      !api.isUserSized() && Math.abs(api.panelSize().width - 340) < 2,
+      JSON.stringify(api.panelSize()));
+    check("test setup: the viewport allows a bigger-than-default panel",
+      BIG_W > 340 && BIG_H >= 220, "BIG=" + BIG_W + "x" + BIG_H);
+
+    var sized = api.resizePanel(BIG_W, BIG_H);
+    check("the panel accepts a size change",
+      Math.abs(sized.width - BIG_W) < 2 && Math.abs(sized.height - BIG_H) < 2,
+      JSON.stringify(sized) + " want " + BIG_W + "x" + BIG_H);
+    check("resizing marks the panel as user-sized", api.isUserSized());
+
+    // Repositioning must use the CURRENT dimensions, never the defaults.
+    api.showAt(rect(vw - 40, 100, 30, 20), matches("subterranean"), "subterranean");
+    var rbox = api.hostRect();
+    check("a resized panel still clamps to the right edge",
+      rbox.right <= vw - 7.5 && Math.abs(rbox.width - BIG_W) < 2,
+      "right=" + Math.round(rbox.right) + " vw=" + vw +
+      " w=" + Math.round(rbox.width));
+    check("re-showing does NOT snap the panel back to the default size",
+      Math.abs(api.panelSize().width - BIG_W) < 2 &&
+      Math.abs(api.panelSize().height - BIG_H) < 2,
+      JSON.stringify(api.panelSize()));
+
+    api.hide();
+    check("hide() leaves the chosen size on the panel",
+      api.panelInlineSize().width === BIG_W + "px" &&
+      api.panelInlineSize().height === BIG_H + "px",
+      JSON.stringify(api.panelInlineSize()));
+    show("territory");
+    check("a new selection keeps the user's size and still opens at the top",
+      Math.abs(api.panelSize().width - BIG_W) < 2 && api.scrollTop() === 0,
+      JSON.stringify(api.panelSize()) + " scrollTop=" + api.scrollTop());
+
+    var tiny = api.resizePanel(100, 50);
+    check("the panel cannot be shrunk below 280x220",
+      tiny.width >= 280 - 0.5 && tiny.height >= 220 - 0.5, JSON.stringify(tiny));
+    var huge = api.resizePanel(99999, 99999);
+    check("the panel cannot be grown past 90vw by 85vh",
+      huge.width <= vw * 0.9 + 1 && huge.height <= vh * 0.85 + 1,
+      JSON.stringify(huge) + " limits=" +
+      Math.round(vw * 0.9) + "x" + Math.round(vh * 0.85));
+
+    // --- a drag must not move the scroll offset ---------------------------------
+    // The vertical scrollbar ends exactly where the handle begins, and the
+    // browser re-clamps scrollTop whenever the visible area grows, so an
+    // enlarge used to shove the content and leave it there.
+    api.resetPanelSize();
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    await wait(60);
+    api.query(".fam-more").click();     // a card with something to scroll
+    await wait(80);
+    api.query(".fam-more").click();
+    await wait(80);
+    var W0 = Math.min(330, LIMIT_W - 30);
+    var H0 = Math.min(280, LIMIT_H - 30);
+    api.resizePanel(W0, H0);
+    api.scrollTop(80);
+    var dragScroll = api.scrollTop();
+    check("test setup: the sized panel is scrolled well past the head",
+      dragScroll > 40, "scrollTop=" + Math.round(dragScroll));
+
+    var grip = api.resizeCorner();
+    api.dragResize(grip.x, grip.y, [[20, 40], [40, 80]]);      // enlarge
+    var enlarged = api.panelSize();
+    check("enlarging by drag actually grows the panel",
+      enlarged.width > W0 && enlarged.height > H0,
+      W0 + "x" + H0 + " → " + JSON.stringify(enlarged));
+    check("enlarging by drag leaves the scroll offset untouched",
+      Math.abs(api.scrollTop() - dragScroll) <= 1,
+      "want " + Math.round(dragScroll) + " got " + Math.round(api.scrollTop()));
+    api.dragResize(null, null, [[-30, -60]], true);            // same gesture, back in
+    var shrunk = api.panelSize();
+    check("shrinking within the SAME drag works",
+      shrunk.width < enlarged.width && shrunk.height < enlarged.height,
+      JSON.stringify(enlarged) + " → " + JSON.stringify(shrunk));
+    check("shrinking leaves the scroll offset untouched too",
+      Math.abs(api.scrollTop() - dragScroll) <= 1,
+      "want " + Math.round(dragScroll) + " got " + Math.round(api.scrollTop()));
+    api.endDragResize();
+    var grip2 = api.resizeCorner();
+    api.dragResize(grip2.x, grip2.y, [[-900, -900]]);
+    api.endDragResize();
+    check("a fresh drag shrinks all the way to the 280x220 minimum",
+      Math.abs(api.panelSize().width - 280) <= 1 &&
+      Math.abs(api.panelSize().height - 220) <= 1,
+      JSON.stringify(api.panelSize()));
+
+    // --- a drag must not be read as a click on what is underneath ---------------
+    // A mouseup outside the popup re-reads the selection, which dismisses a
+    // popup that no longer has one; let that settle before showing a card.
+    await wait(30);
+    api.resizePanel(Math.min(420, LIMIT_W - 8), Math.min(320, LIMIT_H - 8));
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    await wait(60);
+    var corner = api.resizeCorner();
+    var dragDepth = api.viewDepth();
+    var dragCalls = fake.__calls;
+    function panelEl() {
+      return api.query(".card").getRootNode().querySelector(".panel");
+    }
+    function pressPanel(x, y) {
+      panelEl().dispatchEvent(new MouseEvent("mousedown", {
+        bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y
+      }));
+    }
+    // Every press gets a release: a dangling mousedown leaves the browser in a
+    // drag-select state, which the nav guard then reads as a copy-drag.
+    function releasePanel(x, y) {
+      panelEl().dispatchEvent(new MouseEvent("mouseup", {
+        bubbles: true, composed: true, cancelable: true, clientX: x, clientY: y
+      }));
+    }
+    pressPanel(corner.x, corner.y);
+    check("pressing the resize handle keeps the popup up and arms the guard",
+      api.isVisible() && api.isResizing(),
+      "visible=" + api.isVisible() + " resizing=" + api.isResizing());
+    releasePanel(corner.x + 40, corner.y + 40);
+    api.queryAll(".fam-row")[0].click();      // the click that ends the drag
+    await wait(120);
+    check("the click ending a drag does not trigger row navigation",
+      api.viewDepth() === dragDepth && fake.__calls === dragCalls &&
+      api.isVisible(),
+      "depth " + dragDepth + " → " + api.viewDepth() +
+      ", calls " + dragCalls + " → " + fake.__calls);
+    check("the guard clears after that one click", !api.isResizing());
+    api.queryAll(".fam-row")[0].click();      // a genuine click still works
+    await wait(120);
+    check("the very next click navigates normally",
+      api.viewDepth() === dragDepth + 1, "depth=" + api.viewDepth());
+
+    // A press away from the corner is an ordinary interaction, not a gesture.
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    await wait(60);
+    var mid = api.hostRect();
+    var beforeBody = api.panelSize();
+    api.dragResize(mid.left + 30, mid.top + 30, [[80, 80]]);
+    api.endDragResize();
+    check("dragging inside the body does not resize the panel",
+      Math.abs(api.panelSize().width - beforeBody.width) < 1 &&
+      Math.abs(api.panelSize().height - beforeBody.height) < 1,
+      JSON.stringify(beforeBody) + " → " + JSON.stringify(api.panelSize()));
+    await wait(30);
+    api.resetPanelSize();
+    show("subterranean");
+    check("releasing the size restores the default footprint",
+      !api.isUserSized() && Math.abs(api.panelSize().width - 340) < 2,
+      JSON.stringify(api.panelSize()));
 
     // --- the save star and its bubble ------------------------------------------
     var store = fake.__savedStore;

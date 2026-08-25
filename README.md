@@ -5,8 +5,8 @@ popup card shows its definitions and its morpheme breakdown
 (subterranean = sub- + terra + -an). Each morpheme opens a root card:
 the root's form, source, gloss, and the English words built on it. A
 sidebar adds typed search, saved words with folders, and Anki export.
-The whole dictionary ships inside the extension. Offline, no network
-requests, no tracking.
+The whole dictionary ships inside the extension, so lookups work
+offline. It makes no network requests of any kind.
 
 The name is Greek: etymos ("true sense") + -ikon, the formation behind
 lexicon. The Byzantine etymological dictionaries were titled

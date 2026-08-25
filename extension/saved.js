@@ -9,12 +9,12 @@
  * Every function takes state in and returns NEW state; input state is never
  * mutated. Implements SPEC.md "Saved items" plus the Anki and CSV field spec.
  *
- * The one import is ./lookup.js, the sibling pure module, for the tier
- * function and the root label line. Both must have exactly one definition in
- * the extension, and that definition is there.
+ * The one import is ./lookup.js, the sibling pure module, for the fold, the
+ * tier function and the root label line. Each must have exactly one definition
+ * in the extension, and that definition is there.
  */
 
-import { rootLabel, tierOf, TIER_LABELS } from "./lookup.js";
+import { fold, rootLabel, tierOf, TIER_LABELS } from "./lookup.js";
 
 /** Schema version of the `okpSaved` record. */
 export const SAVED_VERSION = 1;
@@ -81,6 +81,15 @@ export function savedMapKey(kind, key) {
   return `${kind === "root" ? "r" : "w"}:${key}`;
 }
 
+/**
+ * A saved key at the storage boundary: SPEC rule 2's fold, the same one a
+ * lookup runs. Identity is (kind, key), so an NFD key and its NFC twin have to
+ * BE the same key here or the same root saves twice and neither star syncs.
+ */
+function cleanKey(key) {
+  return typeof key === "string" ? fold(key) : "";
+}
+
 /** The two saved kinds, or null for anything else. */
 function validKind(kind) {
   return kind === "root" ? "root" : kind === "word" ? "word" : null;
@@ -138,7 +147,7 @@ export function normalizeSavedState(raw) {
   for (const item of Array.isArray(src.items) ? src.items : []) {
     if (item === null || typeof item !== "object") continue;
     const kind = validKind(item.kind);
-    const key = typeof item.key === "string" ? item.key : "";
+    const key = cleanKey(item.key);
     if (kind === null || key === "") continue;
     const identity = savedMapKey(kind, key);
     if (identities.has(identity)) continue;
@@ -240,11 +249,11 @@ export function normalizeSettings(raw, savedState) {
 export function toggleItem(state, kind, key, defaultFolderId, now) {
   const next = normalizeSavedState(state);
   const clean = validKind(kind);
-  const cleanKey = typeof key === "string" ? key : "";
-  if (clean === null || cleanKey === "") return { state: next, saved: false };
+  const wanted = cleanKey(key);
+  if (clean === null || wanted === "") return { state: next, saved: false };
 
   const index = next.items.findIndex(
-    (item) => item.kind === clean && item.key === cleanKey
+    (item) => item.kind === clean && item.key === wanted
   );
   if (index !== -1) {
     const items = next.items.filter((_, i) => i !== index);
@@ -257,7 +266,7 @@ export function toggleItem(state, kind, key, defaultFolderId, now) {
   const item = {
     id: `i${next.nextItem}`,
     kind: clean,
-    key: cleanKey,
+    key: wanted,
     folderId,
     addedAt: Number.isFinite(now) && now >= 0 ? now : 0,
   };
@@ -283,7 +292,7 @@ export function checkKeys(state, keys) {
   for (const entry of Array.isArray(keys) ? keys : []) {
     if (entry === null || typeof entry !== "object") continue;
     const kind = validKind(entry.kind);
-    const key = typeof entry.key === "string" ? entry.key : "";
+    const key = cleanKey(entry.key);
     if (kind === null || key === "") continue;
     const mapKey = savedMapKey(kind, key);
     out[mapKey] = saved.has(mapKey);
@@ -442,7 +451,15 @@ function joinWord(item, wordTable) {
   return row;
 }
 
-/** roots.json entry -> display row, or null when the root is unknown. */
+/**
+ * roots.json entry -> display row, or null when the root is unknown.
+ *
+ * `family` is cut to the FAMILY_FIELD_WORDS the Anki field prints, at the join
+ * rather than at the field: the whole ranked family of five big affixes came to
+ * 181 KB (measured 2026-08-24) and nothing downstream ever looked past the
+ * fifth word. `familyCount` still counts the whole family, since the saved view
+ * shows the root's weight.
+ */
 function joinRoot(item, rootTable, familyIndex) {
   if (!hasOwn(rootTable, item.key)) return null;
   const entry = rootTable[item.key];
@@ -450,20 +467,15 @@ function joinRoot(item, rootTable, familyIndex) {
   const lang = typeof entry.lang === "string" ? entry.lang : item.key.split(":")[0];
   const kind = typeof entry.kind === "string" ? entry.kind : "root";
   const family = hasOwn(familyIndex, item.key) ? familyIndex[item.key] : [];
-  const row = {
+  return {
     ...item,
     form: typeof entry.form === "string" ? entry.form : "",
     gloss: typeof entry.gloss === "string" ? entry.gloss : "",
     lang,
-    // `kind` on the item is "word" or "root", so the root's own prefix/suffix
-    // kind travels under a name that cannot collide with it.
-    rootKind: kind,
     source: rootLabel(lang, kind),
-    family: Array.isArray(family) ? family.slice() : [],
+    family: Array.isArray(family) ? family.slice(0, FAMILY_FIELD_WORDS) : [],
     familyCount: Array.isArray(family) ? family.length : 0,
   };
-  if (typeof entry.rom === "string" && entry.rom !== "") row.rom = entry.rom;
-  return row;
 }
 
 /**

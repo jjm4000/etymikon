@@ -31,8 +31,9 @@ export const FAMILY_PREVIEW = 8;
 
 /**
  * One `{type:"family"}` request answers with at most this many rows. Germanic
- * affix families run to five figures (en:-ly builds 14,335 shipped words,
- * about 1 MB serialized), so the list travels in chunks rather than whole.
+ * affix families run to four figures (en:-ly builds about 4,000 shipped
+ * words; the exact count moves with each data build), so the list travels
+ * in chunks rather than whole.
  */
 export const FAMILY_CHUNK = 200;
 
@@ -84,22 +85,31 @@ function str(value) {
 }
 
 /**
- * Rule 1: trim, take the first token, cap it. Anything that holds no letter at
- * all yields "", which every caller reads as "no match".
+ * Rule 1: normalize, trim, take the first token, cap it. Anything that holds no
+ * letter at all yields "", which every caller reads as "no match".
+ *
+ * The NFC pass runs BEFORE the pattern so a decomposed accented letter cannot
+ * masquerade as the bare ASCII letter it starts with: composed, "é" is not a
+ * token character at all; decomposed, its "e" would have been one.
  */
 export function extractToken(text) {
   if (typeof text !== "string") return "";
-  const found = TOKEN_PATTERN.exec(text.trim());
+  const found = TOKEN_PATTERN.exec(text.normalize("NFC").trim());
   return found === null ? "" : found[0].slice(0, MAX_TOKEN_CHARS);
 }
 
 /**
- * Rule 2: lookup keys are lowercase. The token keeps its selected casing as
- * the match's `surface`, so the card can say "Subterranean" while the data is
- * keyed "subterranean".
+ * Rule 2, THE fold: NFC-normalize, then lowercase. Every boundary runs it, and
+ * they all run this one function: token extraction, omnibox input, the root
+ * keys arriving in messages, and the saved-item keys in saved.js. NFC is what
+ * makes an NFD keyboard reach the 110 Greek root keys, which are stored
+ * composed like everything else the pipeline emits.
+ *
+ * The token keeps its selected casing as the match's `surface`, so the card can
+ * say "Subterranean" while the data is keyed "subterranean".
  */
 export function fold(token) {
-  return typeof token === "string" ? token.toLowerCase() : "";
+  return typeof token === "string" ? token.normalize("NFC").toLowerCase() : "";
 }
 
 /**
@@ -269,10 +279,17 @@ function originRow(org, roots) {
 }
 
 /**
- * The word match for a resolved key. `tier` rides along with `fr` because the
- * cutoffs live in this module alone and the renderer is a classic script that
- * cannot import them.
+ * The tier fields every word row carries: the derived tier and its display
+ * label. Both are joined here because the cutoffs and the label map live in
+ * this module alone and the renderer is a classic script that cannot import
+ * them. A surface reads `tierLabel` and never holds a copy of the map.
  */
+function tierFields(fr) {
+  const tier = tierOf(fr);
+  return { tier, tierLabel: TIER_LABELS[tier] };
+}
+
+/** The word match for a resolved key. */
 function buildWordMatch(resolved, data) {
   const table = wordTableOf(data);
   const entry = table[resolved.canonical];
@@ -282,7 +299,7 @@ function buildWordMatch(resolved, data) {
     surface: resolved.surface,
     canonical: resolved.canonical,
     senses: sensesOf(entry),
-    tier: tierOf(entry.fr),
+    ...tierFields(entry.fr),
   };
   if (resolved.formOf) match.formOf = resolved.formOf;
   if (Number.isInteger(entry.fr) && entry.fr > 0) match.fr = entry.fr;
@@ -359,12 +376,34 @@ function rankOf(entry) {
 }
 
 /**
- * Derive the root-to-words index from words.json. Both reference kinds count:
- * a `morphs[].r` chip and an `org.r` chain. A `morphs[].w` chip names another
- * word rather than a root, so it credits nothing here. A word credits a root
- * once even when two of its morphs name it.
+ * The root keys one entry credits, each at most once. Both reference kinds
+ * count: a `morphs[].r` chip and an `org.r` chain. A `morphs[].w` chip names
+ * another word rather than a root, so it credits nothing. A word credits a root
+ * once even when two of its morphs name it, which is the same rule the build's
+ * threshold applies.
+ */
+function creditedRoots(entry) {
+  const keys = new Set();
+  for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
+    if (morph === null || typeof morph !== "object") continue;
+    const key = str(morph.r);
+    if (key !== "") keys.add(key);
+  }
+  if (entry.org !== null && typeof entry.org === "object") {
+    const key = str(entry.org.r);
+    if (key !== "") keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Derive the root-to-words index from words.json, ranked by `fr` ascending,
+ * unranked last, ties by key.
  *
- * Ranked by `fr` ascending, unranked last, ties by key.
+ * This is the expensive one (31 ms and 65 MB of allocation over 76,496 words,
+ * measured 2026-08-24), so it builds only where a ranked LIST is rendered: a
+ * root card, a family chunk, a saved root row. Anything that needs only the
+ * sizes takes buildFamilyCounts instead.
  *
  * @param {object} wordsFile parsed words.json
  * @returns {Record<string, string[]>} root key -> word keys, ranked
@@ -377,18 +416,10 @@ export function buildFamilyIndex(wordsFile) {
   for (const word of Object.keys(table)) {
     const entry = table[word];
     if (entry === null || typeof entry !== "object") continue;
-    const credited = new Set();
-    const credit = (value) => {
-      const key = str(value);
-      if (key === "" || credited.has(key)) return;
-      credited.add(key);
+    for (const key of creditedRoots(entry)) {
       if (index[key] === undefined) index[key] = [];
       index[key].push(word);
-    };
-    for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
-      if (morph !== null && typeof morph === "object") credit(morph.r);
     }
-    if (entry.org !== null && typeof entry.org === "object") credit(entry.org.r);
   }
 
   for (const key of Object.keys(index)) {
@@ -401,40 +432,97 @@ export function buildFamilyIndex(wordsFile) {
   return index;
 }
 
-/** One family row: the word, its first def, its rank and its tier. */
+/**
+ * How many words each root builds, with no ranked lists behind it: one pass,
+ * one number per key, no per-root array and no sort. The omnibox rows rank by
+ * family SIZE, so this is all they ever needed.
+ *
+ * Counts the same way buildFamilyIndex does, so a size read here and a
+ * `familyCount` read from the index can never disagree.
+ *
+ * @param {object} wordsFile parsed words.json
+ * @returns {Record<string, number>} root key -> family size
+ */
+export function buildFamilyCounts(wordsFile) {
+  const table = (wordsFile && wordsFile.words) || {};
+  /** @type {Record<string, number>} */
+  const counts = Object.create(null);
+  for (const word of Object.keys(table)) {
+    const entry = table[word];
+    if (entry === null || typeof entry !== "object") continue;
+    for (const key of creditedRoots(entry)) {
+      counts[key] = (counts[key] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/** One family row: the word, its first def, its rank and its tier fields. */
 function familyRow(word, table) {
-  const entry = table[word];
-  const row = { word, def: firstDef(entry), tier: tierOf(entry.fr) };
+  const found = table[word];
+  const entry = found !== null && typeof found === "object" ? found : {};
+  const row = { word, def: firstDef(entry), ...tierFields(entry.fr) };
   if (Number.isInteger(entry.fr) && entry.fr > 0) row.fr = entry.fr;
   return row;
 }
 
-/** The ranked family of a root key, skipping words the bundle no longer has. */
-function familyOf(key, data, familyIndex) {
-  const table = wordTableOf(data);
-  const list = hasOwn(familyIndex, key) ? familyIndex[key] : [];
-  return (Array.isArray(list) ? list : []).filter((word) => hasOwn(table, word));
+/**
+ * The ranked family of a root key: the index entry itself, never a copy. The
+ * index derives from the same word table the rows are read from, so a filter
+ * against that table dropped 0 of 53,229 entries (measured 2026-08-24) and
+ * copied the whole family on every chunk request to do it.
+ */
+function familyOf(key, familyIndex) {
+  const list = familyIndex !== null && typeof familyIndex === "object"
+    ? familyIndex[key]
+    : undefined;
+  return Array.isArray(list) ? list : [];
+}
+
+/**
+ * Rule 2 at the root-card boundary: the key a surface sends is folded exactly
+ * like a word, so an NFD key typed at a keyboard reaches the composed key the
+ * pipeline emitted. The raw key is tried first, so a bundle whose keys are not
+ * themselves fold-stable still answers for its own keys.
+ *
+ * @returns {string} the shipped key, or "" when nothing matches
+ */
+function rootKeyOf(key, roots) {
+  if (typeof key !== "string" || key === "") return "";
+  if (hasOwn(roots, key)) return key;
+  const folded = fold(key);
+  return hasOwn(roots, folded) ? folded : "";
+}
+
+/** The language of a root card: its own field, else the key's prefix. */
+function rootLangOf(key, entry) {
+  return str(entry.lang) || String(key).split(":")[0];
 }
 
 /**
  * The `{type:"root"}` response body: the card's own fields plus the first
- * FAMILY_PREVIEW family rows and the full count behind them.
+ * FAMILY_PREVIEW family rows and the full count behind them. `label` is the
+ * joined label line, so no surface holds a second copy of the label rules.
  *
  * @returns {object|null} null for an unknown key
  */
 export function buildRoot(key, data, familyIndex) {
   const roots = rootTableOf(data);
-  if (typeof key !== "string" || !hasOwn(roots, key)) return null;
-  const entry = roots[key];
+  const rootKey = rootKeyOf(key, roots);
+  if (rootKey === "") return null;
+  const entry = roots[rootKey];
   const table = wordTableOf(data);
-  const words = familyOf(key, data, familyIndex || {});
+  const words = familyOf(rootKey, familyIndex);
+  const lang = rootLangOf(rootKey, entry);
+  const kind = str(entry.kind) || "root";
 
   const root = {
-    key,
+    key: rootKey,
     form: str(entry.form),
-    lang: str(entry.lang) || key.split(":")[0],
+    lang,
     gloss: str(entry.gloss),
-    kind: str(entry.kind) || "root",
+    kind,
+    label: rootLabel(lang, kind),
     familyCount: words.length,
     family: words.slice(0, FAMILY_PREVIEW).map((word) => familyRow(word, table)),
   };
@@ -465,12 +553,10 @@ export function buildRoot(key, data, familyIndex) {
  */
 export function buildFamily(key, data, familyIndex, offset) {
   const start = Number.isInteger(offset) && offset > 0 ? offset : 0;
-  const roots = rootTableOf(data);
-  if (typeof key !== "string" || !hasOwn(roots, key)) {
-    return { rows: [], total: 0, offset: start };
-  }
+  const rootKey = rootKeyOf(key, rootTableOf(data));
+  if (rootKey === "") return { rows: [], total: 0, offset: start };
   const table = wordTableOf(data);
-  const words = familyOf(key, data, familyIndex || {});
+  const words = familyOf(rootKey, familyIndex);
   return {
     rows: words.slice(start, start + FAMILY_CHUNK).map((word) => familyRow(word, table)),
     total: words.length,
@@ -479,15 +565,26 @@ export function buildFamily(key, data, familyIndex, offset) {
 }
 
 /**
- * A root's label line in plain English: "Latin root", "Greek root", "Prefix",
- * "Suffix". Lives here so the card and the Anki export cannot disagree.
+ * A root's label line in plain English, one entry per `kind` in the SPEC's
+ * enum plus the language fallback for a plain root. THE definition: the worker
+ * joins it onto the root response as `label` and into the Anki `source` field,
+ * so neither the card nor the export holds a copy of these rules.
  */
 export function rootLabel(lang, kind) {
-  if (kind === "prefix") return "Prefix";
-  if (kind === "suffix") return "Suffix";
-  if (lang === "la") return "Latin root";
-  if (lang === "grc") return "Greek root";
-  return "English root";
+  // The harvested pos is "infix"; English calls the thing an interfix, and the
+  // card says what a reader would look up.
+  const kindWord =
+    kind === "prefix" ? "prefix" :
+    kind === "suffix" ? "suffix" :
+    kind === "infix" ? "interfix" :
+    kind === "circumfix" ? "circumfix" : "root";
+  // Classical roots keep their language on the label whatever the kind: a
+  // Greek suffix card says "Greek suffix", never a bare "Suffix" that could
+  // be mistaken for an English affix.
+  if (lang === "la") return "Latin " + kindWord;
+  if (lang === "grc") return "Greek " + kindWord;
+  if (kindWord === "root") return "English root";
+  return kindWord.charAt(0).toUpperCase() + kindWord.slice(1);
 }
 
 /* ---------------------------------------------------------------------------
@@ -509,12 +606,14 @@ const XML_ESCAPES = {
 };
 
 /**
- * Escape dynamic text for the omnibox description's XML mini-format. The only
- * unescaped angle brackets in a description are the <match>/<dim> tags this
- * module emits itself; every word, gloss and definition goes through here.
+ * Escape dynamic text for the omnibox description's XML mini-format. Chrome
+ * PARSES a description as XML, so the only unescaped angle brackets in one are
+ * the <match>/<dim> tags this module emits itself. Every word, gloss and
+ * definition goes through here, and so does the typed input that background.js
+ * echoes back in the default suggestion.
  * `content` is NEVER escaped, since it round-trips into onInputEntered as typed.
  */
-function escapeXml(text) {
+export function escapeXml(text) {
   return typeof text === "string" ? text.replace(/[&<>"']/g, (ch) => XML_ESCAPES[ch]) : "";
 }
 
@@ -530,39 +629,123 @@ function describe(head, plain, dimPieces) {
   return `<match>${escapeXml(head)}</match>${mid}${dimTail(dimPieces)}`;
 }
 
-/** The prefix an omnibox query matches on: trimmed and case folded, as typed. */
+/**
+ * The prefix an omnibox query matches on: folded as typed, then capped at the
+ * token length. A query longer than a word is a query for nothing, and without
+ * the cap every keystroke of a pasted paragraph walked the whole index.
+ */
 function omniboxPrefix(text) {
-  return typeof text === "string" ? fold(text.trim()) : "";
-}
-
-/** Word keys starting with the prefix, ranked by `fr` then key. */
-function wordPrefixMatches(prefix, table) {
-  const hits = Object.keys(table).filter((word) => word.startsWith(prefix));
-  hits.sort((a, b) => {
-    const diff = rankOf(table[a]) - rankOf(table[b]);
-    if (diff !== 0) return diff;
-    return a < b ? -1 : a > b ? 1 : 0;
-  });
-  return hits;
+  if (typeof text !== "string") return "";
+  return fold(text.trim()).slice(0, MAX_TOKEN_CHARS);
 }
 
 /**
- * Root keys whose form starts with the prefix, ranked by family size then key.
- * `alt` forms match too, since they are the same card under another surface.
+ * The omnibox index: everything a keystroke needs, built once and cached beside
+ * the family index. Rebuilding it per keystroke cost 8.5 to 13.2 ms (measured
+ * 2026-08-24), since it materialized all 76,496 word keys, filtered them and
+ * fully sorted the hits for five rows.
+ *
+ * `keys` is every word key in ascending order with `ranks` parallel to it, so a
+ * prefix is a binary search plus a walk of that one range. `roots` is
+ * pre-ranked by family size then key, which is the order root rows come back
+ * in, so a prefix scan there stops as soon as it has enough rows; each row
+ * carries its whole suggestion, so the pass never reads roots.json again.
+ *
+ * @param {object} data parsed data bundle
+ * @returns {{keys:string[], ranks:Float64Array, roots:object[]}}
  */
-function rootPrefixMatches(prefix, roots, familyIndex) {
-  const size = (key) => (hasOwn(familyIndex, key) ? familyIndex[key].length : 0);
-  const hits = Object.keys(roots).filter((key) => {
-    const entry = roots[key];
-    if (entry === null || typeof entry !== "object") return false;
-    const forms = [entry.form, ...(Array.isArray(entry.alt) ? entry.alt : [])];
-    return forms.some((form) => typeof form === "string" && fold(form).startsWith(prefix));
-  });
-  hits.sort((a, b) => {
-    const diff = size(b) - size(a);
+export function buildSearchIndex(data) {
+  const table = wordTableOf(data);
+  const keys = Object.keys(table).sort();
+  const ranks = new Float64Array(keys.length);
+  for (let i = 0; i < keys.length; i += 1) ranks[i] = rankOf(table[keys[i]]);
+
+  // Sizes, not lists: the rows rank by how many words a root builds and never
+  // name one of them.
+  const counts = buildFamilyCounts(data && data.words);
+  const rootTable = rootTableOf(data);
+  const roots = [];
+  for (const key of Object.keys(rootTable)) {
+    const entry = rootTable[key];
+    if (entry === null || typeof entry !== "object") continue;
+    // `alt` forms match too, since they are the same card under another surface.
+    const forms = [entry.form, ...(Array.isArray(entry.alt) ? entry.alt : [])]
+      .filter((form) => typeof form === "string" && form !== "")
+      .map((form) => fold(form));
+    if (forms.length === 0) continue;
+    roots.push({
+      key,
+      forms,
+      size: counts[key] || 0,
+      form: str(entry.form) || key,
+      label: rootLabel(rootLangOf(key, entry), str(entry.kind)),
+      gloss: str(entry.gloss),
+    });
+  }
+  roots.sort((a, b) => {
+    const diff = b.size - a.size;
     if (diff !== 0) return diff;
-    return a < b ? -1 : a > b ? 1 : 0;
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
   });
+  return { keys, ranks, roots };
+}
+
+/** The cached index when the caller has one, else a fresh one for this call. */
+function searchIndexOf(data) {
+  const index = data && data.searchIndex;
+  return index !== null && typeof index === "object" &&
+    Array.isArray(index.keys) && Array.isArray(index.roots)
+    ? index
+    : buildSearchIndex(data);
+}
+
+/** The first position in `keys` at or after `prefix`. */
+function lowerBound(keys, prefix) {
+  let lo = 0;
+  let hi = keys.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (keys[mid] < prefix) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The best MAX_OMNIBOX_SUGGESTIONS word keys under the prefix, ranked by `fr`
+ * then key. The keys carrying a prefix are one contiguous run of the sorted
+ * array, and the winners are picked by bounded insertion into a five-slot list,
+ * so a keystroke sorts nothing. The run is walked in ascending key order, which
+ * is why an equal rank never displaces the row already held.
+ */
+function wordPrefixMatches(prefix, index) {
+  const { keys, ranks } = index;
+  const best = [];
+  for (let i = lowerBound(keys, prefix); i < keys.length; i += 1) {
+    const key = keys[i];
+    if (!key.startsWith(prefix)) break;
+    const rank = ranks[i];
+    if (best.length === MAX_OMNIBOX_SUGGESTIONS) {
+      if (rank >= best[best.length - 1].rank) continue;
+      best.pop();
+    }
+    let at = best.length;
+    while (at > 0 && best[at - 1].rank > rank) at -= 1;
+    best.splice(at, 0, { key, rank });
+  }
+  return best;
+}
+
+/** The first `room` pre-ranked root rows whose form or alt starts with the prefix. */
+function rootPrefixMatches(prefix, index, room) {
+  const hits = [];
+  if (room <= 0) return hits;
+  for (const root of index.roots) {
+    if (root.forms.some((form) => form.startsWith(prefix))) {
+      hits.push(root);
+      if (hits.length === room) break;
+    }
+  }
   return hits;
 }
 
@@ -578,37 +761,31 @@ function rootPrefixMatches(prefix, roots, familyIndex) {
  * Never throws: junk data yields [].
  *
  * @param {string} text raw omnibox input
- * @param {{words?:object, roots?:object, familyIndex?:object}} data parsed bundle
+ * @param {{words?:object, roots?:object, searchIndex?:object}} data parsed bundle
  * @returns {Array<{content:string, description:string}>}
  */
 export function buildOmniboxSuggestions(text, data) {
   try {
     const prefix = omniboxPrefix(text);
     if (prefix === "") return [];
+    const index = searchIndexOf(data);
     const table = wordTableOf(data);
-    const roots = rootTableOf(data);
-    const familyIndex =
-      (data && data.familyIndex) || buildFamilyIndex(data && data.words);
 
     const rows = [];
-    for (const word of wordPrefixMatches(prefix, table)) {
-      if (rows.length >= MAX_OMNIBOX_SUGGESTIONS) break;
+    for (const hit of wordPrefixMatches(prefix, index)) {
       rows.push({
-        content: word,
-        description: describe(word, "", [firstDef(table[word])]),
+        content: hit.key,
+        description: describe(hit.key, "", [firstDef(table[hit.key])]),
       });
     }
-    for (const key of rootPrefixMatches(prefix, roots, familyIndex)) {
-      if (rows.length >= MAX_OMNIBOX_SUGGESTIONS) break;
-      const entry = roots[key];
+    const room = MAX_OMNIBOX_SUGGESTIONS - rows.length;
+    for (const root of rootPrefixMatches(prefix, index, room)) {
       rows.push({
-        content: key,
-        description: describe(str(entry.form) || key, rootLabel(str(entry.lang), str(entry.kind)), [
-          str(entry.gloss),
-        ]),
+        content: root.key,
+        description: describe(root.form, root.label, [root.gloss]),
       });
     }
-    return rows.slice(0, MAX_OMNIBOX_SUGGESTIONS);
+    return rows;
   } catch {
     return [];
   }
