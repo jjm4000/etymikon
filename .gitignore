@@ -2,8 +2,12 @@
 pipeline/cache/
 
 # Store upload packages (rebuilt by pipeline/make_zip.ps1)
+etymikon-*.zip
 okpyeon-*.zip
 
 # Local verification scratch files
 test-page/_*.local.html
 *.local.html
+
+# Claude Code session state (worktrees, launch config, local settings)
+.claude/

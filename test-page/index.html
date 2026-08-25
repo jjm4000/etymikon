@@ -619,7 +619,17 @@
     "kind", "key", "defs", "breakdown", "tier", "folder", "added"
   ];
 
-  var saved, settings, savedCheckCalls, savedLastCheckKeys, savedFail;
+  // saved.js's ANKI_FIELDS: the option lists the worker hands the settings view
+  // on settingsGet, so the view holds no token list of its own.
+  var SAVED_ANKI_FIELDS = {
+    wordFront: ["word", "defs"],
+    wordBack: ["word", "defs", "breakdown", "tier"],
+    rootFront: ["root", "gloss"],
+    rootBack: ["root", "source", "gloss", "family"]
+  };
+
+  var saved, settings, ankiFields, savedCheckCalls, savedGetCalls,
+      savedLastCheckKeys, savedFail;
 
   function resetSaved() {
     saved = {
@@ -633,7 +643,12 @@
         rootFront: "root", rootBack: ["gloss", "family"]
       }
     };
+    ankiFields = {};
+    Object.keys(SAVED_ANKI_FIELDS).forEach(function (name) {
+      ankiFields[name] = SAVED_ANKI_FIELDS[name].slice();
+    });
     savedCheckCalls = 0;
+    savedGetCalls = 0;
     savedLastCheckKeys = null;
     savedFail = { all: false, check: false, toggle: false };
   }
@@ -670,6 +685,14 @@
         rootBack: settings.anki.rootBack.slice()
       }
     };
+  }
+
+  function ankiFieldsCopy() {
+    var out = {};
+    Object.keys(ankiFields).forEach(function (name) {
+      out[name] = ankiFields[name].slice();
+    });
+    return out;
   }
 
   // The read-time join. An item whose entry has left the dictionary becomes
@@ -814,6 +837,7 @@
     }
 
     if (msg.type === "savedGet") {
+      savedGetCalls++;
       return { ok: true, folders: foldersCopy(), items: joinSaved(saved.items) };
     }
 
@@ -910,7 +934,9 @@
       return { ok: true, moved: rehomed, settings: settingsCopy() };
     }
 
-    if (msg.type === "settingsGet") return { ok: true, settings: settingsCopy() };
+    if (msg.type === "settingsGet") {
+      return { ok: true, settings: settingsCopy(), fields: ankiFieldsCopy() };
+    }
 
     if (msg.type === "settingsSet") {
       var patch = msg.patch && typeof msg.patch === "object" ? msg.patch : {};
@@ -955,10 +981,21 @@
     // savedCheck is batched one-per-render-pass, so its call count is a
     // meaningful assertion and not just bookkeeping.
     checkCalls: function () { return savedCheckCalls; },
+    // The panel re-reads the whole store to redraw the SAVED view, so this is
+    // how a check proves one write costs one read and not two.
+    getCalls: function () { return savedGetCalls; },
     lastCheckKeys: function () {
       return savedLastCheckKeys ? savedLastCheckKeys.slice() : null;
     },
-    fail: function (which, on) { savedFail[which] = on !== false; }
+    fail: function (which, on) { savedFail[which] = on !== false; },
+    // The worker-declared Anki option lists (saved.js's ANKI_FIELDS). Called
+    // with tokens it stands in for a field added THERE, which is the whole
+    // point: the settings view must grow the control with no edit of its own.
+    // reset() puts the shipped lists back.
+    fields: function (name, tokens) {
+      if (tokens !== undefined) ankiFields[name] = tokens.slice();
+      return ankiFieldsCopy();
+    }
   };
 
   globalThis.__hanjaHoverTestRuntime = {

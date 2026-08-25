@@ -619,7 +619,17 @@
     "kind", "key", "defs", "breakdown", "tier", "folder", "added"
   ];
 
-  var saved, settings, savedCheckCalls, savedLastCheckKeys, savedFail;
+  // saved.js's ANKI_FIELDS: the option lists the worker hands the settings view
+  // on settingsGet, so the view holds no token list of its own.
+  var SAVED_ANKI_FIELDS = {
+    wordFront: ["word", "defs"],
+    wordBack: ["word", "defs", "breakdown", "tier"],
+    rootFront: ["root", "gloss"],
+    rootBack: ["root", "source", "gloss", "family"]
+  };
+
+  var saved, settings, ankiFields, savedCheckCalls, savedGetCalls,
+      savedLastCheckKeys, savedFail;
 
   function resetSaved() {
     saved = {
@@ -633,7 +643,12 @@
         rootFront: "root", rootBack: ["gloss", "family"]
       }
     };
+    ankiFields = {};
+    Object.keys(SAVED_ANKI_FIELDS).forEach(function (name) {
+      ankiFields[name] = SAVED_ANKI_FIELDS[name].slice();
+    });
     savedCheckCalls = 0;
+    savedGetCalls = 0;
     savedLastCheckKeys = null;
     savedFail = { all: false, check: false, toggle: false };
   }
@@ -670,6 +685,14 @@
         rootBack: settings.anki.rootBack.slice()
       }
     };
+  }
+
+  function ankiFieldsCopy() {
+    var out = {};
+    Object.keys(ankiFields).forEach(function (name) {
+      out[name] = ankiFields[name].slice();
+    });
+    return out;
   }
 
   // The read-time join. An item whose entry has left the dictionary becomes
@@ -814,6 +837,7 @@
     }
 
     if (msg.type === "savedGet") {
+      savedGetCalls++;
       return { ok: true, folders: foldersCopy(), items: joinSaved(saved.items) };
     }
 
@@ -910,7 +934,9 @@
       return { ok: true, moved: rehomed, settings: settingsCopy() };
     }
 
-    if (msg.type === "settingsGet") return { ok: true, settings: settingsCopy() };
+    if (msg.type === "settingsGet") {
+      return { ok: true, settings: settingsCopy(), fields: ankiFieldsCopy() };
+    }
 
     if (msg.type === "settingsSet") {
       var patch = msg.patch && typeof msg.patch === "object" ? msg.patch : {};
@@ -955,10 +981,21 @@
     // savedCheck is batched one-per-render-pass, so its call count is a
     // meaningful assertion and not just bookkeeping.
     checkCalls: function () { return savedCheckCalls; },
+    // The panel re-reads the whole store to redraw the SAVED view, so this is
+    // how a check proves one write costs one read and not two.
+    getCalls: function () { return savedGetCalls; },
     lastCheckKeys: function () {
       return savedLastCheckKeys ? savedLastCheckKeys.slice() : null;
     },
-    fail: function (which, on) { savedFail[which] = on !== false; }
+    fail: function (which, on) { savedFail[which] = on !== false; },
+    // The worker-declared Anki option lists (saved.js's ANKI_FIELDS). Called
+    // with tokens it stands in for a field added THERE, which is the whole
+    // point: the settings view must grow the control with no edit of its own.
+    // reset() puts the shipped lists back.
+    fields: function (name, tokens) {
+      if (tokens !== undefined) ankiFields[name] = tokens.slice();
+      return ankiFieldsCopy();
+    }
   };
 
   globalThis.__hanjaHoverTestRuntime = {
@@ -1177,6 +1214,11 @@
 
     var controller = shell.controller();
     var DEBOUNCE = shell.DEBOUNCE_MS;
+    // Seal settle: every seal assertion reads a COMPUTED opacity, so it has to
+    // wait out the registry's debounce AND the .18s fade behind it, with slack.
+    // The debounce is read off the surface rather than repeated here, because
+    // one seal implementation is the whole point of the mechanism.
+    var SEAL_SETTLE = sidebar.sealDebounce + 180 + 160;
 
     function hostEl() { return results.querySelector("[data-etymikon]"); }
     function panelStyle(prop) { return api.panelStyle(prop); }
@@ -1193,7 +1235,10 @@
     check("the sidebar surface exposes its registries and view controls",
       Array.isArray(sidebar.viewRegistry) && Array.isArray(sidebar.actionRegistry) &&
       typeof sidebar.showView === "function" &&
-      typeof sidebar.registerView === "function");
+      typeof sidebar.registerView === "function" &&
+      typeof sidebar.refreshSeal === "function" &&
+      sidebar.sealRoom === 230 && sidebar.sealDebounce === 60,
+      "room=" + sidebar.sealRoom + " debounce=" + sidebar.sealDebounce);
     check("boot pulls the worker's pending query and starts from it",
       controller.query() === "subterranean", controller.query());
     check("the panel asked the worker for a pending query exactly once",
@@ -1528,6 +1573,23 @@
       "mounts=" + probeMounts + " show=" + probeShown);
     check("the nav marks the newly active tab",
       document.querySelector("#okp-nav .tab--probe").classList.contains("tab--active"));
+
+    // The corner seal is part of the registry's mechanics, not something a
+    // view brings: this probe says nothing about seals and gets one anyway, on
+    // the same threshold and the same debounce as every other view. It is the
+    // check the hand-copied implementations could not have passed, since a
+    // fourth view got no seal at all.
+    var probeBox = document.querySelector('[data-view="probe"]');
+    await wait(SEAL_SETTLE);
+    check("a newly registered view is sealed by the registry, with no code of its own",
+      sidebar.viewRegistry[3].seal === undefined &&
+      probeBox.classList.contains("view--sealed") &&
+      probeBox.classList.contains("view--roomy") &&
+      getComputedStyle(probeBox, "::after").opacity === "1",
+      "sealed=" + probeBox.classList.contains("view--sealed") +
+        " roomy=" + probeBox.classList.contains("view--roomy") +
+        " opacity=" + getComputedStyle(probeBox, "::after").opacity);
+
     document.querySelector("#okp-nav .tab--search").click();
     await wait(60);
     check("switching back fires onHide and never re-mounts",
@@ -1701,6 +1763,60 @@
       !document.querySelector(".saved-confirm--remove") &&
       store.state().items.length === beforeDelete);
 
+    // One write, one read. A mutation the panel makes refreshes explicitly AND
+    // comes back again through chrome.storage.onChanged, and marking the panel's
+    // own writes is what keeps that pair from costing two savedGet round-trips
+    // and two wholesale list rebuilds. The harness has no real storage listener,
+    // so it has to say the marking is live. State-restoring: the folder and the
+    // row this block adds are both gone again by the end of it.
+    savedView.setStorageSync(true);
+    var getsBeforeOwn = store.getCalls();
+    document.getElementById("okp-saved-new").click();
+    await wait(30);
+    document.getElementById("okp-saved-name-input").value = "Echo";
+    document.querySelector(".saved-name-ok").click();
+    await wait(80);
+    var ownEcho = savedView.handleStorageChanged({ okpSaved: {} }, "local");
+    await wait(80);
+    check("the panel's own write reads the store once and drops the storage echo",
+      ownEcho === false && store.getCalls() === getsBeforeOwn + 1 &&
+      savedView.pendingSelfWrites() === 0 && savedView.folders().length === 3,
+      "gets=" + (store.getCalls() - getsBeforeOwn) + " echo=" + ownEcho +
+        " pending=" + savedView.pendingSelfWrites());
+
+    var echoId = savedView.folders()[2].id;
+    var getsBeforeOther = store.getCalls();
+    await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
+    check("a write made anywhere else is still taken, so page saves keep arriving",
+      savedView.handleStorageChanged({ okpSaved: {} }, "local") === true);
+    await wait(80);
+    check("and it costs the one read it was always worth",
+      store.getCalls() === getsBeforeOther + 1 &&
+      !!document.querySelector('#okp-saved-list .saved-row[data-key="music"]'),
+      "gets=" + (store.getCalls() - getsBeforeOther));
+
+    store.fail("all", true);
+    document.getElementById("okp-saved-new").click();
+    await wait(30);
+    document.getElementById("okp-saved-name-input").value = "Refused";
+    document.querySelector(".saved-name-ok").click();
+    await wait(80);
+    store.fail("all", false);
+    check("a mutation the worker refuses releases its claim instead of banking it",
+      savedView.pendingSelfWrites() === 0 &&
+      document.querySelector(".saved-error").hidden === false,
+      "pending=" + savedView.pendingSelfWrites());
+    document.querySelector(".saved-name-cancel").click();
+    savedView.setStorageSync(false);
+    await fake.sendMessage({ type: "folderDelete", id: echoId });
+    await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
+    await savedView.refresh();
+    await wait(60);
+    check("the block leaves the store exactly where it found it",
+      savedView.folders().length === 2 && savedView.items().length === 3,
+      "folders=" + savedView.folders().length +
+        " items=" + savedView.items().length);
+
     // A row click lands in the search view with the card rendered.
     var firstRow = document.querySelectorAll("#okp-saved-list .saved-row")[0];
     var rowKey = firstRow.getAttribute("data-key");
@@ -1771,22 +1887,146 @@
       texts(folderSelect.options).join("|") === "Saved|Exam words",
       texts(folderSelect.options).join("|"));
 
+    // The Anki option lists are the WORKER'S: settingsGet carries saved.js's
+    // ANKI_FIELDS and the schema only names which list each control draws from,
+    // so the token lists exist in exactly one place.
+    function optionNodes(key) {
+      var control = document.getElementById(settingsView.controlId(key));
+      return control.tagName === "SELECT"
+        ? control.options
+        : control.querySelectorAll(".settings-check");
+    }
+    function optionValues(key) {
+      return Array.prototype.map.call(optionNodes(key), function (n) {
+        return n.value;
+      }).join(",");
+    }
+    function optionLabels(key) {
+      var control = document.getElementById(settingsView.controlId(key));
+      return texts(control.tagName === "SELECT"
+        ? control.options
+        : control.querySelectorAll(".settings-checkbox span")).join(",");
+    }
+    function checkedValues(key) {
+      return Array.prototype.slice.call(optionNodes(key))
+        .filter(function (n) { return n.checked; })
+        .map(function (n) { return n.value; }).join(",");
+    }
+    function fieldBox(key, token) {
+      return document.getElementById(settingsView.controlId(key))
+        .querySelector('input[data-value="' + token + '"]');
+    }
+    var workerFields = store.fields();
+    check("every Anki control draws its options from the settingsGet response",
+      settingsView.schema.filter(function (e) { return e.optionsFrom !== "folders"; })
+        .every(function (e) {
+          return optionValues(e.key) === workerFields[e.optionsFrom].join(",");
+        }) &&
+      optionValues("anki.wordFront") === "word,defs" &&
+      optionValues("anki.rootBack") === "root,source,gloss,family",
+      optionValues("anki.wordFront") + " / " + optionValues("anki.rootBack"));
+    check("the view supplies the LABELS and nothing else about the fields",
+      optionLabels("anki.rootBack") === "Root,Source,Gloss,Family" &&
+      settingsView.schema.every(function (e) { return e.options === undefined; }) &&
+      Object.keys(settingsView.sources()).sort().join(",") ===
+        "folders,rootBack,rootFront,wordBack,wordFront",
+      optionLabels("anki.rootBack"));
+
+    // The other half of that acceptance test, from the worker's side: a field
+    // added in saved.js and NOWHERE else must reach the user as a working
+    // control. When the view kept its own token list, a field added on one side
+    // only produced a checkbox that would not stay checked, with no error.
+    store.fields("rootBack", ["root", "source", "gloss", "family", "cognates"]);
+    await settingsView.render();
+    await wait(60);
+    check("a field the WORKER adds renders here with no edit to the view",
+      optionValues("anki.rootBack") === "root,source,gloss,family,cognates" &&
+      !!fieldBox("anki.rootBack", "cognates") &&
+      // No label for it yet, so it stands under its bare token: cosmetic, and
+      // never a control that silently does not work.
+      optionLabels("anki.rootBack").split(",").pop() === "cognates",
+      optionLabels("anki.rootBack"));
+    var newField = fieldBox("anki.rootBack", "cognates");
+    newField.checked = true;
+    fire(newField, "change");
+    await wait(60);
+    await settingsView.render();
+    await wait(60);
+    check("and it STAYS checked through a re-read, instead of being dropped",
+      store.state().settings.anki.rootBack.join(",") === "root,gloss,family,cognates" &&
+      checkedValues("anki.rootBack") === "root,gloss,family,cognates",
+      store.state().settings.anki.rootBack.join(","));
+    newField = fieldBox("anki.rootBack", "cognates");
+    newField.checked = false;
+    fire(newField, "change");
+    await wait(60);
+    store.fields("rootBack", ["root", "source", "gloss", "family"]);
+    await settingsView.render();
+    await wait(60);
+    check("withdrawing the field takes its checkbox away again",
+      optionValues("anki.rootBack") === "root,source,gloss,family" &&
+      !fieldBox("anki.rootBack", "cognates") &&
+      checkedValues("anki.rootBack") === "root,gloss,family",
+      checkedValues("anki.rootBack"));
+
     // --- the corner seal --------------------------------------------------------------
+    // One threshold and one debounce, measured in one place, with the only
+    // per-view knob being which box holds the content. A view that names no box
+    // is measured against its container, which is why saved declares nothing.
+    check("every mounted view carries the seal, and only the content box varies",
+      ["search", "saved", "settings"].every(function (key) {
+        var box = document.getElementById("okp-view-" + key);
+        return !!box && box.classList.contains("view--sealed");
+      }) &&
+      sidebar.viewRegistry.every(function (view) {
+        return view.seal === undefined || typeof view.seal === "function";
+      }) &&
+      sidebar.viewRegistry.map(function (view) {
+        return view.key + ":" + (view.seal ? "box" : "container");
+      }).join(",") === "search:box,saved:container,settings:box",
+      sidebar.viewRegistry.map(function (view) {
+        return view.key + ":" + (view.seal ? "box" : "container");
+      }).join(","));
     sidebar.showView("search");
     await search("");
-    await wait(200);
+    await wait(SEAL_SETTLE);
     check("an empty search view shows the seal, which is the whole point of it",
       searchView.classList.contains("view--sealed") &&
       searchView.classList.contains("view--roomy"),
       searchView.className);
     await search("la:terra");
-    await wait(240);
+    await wait(SEAL_SETTLE);
     check("content that reaches the corner hides the seal",
       !searchView.classList.contains("view--roomy"), searchView.className);
     await search("");
-    await wait(240);
+    await wait(SEAL_SETTLE);
     check("clearing the search brings it back",
       searchView.classList.contains("view--roomy"), searchView.className);
+
+    // The settings view names the settings body as its content box, so the
+    // measured rects are the body's CHILDREN: the body itself is a stretched
+    // scroller whose own box always reaches the view bottom and would report
+    // zero room forever. A view has to be SHOWING to measure anything.
+    sidebar.showView("settings");
+    await settingsView.render();
+    await wait(SEAL_SETTLE);
+    var settingsSealView = document.getElementById("okp-view-settings");
+    check("the settings groups leave no room in this frame, so the seal yields",
+      !settingsSealView.classList.contains("view--roomy") &&
+      getComputedStyle(settingsSealView, "::after").opacity === "0",
+      settingsSealView.className);
+    var sealFrame = document.querySelector(".panel-frame");
+    var sealFrameHeight = sealFrame.style.height;
+    sealFrame.style.height = "900px";
+    await settingsView.render();
+    await wait(SEAL_SETTLE);
+    check("a taller panel has room under the settings and the seal shows",
+      settingsSealView.classList.contains("view--roomy") &&
+      getComputedStyle(settingsSealView, "::after").opacity === "1",
+      settingsSealView.className);
+    sealFrame.style.height = sealFrameHeight;
+    sidebar.showView("search");
+    await wait(SEAL_SETTLE);
 
     // --- the pending-query poke -------------------------------------------------------
     pendingSpy.reset();

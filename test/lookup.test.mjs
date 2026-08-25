@@ -55,6 +55,7 @@ import {
   resolveExportSelection,
   savedMapKey,
   toggleItem,
+  ANKI_FIELDS,
   CSV_COLUMNS,
   DEFAULT_SETTINGS,
   FAMILY_FIELD_WORDS,
@@ -1145,6 +1146,29 @@ test("unknown field tokens fall back and unknown checkset tokens are dropped", (
   assert.deepEqual(settings.anki.wordBack, ["breakdown", "tier"]);
   assert.equal(settings.anki.rootFront, "root", "family is a back field only");
   assert.deepEqual(settings.anki.rootBack, ["source"]);
+});
+
+test("every Anki field on offer is one normalizeSettings keeps", () => {
+  // ANKI_FIELDS is what the settings view renders its controls from (it rides
+  // along on the settingsGet response); the per-setting list is what a record
+  // may hold. Offering a token the validator drops is the failure this pins: a
+  // control that will not stay set, with no error anywhere.
+  for (const [name, tokens] of Object.entries(ANKI_FIELDS)) {
+    for (const token of tokens) {
+      const single = name.endsWith("Front");
+      const got = normalizeSettings({ anki: { [name]: single ? token : [token] } }).anki[name];
+      assert.deepEqual(got, single ? token : [token], `${name} drops offered "${token}"`);
+    }
+  }
+  // Every shipped default is on offer, so the controls open on a real choice.
+  assert.ok(ANKI_FIELDS.wordFront.includes(DEFAULT_SETTINGS.anki.wordFront));
+  assert.ok(ANKI_FIELDS.rootFront.includes(DEFAULT_SETTINGS.anki.rootFront));
+  for (const token of DEFAULT_SETTINGS.anki.wordBack) {
+    assert.ok(ANKI_FIELDS.wordBack.includes(token), `wordBack default "${token}" not offered`);
+  }
+  for (const token of DEFAULT_SETTINGS.anki.rootBack) {
+    assert.ok(ANKI_FIELDS.rootBack.includes(token), `rootBack default "${token}" not offered`);
+  }
 });
 
 test("an emptied checkset is kept, and a deleted default folder resets to f0", () => {

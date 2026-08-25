@@ -17,6 +17,7 @@ import {
   toErrorMessage,
 } from "./lookup.js";
 import {
+  ANKI_FIELDS,
   buildAnkiTsv,
   buildCsv,
   checkKeys,
@@ -448,13 +449,20 @@ export async function handleFolderDelete(id) {
 }
 
 /**
- * {type:"settingsGet"} → the settings record, defaults filled in.
- * @returns {Promise<{ok:true, settings:object}|{ok:false, error:string}>}
+ * {type:"settingsGet"} → the settings record, defaults filled in, plus the Anki
+ * field tokens each setting may hold.
+ *
+ * `fields` rides along the same way `tier` rides along on a lookup match: the
+ * settings view renders its Anki option lists straight out of the response, so
+ * saved.js stays the only declaration of what the tokens are. A field added
+ * there reaches the checkboxes with no edit on the view side, where a second
+ * copy would instead give a control whose value normalizeSettings drops again.
+ * @returns {Promise<{ok:true, settings:object, fields:object}|{ok:false, error:string}>}
  */
 export async function handleSettingsGet() {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    return { ok: true, settings: await readSettings(area, state) };
+    return { ok: true, settings: await readSettings(area, state), fields: ANKI_FIELDS };
   });
 }
 

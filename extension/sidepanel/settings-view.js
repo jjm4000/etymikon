@@ -21,6 +21,7 @@
  *   render()      re-read settings + folders and rebuild the controls
  *   settings()    the settings object as last read
  *   folders()     the folders as last read
+ *   sources()     the worker-supplied option lists, by `optionsFrom` name
  *   controlId(k)  the DOM id the renderer gives an entry's control
  */
 (function () {
@@ -33,14 +34,24 @@
    * The schema
    *
    * Entry: {
-   *   key,      // dot-path into the settings object; also the control's id
-   *   group,    // heading it renders under; groups appear in schema order
-   *   type,     // "select" | "checkset" | "folder-select"
-   *   label,    // the visible label
-   *   options,  // [{value, label}] — omitted by folder-select, which resolves
-   *             //   its options from the worker's folders at render time
-   *   default   // what a settings object that does not carry the key reads as
+   *   key,          // dot-path into the settings object; also the control's id
+   *   group,        // heading it renders under; groups appear in schema order
+   *   type,         // "select" | "checkset" | "folder-select"
+   *   label,        // the visible label
+   *   optionsFrom,  // name of a worker-supplied option list (see `sources`)
+   *   options,      // [{value, label}], a literal list for a setting whose
+   *                 //   choices are this view's own; exclusive with optionsFrom
+   *   default       // what a settings object that does not carry the key reads
+   *                 //   as. Only for keys the worker does not know: everything
+   *                 //   settingsGet answers with already arrives normalized,
+   *                 //   defaults filled in, so restating one here could only
+   *                 //   ever disagree with saved.js.
    * }
+   *
+   * Both option sources are the WORKER'S: `folders` from savedGet, the Anki
+   * field lists from settingsGet's `fields`. Nothing about which tokens exist
+   * is declared in this file: saved.js declares them, so a field added there
+   * renders here on its own.
    * ------------------------------------------------------------------ */
 
   var SETTINGS_SCHEMA = [
@@ -49,57 +60,57 @@
       group: "Saving",
       type: "folder-select",
       label: "By default, save new items to",
-      default: "f0"
+      optionsFrom: "folders"
     },
     {
       key: "anki.wordFront",
       group: "Anki export",
       type: "select",
       label: "Word cards: front",
-      options: [
-        { value: "word", label: "Word" },
-        { value: "defs", label: "Definitions" }
-      ],
-      default: "word"
+      optionsFrom: "wordFront"
     },
     {
       key: "anki.wordBack",
       group: "Anki export",
       type: "checkset",
       label: "Word cards: back",
-      options: [
-        { value: "word", label: "Word" },
-        { value: "defs", label: "Definitions" },
-        { value: "breakdown", label: "Breakdown" },
-        { value: "tier", label: "Tier" }
-      ],
-      default: ["defs", "breakdown"]
+      optionsFrom: "wordBack"
     },
     {
       key: "anki.rootFront",
       group: "Anki export",
       type: "select",
       label: "Root cards: front",
-      options: [
-        { value: "root", label: "Root" },
-        { value: "gloss", label: "Gloss" }
-      ],
-      default: "root"
+      optionsFrom: "rootFront"
     },
     {
       key: "anki.rootBack",
       group: "Anki export",
       type: "checkset",
       label: "Root cards: back",
-      options: [
-        { value: "root", label: "Root" },
-        { value: "source", label: "Source" },
-        { value: "gloss", label: "Gloss" },
-        { value: "family", label: "Family" }
-      ],
-      default: ["gloss", "family"]
+      optionsFrom: "rootBack"
     }
   ];
+
+  /* ------------------------------------------------------------------ *
+   * Field labels: PRESENTATION ONLY.
+   *
+   * The worker names the tokens; this names them for a reader. A token with no
+   * entry here still renders as a working control, under its bare token, so an
+   * unlabelled new field is a cosmetic gap and never a checkbox that refuses to
+   * stay checked.
+   * ------------------------------------------------------------------ */
+
+  var FIELD_LABELS = {
+    word: "Word",
+    defs: "Definitions",
+    breakdown: "Breakdown",
+    tier: "Tier",
+    root: "Root",
+    source: "Source",
+    gloss: "Gloss",
+    family: "Family"
+  };
 
   /* ------------------------------------------------------------------ *
    * Worker access — the same probe sidepanel.js uses.
@@ -192,11 +203,19 @@
    * State
    * ------------------------------------------------------------------ */
 
-  var root = null;
+  var ctx = null;
   var body = null;
   var settings = {};
   var folders = [];
+  var sources = Object.create(null);
   var available = true;
+
+  // The whole seal mechanism, threshold and debounce included, lives in
+  // sidepanel.js's registry mechanics (SPEC "Corner seal"); this view's part in
+  // it is the `seal` box it declares below plus a nudge after each render.
+  function refreshSeal() {
+    if (ctx && typeof ctx.refreshSeal === "function") ctx.refreshSeal();
+  }
 
   function write(entry, value) {
     return sendToWorker({ type: "settingsSet", patch: buildPatch(entry.key, value) })
@@ -214,11 +233,7 @@
    * ------------------------------------------------------------------ */
 
   function optionsFor(entry) {
-    if (entry.type === "folder-select") {
-      return folders.map(function (folder) {
-        return { value: folder.id, label: folder.name };
-      });
-    }
+    if (entry.optionsFrom) return sources[entry.optionsFrom] || [];
     return entry.options || [];
   }
 
@@ -340,9 +355,36 @@
     return rendered;
   }
 
-  // One read of each, then one render: folder-select needs the folders, and
-  // every control needs the current settings, so neither can be rendered from
-  // a stale copy.
+  // The worker's two option lists, gathered into one map an `optionsFrom` names.
+  // Folders arrive as records and Anki fields as bare tokens; both leave here as
+  // {value, label} pairs, so the control builders never learn where a list came
+  // from. An option list the worker did not send stays absent rather than being
+  // guessed at.
+  function buildSources(settingsRes) {
+    var out = Object.create(null);
+    out.folders = folders.map(function (folder) {
+      return { value: folder.id, label: folder.name };
+    });
+    var fields = settingsRes.fields;
+    if (fields === null || typeof fields !== "object") return out;
+    Object.keys(fields).forEach(function (name) {
+      if (!Array.isArray(fields[name])) return;
+      out[name] = fields[name].map(function (token) {
+        return {
+          value: token,
+          label: Object.prototype.hasOwnProperty.call(FIELD_LABELS, token)
+            ? FIELD_LABELS[token]
+            : token
+        };
+      });
+    });
+    return out;
+  }
+
+  // One read of each, then one render: the option lists come from the two
+  // responses and every control needs the current settings, so nothing can be
+  // rendered from a stale copy. The savedGet is the cheap one the worker
+  // answers without touching the data cache when nothing is saved.
   function render() {
     return Promise.all([
       sendToWorker({ type: "settingsGet" }),
@@ -354,8 +396,9 @@
         available = false;
         settings = {};
         folders = [];
+        sources = Object.create(null);
         renderSchema();
-        updateSealRoom();
+        refreshSeal();
         return false;
       }
       available = true;
@@ -363,35 +406,10 @@
       folders = (savedRes && savedRes.ok === true && Array.isArray(savedRes.folders))
         ? savedRes.folders
         : [];
+      sources = buildSources(settingsRes);
       renderSchema();
-      updateSealRoom();
+      refreshSeal();
       return true;
-    });
-  }
-
-  // Same rule as the other views (SPEC "Corner seal"): the seal shows only
-  // when the space under the content fits it, re-measured after render and
-  // on resize. Measured against the BODY'S CHILDREN, not the body: the
-  // settings-body is a stretched flex scroller whose own box always reaches
-  // the view bottom, which would report zero room forever.
-  var SEAL_ROOM = 230;
-  function updateSealRoom() {
-    if (!root || !body || !root.getBoundingClientRect) return;
-    var edge = 0;
-    for (var i = 0; i < body.children.length; i++) {
-      var r = body.children[i].getBoundingClientRect();
-      if (r.height > 0 && r.bottom > edge) edge = r.bottom;
-    }
-    var room = root.getBoundingClientRect().bottom -
-      (edge || body.getBoundingClientRect().top);
-    root.classList.toggle("view--roomy", room >= SEAL_ROOM);
-  }
-
-  if (typeof window !== "undefined" && window.addEventListener) {
-    var sealTimer = null;
-    window.addEventListener("resize", function () {
-      clearTimeout(sealTimer);
-      sealTimer = setTimeout(updateSealRoom, 100);
     });
   }
 
@@ -403,11 +421,12 @@
     key: "settings",
     label: "Settings",
     title: "Saving and export settings",
-    mount: function (container) {
-      root = container;
-      // The corner seal is a permanent fixture of this view (user-directed),
-      // not an empty-state mark — see sidepanel.css .view--sealed.
-      container.classList.add("view--sealed");
+    // The content is the body's children, not the body: .settings-body is a
+    // stretched flex scroller whose own box always reaches the view bottom, so
+    // measuring IT would report zero room forever.
+    seal: function (container) { return container.querySelector("#okp-settings"); },
+    mount: function (container, viewCtx) {
+      ctx = viewCtx;
       body = document.createElement("div");
       body.id = "okp-settings";
       body.className = "settings-body";
@@ -426,6 +445,11 @@
     render: render,
     settings: function () { return settings; },
     folders: function () { return folders.slice(); },
+    sources: function () {
+      var copy = Object.create(null);
+      Object.keys(sources).forEach(function (name) { copy[name] = sources[name].slice(); });
+      return copy;
+    },
     controlId: controlId
   };
 })();

@@ -35,6 +35,26 @@ export const ROOT_FRONT_FIELDS = ["root", "gloss"];
 /** Anki back tokens for root items. */
 export const ROOT_BACK_FIELDS = ["root", "source", "gloss", "family"];
 
+/**
+ * The tokens each Anki setting OFFERS, keyed by its `anki.<name>` path tail.
+ *
+ * The four lists above are the declaration; this is how they reach a UI. The
+ * worker hands this map to the settings view in the settingsGet response, so no
+ * surface restates the token lists and a field added above renders on its
+ * control with no other edit. (A surface keeping its own copy instead gives a
+ * control whose value normalizeSettings drops again: a checkbox that silently
+ * refuses to stay checked.)
+ *
+ * Offering and accepting are the same set per setting, since normalizeSettings
+ * below validates each one against the very list named here.
+ */
+export const ANKI_FIELDS = Object.freeze({
+  wordFront: WORD_FRONT_FIELDS,
+  wordBack: WORD_BACK_FIELDS,
+  rootFront: ROOT_FRONT_FIELDS,
+  rootBack: ROOT_BACK_FIELDS,
+});
+
 /** The Anki family field lists this many words. */
 export const FAMILY_FIELD_WORDS = 5;
 
