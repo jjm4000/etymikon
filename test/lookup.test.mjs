@@ -50,6 +50,7 @@ import {
   renameFolder,
   resolveExportSelection,
   toggleItem,
+  ANKI_FIELDS,
   CSV_COLUMNS,
   DEFAULT_SETTINGS,
 } from "../extension/saved.js";
@@ -1575,6 +1576,29 @@ test("normalizeSettings fills the SPEC defaults and drops unknown tokens", () =>
   assert.deepEqual(scrubbed.anki.charBack, ["eumhun", "defs"]);
   // An emptied checkset is a real user choice and survives normalization.
   assert.deepEqual(normalizeSettings({ anki: { charBack: [] } }).anki.charBack, []);
+});
+
+test("every Anki field on offer is one normalizeSettings keeps", () => {
+  // ANKI_FIELDS is what the settings view renders its controls from (it rides
+  // along on the settingsGet response); the per-kind vocabulary is what a
+  // record may hold. Offering a token the validator drops is the failure this
+  // pins: a control that will not stay set, with no error anywhere.
+  for (const [name, tokens] of Object.entries(ANKI_FIELDS)) {
+    for (const token of tokens) {
+      const single = name.endsWith("Front");
+      const got = normalizeSettings({ anki: { [name]: single ? token : [token] } }).anki[name];
+      assert.deepEqual(got, single ? token : [token], `${name} drops offered "${token}"`);
+    }
+  }
+  // Every shipped default is on offer, so the controls open on a real choice.
+  assert.ok(ANKI_FIELDS.wordFront.includes(DEFAULT_SETTINGS.anki.wordFront));
+  assert.ok(ANKI_FIELDS.charFront.includes(DEFAULT_SETTINGS.anki.charFront));
+  for (const token of DEFAULT_SETTINGS.anki.wordBack) {
+    assert.ok(ANKI_FIELDS.wordBack.includes(token), `wordBack default "${token}" not offered`);
+  }
+  for (const token of DEFAULT_SETTINGS.anki.charBack) {
+    assert.ok(ANKI_FIELDS.charBack.includes(token), `charBack default "${token}" not offered`);
+  }
 });
 
 test("a settings patch merges over the current record, one level into anki", () => {

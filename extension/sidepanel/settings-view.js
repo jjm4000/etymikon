@@ -21,6 +21,7 @@
  *   render()      re-read settings + folders and rebuild the controls
  *   settings()    the settings object as last read
  *   folders()     the folders as last read
+ *   sources()     the worker-supplied option lists, by `optionsFrom` name
  *   controlId(k)  the DOM id the renderer gives an entry's control
  */
 (function () {
@@ -33,14 +34,24 @@
    * The schema
    *
    * Entry: {
-   *   key,      // dot-path into the settings object; also the control's id
-   *   group,    // heading it renders under; groups appear in schema order
-   *   type,     // "select" | "checkset" | "folder-select"
-   *   label,    // the visible label
-   *   options,  // [{value, label}] — omitted by folder-select, which resolves
-   *             //   its options from the worker's folders at render time
-   *   default   // what a settings object that does not carry the key reads as
+   *   key,          // dot-path into the settings object; also the control's id
+   *   group,        // heading it renders under; groups appear in schema order
+   *   type,         // "select" | "checkset" | "folder-select"
+   *   label,        // the visible label
+   *   optionsFrom,  // name of a worker-supplied option list (see `sources`)
+   *   options,      // [{value, label}] — a literal list, for a setting whose
+   *                 //   choices are this view's own; exclusive with optionsFrom
+   *   default       // what a settings object that does not carry the key reads
+   *                 //   as. Only for keys the worker does not know: everything
+   *                 //   settingsGet answers with already arrives normalized,
+   *                 //   defaults filled in, so restating one here could only
+   *                 //   ever disagree with saved.js.
    * }
+   *
+   * Both option sources are the WORKER'S: `folders` from savedGet, the Anki
+   * field lists from settingsGet's `fields`. Nothing about which tokens exist
+   * is declared in this file — saved.js declares them, so a field added there
+   * renders here on its own.
    * ------------------------------------------------------------------ */
 
   var SETTINGS_SCHEMA = [
@@ -49,57 +60,56 @@
       group: "Saving",
       type: "folder-select",
       label: "By default, save new items to",
-      default: "f0"
+      optionsFrom: "folders"
     },
     {
       key: "anki.wordFront",
       group: "Anki export",
       type: "select",
       label: "Word cards: front",
-      options: [
-        { value: "hanja", label: "Hanja" },
-        { value: "hangul", label: "Hangul" }
-      ],
-      default: "hanja"
+      optionsFrom: "wordFront"
     },
     {
       key: "anki.wordBack",
       group: "Anki export",
       type: "checkset",
       label: "Word cards: back",
-      options: [
-        { value: "hanja", label: "Hanja" },
-        { value: "hangul", label: "Hangul" },
-        { value: "defs", label: "Definitions" }
-      ],
-      default: ["hangul", "defs"]
+      optionsFrom: "wordBack"
     },
     {
       key: "anki.charFront",
       group: "Anki export",
       type: "select",
       label: "Character cards: front",
-      options: [
-        { value: "char", label: "Character" },
-        { value: "eumhun", label: "Eum-hun" }
-      ],
-      default: "char"
+      optionsFrom: "charFront"
     },
     {
       key: "anki.charBack",
       group: "Anki export",
       type: "checkset",
       label: "Character cards: back",
-      options: [
-        { value: "char", label: "Character" },
-        { value: "eumhun", label: "Eum-hun" },
-        { value: "readings", label: "Readings" },
-        { value: "defs", label: "Definitions" },
-        { value: "lvl", label: "Level" }
-      ],
-      default: ["eumhun", "defs"]
+      optionsFrom: "charBack"
     }
   ];
+
+  /* ------------------------------------------------------------------ *
+   * Field labels — PRESENTATION ONLY.
+   *
+   * The worker names the tokens; this names them for a reader. A token with no
+   * entry here still renders as a working control, under its bare token, so an
+   * unlabelled new field is a cosmetic gap and never a checkbox that refuses to
+   * stay checked.
+   * ------------------------------------------------------------------ */
+
+  var FIELD_LABELS = {
+    hanja: "Hanja",
+    hangul: "Hangul",
+    defs: "Definitions",
+    char: "Character",
+    eumhun: "Eum-hun",
+    readings: "Readings",
+    lvl: "Level"
+  };
 
   /* ------------------------------------------------------------------ *
    * Worker access — the same probe sidepanel.js uses.
@@ -196,6 +206,7 @@
   var body = null;
   var settings = {};
   var folders = [];
+  var sources = Object.create(null);
   var available = true;
 
   function write(entry, value) {
@@ -214,11 +225,7 @@
    * ------------------------------------------------------------------ */
 
   function optionsFor(entry) {
-    if (entry.type === "folder-select") {
-      return folders.map(function (folder) {
-        return { value: folder.id, label: folder.name };
-      });
-    }
+    if (entry.optionsFrom) return sources[entry.optionsFrom] || [];
     return entry.options || [];
   }
 
@@ -340,9 +347,35 @@
     return rendered;
   }
 
-  // One read of each, then one render: folder-select needs the folders, and
-  // every control needs the current settings, so neither can be rendered from
-  // a stale copy.
+  // The worker's two option lists, gathered into one map an `optionsFrom` names.
+  // Folders arrive as records and Anki fields as bare tokens; both leave here as
+  // {value, label} pairs, so the control builders never learn where a list came
+  // from. An option list the worker did not send stays absent rather than being
+  // guessed at.
+  function buildSources(settingsRes) {
+    var out = Object.create(null);
+    out.folders = folders.map(function (folder) {
+      return { value: folder.id, label: folder.name };
+    });
+    var fields = settingsRes.fields;
+    if (fields === null || typeof fields !== "object") return out;
+    Object.keys(fields).forEach(function (name) {
+      if (!Array.isArray(fields[name])) return;
+      out[name] = fields[name].map(function (token) {
+        return {
+          value: token,
+          label: Object.prototype.hasOwnProperty.call(FIELD_LABELS, token)
+            ? FIELD_LABELS[token]
+            : token
+        };
+      });
+    });
+    return out;
+  }
+
+  // One read of each, then one render: the option lists come from the two
+  // responses and every control needs the current settings, so nothing can be
+  // rendered from a stale copy.
   function render() {
     return Promise.all([
       sendToWorker({ type: "settingsGet" }),
@@ -354,6 +387,7 @@
         available = false;
         settings = {};
         folders = [];
+        sources = Object.create(null);
         renderSchema();
         updateSealRoom();
         return false;
@@ -363,6 +397,7 @@
       folders = (savedRes && savedRes.ok === true && Array.isArray(savedRes.folders))
         ? savedRes.folders
         : [];
+      sources = buildSources(settingsRes);
       renderSchema();
       updateSealRoom();
       return true;
@@ -426,6 +461,11 @@
     render: render,
     settings: function () { return settings; },
     folders: function () { return folders.slice(); },
+    sources: function () {
+      var copy = Object.create(null);
+      Object.keys(sources).forEach(function (name) { copy[name] = sources[name].slice(); });
+      return copy;
+    },
     controlId: controlId
   };
 })();

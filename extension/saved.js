@@ -20,10 +20,33 @@ export const DEFAULT_FOLDER_ID = "f0";
 /** Name given to the default folder when storage carries none. */
 export const DEFAULT_FOLDER_NAME = "Saved";
 
-/** Anki field tokens for word items. */
-export const WORD_FIELDS = ["hanja", "hangul", "defs"];
-/** Anki field tokens for character items. */
-export const CHAR_FIELDS = ["char", "eumhun", "readings", "defs", "lvl"];
+/** Anki field tokens a word setting may hold. */
+export const WORD_FIELDS = Object.freeze(["hanja", "hangul", "defs"]);
+/** Anki field tokens a character setting may hold. */
+export const CHAR_FIELDS = Object.freeze(["char", "eumhun", "readings", "defs", "lvl"]);
+
+/**
+ * The tokens each Anki setting OFFERS, keyed by its `anki.<name>` path tail.
+ *
+ * This is the ONE place the offered fields are declared: the worker hands it to
+ * the settings view in the settingsGet response, so no surface restates the
+ * token lists and a field added here reaches its control with no other edit.
+ * (A surface keeping its own copy instead gives a control whose value
+ * normalizeSettings drops again — a checkbox that silently refuses to stay
+ * checked.)
+ *
+ * The front lists are deliberately narrower than the vocabularies above, per
+ * SPEC: a card front is one identifying field, so "readings" is not offered
+ * even though a hand-edited record carrying it would still validate. Offering
+ * is the smaller set; accepting stays per-kind, so nothing already stored is
+ * ever thrown away by a change here.
+ */
+export const ANKI_FIELDS = Object.freeze({
+  wordFront: Object.freeze(["hanja", "hangul"]),
+  wordBack: WORD_FIELDS,
+  charFront: Object.freeze(["char", "eumhun"]),
+  charBack: CHAR_FIELDS,
+});
 
 /** SPEC defaults for `okpSettings`. */
 export const DEFAULT_SETTINGS = Object.freeze({
@@ -200,6 +223,9 @@ export function normalizeSettings(raw, savedState) {
     v: SETTINGS_VERSION,
     defaultFolderId,
     anki: {
+      // Validated against the per-kind VOCABULARY, not against ANKI_FIELDS:
+      // what a control offers may narrow without discarding a token a record
+      // already carries. See ANKI_FIELDS.
       wordFront: oneOf(anki.wordFront, WORD_FIELDS, DEFAULT_SETTINGS.anki.wordFront),
       wordBack: manyOf(anki.wordBack, WORD_FIELDS, DEFAULT_SETTINGS.anki.wordBack),
       charFront: oneOf(anki.charFront, CHAR_FIELDS, DEFAULT_SETTINGS.anki.charFront),

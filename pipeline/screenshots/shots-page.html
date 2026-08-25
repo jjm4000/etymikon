@@ -196,7 +196,7 @@
  */
 import { lookup, buildFullCompounds, buildUsedIn, buildReadingIndex }
   from "/extension/lookup.js";
-import { normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems }
+import { ANKI_FIELDS, normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems }
   from "/extension/saved.js";
 
 const params = new URLSearchParams(location.search);
@@ -232,7 +232,7 @@ function handle(msg) {
       if (r.item) { out.item = r.item; out.folderId = r.item.folderId; }
       return out;
     }
-    case "settingsGet": return { ok: true, settings };
+    case "settingsGet": return { ok: true, settings, fields: ANKI_FIELDS };
     default: return { ok: false, error: "unknown message type" };
   }
 }

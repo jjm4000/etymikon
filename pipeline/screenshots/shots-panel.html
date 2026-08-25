@@ -64,6 +64,7 @@
 import { lookup, buildFullCompounds, buildUsedIn, buildReadingIndex }
   from "/extension/lookup.js";
 import {
+  ANKI_FIELDS,
   normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems,
   removeItems, moveItems, createFolder, renameFolder, deleteFolder,
   resolveExportSelection, buildAnkiTsv, buildCsv,
@@ -169,7 +170,7 @@ function handle(msg) {
       settings = normalizeSettings(settings, savedState);
       return { ok: true, moved: r.moved, settings };
     }
-    case "settingsGet": return { ok: true, settings };
+    case "settingsGet": return { ok: true, settings, fields: ANKI_FIELDS };
     case "settingsSet": {
       const patch = m.patch || {};
       const anki = patch.anki || {};

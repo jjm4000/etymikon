@@ -831,7 +831,17 @@
     "level", "folder", "added"
   ];
 
-  var saved, settings, savedCheckCalls, savedLastCheckKeys, savedFail;
+  // saved.js's ANKI_FIELDS: the option lists the worker hands the settings view
+  // on settingsGet, so the view holds no token list of its own. The front lists
+  // are the narrower ones, per SPEC.
+  var SAVED_ANKI_FIELDS = {
+    wordFront: ["hanja", "hangul"],
+    wordBack: ["hanja", "hangul", "defs"],
+    charFront: ["char", "eumhun"],
+    charBack: ["char", "eumhun", "readings", "defs", "lvl"]
+  };
+
+  var saved, settings, ankiFields, savedCheckCalls, savedLastCheckKeys, savedFail;
 
   function resetSaved() {
     saved = {
@@ -845,6 +855,10 @@
         charFront: "char", charBack: ["eumhun", "defs"]
       }
     };
+    ankiFields = {};
+    Object.keys(SAVED_ANKI_FIELDS).forEach(function (name) {
+      ankiFields[name] = SAVED_ANKI_FIELDS[name].slice();
+    });
     savedCheckCalls = 0;
     savedLastCheckKeys = null;
     savedFail = { all: false, check: false, toggle: false };
@@ -882,6 +896,14 @@
         charBack: settings.anki.charBack.slice()
       }
     };
+  }
+
+  function ankiFieldsCopy() {
+    var out = {};
+    Object.keys(ankiFields).forEach(function (name) {
+      out[name] = ankiFields[name].slice();
+    });
+    return out;
   }
 
   // The read-time join. An item whose entry has left the dictionary becomes a
@@ -1108,7 +1130,9 @@
       return { ok: true, moved: rehomed, settings: settingsCopy() };
     }
 
-    if (msg.type === "settingsGet") return { ok: true, settings: settingsCopy() };
+    if (msg.type === "settingsGet") {
+      return { ok: true, settings: settingsCopy(), fields: ankiFieldsCopy() };
+    }
 
     if (msg.type === "settingsSet") {
       var patch = msg.patch && typeof msg.patch === "object" ? msg.patch : {};
@@ -1156,7 +1180,15 @@
     lastCheckKeys: function () {
       return savedLastCheckKeys ? savedLastCheckKeys.slice() : null;
     },
-    fail: function (which, on) { savedFail[which] = on !== false; }
+    fail: function (which, on) { savedFail[which] = on !== false; },
+    // The worker-declared Anki option lists (saved.js's ANKI_FIELDS). Called
+    // with tokens it stands in for a field added THERE, which is the whole
+    // point: the settings view must grow the control with no edit of its own.
+    // reset() puts the shipped lists back.
+    fields: function (name, tokens) {
+      if (tokens !== undefined) ankiFields[name] = tokens.slice();
+      return ankiFieldsCopy();
+    }
   };
 
   globalThis.__hanjaHoverTestRuntime = {
