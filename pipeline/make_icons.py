@@ -31,38 +31,45 @@ CLAY = (192, 85, 43, 255)      # #C0552B, the seal body
 AEGEAN = (159, 195, 232, 255)  # #9FC3E8, the ring
 CREAM = (255, 247, 240, 255)   # #FFF7F0, the glyph
 
-# size -> (supersample, glyph fraction, corner fraction,
-#          ring: None or (inset fraction, corner fraction, stroke fraction))
+# size -> (supersample, glyph fraction, margin fraction, corner fraction,
+#          ring: None or (outer inset fraction, corner fraction, band fraction))
 #
-# Fractions are of the finished size; the reference mockup is 64 units,
-# so body corner 14/64 = 0.219, ring inset 6.5/64 = 0.102, ring corner
-# 10.5/64 = 0.164, ring stroke 2.6/64 = 0.041, glyph 68/64 = 1.0625.
-# 48 thickens the ring a touch so it survives the smaller raster; 16
-# has no ring and a slightly larger glyph instead.
+# Fractions are of the finished size, taken from the approved 64-unit
+# mockup and verified against a browser raster of it: the body is inset
+# 2/64 = 0.031 from the canvas (the seal floats, it does not fill),
+# body corner 14/64 = 0.219, the ring BAND runs from 5.2/64 = 0.081 to
+# 7.8/64 = 0.122 (an SVG stroke straddles its path; PIL draws inward,
+# so the outer inset and band width encode the band edges directly),
+# ring outer corner 11.8/64 = 0.184. The glyph em was raised from the
+# mockup's 1.0625 to 1.20 by owner choice (2026-08-25): the epsilon
+# reaches the ring without crossing it. 48 widens the band a touch so
+# it survives the smaller raster; 16 has no ring, no margin, and a
+# proportionally larger glyph instead.
 TUNING = {
-    128: (4, 1.0625, 0.219, (0.102, 0.164, 0.041)),
-    48:  (4, 1.0625, 0.219, (0.102, 0.164, 0.050)),
-    16:  (4, 1.1500, 0.219, None),
+    128: (4, 1.20, 0.031, 0.219, (0.081, 0.184, 0.041)),
+    48:  (4, 1.20, 0.031, 0.219, (0.081, 0.184, 0.050)),
+    16:  (4, 1.30, 0.000, 0.219, None),
 }
 
 
 def render(size: int) -> Image.Image:
-    ss, glyph_frac, corner_frac, ring = TUNING[size]
+    ss, glyph_frac, margin_frac, corner_frac, ring = TUNING[size]
     S = size * ss
 
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
+    m = round(S * margin_frac)
     radius = round(S * corner_frac)
-    d.rounded_rectangle([0, 0, S - 1, S - 1], radius=radius, fill=CLAY)
+    d.rounded_rectangle([m, m, S - 1 - m, S - 1 - m], radius=radius, fill=CLAY)
     if ring is not None:
-        inset_frac, ring_corner_frac, stroke_frac = ring
-        inset = round(S * inset_frac)
+        outer_frac, ring_corner_frac, band_frac = ring
+        inset = round(S * outer_frac)
         d.rounded_rectangle(
             [inset, inset, S - 1 - inset, S - 1 - inset],
             radius=round(S * ring_corner_frac),
             outline=AEGEAN,
-            width=max(1, round(S * stroke_frac)),
+            width=max(1, round(S * band_frac)),
         )
 
     # Glyph mask, optically centred on its ink rather than its em box.
