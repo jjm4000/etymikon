@@ -100,7 +100,6 @@
    * ------------------------------------------------------------------ */
 
   var ctx = null;
-  var root = null;
   var visible = false;
   var available = true;      // false once the worker says "storage unavailable"
 
@@ -124,27 +123,15 @@
   }
 
   // The seal only marks empty paper (SPEC "Corner seal"): with enough rows
-  // the behind-content watermark read as clutter, so each render measures
-  // the space left under the content and shows the seal only when it fits.
-  var SEAL_ROOM = 230;
-  function updateSealRoom() {
-    if (!root || !root.getBoundingClientRect) return;
-    var edge = 0;
-    for (var i = 0; i < root.children.length; i++) {
-      var r = root.children[i].getBoundingClientRect();
-      if (r.height > 0 && r.bottom > edge) edge = r.bottom;
-    }
-    var room = root.getBoundingClientRect().bottom - edge;
-    root.classList.toggle("view--roomy", room >= SEAL_ROOM);
+  // the behind-content watermark read as clutter. The rule, the threshold
+  // and the debounce all live in sidepanel.js's registry mechanics, and the
+  // whole of this view's part in it is nudging after a render — the content
+  // box is the view container itself, which is the default, so this view
+  // declares no `seal` at all.
+  function refreshSeal() {
+    if (ctx && typeof ctx.refreshSeal === "function") ctx.refreshSeal();
   }
 
-  if (typeof window !== "undefined" && window.addEventListener) {
-    var sealTimer = null;
-    window.addEventListener("resize", function () {
-      clearTimeout(sealTimer);
-      sealTimer = setTimeout(updateSealRoom, 100);
-    });
-  }
   var lastDownload = null;
 
   // Bar / actions elements, built once in mount().
@@ -546,7 +533,7 @@
 
   function renderList() {
     renderListBody();
-    updateSealRoom();
+    refreshSeal();
   }
 
   function renderListBody() {
@@ -789,7 +776,7 @@
     els.removeBtn.disabled = inert;
     els.exportBtn.disabled = inert;
     els.actions.hidden = !available;
-    updateSealRoom();
+    refreshSeal();
   }
 
   // The cheap half of a refresh: checkbox states and the action labels, with
@@ -886,10 +873,6 @@
     title: "Saved words and characters",
     mount: function (container, viewCtx) {
       ctx = viewCtx;
-      root = container;
-      // The jade seal is a permanent fixture of this view (user-directed),
-      // not an empty-state mark — see sidepanel.css .view--sealed.
-      container.classList.add("view--sealed");
       container.appendChild(buildBar());
       var list = el("div", "saved-list");
       list.id = "okp-saved-list";

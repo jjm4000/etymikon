@@ -525,11 +525,11 @@ body {
 .saved-actions button.saved-confirm-yes:hover { background: var(--danger); }
 
 /* Corner seal (낙관): the jade stamp in the bottom-right. One rule for
-   every view (.view--sealed at mount): it shows only while it FITS under
-   the content (.view--roomy, measured per render — see updateSealRoom in
-   the view scripts), so text never sits on it and an empty view shows it
-   by construction. Decorative only: no pointer events, no selection, not
-   announced by screen readers. */
+   every view (.view--sealed, added by the view registry on first show): it
+   shows only while it FITS under the content (.view--roomy, measured by the
+   one seal implementation in sidepanel.js), so text never sits on it and an
+   empty view shows it by construction. Decorative only: no pointer events,
+   no selection, not announced by screen readers. */
 /* isolation makes each view its own stacking context, so the seal's
    z-index:-1 lands behind the view's content but in front of the page
    background — without it the body background paints over the seal and

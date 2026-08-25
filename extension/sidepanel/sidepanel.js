@@ -16,8 +16,10 @@
  * or a new header action is ONE entry and nothing else:
  *
  *   SIDEBAR_VIEWS   {key, label, title, enabled, mount(container, ctx),
- *                    onShow(), onHide()} — the panel's views. Ships with
- *                   exactly one entry, `search`.
+ *                    onShow(), onHide(), seal} — the panel's views. Ships
+ *                   with exactly one entry, `search`. The corner seal is
+ *                   part of the registry's mechanics, so every view is
+ *                   sealed by the same rule with no code of its own.
  *   HEADER_ACTIONS  {key, label, title, enabled, onClick} — the buttons at
  *                   the right of the header row. Ships empty.
  *
@@ -30,6 +32,11 @@
  *   renderActions()         -> number of actions rendered
  *   showView(key)           -> boolean; mounts on first show, then toggles
  *   activeView()            -> the key currently shown, or null
+ *   refreshSeal()           re-measure every view's corner-seal room
+ *                           (debounced), the same nudge views get on ctx
+ *   sealRoom                the px of clear space the seal needs
+ *   sealDebounce            the ms every seal path shares, so a check can
+ *                           wait it out without hard-coding it
  *   handleWorkerMessage(m)  the worker-message handler (the panel half of the
  *                           pending-query push), driveable without a real
  *                           chrome.runtime; -> Promise<{applied, ...}>
@@ -130,15 +137,18 @@
    *   enabled,  // boolean or () => boolean; default true. false = dimmed+inert
    *   mount,    // required: (container, ctx) => void, called ONCE
    *   onShow,   // optional: () => void, on every switch TO this view
-   *   onHide    // optional: () => void, on every switch AWAY from it
+   *   onHide,   // optional: () => void, on every switch AWAY from it
+   *   seal      // optional: the corner seal's content box — see "Corner
+   *             //   seal" below. Every view is sealed without asking.
    * }
    *
    * A view is mounted once and then only shown and hidden, so its input,
    * results, breadcrumb trail and scroll position all survive a trip to
-   * another view. `ctx` is {embedApi, shell}: the live embed API content.js
-   * exposed, and the search-shell MODULE (not a controller instance) — the
-   * module is defined before any view can mount, and its .controller() hands
-   * back the live controller whenever a view actually wants it.
+   * another view. `ctx` is {embedApi, shell, refreshSeal}: the live embed API
+   * content.js exposed, the search-shell MODULE (not a controller instance) —
+   * the module is defined before any view can mount, and its .controller()
+   * hands back the live controller whenever a view actually wants it — and
+   * the seal nudge described under "Corner seal".
    *
    * It ships with exactly ONE entry. The nav renders tabs only from the
    * second entry on, so adding "saved" or "settings" later is one push and
@@ -168,8 +178,127 @@
   function viewContext() {
     return {
       embedApi: globalThis.__okpyeonEmbedApi,
-      shell: globalThis.__okpyeonSearchShell
+      shell: globalThis.__okpyeonSearchShell,
+      refreshSeal: refreshSeals
     };
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Corner seal (SPEC "Corner seal")
+   *
+   * ONE implementation, here, for every view. The seal is a decorative
+   * paper mark that only ever marks EMPTY paper: it shows while it FITS in
+   * the clear space under the view's content, so text never sits on it and
+   * an empty view shows it by construction. sidepanel.css holds the other
+   * half (.view--sealed / .view--roomy, and the z-index rules that keep the
+   * mark behind the content but in front of the page background).
+   *
+   * Sealing is part of BEING a view, not something a view opts into: a new
+   * registry entry gets the mark with no code of its own. Views differ only
+   * in which box holds their content, so that is the one thing a view may
+   * say:
+   *
+   *   seal: false                    // no seal on this view
+   *   seal: function (container) {}  // -> the element whose children are
+   *                                  //   the content (default: the
+   *                                  //   container itself)
+   *
+   * The box's CHILDREN are measured, never the box: a stretched flex
+   * scroller (#okp-results, .settings-body) always reaches the view's
+   * bottom edge and would report zero room forever. A box with no laid-out
+   * children falls back to the box's own top, so the whole space below it
+   * counts as room.
+   *
+   * Re-measured on: a measured child resizing, a child arriving or leaving,
+   * a window resize, a view switch, and any nudge a view makes through
+   * ctx.refreshSeal (the search shell's onState and the saved and settings
+   * renders use it). Size IS the render signal, so the observers alone
+   * cover searches, drill-downs, show-more and folder collapses without any
+   * renderer hook. Every path shares ONE debounce, so a burst of renders
+   * measures once and every view answers the same panel width the same way.
+   * ------------------------------------------------------------------ */
+
+  var SEAL_ROOM = 230;      // px of clear space the seal needs to show
+  var SEAL_DEBOUNCE = 60;   // ms, one timer for all views
+
+  var seals = [];           // {container, box, watched, observers}
+  var sealTimer = null;
+
+  function measureSeal(seal) {
+    var box = seal.box;
+    var edge = 0;
+    for (var i = 0; i < box.children.length; i++) {
+      var rect = box.children[i].getBoundingClientRect();
+      if (rect.height > 0 && rect.bottom > edge) edge = rect.bottom;
+    }
+    var room = seal.container.getBoundingClientRect().bottom -
+      (edge || box.getBoundingClientRect().top);
+    seal.container.classList.toggle("view--roomy", room >= SEAL_ROOM);
+  }
+
+  function refreshSeals() {
+    clearTimeout(sealTimer);
+    sealTimer = setTimeout(function () {
+      for (var i = seals.length - 1; i >= 0; i--) {
+        // A container lifted out of the document (the harness retires its
+        // probe views this way) measures nothing but zeros forever, so it
+        // is dropped rather than measured.
+        if (seals[i].container.isConnected === false) {
+          seals[i].observers.forEach(function (o) { o.disconnect(); });
+          seals.splice(i, 1);
+          continue;
+        }
+        measureSeal(seals[i]);
+      }
+    }, SEAL_DEBOUNCE);
+  }
+
+  // Called once per view, right after mount(), so the box a view names is
+  // already in the container.
+  function attachSeal(view, container) {
+    if (view.seal === false) return null;
+    var box = container;
+    if (typeof view.seal === "function") {
+      var named = view.seal(container);
+      if (named && typeof named.getBoundingClientRect === "function") box = named;
+    }
+    container.classList.add("view--sealed");
+    var seal = { container: container, box: box, watched: [], observers: [] };
+    seals.push(seal);
+    if (typeof ResizeObserver !== "function" ||
+        typeof MutationObserver !== "function") {
+      refreshSeals();
+      return seal;
+    }
+    var sizes = new ResizeObserver(refreshSeals);
+    // Enrolment is a reconcile rather than an append: a view that rebuilds
+    // its content wholesale (settings does, on every show) would otherwise
+    // leave every past generation of children under observation.
+    function watchChildren() {
+      var kids = Array.prototype.slice.call(box.children);
+      for (var i = seal.watched.length - 1; i >= 0; i--) {
+        if (kids.indexOf(seal.watched[i]) < 0) {
+          sizes.unobserve(seal.watched[i]);
+          seal.watched.splice(i, 1);
+        }
+      }
+      for (var j = 0; j < kids.length; j++) {
+        if (seal.watched.indexOf(kids[j]) < 0) {
+          seal.watched.push(kids[j]);
+          sizes.observe(kids[j]);
+        }
+      }
+      refreshSeals();
+    }
+    watchChildren();
+    var arrivals = new MutationObserver(watchChildren);
+    arrivals.observe(box, { childList: true });
+    seal.observers.push(sizes, arrivals);
+    return seal;
+  }
+
+  if (typeof window !== "undefined" && window.addEventListener) {
+    window.addEventListener("resize", refreshSeals);
   }
 
   // The search view's container is authored in the markup (it is the one view
@@ -205,6 +334,7 @@
     if (firstShow) {
       mountedViews[view.key] = container;
       if (typeof view.mount === "function") view.mount(container, viewContext());
+      attachSeal(view, container);
     }
 
     var outgoing = activeKey ? findView(activeKey) : null;
@@ -223,6 +353,9 @@
     activeKey = key;
     renderNav();
     if (typeof view.onShow === "function") view.onShow();
+    // A hidden view measures nothing but zeros, so the one just revealed has
+    // to be measured again before its seal means anything.
+    refreshSeals();
     return true;
   }
 
@@ -290,58 +423,16 @@
     key: "search",
     label: "Search",
     title: "Search hanja and words",
+    // The content is the renderer's shadow host inside #okp-results, not the
+    // whole view: the searchbar and the status line are chrome, and measuring
+    // them would call a one-card result as crowded as a full page.
+    seal: function (container) { return container.querySelector("#okp-results"); },
     mount: function (container, ctx) {
-      // Corner seal (SPEC "Corner seal"): sealed like the other views, shown
-      // only while it fits under the content. The content is the renderer's
-      // shadow host inside #okp-results, so its SIZE is the render signal:
-      // a ResizeObserver on the results container's children (the childList
-      // observer enrolls the host once mount creates it) covers searches,
-      // drill-downs and show-more without any renderer hook; the shell's
-      // onState nudges too.
-      container.classList.add("view--sealed");
-      var resultsBox = container.querySelector("#okp-results");
-      var SEAL_ROOM = 230;
-      function updateSealRoom() {
-        var edge = 0;
-        for (var i = 0; i < resultsBox.children.length; i++) {
-          var r = resultsBox.children[i].getBoundingClientRect();
-          if (r.height > 0 && r.bottom > edge) edge = r.bottom;
-        }
-        var room = container.getBoundingClientRect().bottom -
-          (edge || resultsBox.getBoundingClientRect().top);
-        container.classList.toggle("view--roomy", room >= SEAL_ROOM);
-      }
-      var sealTimer = null;
-      function scheduleSeal() {
-        clearTimeout(sealTimer);
-        sealTimer = setTimeout(updateSealRoom, 60);
-      }
-      if (typeof ResizeObserver === "function" &&
-          typeof MutationObserver === "function") {
-        var sealRo = new ResizeObserver(scheduleSeal);
-        var sealWatched = [];
-        var watchResultsChildren = function () {
-          for (var i = 0; i < resultsBox.children.length; i++) {
-            var kid = resultsBox.children[i];
-            if (sealWatched.indexOf(kid) < 0) {
-              sealWatched.push(kid);
-              sealRo.observe(kid);
-            }
-          }
-        };
-        watchResultsChildren();
-        new MutationObserver(watchResultsChildren)
-          .observe(resultsBox, { childList: true });
-      }
-      if (typeof window !== "undefined" && window.addEventListener) {
-        window.addEventListener("resize", scheduleSeal);
-      }
-      scheduleSeal();
       ctx.shell.init({
         input: document.getElementById("okp-input"),
         results: container.querySelector("#okp-results"),
         status: container.querySelector("#okp-status"),
-        onState: function () { scheduleSeal(); },
+        onState: function () { ctx.refreshSeal(); },
         // Focus rules: the input is focused ONLY on an empty boot — the
         // icon-click open, where typing into the panel is the next thing the
         // user does. A boot that already has a query came from somewhere the
@@ -623,6 +714,9 @@
     renderActions: renderActions,
     showView: showView,
     activeView: function () { return activeKey; },
+    refreshSeal: refreshSeals,
+    sealRoom: SEAL_ROOM,
+    sealDebounce: SEAL_DEBOUNCE,
     handleWorkerMessage: handleWorkerMessage,
     ready: ready
   };

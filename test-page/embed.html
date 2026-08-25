@@ -1459,6 +1459,13 @@
     // Debounce settle: the shell's own delay plus room for the stub's setTimeout.
     var SETTLE = shellApi.DEBOUNCE_MS + 140;
     var TAIL = 90;
+    // Seal settle: every seal assertion reads a COMPUTED opacity, so it has to
+    // wait out the registry's own debounce AND the .18s fade behind it, with
+    // slack. The debounce is read off the surface rather than repeated here —
+    // this whole check file exists because the seal's numbers had been copied
+    // around once already. One constant, because there is now one seal
+    // implementation and every view answers on the same clock.
+    var SEAL_SETTLE = sidebar.sealDebounce + 180 + 160;
 
     function hostEl() { return results.querySelector("[data-hanja-hover]"); }
     function cpdRows() { return api.queryAll(".compounds > .compound-row"); }
@@ -1491,6 +1498,8 @@
       typeof sidebar.registerView === "function" && typeof sidebar.renderNav === "function" &&
       typeof sidebar.renderActions === "function" && typeof sidebar.showView === "function" &&
       typeof sidebar.activeView === "function" &&
+      typeof sidebar.refreshSeal === "function" &&
+      sidebar.sealRoom === 230 && sidebar.sealDebounce === 60 &&
       typeof sidebar.handleWorkerMessage === "function" && !!sidebar.ready);
     check("boot pulls the worker's pending query and starts from it",
       bootQuery === pendingSpy.bootQuery, JSON.stringify(bootQuery));
@@ -2282,6 +2291,21 @@
       nav.querySelector(".tab--" + VIEW_KEY).classList.contains("tab--active") &&
       !nav.querySelector(".tab--search").classList.contains("tab--active"));
 
+    // The corner seal is part of the registry's mechanics, not something a
+    // view brings: this probe says nothing about seals and gets one anyway,
+    // on the same threshold and the same debounce as every other view. It is
+    // the check the three hand-copied implementations could not have passed —
+    // a fourth view got no seal at all.
+    await wait(SEAL_SETTLE);
+    check("a newly registered view is sealed by the registry, with no code of its own",
+      probeView.seal === undefined &&
+      probeBox().classList.contains("view--sealed") &&
+      probeBox().classList.contains("view--roomy") &&
+      getComputedStyle(probeBox(), "::after").opacity === "1",
+      "sealed=" + probeBox().classList.contains("view--sealed") +
+        " roomy=" + probeBox().classList.contains("view--roomy") +
+        " opacity=" + getComputedStyle(probeBox(), "::after").opacity);
+
     order.length = 0;
     check("an unknown view key is refused and changes nothing",
       sidebar.showView("no-such-view") === false &&
@@ -3012,8 +3036,10 @@
       savedView.handleStorageChanged({ okpSaved: {} }, "sync") === false &&
       savedView.handleStorageChanged({ okpOther: {} }, "local") === false);
 
-    // The seal marks empty paper only (.view--roomy from a room measurement
-    // after each render). This block is state-restoring: it grows the list
+    // The seal marks empty paper only (.view--roomy from the registry's room
+    // measurement, nudged after each render). This view names no content box,
+    // so the measured children are the container's own — the bar, the list
+    // and the actions row. This block is state-restoring: it grows the list
     // with junk keys (missing rows are still rows), asserts the seal hides,
     // collapses every folder to make room and asserts it returns, then
     // expands and removes exactly the junk it added. Opacity is asserted
@@ -3025,7 +3051,7 @@
       if (junkRes && junkRes.item) junkIds.push(junkRes.item.id);
     }
     await savedView.refresh();
-    await wait(250);
+    await wait(SEAL_SETTLE);
     check("a list that reaches the corner hides the seal",
       savedRows().length >= 10 &&
       !sealView.classList.contains("view--roomy") &&
@@ -3035,7 +3061,7 @@
     var sealHeads = Array.prototype.slice.call(
       savedList.querySelectorAll(".saved-folder"));
     for (var sh = 0; sh < sealHeads.length; sh++) sealHeads[sh].click();
-    await wait(250);
+    await wait(SEAL_SETTLE);
     check("collapsing every folder makes room and the seal returns",
       sealView.classList.contains("view--roomy") &&
       getComputedStyle(sealView, "::after").opacity === "1",
@@ -3135,15 +3161,17 @@
       settingsView.controlId("defaultFolderId") === "okp-set-defaultFolderId",
       settingsView.controlId("anki.wordBack"));
 
-    // Seal room rule on the settings view: measured against the body's
-    // CHILDREN (the body itself is a stretched scroller whose own box would
-    // report zero room forever). In this 600px frame the settings groups
-    // leave ~185px, under the threshold, so the seal correctly yields; a
-    // taller frame (a real panel) has room and shows it. The view must be
+    // Seal room rule on the settings view. The rule and the threshold are the
+    // registry's; the only thing this view says is WHICH box holds its
+    // content, and it names the settings body so the measured rects are the
+    // body's CHILDREN (the body itself is a stretched scroller whose own box
+    // would report zero room forever). In this 600px frame the settings
+    // groups leave ~185px, under the threshold, so the seal correctly yields;
+    // a taller frame (a real panel) has room and shows it. The view must be
     // SHOWING — a hidden view measures zero rects, correctly no room.
     sidebar.showView("settings");
     await settingsView.render();
-    await wait(250);
+    await wait(SEAL_SETTLE);
     var settingsSealView = byId("okp-view-settings");
     check("a cramped settings view yields the seal (fits-only rule)",
       !settingsSealView.classList.contains("view--roomy") &&
@@ -3153,7 +3181,7 @@
     var sealFrameH = sealFrame.style.height;
     sealFrame.style.height = "780px";
     await settingsView.render();
-    await wait(250);
+    await wait(SEAL_SETTLE);
     check("a taller panel has room under the settings and the seal shows",
       settingsSealView.classList.contains("view--roomy") &&
       getComputedStyle(settingsSealView, "::after").opacity === "1",
@@ -3358,7 +3386,7 @@
       });
 
     /* ==================================================================
-     * Seal room rule on the SEARCH view: one rule for all three views.
+     * Seal room rule on the SEARCH view: one rule for every view.
      * Tall results push the content past the threshold and the seal hides;
      * clearing the search empties the view and the seal returns. The
      * ResizeObserver-driven update is debounced and the fade is .18s, so
@@ -3366,14 +3394,32 @@
      * ================================================================== */
     sidebar.showView("search");
     var searchSealView = byId("okp-view-search");
+
+    // The consolidation itself: one threshold, one debounce, one measure, and
+    // the only per-view knob is the content box. A view that names no box is
+    // measured against its container, which is why saved declares nothing.
+    check("every mounted view carries the seal, and only the content box varies",
+      ["search", "saved", "settings"].every(function (key) {
+        var box = byId("okp-view-" + key);
+        return !!box && box.classList.contains("view--sealed");
+      }) &&
+      sidebar.viewRegistry.every(function (view) {
+        return view.seal === undefined || typeof view.seal === "function";
+      }) &&
+      sidebar.viewRegistry.map(function (view) {
+        return view.key + ":" + (view.seal ? "box" : "container");
+      }).join(",") === "search:box,saved:container,settings:box",
+      sidebar.viewRegistry.map(function (view) {
+        return view.key + ":" + (view.seal ? "box" : "container");
+      }).join(","));
     await shell.search("국민");
-    await wait(SETTLE + 300);
+    await wait(SETTLE + SEAL_SETTLE);
     check("tall search results hide the search view's seal",
       !searchSealView.classList.contains("view--roomy") &&
       getComputedStyle(searchSealView, "::after").opacity === "0",
       "roomy=" + searchSealView.classList.contains("view--roomy"));
     await shell.search("");
-    await wait(SETTLE + 300);
+    await wait(SETTLE + SEAL_SETTLE);
     check("clearing the search empties the view and the seal returns",
       searchSealView.classList.contains("view--roomy") &&
       getComputedStyle(searchSealView, "::after").opacity === "1",

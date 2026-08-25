@@ -192,11 +192,18 @@
    * State
    * ------------------------------------------------------------------ */
 
-  var root = null;
+  var ctx = null;
   var body = null;
   var settings = {};
   var folders = [];
   var available = true;
+
+  // The corner seal's rule, threshold and debounce all live in sidepanel.js's
+  // registry mechanics (SPEC "Corner seal"); this view's part in it is the
+  // `seal` box it declares below plus a nudge after each render.
+  function refreshSeal() {
+    if (ctx && typeof ctx.refreshSeal === "function") ctx.refreshSeal();
+  }
 
   function write(entry, value) {
     return sendToWorker({ type: "settingsSet", patch: buildPatch(entry.key, value) })
@@ -355,7 +362,7 @@
         settings = {};
         folders = [];
         renderSchema();
-        updateSealRoom();
+        refreshSeal();
         return false;
       }
       available = true;
@@ -364,34 +371,8 @@
         ? savedRes.folders
         : [];
       renderSchema();
-      updateSealRoom();
+      refreshSeal();
       return true;
-    });
-  }
-
-  // Same rule as the other views (SPEC "Corner seal"): the seal shows only
-  // when the space under the content fits it, re-measured after render and
-  // on resize. Measured against the BODY'S CHILDREN, not the body: the
-  // settings-body is a stretched flex scroller whose own box always reaches
-  // the view bottom, which would report zero room forever.
-  var SEAL_ROOM = 230;
-  function updateSealRoom() {
-    if (!root || !body || !root.getBoundingClientRect) return;
-    var edge = 0;
-    for (var i = 0; i < body.children.length; i++) {
-      var r = body.children[i].getBoundingClientRect();
-      if (r.height > 0 && r.bottom > edge) edge = r.bottom;
-    }
-    var room = root.getBoundingClientRect().bottom -
-      (edge || body.getBoundingClientRect().top);
-    root.classList.toggle("view--roomy", room >= SEAL_ROOM);
-  }
-
-  if (typeof window !== "undefined" && window.addEventListener) {
-    var sealTimer = null;
-    window.addEventListener("resize", function () {
-      clearTimeout(sealTimer);
-      sealTimer = setTimeout(updateSealRoom, 100);
     });
   }
 
@@ -403,11 +384,12 @@
     key: "settings",
     label: "Settings",
     title: "Saving and export settings",
-    mount: function (container) {
-      root = container;
-      // The jade seal is a permanent fixture of this view (user-directed),
-      // not an empty-state mark — see sidepanel.css .view--sealed.
-      container.classList.add("view--sealed");
+    // The content is the body's children, not the body: .settings-body is a
+    // stretched flex scroller whose own box always reaches the view bottom,
+    // so measuring IT would report zero room forever.
+    seal: function (container) { return container.querySelector("#okp-settings"); },
+    mount: function (container, viewCtx) {
+      ctx = viewCtx;
       body = document.createElement("div");
       body.id = "okp-settings";
       body.className = "settings-body";
