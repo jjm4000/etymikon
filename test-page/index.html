@@ -1527,7 +1527,7 @@
     // --- the root card ---------------------------------------------------
     check("the root card sections render in SPEC order",
       sectionOrder().join(" | ") ===
-        "head | glosses | label | family | fam-more",
+        "head | glosses | label | family | fam-more | fam-more fam-all",
       sectionOrder().join(" | "));
     check("the label line says what kind of root this is",
       api.query(".rootlabel").textContent === "Latin root",
@@ -2128,6 +2128,184 @@
       fake.__familyCalls === famCallsBeforeChunk + 2 &&
       fake.__lastFamilyOffset === 200,
       "calls=" + fake.__familyCalls + " offset=" + fake.__lastFamilyOffset);
+
+    // The panel lives above the query root, so reach it through a card.
+    function scrollPanel() {
+      var card = api.query(".card");
+      if (!card) return;
+      card.getRootNode().querySelector(".panel")
+        .dispatchEvent(new Event("scroll"));
+    }
+
+    // --- Show all: the whole index as its own view ----------------------------
+    // Revealing five at a time answers "what else is there?". It is the wrong
+    // answer to "show me everything", and a root with hundreds of words only
+    // ever gets the second question.
+    api.hide();
+    api.resetPanelSize();
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    await until(function () { return !!api.query(".fam-all"); });
+    var allBtn = api.query(".fam-all");
+    var moreBtn = api.query(".fam-more:not(.fam-all)");
+    check("Show all renders beside Show more, counting the whole index",
+      !!allBtn && allBtn.textContent === "Show all (15)" &&
+      !!moreBtn && moreBtn.textContent === "Show 5 more (7)" &&
+      moreBtn.nextElementSibling === allBtn,
+      (moreBtn ? moreBtn.textContent : "no more") + " / " +
+      (allBtn ? allBtn.textContent : "no all"));
+    check("the count starts from the card's own familyCount",
+      allBtn.textContent.indexOf("(15)") > 0, allBtn.textContent);
+
+    // Failure first: the control is the retry path, so nothing may move.
+    fake.__failFamily = true;
+    var failCalls = fake.__familyCalls;
+    var failDepth = api.viewDepth();
+    allBtn.click();
+    await elapse(120);
+    check("a failed fetch navigates nowhere and leaves the control pressable",
+      api.viewDepth() === failDepth && allBtn.disabled === false &&
+      fake.__familyCalls === failCalls + 1,
+      "depth=" + api.viewDepth() + " disabled=" + allBtn.disabled);
+    fake.__failFamily = false;
+
+    var allCallsBefore = fake.__familyCalls;
+    allBtn.click();
+    await checkSoon("a second press opens the full list one level deeper",
+      function () {
+        return api.viewDepth() === failDepth + 1 && !!api.query(".card.builton");
+      },
+      function () { return "depth=" + api.viewDepth(); });
+    check("the press costs exactly one family request",
+      fake.__familyCalls === allCallsBefore + 1 &&
+      fake.__lastFamilyKey === "la:terra" && !fake.__lastFamilyOffset,
+      "calls=" + (fake.__familyCalls - allCallsBefore) +
+      " key=" + fake.__lastFamilyKey);
+    check("the view is titled N words built on terra",
+      labels().indexOf("15 words built on terra") >= 0, labels().join("/"));
+    check("its head names the root and the relation",
+      api.query(".card.builton .surface").textContent === "terra" &&
+      api.query(".card.builton .rootlabel").textContent === "Built on",
+      api.query(".card.builton .surface").textContent);
+    check("the view carries its own key namespace, not the used-in one",
+      api.viewKeys().pop() === "family:la:terra", api.viewKeys().join(","));
+    check("the crumb reads Built on",
+      api.crumbLabels().join(" › ") === "terra › Built on",
+      api.crumbLabels().join(" › "));
+    check("the view shows the FULL index however few rows were revealed inline",
+      api.queryAll(".fam-row").length === 15,
+      "rows=" + api.queryAll(".fam-row").length);
+    check("every row is a nav row, and the view offers no pager of its own",
+      api.queryAll(".fam-row").every(function (r) {
+        return r.classList.contains("nav") && r.getAttribute("tabindex") === "0";
+      }) && api.queryAll(".fam-more").length === 0,
+      "controls=" + api.queryAll(".fam-more").length);
+
+    // The b65b804 lesson: the two surfaces render a word through one join, so
+    // a row must read identically inline and in the view.
+    function rowFields(node) {
+      return {
+        word: (node.querySelector(".fam-word") || {}).textContent,
+        def: (node.querySelector(".fam-def") || {}).textContent,
+        tier: (node.querySelector(".tier-chip") || {}).textContent,
+        title: (node.querySelector(".tier-chip") || {}).title
+      };
+    }
+    var viewRows = api.queryAll(".fam-row").slice(0, 8).map(rowFields);
+    var drillCalls = fake.__calls;
+    api.queryAll(".fam-row")[1].click();          // terrain
+    await checkSoon("a row drills into that word's card and extends the trail",
+      function () {
+        return api.viewDepth() === failDepth + 2 &&
+          api.query(".surface").textContent === "terrain" &&
+          api.crumbLabels().join(" › ") === "terra › Built on › terrain";
+      },
+      function () { return api.crumbLabels().join(" › "); });
+    check("the drill costs one lookup, like any other row",
+      fake.__calls === drillCalls + 1, "calls=" + (fake.__calls - drillCalls));
+
+    api.queryAll(".crumb")[0].click();
+    await checkSoon("crumb-back restores the root card with its inline rows",
+      function () {
+        return api.viewDepth() === failDepth &&
+          api.queryAll(".fam-row").length === 8 && !!api.query(".fam-all");
+      },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
+    var inlineRows = api.queryAll(".fam-row").slice(0, 8).map(rowFields);
+    check("inline rows and view rows agree field by field",
+      JSON.stringify(inlineRows) === JSON.stringify(viewRows),
+      JSON.stringify(inlineRows[0]) + " vs " + JSON.stringify(viewRows[0]));
+
+    var sharedCalls = fake.__familyCalls;
+    api.query(".fam-more:not(.fam-all)").click();
+    await checkSoon("Show more after the view pages from the SHARED cache",
+      function () { return api.queryAll(".fam-row").length === 13; },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
+    check("...so it asks the worker nothing",
+      fake.__familyCalls === sharedCalls,
+      "calls " + sharedCalls + " → " + fake.__familyCalls);
+    api.query(".fam-more:not(.fam-all)").click();
+    await checkSoon("exhausting the in-place reveal removes BOTH controls",
+      function () {
+        return api.queryAll(".fam-row").length === 15 &&
+          api.queryAll(".fam-more").length === 0;
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " controls=" + api.queryAll(".fam-more").length;
+      });
+
+    // The whole-card rule governs the pair: a list that renders whole offers
+    // neither control.
+    api.showRoot(anchor, {
+      key: "en:-ic", form: "-ic", lang: "en", kind: "suffix",
+      gloss: "forming adjectives", familyCount: 3,
+      family: fake.__root("en:-ic").root.family.slice(0, 1)
+    });
+    await checkSoon("a list rendered whole offers neither control",
+      function () {
+        return api.queryAll(".fam-row").length === 3 &&
+          api.queryAll(".fam-more").length === 0;
+      },
+      function () { return "controls=" + api.queryAll(".fam-more").length; });
+
+    // --- the Show all view is SCROLL-fed --------------------------------------
+    // The reader asked for everything, so the view feeds itself as they scroll
+    // instead of making them press. -ful runs past one chunk, so the second
+    // chunk has to arrive on its own.
+    api.resizePanel(340, 300);
+    api.showRoot(anchor, fake.__root("en:-ful").root);
+    await until(function () { return !!api.query(".fam-all"); });
+    check("a long family offers Show all with its whole count",
+      api.query(".fam-all").textContent === "Show all (260)",
+      api.query(".fam-all").textContent);
+    var scrollCalls = fake.__familyCalls;
+    api.query(".fam-all").click();
+    await checkSoon("the view opens on its first chunk",
+      function () {
+        return !!api.query(".card.builton") &&
+          api.queryAll(".fam-row").length === 200;
+      },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
+    check("opening cost one request, at offset 0",
+      fake.__familyCalls === scrollCalls + 1 && !fake.__lastFamilyOffset,
+      "calls=" + (fake.__familyCalls - scrollCalls) +
+      " offset=" + fake.__lastFamilyOffset);
+    // Scrolling, then the scroll EVENT. A tab that is not rendering does not
+    // run the steps that dispatch one, so the harness dispatches the event the
+    // browser owes the product's own listener.
+    api.scrollTop(999999);
+    scrollPanel();
+    await checkSoon("scrolling to the end feeds the next chunk in, with no control",
+      function () {
+        return api.queryAll(".fam-row").length === 260 &&
+          api.queryAll(".fam-more").length === 0;
+      },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
+    check("the second chunk was asked for at offset 200",
+      fake.__familyCalls === scrollCalls + 2 && fake.__lastFamilyOffset === 200,
+      "calls=" + (fake.__familyCalls - scrollCalls) +
+      " offset=" + fake.__lastFamilyOffset);
+    api.resetPanelSize();
 
     // --- coming back to a card the reader had paged in -------------------------
     // A view saves its scroll offset measured against the rows that were on

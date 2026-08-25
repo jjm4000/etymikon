@@ -1722,6 +1722,29 @@
       },
       function () { return api.crumbLabels().join(" › "); });
 
+    // "Show all" is part of the family section, so the sidebar gets it with no
+    // code of its own: one section, one call site, every surface.
+    await search("la:terra");
+    await checkSoon("the root card offers both controls on this surface too",
+      function () {
+        var more = api.query(".fam-more:not(.fam-all)");
+        var all = api.query(".fam-all");
+        return !!more && !!all && all.textContent === "Show all (15)" &&
+          more.nextElementSibling === all;
+      },
+      function () {
+        var all = api.query(".fam-all");
+        return all ? all.textContent : "no control";
+      });
+    api.query(".fam-all").click();
+    await checkSoon("it opens the full list, crumbed Built on",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.builton") &&
+          api.queryAll(".fam-row").length === 15 &&
+          api.crumbLabels().join(" › ") === "terra › Built on";
+      },
+      function () { return api.crumbLabels().join(" › "); });
+
     await search("absolute");
     check("the used-in row renders here with its count",
       !!api.query(".usedin-row") &&
@@ -2552,7 +2575,7 @@
     } else {
       ["appendWordHead", "appendGlosses", "appendBreakdown", "appendOrigin",
        "appendUsedIn", "appendSeeAlso", "appendRootHead", "appendRootGloss",
-       "appendRootSource", "appendFamily", "appendUsedInHead", "appendUsedInRows"
+       "appendRootSource", "appendFamily", "appendListHead", "appendListRows"
       ].forEach(function (name) {
         var defs = source.split("function " + name + "(").length - 1;
         var uses = source.split(name + "(").length - 1;

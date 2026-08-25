@@ -462,6 +462,15 @@
     "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
     "  color: var(--accent); cursor: pointer; white-space: nowrap;",
     "}",
+    // The second control sits beside the first, never under it: they are one
+    // pair and the layout has to say so.
+    ".fam-all { margin-left: 6px; }",
+    // The scroll-fed list says a chunk is coming without offering anything to
+    // press: pressing is what this view exists to avoid.
+    ".list-loading {",
+    "  margin: 6px 0 2px; padding: 2px 6px;",
+    "  color: var(--faint); font-size: 11px; font-style: italic;",
+    "}",
     ".fam-more:hover { background: var(--hover); }",
     ".fam-more:disabled { opacity: 0.55; cursor: default; }",
     ".fam-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
@@ -937,7 +946,7 @@
   // What a match is ABOUT: the lemma for a word, the root key for a root.
   function matchKey(m) {
     if (!m || typeof m !== "object") return "";
-    if (m.kind === "root" || m.kind === "usedin") return nonEmptyString(m.key);
+    if (m.kind === "root" || m.kind === "list") return nonEmptyString(m.key);
     return nonEmptyString(m.canonical) || nonEmptyString(m.surface);
   }
 
@@ -1974,12 +1983,6 @@
     return text;
   }
 
-  // What the trail calls a used-in view. Not the word: the list is reached
-  // FROM that word's card, so labeling the crumb with it stuttered the trail
-  // (appreciated › appreciated). The view still TITLES itself by the word;
-  // the crumb says what the step was (Jesse decision 2026-08-25).
-  var USEDIN_CRUMB = "Used in";
-
   function usedInEnabled(settings) {
     return true;
   }
@@ -2213,9 +2216,33 @@
     var button = el("button", "fam-more");
     button.type = "button";
 
+    /* ---- "Show all (N)" ------------------------------------------------
+     * Beside the in-place pager, a second control that opens the COMPLETE
+     * ranked index as its own view. Revealing five at a time is the right
+     * answer to "what else is there?"; it is the wrong answer to "show me
+     * everything", and a root with hundreds of words only ever gets the
+     * second question (SPEC "Show all").
+     *
+     * The two are ONE control pair. They appear together, hide together and
+     * are removed together, so the card never offers a way to see all of
+     * something it has already shown whole.
+     * ------------------------------------------------------------------ */
+    var drill = spec.drill && typeof spec.drill === "object" ? spec.drill : null;
+    var allButton = null;
+    var indexTotal = total;   // the card's estimate until a fetch corrects it
+    if (drill && key && fetchChunk) {
+      allButton = el("button", "fam-more fam-all");
+      allButton.type = "button";
+    }
+
+    function dropButton(node) {
+      if (node && node.parentNode) node.parentNode.removeChild(node);
+    }
+
     function syncButton() {
       if (remaining <= 0) {
-        if (button.parentNode) button.parentNode.removeChild(button);
+        dropButton(button);
+        dropButton(allButton);
         return;
       }
       button.textContent =
@@ -2223,6 +2250,10 @@
       // If a chunk turned out to hold more than the estimate, the auto-reveal
       // path must surface the control again.
       button.hidden = false;
+      if (allButton) {
+        allButton.textContent = "Show all (" + indexTotal + ")";
+        allButton.hidden = false;
+      }
     }
 
     // Reveals up to one page from what is already in hand. Returns how many
@@ -2326,8 +2357,41 @@
       loadChunk();
     });
 
+    if (allButton) {
+      allButton.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();   // never read as a click on a family row
+        if (allButton.disabled) return;
+        var seq = requestSeq;   // dismissal or a new selection cancels this
+        allButton.disabled = true;
+        fetchChunk(key, 0).then(function (chunk) {
+          if (seq !== requestSeq) return;
+          allButton.disabled = false;
+          // Nothing navigates on a failure, and the control stays pressable:
+          // it IS the retry path.
+          if (!chunk || !chunk.rows.length) return;
+          indexTotal = Math.max(
+            typeof chunk.total === "number" ? chunk.total : 0,
+            chunk.rows.length
+          );
+          syncButton();
+          pushView({
+            key: drill.list + ":" + key,
+            label: LIST_VIEWS[drill.list].crumb,
+            matches: [{
+              kind: "list", list: drill.list, key: key,
+              title: drill.title, rows: chunk.rows,
+              total: indexTotal, offset: chunk.rows.length
+            }],
+            srcText: key
+          });
+        });
+      });
+    }
+
     syncButton();
     card.appendChild(button);
+    if (allButton) card.appendChild(allButton);
 
     if (total <= MAX_FAMILY) {
       // The whole list fits in what a card normally displays inline: render it
@@ -2336,8 +2400,12 @@
       // that cap ever changes. The button stays in the DOM but hidden, so a
       // failed fetch can fall back to the press-to-retry path.
       button.hidden = true;
+      if (allButton) allButton.hidden = true;
       restoreTo = 0;            // rendering it whole restores it by itself
-      loadChunk(function () { button.hidden = false; });
+      loadChunk(function () {
+        button.hidden = false;
+        if (allButton) allButton.hidden = false;
+      });
       return;
     }
 
@@ -2349,64 +2417,227 @@
     }
   }
 
-  // BUILDS N WORDS: the root's own ranked family, on the ranked-list contract.
+  // BUILDS N WORDS: the root's own ranked family, on the ranked-list contract,
+  // with the whole index one press away (SPEC "Show all").
   function appendFamily(card, m) {
     if (!familyEnabled(sectionSettings())) return;
     var r = rootOf(m);
+    var key = nonEmptyString(m.key) || nonEmptyString(r.key);
     appendRankedList(card, {
-      key: nonEmptyString(m.key) || nonEmptyString(r.key),
+      key: key,
       rows: r.family,
       total: r.familyCount,
       label: function (total) { return "BUILDS " + total + " WORDS"; },
-      fetch: fetchFamily
+      fetch: fetchFamily,
+      drill: {
+        list: "family",
+        title: nonEmptyString(r.form) || splitRootKey(key).form
+      }
     });
   }
 
-  /* ---- Used-in list view ------------------------------------------------ *
-   * Not a card ABOUT a word, but a list of the words one word is a part of.
-   * It is its own view rather than an in-place expansion because a common stem
-   * is used in more words than any card should try to hold, and because a list
-   * the reader can leave by the breadcrumb is easier to get out of than one
-   * that grew under them.
+  /* ---- List views -------------------------------------------------------- *
+   * Not a card ABOUT a thing, but a column of the words that stand in some
+   * relation to it. There are two: the words a word is a PART of, and the
+   * words built ON a root. Each is its own view rather than an in-place
+   * expansion, because either index runs longer than a card should try to
+   * hold, and because a list the reader can leave by the breadcrumb is easier
+   * to get out of than one that grew under them.
+   *
+   * One view kind, one head builder, one row builder. The registry below is
+   * the whole difference between them: a crumb word, a section label, the
+   * message that feeds it, and how it is fed (SPEC "Show all").
    * -------------------------------------------------------------------- */
 
-  function usedInListEnabled(settings) {
+  var LIST_VIEWS = {
+    // Reached from a word card's quiet "Used in N words" row. Paged by the
+    // same "Show 5 more" control the inline sections use, because the row that
+    // opens it promises a count the reader has already read.
+    usedin: {
+      crumb: "Used in",
+      label: function (total) { return "USED IN " + total + " WORDS"; },
+      fetch: fetchUsedIn,
+      feed: "pager"
+    },
+    // Reached from a root card's "Show all (N)". Scroll-fed: the reader asked
+    // for the WHOLE index, so making them press a button every five rows would
+    // be answering a different question (SPEC "Show all").
+    family: {
+      crumb: "Built on",
+      label: function (total, title) {
+        return total + " words built on " + title;
+      },
+      fetch: fetchFamily,
+      feed: "scroll"
+    }
+  };
+
+  function listView(m) {
+    return LIST_VIEWS[nonEmptyString(m.list)] || LIST_VIEWS.usedin;
+  }
+
+  function listViewEnabled(settings) {
     return true;
   }
 
-  // The head of the list view: the word as the big text, and a label line
-  // saying what the list is. No star and no Wiktionary link: this view is a
-  // list, and both of those belong to the word's own card.
-  function appendUsedInHead(card, m) {
-    if (!usedInListEnabled(sectionSettings())) return;
-    var word = nonEmptyString(m.key);
+  // The head of a list view: what the list is about as the big text, and a
+  // label line naming the relation. No star and no Wiktionary link: this view
+  // is a list, and both of those belong to the thing's own card.
+  function appendListHead(card, m) {
+    if (!listViewEnabled(sectionSettings())) return;
     var head = el("div", "head");
-    head.appendChild(el("div", "surface", word));
+    head.appendChild(el("div", "surface", listTitle(m)));
     var meta = el("div", "headmeta");
-    meta.appendChild(el("div", "rootlabel", "Used in"));
+    meta.appendChild(el("div", "rootlabel", listView(m).crumb));
     head.appendChild(meta);
     card.appendChild(head);
   }
 
-  function appendUsedInRows(card, m) {
-    if (!usedInListEnabled(sectionSettings())) return;
-    appendRankedList(card, {
+  // What the list calls the thing it is about. A root list is titled by the
+  // FORM (terra), never the la:terra key that files it.
+  function listTitle(m) {
+    return nonEmptyString(m.title) || nonEmptyString(m.key);
+  }
+
+  function appendListRows(card, m) {
+    if (!listViewEnabled(sectionSettings())) return;
+    var view = listView(m);
+    var title = listTitle(m);
+    var spec = {
       key: nonEmptyString(m.key),
       rows: m.rows,
       total: m.total,
-      label: function (total) { return "USED IN " + total + " WORDS"; },
-      fetch: fetchUsedIn
-    });
+      label: function (total) { return view.label(total, title); },
+      fetch: view.fetch,
+      // Chunks the view loads stay ON THE MATCH, so a crumb jump back into it
+      // rebuilds everything the reader had scrolled to rather than the first
+      // chunk alone.
+      retain: function (rows, offset) {
+        m.rows = rows;
+        m.offset = offset;
+      }
+    };
+    if (view.feed === "scroll") appendScrollList(card, spec);
+    else appendRankedList(card, spec);
   }
 
-  function buildUsedInCard(m) {
-    var card = el("div", "card usedin");
+  function buildListCard(m) {
+    var card = el("div", "card list " +
+      (nonEmptyString(m.list) === "family" ? "builton" : "usedin"));
 
-    appendUsedInHead(card, m);
+    appendListHead(card, m);
 
-    appendUsedInRows(card, m);
+    appendListRows(card, m);
 
     return card;
+  }
+
+  /**
+   * A list the reader scrolls rather than pages. The whole index is the point,
+   * so there is no control in here at all: the next chunk is fetched when the
+   * last rendered row comes within a screen of the viewport, and a quiet row
+   * says so while it is in flight (SPEC "Show all").
+   *
+   * The scroll listener removes ITSELF once the box leaves the document, which
+   * is what a view swap does to it. Nothing else has to remember to clean up.
+   */
+  function appendScrollList(card, spec) {
+    var key = nonEmptyString(spec.key);
+    var box = el("div", "family");
+    var shown = Object.create(null);
+    var rows = [];
+    var total = (typeof spec.total === "number" && spec.total > 0)
+      ? Math.floor(spec.total) : 0;
+    var nextOffset = 0;
+    var loading = false;
+    var exhausted = false;
+
+    var label = el("div", "label", spec.label(total));
+    var note = el("div", "list-loading", "Loading more");
+    note.hidden = true;
+
+    function addRows(list) {
+      var added = 0;
+      asArray(list).forEach(function (entry) {
+        var word = entry && typeof entry === "object" ? nonEmptyString(entry.word) : "";
+        if (!word || shown[word]) return;
+        var node = buildFamilyRow(entry);
+        if (!node) return;
+        shown[word] = true;
+        rows.push(entry);
+        box.appendChild(node);
+        added++;
+      });
+      if (!added) return 0;
+      nextOffset = rows.length;
+      if (rows.length > total) {
+        total = rows.length;
+        label.textContent = spec.label(total);
+      }
+      if (typeof spec.retain === "function") spec.retain(rows.slice(), nextOffset);
+      return added;
+    }
+
+    // Room left below the last row, measured against the panel's own viewport.
+    // One screen of lookahead, so the next chunk is usually already there.
+    function nearlyThere() {
+      var last = box.lastChild;
+      if (!last || !last.getBoundingClientRect) return true;
+      var edge = panel.getBoundingClientRect().bottom;
+      return last.getBoundingClientRect().top <= edge + panel.clientHeight;
+    }
+
+    function loadNext() {
+      if (loading || exhausted || !key) return;
+      loading = true;
+      note.hidden = false;
+      var seq = requestSeq;
+      spec.fetch(key, nextOffset).then(function (chunk) {
+        if (seq !== requestSeq) return;
+        loading = false;
+        note.hidden = true;
+        // A failed chunk is not the end of the list: leave the offset alone so
+        // the next scroll tries again.
+        if (!chunk) return;
+        if (typeof chunk.total === "number" && chunk.total > 0) {
+          if (chunk.total > total) {
+            total = Math.floor(chunk.total);
+            label.textContent = spec.label(total);
+          }
+        }
+        // No rows, or nothing new in them, means there is no more progress to
+        // be made here however far the reader scrolls.
+        var added = addRows(chunk.rows);
+        if (!chunk.rows.length || !added || nextOffset >= total) exhausted = true;
+        refreshLayout();
+        pump();
+      });
+    }
+
+    // Keep feeding while the rows do not fill the panel: a first chunk shorter
+    // than the viewport would otherwise never trigger a scroll.
+    function pump() {
+      if (exhausted || loading) return;
+      if (nearlyThere()) loadNext();
+    }
+
+    function onScroll() {
+      if (!box.isConnected) {
+        panel.removeEventListener("scroll", onScroll);
+        return;
+      }
+      pump();
+    }
+
+    card.appendChild(label);
+    card.appendChild(box);
+    card.appendChild(note);
+    addRows(spec.rows);
+    if (nextOffset >= total) exhausted = true;
+    panel.addEventListener("scroll", onScroll);
+    // The first measurement needs layout, which the panel does not have until
+    // the view is placed; refreshLayout runs right after every render.
+    setTimeout(pump, 0);
   }
 
   function buildRootCard(m) {
@@ -2524,7 +2755,7 @@
     var count = 0;
     list.forEach(function (m) {
       var card = m.kind === "root" ? buildRootCard(m)
-        : m.kind === "usedin" ? buildUsedInCard(m)
+        : m.kind === "list" ? buildListCard(m)
         : buildWordCard(m);
       if (!card) return;
       viewRoot.appendChild(card);
@@ -2552,9 +2783,10 @@
     var key = matchKey(m);
     if (!key) return null;
     if (m.kind === "root") return "root:" + key;
-    // A used-in list is ABOUT the word it lists, but it is not that word's
-    // card: the two are different views and must not collapse into each other.
-    if (m.kind === "usedin") return "usedin:" + key;
+    // A list is ABOUT the thing it lists, but it is not that thing's card, and
+    // the two lists are not each other: a root form can equal a word, so each
+    // list gets its own namespace and none of them can collide.
+    if (m.kind === "list") return nonEmptyString(m.list) + ":" + key;
     // The lemma, never the surface: a view reached from "territories" and one
     // reached from "Territory" are the same view.
     return "word:" + key;
@@ -2599,8 +2831,9 @@
       var cut = key.indexOf(":");
       var kind = key.slice(0, cut);
       if (kind === "word") return key.slice(cut + 1);
-      // A used-in crumb names the STEP, not the word it lists (SPEC).
-      if (kind === "usedin") return USEDIN_CRUMB;
+      // A list crumb names the RELATION, not the thing: labeling it with
+      // the word stuttered the trail (appreciated then appreciated).
+      if (LIST_VIEWS[kind]) return LIST_VIEWS[kind].crumb;
       // A root crumb reads as the form, not as the la:terra key.
       if (kind === "root") {
         var m = usableMatches(matches)[0];
@@ -2944,9 +3177,9 @@
       if (!chunk || !chunk.rows.length) return;   // nothing to show, no view
       pushView({
         key: "usedin:" + target,
-        label: USEDIN_CRUMB,
+        label: LIST_VIEWS.usedin.crumb,
         matches: [{
-          kind: "usedin", key: target, rows: chunk.rows,
+          kind: "list", list: "usedin", key: target, rows: chunk.rows,
           total: chunk.total || total || chunk.rows.length
         }],
         srcText: target

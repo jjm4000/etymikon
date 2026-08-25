@@ -300,6 +300,7 @@ GREEK_CODES = frozenset({"grc", "grc-koi", "gkm"})
 INFLECTIONAL = frozenset({"-s", "-es", "-ed", "-ing", "-est", "-'s", "-s'"})
 
 RE_PART_MOD = re.compile(r"<[^>]*>")
+RE_PART_BRACKET = re.compile(r"[<>]")
 RE_PART_SECT = re.compile(r"#.*$")
 RE_PART_LANG = re.compile(r"^[A-Za-z-]{2,15}:")
 
@@ -315,6 +316,10 @@ def clean_part(raw) -> str:
     """
     p = (raw or "").strip()
     p = RE_PART_MOD.sub("", p)
+    # Nested markup defeats the balanced strip above and leaves a bracket
+    # behind ("milk<...<...>>" came through as "milk>"), so anything from the
+    # first surviving bracket on is dropped. Markup, never source wording.
+    p = RE_PART_BRACKET.split(p, 1)[0].strip()
     p = RE_PART_SECT.sub("", p)
     p = RE_PART_LANG.sub("", p)
     p = p.strip()
@@ -325,29 +330,53 @@ def clean_part(raw) -> str:
     return p
 
 
-def unwrap(t):
+# The etymology-tree wrappers. `ety` and `etymon` carry an identical arg
+# layout, and Wiktionary uses them interchangeably: exportō records its split
+# under `ety` while absolvō and resolvō record theirs under `etymon`. Reading
+# only `ety` left absolvō looking undecomposable, so absolute shipped a single
+# "From Latin absolvō" row while absolution beside it decomposed (owner field
+# report 2026-08-25). Both are read on every pass, English included (owner
+# ruling 2026-08-25).
+ETY_NAMES = frozenset({"ety", "etymon"})
+
+# Preference between templates on ONE entry, highest wins, first in source
+# order breaks a tie. The order is a statement about what each template is
+# for: a surface analysis is the reader-facing layer by definition, a plain
+# decomposition is the analysis Wiktionary writes for a human, and the
+# etymology tree is a derivation history that happens to carry the same
+# shape. Ranking the tree last makes reading it strictly additive: it can
+# give a split to an entry that had none, and it can never overrule one an
+# editor wrote by hand.
+PREFER_SURF = 2
+PREFER_PLAIN = 1
+PREFER_TREE = 0
+
+
+def unwrap(t, wrappers=ETY_NAMES):
     """(kind, lang, args, first-part index, prefer) for a decomposition.
 
     Three shapes carry the same information in these extracts.
       plain    {{suffix|en|inform|ation}}   lang in arg 1, parts from arg 2
       ety      {{ety|la|:af|terra|-tōrium}} lang in arg 1, parts from arg 3
       surf +   {{surf|+suf|en|be|en}}       lang in arg 2, parts from arg 3
-    `prefer` is 1 for a surface analysis and 0 otherwise.
+    `etymon` is the `ety` shape under another name; both are in ETY_NAMES.
+    `prefer` is one of PREFER_SURF, PREFER_PLAIN, PREFER_TREE.
     """
     args = t.get("args") or {}
     name = t.get("name") or ""
     a1 = args.get("1") or ""
-    if name == "ety":
+    if name in wrappers:
         a2 = args.get("2") or ""
         if a2.startswith(":") and a2[1:] in DECOMP_NAMES:
-            return a2[1:], a1, args, 3, 0
+            return a2[1:], a1, args, 3, PREFER_TREE
         return None
     if name in SURF_NAMES and a1.startswith("+"):
         if a1[1:] in DECOMP_NAMES:
-            return a1[1:], (args.get("2") or ""), args, 3, 1
+            return a1[1:], (args.get("2") or ""), args, 3, PREFER_SURF
         return None
     if name in DECOMP_NAMES:
-        return name, a1, args, 2, (1 if name in SURF_NAMES else 0)
+        return name, a1, args, 2, (PREFER_SURF if name in SURF_NAMES
+                                   else PREFER_PLAIN)
     return None
 
 
@@ -361,7 +390,17 @@ def template_parts(kind, args, base):
     parts = []
     i = base
     while str(i) in args:
-        p = clean_part(args[str(i)])
+        raw = args[str(i)] or ""
+        # An arg opening with a colon is a template selector (":af", ":der",
+        # ":calque"), which means a nested etymon starts here: what follows
+        # is a SECOND analysis of the word, not more parts of this one.
+        # Without this stop, mammy read "mam + -y + :af + mamma + -y" and
+        # confidential read "cōnfīdentia + -al + :calque + confidentiel".
+        # Predates the English etymon ruling: 119 shipped splits carried the
+        # artifact through the `ety` wrapper alone.
+        if raw.strip().startswith(":"):
+            break
+        p = clean_part(raw)
         if p:
             parts.append(p)
         i += 1
@@ -375,7 +414,7 @@ def template_parts(kind, args, base):
     return parts
 
 
-def entry_split(e, lang):
+def entry_split(e, lang, wrappers=ETY_NAMES):
     """The best decomposition on one entry, or None.
 
     Among several templates on the same entry the surface analysis wins;
@@ -383,7 +422,7 @@ def entry_split(e, lang):
     """
     best = None
     for t in e.get("etymology_templates") or []:
-        u = unwrap(t)
+        u = unwrap(t, wrappers)
         if u is None:
             continue
         kind, tlang, args, base, prefer = u
@@ -1023,6 +1062,15 @@ def accepted_split(wl, rec):
 
 
 ORG_DEPTH = 3           # levels of source-language splitting, SPEC cap
+# Words that must reach a source lemma before recursion treats it as a card
+# of its own and stops there. Measured both candidates on the full bundle
+# (2026-08-25): 2 keeps 38 more mid-level cards, every one of them a derived
+# compound with a family of exactly two (la:contraho for contract and
+# contractor, grc:ἀναλύω for analysis and analyze), and leaves 11.5% of org
+# parts inert. 3 drills through those to the base the family shares, so
+# analysis, analyze, palsy and paralytic all land on grc:λύω, and leaves
+# 8.5% inert. Both keep solvō, pōnō and mittō, which is what the rule is for.
+ORG_ANCHOR_MIN = 3
 
 
 class Origin:
@@ -1047,6 +1095,7 @@ class Origin:
     def __init__(self, classical):
         self.cl = classical
         self.alias = {}          # inflected lemma -> root key, for card alt
+        self.anchors = set()     # lemmas recursion must not split, see below
         self.stats = collections.Counter()
 
     def settle(self, lang, lemma):
@@ -1065,6 +1114,45 @@ class Origin:
                 self.alias[key] = lang + ":" + stepped
                 key = stepped
         return key
+
+    def find_anchors(self, chains):
+        """Mark the source lemmas that are teachable in their own right.
+
+        A lemma that ORG_ANCHOR_MIN or more English words reach is a card
+        the reader wants, so recursion stops at it instead of splitting it.
+        Everything else is a pure intermediate (a one-off participle, a
+        derived noun nothing else points at) and flattening walks through it.
+
+        Reaching is counted at two removes, per word: the lemma a chain
+        settles on, and the immediate parts of that lemma's own split. That
+        is what makes solvō an anchor. No English chain names solvō itself,
+        but absolvō, dissolvō, resolvō and solūtiō all split onto it, and
+        those are the words whose card it should be. Counting only direct
+        hits would leave solvō a fragment (owner field report 2026-08-25:
+        reading `etymon` gave solvō a split of its own, and unrestricted
+        recursion dissolved the card into sē- + luō).
+
+        Non-circular by construction: it looks one level down, never at the
+        recursion's own output. Returns the number of anchors found.
+        """
+        seen = collections.Counter()
+        for chain in chains:
+            if not chain:
+                continue
+            lang, lemma = chain
+            key = self.settle(lang, lemma)
+            if not key:
+                continue
+            cl = self.cl[lang]
+            reached = {lang + ":" + key}
+            for p in cl["split"].get(key) or ():
+                pk = norm_key(lang, p)
+                if pk and not self.is_affix(lang, pk, p):
+                    reached.add(lang + ":" + pk)
+            for r in reached:
+                seen[r] += 1
+        self.anchors = {k for k, n in seen.items() if n >= ORG_ANCHOR_MIN}
+        return len(self.anchors)
 
     def is_affix(self, lang, key, form=""):
         """True when this source-language page is an affix, not a lemma.
@@ -1121,7 +1209,9 @@ class Origin:
                 out.append((form, None))
                 continue
             sub = None
-            if pk is not None and pk not in seen:
+            if (pk is not None and pk not in seen
+                    and rkey not in self.anchors
+                    and rkey not in curation.ROOT_STOPS):
                 sub = self.flatten(lang, pk, depth - 1, seen | {pk})
             if sub:
                 out.extend(sub)
@@ -1402,6 +1492,13 @@ def verify(words_obj, roots_obj, forms_obj):
     add("music links muse as a word chip", bool(mu) and mu[0].get("w") == "muse",
         show("music"))
 
+    # Splits the etymon tree supplies and no plain template does (owner
+    # ruling 2026-08-25).
+    for k, want in (("abolitionism", ["abolition", "-ism"]),
+                    ("absentee", ["absent", "-ee"])):
+        add("%s = %s (etymon-sourced)" % (k, " + ".join(want)),
+            morphs_of(k) == want, show(k))
+
     add("beautiful = beauty + -ful with en:-ful shipping",
         morphs_of("beautiful") == ["beauty", "-ful"] and "en:-ful" in roots,
         "%s | en:-ful=%s" % (show("beautiful"),
@@ -1473,6 +1570,26 @@ def verify(words_obj, roots_obj, forms_obj):
         and [p["f"] for p in mem["parts"]] == ["memor", "-ia"]
         and mem["parts"][0].get("r") == "la:memor",
         json.dumps(mem, ensure_ascii=False))
+
+    # absolvō records its split under `etymon` rather than `ety`, so absolute
+    # shipped a single "From Latin absolvō" row while absolution beside it
+    # decomposed (owner field report 2026-08-25).
+    ab = org_of("absolute")
+    add("absolute carries a decomposed org on an absolv- lemma",
+        bool(ab) and "parts" in ab and ab.get("lang") == "la"
+        and "absolv" in ab.get("l", "")
+        and any(p["f"].startswith("ab") for p in ab["parts"])
+        and any(p.get("r") == "la:solvo" for p in ab["parts"]),
+        json.dumps(ab, ensure_ascii=False))
+
+    # dissolve and resolve are NOT here and cannot be: they carry English
+    # morphs (dis- + solve), so they take no org row, and their base chip is
+    # the English word solve, which the base-routing measurement classified
+    # as a free base and the owner ratified as one. Verified 2026-08-25.
+    solfam = set(idx.get("la:solvo") or ())
+    add("la:solvo ships with absolute, absolve and solution in its family",
+        "la:solvo" in roots and {"absolute", "absolve", "solution"} <= solfam,
+        "family %d: %s" % (len(solfam), ", ".join(sorted(solfam)[:10])))
 
     terr = org_of("territory")
     add("territory upgrades to a decomposed org: territōrium = terra + -tōrium",
@@ -1908,6 +2025,7 @@ def main(argv):
     log("[6/7] curating, capping and resolving roots")
     origin = Origin(classical)
     shipped = {}
+    pending_org = {}
     n_forced = n_blocked = n_infl = 0
     for wl, rec in harvest.items():
         raw = rec["sp"]
@@ -1938,14 +2056,22 @@ def main(argv):
         if parts:
             w["morphs"] = [{"f": p} for p in parts]
         elif rec["org"]:
-            org = origin.resolve(rec["org"][0], rec["org"][1])
-            if org:
-                w["org"] = org
+            pending_org[wl] = rec["org"]
         shipped[wl] = w
     log("  %s words ship (%s forced splits, %s blocked, %s inflectional "
         "splits suppressed)"
         % (format(len(shipped), ","), format(n_forced, ","),
            format(n_blocked, ","), format(n_infl, ",")))
+
+    # ---- which source lemmas are anchors in their own right --------------
+    n_anchor = origin.find_anchors(pending_org.values())
+    log("  %s source lemmas are anchors (reached by %d or more words), so "
+        "recursion stops at them" % (format(n_anchor, ","), ORG_ANCHOR_MIN))
+
+    for wl, chain in pending_org.items():
+        org = origin.resolve(chain[0], chain[1])
+        if org:
+            shipped[wl]["org"] = org
     log("  origin chains: %s decomposed, %s single"
         % (format(origin.stats["decomposed"], ","),
            format(origin.stats["single"], ",")))

@@ -517,6 +517,34 @@ Sections in order:
   whole-card rule included (if inline rows plus remainder fit the
   inline cap, fetch up front and render whole).
 
+### Show all
+
+Ported 2026-08-25 from Okpyeon commit a5e95e4 per the owner's porting
+note; the fork base predates it. Wherever a card section paginates in
+place over a long index (the family section is the one such section
+today), a second control "Show all (N)" sits beside "Show 5 more (N)"
+and opens the COMPLETE ranked list as its own view. Contracts, from
+the note: the two controls appear and disappear together, only when a
+genuine second page exists (the whole-card rule hides both;
+exhausting in-place reveal removes both); the pushed view always
+shows the full index regardless of inline reveals; the click is
+sequence-guarded and never read as a row click; on failure nothing
+navigates and the control stays pressable as the retry path; N
+starts from the match's familyCount and corrects to the fetched
+total. The view: key namespace `family:<root key>` (distinct from
+usedin:, since a root form can equal a word), title "N words built
+on terra" (English words do not literally contain their roots, so
+Okpyeon's containment wording is not portable), crumb label "Built
+on", rows in the family-row format through the SAME row builder as
+the inline section and the used-in view. Adaptation to the chunked
+family protocol: the view loads chunk 0 on open and fetches the next
+chunk whenever the last rendered row approaches the viewport, until
+total; no pager buttons inside the view; a quiet loading row shows
+while a chunk is in flight. Consistency guard (the note's b65b804
+lesson): a harness check diffs one card's inline rows against its
+view rows field by field; both must come from the one familyRow
+join.
+
 ### Tier chips
 
 The badge registry carries over. Four mutually exclusive entries keyed
@@ -618,7 +646,12 @@ Parsing rules, English extract:
   form_of/alt_of) contribute to forms.json, not senses.
 - Split harvest: etymology_templates with name in {prefix, pre, suffix,
   suf, affix, af, confix, compound, com, surf, "surface analysis",
-  univerbation} and arg 1 exactly `en`. Parts are positional args 2
+  univerbation} and arg 1 exactly `en`, plus the structured `etymon`
+  template's affix records (Jesse decision 2026-08-25: Wiktionary is
+  migrating to etymon, the source-language pass already reads it, and
+  7,758 English splits lived only there, abolitionism and absentee
+  among them; every acceptance rule below applies to etymon-sourced
+  splits identically). Parts are positional args 2
   onward: strip inline modifiers (`<...>`), section suffixes (`#...`),
   and language prefixes (`xx:`); drop empties; prefix/suffix templates
   get their hyphens restored on the affix arg. A split needs 2 or more

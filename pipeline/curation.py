@@ -52,6 +52,11 @@ BLOCKED_SPLITS = frozenset({
     "never",
     # yes + h: a spelling variant recorded as a suffixation.
     "yeah",
+    # The etymon tree lists the historical forms this contracted through, so
+    # the split harvests as "of + on + upon + in + un- + less". True as
+    # history, unreadable as a breakdown (owner ruling 2026-08-25 enabled the
+    # etymon source; this is the one common word it reads badly).
+    "unless",
 })
 
 # -------------------------------------------------------------- forced splits
@@ -251,3 +256,12 @@ BASE_ROUTES = {
     # bend, curve".
     "flex": "la:flecto",
 }
+
+# ------------------------------------------------------------------ root stops
+# Source lemmas recursion must never split, beyond the ones the anchor rule
+# finds on its own (a lemma reached by ORG_ANCHOR_MIN or more words is an
+# anchor already). This list is for the remainder: a lemma too thinly
+# referenced to qualify, whose split still teaches less than it costs.
+# Empty is the healthy state; add a key only with the family that exposed it.
+
+ROOT_STOPS = frozenset()

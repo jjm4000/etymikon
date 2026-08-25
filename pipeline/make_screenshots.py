@@ -192,12 +192,21 @@ NO_PAGER = (
     'globalThis.__etymikon.queryAll(".fam-more").length === 0',
 )
 
-# The other half of that rule: a list too long to render whole offers the
-# pager, worded as the SPEC words it, with the remaining count in it.
+# The other half of that rule: a list too long to render whole offers BOTH
+# controls, worded as the SPEC words them, each carrying its own count. They
+# are one pair and appear together, so one check asserts both (SPEC
+# "Show all").
 PAGER = (
-    'the list pages: a "Show 5 more (N)" control carrying its count',
-    '(() => { const b = globalThis.__etymikon.query(".fam-more");'
-    r' return !!b && /^Show 5 more \(\d+\)$/.test(b.textContent); })()',
+    'the list offers "Show 5 more (N)" and "Show all (N)" side by side',
+    '(() => { const q = globalThis.__etymikon;'
+    ' const more = q.query(".fam-more:not(.fam-all)");'
+    ' const all = q.query(".fam-all");'
+    ' if (!more || !all) return false;'
+    r' if (!/^Show 5 more \(\d+\)$/.test(more.textContent)) return false;'
+    r' if (!/^Show all \(\d+\)$/.test(all.textContent)) return false;'
+    ' const a = more.getBoundingClientRect(), b = all.getBoundingClientRect();'
+    ' return more.nextElementSibling === all && b.left >= a.right'
+    ' && Math.abs(a.top - b.top) < 2; })()',
 )
 
 IN_FRAME = (

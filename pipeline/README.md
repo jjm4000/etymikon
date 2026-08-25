@@ -63,8 +63,8 @@ zones for eyeball review.
 
 The English extract is the only source of definitions, morpheme splits and
 inflected forms. The Latin and Ancient Greek extracts supply the gloss, the
-headword form and the entry pos behind every `la:` and `grc:` card, plus one
-decomposition step described under "Root unification" below. The frequency
+headword form and the entry pos behind every `la:` and `grc:` card, plus the
+in-language splits that "The FROM LATIN row" flattens below. The frequency
 list supplies the `fr` rank and nothing else; no wording from it reaches the
 output. Licences and attribution are in
 `../extension/data/DATA-LICENSE.md`.
@@ -286,13 +286,34 @@ rule would otherwise fire on the colon inside one. Then section suffixes
 (`to-#Etymology_2`), then language prefixes (`la:terra`). The `prefix` and
 `suffix` templates leave the hyphen off the affix argument, so it is put back.
 
-Three template shapes carry the same information and all three are handled:
+An argument opening with a colon is a template selector, not a morpheme:
+`:af`, `:der`, `:calque`. It marks the start of a NESTED etymon, so what
+follows is a second analysis of the word rather than more parts of this one,
+and collection stops there. Without that stop mammy harvested as "mam + -y +
+:af + mamma + -y" and confidential as "cōnfīdentia + -al + :calque +
+confidentiel". Nested markup also defeats the balanced `<...>` strip and
+leaves a bracket behind, so anything from a surviving bracket on is dropped
+too: "milk<...<...>>" was reaching the chip as "milk>".
+
+Four template shapes carry the same information and all four are handled:
 
 ```
 {{suffix|en|inform|ation}}      language in arg 1, parts from arg 2
 {{ety|la|:af|terra|-tōrium}}    language in arg 1, parts from arg 3
+{{etymon|en|:af|absent|-ee}}    the ety shape under another name
 {{surf|+suf|en|be|en}}          language in arg 2, parts from arg 3
 ```
+
+**Precedence.** When one entry carries several of these, the highest
+preference wins and source order breaks a tie: a surface analysis first, then
+a plain decomposition, then the etymology tree (`ety`, `etymon`). The order
+is a statement about what each template is for. A surface analysis is the
+reader-facing layer by definition, a plain decomposition is what an editor
+wrote for a human, and the tree is a derivation history that happens to carry
+the same shape. Ranking the tree last makes reading it strictly additive: it
+gives a split to an entry that had none and can never overrule one written by
+hand. Enabling the tree for English (owner ruling 2026-08-25) therefore
+withdrew no split at all.
 
 **Split selection.** A word usually has several entries, one per part of
 speech and one per etymology, and they disagree. The split is taken from the
@@ -396,6 +417,36 @@ re- + `corcord->` + -ō, whose middle piece is a wiktextract artifact with no
 page behind it. `ROOT_SKIPS` and `ROOT_ALIASES` apply at every level, and a
 curated alias stops the recursion where it lands.
 
+**Anchors are terminal too.** A lemma that `ORG_ANCHOR_MIN` (3) or more
+English words reach is a card the reader wants, so recursion stops there
+instead of splitting it. Everything else is a pure intermediate, a one-off
+participle or a derived noun nothing else points at, and flattening walks
+straight through it.
+
+Reaching is counted per word at two removes: the lemma a chain settles on,
+and the immediate parts of that lemma's own split. That two-level count is
+what makes solvō an anchor. No English chain names solvō itself, but absolvō,
+dissolvō, resolvō and solūtiō all split onto it, and those are the words whose
+card it is. The count never looks at the recursion's own output, so it cannot
+go circular. `ROOT_STOPS` in curation.py is there for lemmas too thinly
+reached to qualify whose split still teaches less than it costs; it is empty
+today, which is the healthy state.
+
+Without this rule the pipeline over-flattens. Reading `etymon` gave solvō a
+split of its own (sē- + luō), and depth-3 recursion dissolved the card that
+absolute, absolve, solution, dissolution and resolution all share (owner field
+report 2026-08-25). Both candidate thresholds were measured on the full
+bundle: 2 keeps 38 more mid-level cards, every one a derived compound with a
+family of exactly two, and leaves 11.5% of org parts inert; 3 drills through
+those to the base the family shares, so analysis, analyze, palsy and paralytic
+all land on grc:λύω, and leaves 8.5% inert.
+
+The two terminal rules are independent and do not interact. An affix is
+terminal by shape or pos whatever its popularity, which is why sē- in
+absolvō's deeper split stays a leaf; an anchor is terminal by how many words
+reach it. Affix parts are skipped when anchors are counted, so an affix can
+never become an anchor.
+
 **Affixes are terminal.** Recursion never decomposes a part that is itself an
 affix, by hyphen shape or by entry pos. Wiktionary records splits for affixes
 too, and following them is how `-ārium` became -ārius + -um and put library,
@@ -464,7 +515,7 @@ the pipeline can fix that; it is a cap-rule question for the owner.
 
 ## Curation
 
-`curation.py` is data only, six tables, every entry carrying the reason it
+`curation.py` is data only, seven tables, every entry carrying the reason it
 exists:
 
 | table            | what it holds                                                    |
@@ -475,6 +526,7 @@ exists:
 | `ROOT_SKIPS`     | keys that must never become root cards                            |
 | `ROOT_GLOSSES`   | hand glosses overriding the harvested one                         |
 | `BASE_ROUTES`    | bound base part -> the classical root it really names             |
+| `ROOT_STOPS`     | source lemmas recursion must never split                          |
 
 An alias key is a bare surface form (`terra`, `terr-`) when it should bind
 wherever that form appears, English morphemes included, and a
@@ -560,6 +612,9 @@ root gloss.
 Every run ends with counts, distribution numbers, output sizes, a sample of
 each cap zone, and the spot-checks. A failed check exits non-zero.
 
+Etymon anchors: abolitionism = abolition + -ism and absentee = absent + -ee,
+both split by the etymology tree where no plain template offers one.
+
 Split anchors: information = inform + -ation, security = secure + -ity,
 television = tele- + vision, impossible = im- + possible, music = muse + -ic
 with muse as a word chip, beautiful = beauty + -ful with en:-ful shipping.
@@ -573,6 +628,12 @@ family holds subscribe and describe; relax routes lax to la:laxo; append
 routes pend to la:pendo, where the chip was inert; airport, lakeview,
 soundboard and undercurrent keep their word chips, because no chain of theirs
 reaches the Latin verb; every BASE_ROUTES target ships as a root.
+
+Participle-hop anchors: absolute carries a decomposed org reading absolvō =
+ab- + solvō, and la:solvo ships with absolute, absolve and solution in its
+family. dissolve and resolve are not in it and cannot be: they carry English
+morphs, so they take no org row, and their base chip is the English word
+solve, ratified as a free base.
 
 Origin anchors: memory carries a decomposed org reading memoria = memor +
 -ia with the memor part linked; territory upgrades to territōrium = terra +
