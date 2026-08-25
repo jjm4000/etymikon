@@ -490,11 +490,17 @@ Sections in order:
   "Used in N words ›". Tapping navigates (Okpyeon's usedIn pattern:
   a list view, not in-place expansion) to a `usedin:<key>` view
   titled by the word, rows in the family-row format (word, first def,
-  tier chip), each an ordinary lookup drill-down, chunk-fetched by
-  offset like family lists, cached per view. The crumb is labeled
-  "Used in" (Jesse decision 2026-08-25, mirroring Okpyeon's "Part
-  of" crumb; labeling it with the word stuttered the trail:
-  appreciated then appreciated). Absent when no `usedInCount`.
+  tier chip), each an ordinary lookup drill-down, cached per view.
+  The view shows the COMPLETE ranked list, scroll-fed by chunks
+  exactly like the "Built on" drill view: chunk 0 on open, the next
+  chunk whenever the last rendered row approaches the viewport, no
+  pager buttons inside the view (Jesse decision 2026-08-25: a pushed
+  list view always shows the full index; the earlier preview-plus-
+  Show-5-more inside this view contradicted the drill contract).
+  The crumb is labeled "Used in" (Jesse decision 2026-08-25,
+  mirroring Okpyeon's "Part of" crumb; labeling it with the word
+  stuttered the trail: appreciated then appreciated). Absent when no
+  `usedInCount`.
 
 ### Root card
 

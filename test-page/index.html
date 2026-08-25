@@ -1307,6 +1307,16 @@
     function matches(text) { return fake.__lookup(text).matches; }
     function show(text) { api.showAt(anchor, matches(text), text); }
     function labels() { return texts(api.queryAll(".label")); }
+    // The panel lives above the query root, so reach it through a card. A tab
+    // that is not rendering never dispatches a scroll event of its own, so
+    // every scroll-fed check dispatches the one the browser owes the
+    // product's listener. Both list views need it, so it lives out here.
+    function scrollPanel() {
+      var card = api.query(".card");
+      if (!card) return;
+      card.getRootNode().querySelector(".panel")
+        .dispatchEvent(new Event("scroll"));
+    }
     function sectionOrder() {
       var card = api.query(".card");
       return Array.prototype.slice.call(card.children).map(function (node) {
@@ -1902,6 +1912,9 @@
         return "depth=" + api.viewDepth() +
           " rows=" + api.queryAll(".fam-row").length;
       });
+    check("a short list renders whole, with no pager control in the view",
+      api.queryAll(".fam-more").length === 0,
+      "controls=" + api.queryAll(".fam-more").length);
     check("it costs exactly one usedIn request, at offset 0",
       fake.__usedInCalls === usedInCallsBefore + 1 &&
       fake.__lastUsedInKey === "absolute" && !fake.__lastUsedInOffset,
@@ -1931,43 +1944,59 @@
       api.crumbLabels().join(" › ") === "absolute › Used in › absolutely",
       api.crumbLabels().join(" › "));
 
-    // A used-in list past one chunk pages exactly like a family does.
+    // A used-in list past one chunk SCROLL-FEEDS, exactly like the Built on
+    // view. A pushed list view always shows the full index: the reader left
+    // the card to see everything, so there is nothing in here to press.
+    api.resizePanel(340, 300);
     show("over");
     check("a stem used in hundreds of words counts them all in the row",
       api.query(".usedin-row").textContent === "Used in 260 words",
       api.query(".usedin-row").textContent);
     var chunkCallsBefore = fake.__usedInCalls;
     api.query(".usedin-row").click();
-    await checkSoon("the list opens on its first eight, counting the rest",
+    await checkSoon("the view opens on its first chunk, offering no pager",
       function () {
-        return api.queryAll(".fam-row").length === 8 && !!api.query(".fam-more") &&
-          api.query(".fam-more").textContent === "Show 5 more (252)";
+        return !!api.query(".card.usedin") &&
+          api.queryAll(".fam-row").length === 200 &&
+          api.queryAll(".fam-more").length === 0;
       },
       function () {
-        var b = api.query(".fam-more");
         return "rows=" + api.queryAll(".fam-row").length +
-          " control=" + (b ? b.textContent : "none");
+          " controls=" + api.queryAll(".fam-more").length;
       });
-    check("the label counts the whole list",
+    check("the label counts the whole list, not the chunk",
       labels().indexOf("USED IN 260 WORDS") >= 0, labels().join("/"));
-    // Press on: the first chunk pages locally, and only when its rows run out
-    // does the control ask the worker for the next one.
-    for (var usedPress = 0; usedPress < 60 && api.query(".fam-more"); usedPress++) {
-      var beforePress = api.queryAll(".fam-row").length;
-      api.query(".fam-more").click();
-      await until(function () {
-        return api.queryAll(".fam-row").length > beforePress ||
-          !api.query(".fam-more");
+    check("opening cost one usedIn request, at offset 0",
+      fake.__usedInCalls === chunkCallsBefore + 1 && !fake.__lastUsedInOffset,
+      "calls=" + (fake.__usedInCalls - chunkCallsBefore) +
+      " offset=" + fake.__lastUsedInOffset);
+    check("the loading row is silent while nothing is in flight",
+      !!api.query(".list-loading") && api.query(".list-loading").hidden,
+      "hidden=" + (api.query(".list-loading") || {}).hidden);
+    // Scrolling, then the scroll EVENT the browser owes the listener.
+    api.scrollTop(999999);
+    scrollPanel();
+    check("the loading row speaks while the chunk is in flight",
+      !!api.query(".list-loading") && !api.query(".list-loading").hidden,
+      "hidden=" + (api.query(".list-loading") || {}).hidden);
+    await checkSoon("scrolling to the end feeds the rest in, still with no pager",
+      function () {
+        return api.queryAll(".fam-row").length === 260 &&
+          api.queryAll(".fam-more").length === 0;
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " controls=" + api.queryAll(".fam-more").length;
       });
-    }
-    check("pressing on walks the whole used-in list",
-      api.queryAll(".fam-row").length === 260 && !api.query(".fam-more"),
-      "rows=" + api.queryAll(".fam-row").length);
-    check("it took two chunk requests, the second at offset 200",
+    check("it took exactly two chunk requests, the second at offset 200",
       fake.__usedInCalls === chunkCallsBefore + 2 &&
       fake.__lastUsedInOffset === 200,
       "calls=" + (fake.__usedInCalls - chunkCallsBefore) +
       " offset=" + fake.__lastUsedInOffset);
+    check("the loading row falls quiet once the list is whole",
+      api.query(".list-loading").hidden,
+      "hidden=" + api.query(".list-loading").hidden);
+    api.resetPanelSize();
 
     // --- the see-also row ---------------------------------------------------
     show("ran");
@@ -2128,14 +2157,6 @@
       fake.__familyCalls === famCallsBeforeChunk + 2 &&
       fake.__lastFamilyOffset === 200,
       "calls=" + fake.__familyCalls + " offset=" + fake.__lastFamilyOffset);
-
-    // The panel lives above the query root, so reach it through a card.
-    function scrollPanel() {
-      var card = api.query(".card");
-      if (!card) return;
-      card.getRootNode().querySelector(".panel")
-        .dispatchEvent(new Event("scroll"));
-    }
 
     // --- Show all: the whole index as its own view ----------------------------
     // Revealing five at a time answers "what else is there?". It is the wrong

@@ -2166,10 +2166,11 @@
   }
 
   /**
-   * THE ranked word list: preview rows, a label, and the "Show 5 more (N)"
-   * control behind them. One implementation, two call sites: a root card's
-   * family, and the used-in list view. They page identically, so they must not
-   * drift into two paging contracts.
+   * THE ranked word list AS A CARD SECTION: preview rows, a label, and the
+   * "Show 5 more (N)" control behind them. Paging in place is what a section
+   * inside a card does, because the card is about something else and the list
+   * is only part of it. A pushed list view is about the list itself and never
+   * comes through here; it is scroll-fed by appendScrollList.
    *
    * The list is CHUNKED, because a common affix builds thousands of words:
    * each press reveals five more from rows already in hand, and only when
@@ -2444,31 +2445,28 @@
    * hold, and because a list the reader can leave by the breadcrumb is easier
    * to get out of than one that grew under them.
    *
-   * One view kind, one head builder, one row builder. The registry below is
-   * the whole difference between them: a crumb word, a section label, the
-   * message that feeds it, and how it is fed (SPEC "Show all").
+   * One view kind, one head builder, one row builder, ONE ENGINE. Both views
+   * are scroll-fed by appendScrollList, because a pushed list view always
+   * shows the full index: the reader left the card to see everything, and a
+   * pager in here would hand back the question they just answered (Jesse
+   * decision 2026-08-25). The registry below is the whole difference between
+   * them: a crumb word, a section label, and the message that feeds it.
    * -------------------------------------------------------------------- */
 
   var LIST_VIEWS = {
-    // Reached from a word card's quiet "Used in N words" row. Paged by the
-    // same "Show 5 more" control the inline sections use, because the row that
-    // opens it promises a count the reader has already read.
+    // Reached from a word card's quiet "Used in N words" row.
     usedin: {
       crumb: "Used in",
       label: function (total) { return "USED IN " + total + " WORDS"; },
-      fetch: fetchUsedIn,
-      feed: "pager"
+      fetch: fetchUsedIn
     },
-    // Reached from a root card's "Show all (N)". Scroll-fed: the reader asked
-    // for the WHOLE index, so making them press a button every five rows would
-    // be answering a different question (SPEC "Show all").
+    // Reached from a root card's "Show all (N)".
     family: {
       crumb: "Built on",
       label: function (total, title) {
         return total + " words built on " + title;
       },
-      fetch: fetchFamily,
-      feed: "scroll"
+      fetch: fetchFamily
     }
   };
 
@@ -2517,8 +2515,7 @@
         m.offset = offset;
       }
     };
-    if (view.feed === "scroll") appendScrollList(card, spec);
-    else appendRankedList(card, spec);
+    appendScrollList(card, spec);
   }
 
   function buildListCard(m) {
@@ -2533,10 +2530,11 @@
   }
 
   /**
+   * THE list-view engine, and the only one: both pushed list views run on it.
    * A list the reader scrolls rather than pages. The whole index is the point,
-   * so there is no control in here at all: the next chunk is fetched when the
-   * last rendered row comes within a screen of the viewport, and a quiet row
-   * says so while it is in flight (SPEC "Show all").
+   * so there is no control in here at all: chunk 0 on open, the next chunk
+   * when the last rendered row comes within a screen of the viewport, and a
+   * quiet row says so while it is in flight (SPEC "Show all").
    *
    * The scroll listener removes ITSELF once the box leaves the document, which
    * is what a view swap does to it. Nothing else has to remember to clean up.
@@ -3163,7 +3161,9 @@
    * The "Used in N words" row opens a LIST rather than expanding one in place.
    * It asks for the first chunk by the same offset contract the family list
    * uses, then pushes it as an ordinary view: crumbs, cache, cycle handling
-   * and scroll restore all come along unchanged.
+   * and scroll restore all come along unchanged. The view scroll-feeds itself
+   * from there, exactly as "Show all" does, so this push and the one behind
+   * "Show all (N)" carry the same shape.
    * -------------------------------------------------------------------- */
 
   function navigateToUsedIn(key, total) {
@@ -3180,7 +3180,8 @@
         label: LIST_VIEWS.usedin.crumb,
         matches: [{
           kind: "list", list: "usedin", key: target, rows: chunk.rows,
-          total: chunk.total || total || chunk.rows.length
+          total: chunk.total || total || chunk.rows.length,
+          offset: chunk.rows.length
         }],
         srcText: target
       });

@@ -1758,10 +1758,41 @@
           api.crumbLabels().join(" › ") === "absolute › Used in";
       },
       function () { return api.crumbLabels().join(" › "); });
+    check("a short used-in list renders whole here, with no pager in the view",
+      api.queryAll(".fam-row").length === 1 &&
+      api.queryAll(".fam-more").length === 0,
+      "rows=" + api.queryAll(".fam-row").length +
+      " controls=" + api.queryAll(".fam-more").length);
     api.queryAll(".crumb")[0].click();
     await checkSoon("the crumb walks back out of the list",
       function () { return api.viewDepth() === 1 && surfaceText() === "absolute"; },
       function () { return "depth=" + api.viewDepth(); });
+
+    // Both list views run on ONE scroll-fed engine, and this surface is the
+    // proof that it needs no code of its own here either. The sidebar panel is
+    // not a scroll container (the results area is), so the last row is always
+    // within a screen of it and the view feeds itself to the end unprompted.
+    // A used-in list of 260 arrives whole, and no control is ever built.
+    await search("over");
+    check("the long used-in row counts every word on this surface too",
+      api.query(".usedin-row").textContent === "Used in 260 words",
+      api.query(".usedin-row").textContent);
+    api.query(".usedin-row").click();
+    await checkSoon("the view feeds itself past its first chunk to the full index",
+      function () {
+        return !!api.query(".card.usedin") &&
+          api.queryAll(".fam-row").length === 260 &&
+          api.queryAll(".fam-more").length === 0;
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " controls=" + api.queryAll(".fam-more").length;
+      });
+    check("the label counts the whole list, and the loading row is quiet again",
+      api.queryAll(".label").some(function (n) {
+        return n.textContent === "USED IN 260 WORDS";
+      }) && api.query(".list-loading").hidden,
+      texts(api.queryAll(".label")).join("/"));
 
     // --- the Wiktionary link on this surface ----------------------------------
     await search("subterranean");

@@ -185,10 +185,10 @@ CHIPS_IN_VIEW = (
     ' }); })()',
 )
 
-# The whole-card rule: a list that fits the inline cap is fetched up front and
-# rendered whole, so no "Show 5 more (N)" control is built at all.
-NO_PAGER = (
-    'the list fits inline, so no "Show 5 more (N)" control renders',
+# A pushed list view always shows the full index, scroll-fed by chunks, so it
+# builds no pager control at any length (SPEC appendUsedIn, "Show all").
+VIEW_NO_PAGER = (
+    "the pushed list view carries no pager control",
     'globalThis.__etymikon.queryAll(".fam-more").length === 0',
 )
 
@@ -405,7 +405,8 @@ SHOTS = [
         "kind": "page",
         # absolute selected, then its "Used in 4 words" row followed. The
         # mirror of the breakdown: not what this word is made of, but what is
-        # made of it.
+        # made of it. A pushed list view shows the whole index and feeds itself
+        # by scrolling, so unlike shot 2 there is no control in it.
         # Wide for the same reason shot 2 is: the tier chip rides at the end of
         # a one-line row, and a narrow popup clips it.
         "page": {"scene": "usedin", "w": 640, "bottom": 40},
@@ -419,7 +420,7 @@ SHOTS = [
             TIERS_EXCLUSIVE,
             CHIPS_IN_VIEW,
             has_text("absolutely at the head of the list", ".fam-word", "absolutely"),
-            NO_PAGER,
+            VIEW_NO_PAGER,
             crumbs_include("absolute", "Used in"),
             IN_FRAME,
         ],
