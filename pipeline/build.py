@@ -920,16 +920,18 @@ def parse_classical(path, lang):
 
     A root card needs a display form with its macrons, a gloss, the entry
     pos that decides its kind, the lemma an inflection page points at, and
-    the entry's own decomposition. The last one is the root-unification hop:
-    territōrium splits as terra + -tōrium inside Latin, so every English
-    word whose chain stops at territōrium lands on terra instead.
+    the entry's own decomposition. The last one drives recursive flattening:
+    territōrium splits as terra + -tōrium inside Latin and memoriālis as
+    memoria + -ālis, whose first part splits again as memor + -ia, so the
+    English words built on them land on the deepest bases instead of
+    fragmenting one card per intermediate lemma.
     """
     gloss = {}
     form = {}
     kind_pos = {}
     rom = {}
     fo = {}
-    base = {}
+    split = {}
     stats = collections.Counter()
     with gzip.open(path, "rb") as f:
         for line in f:
@@ -964,17 +966,13 @@ def parse_classical(path, lang):
                     r = tagged_form(e, "romanization")
                     if lang == "grc" and r:
                         rom[k] = r
-            if k not in base:
+            if k not in split:
                 parts = entry_split(e, lang)
-                if parts:
-                    b = base_part(parts)
-                    if b:
-                        bk = norm_key(lang, b)
-                        if bk and bk != k:
-                            base[k] = bk
+                if parts and len(parts) >= 2:
+                    split[k] = parts
     stats["lemmas"] = len(gloss)
     return {"gloss": {k: v[1] for k, v in gloss.items()}, "form": form,
-            "pos": kind_pos, "rom": rom, "fo": fo, "base": base,
+            "pos": kind_pos, "rom": rom, "fo": fo, "split": split,
             "stats": stats}
 
 
@@ -1007,14 +1005,6 @@ def display_form(e, word, lang, key):
     return word
 
 
-def base_part(parts):
-    """The lemma part of a source-language split: the first non-affix part."""
-    for p in parts:
-        if not p.startswith("-") and not p.endswith("-"):
-            return p
-    return None
-
-
 # ---------------------------------------------------------------- assembly
 
 def accepted_split(wl, rec):
@@ -1032,36 +1022,114 @@ def accepted_split(wl, rec):
     return list(parts)
 
 
-class Anchors:
-    """Where an origin chain settles, and the aliases that got it there."""
+ORG_DEPTH = 3           # levels of source-language splitting, SPEC cap
+
+
+class Origin:
+    """Where an origin chain settles: a decomposed source lemma, or a lemma.
+
+    Supersedes the one-hop unification rule (SPEC, Jesse decision
+    2026-08-25). A chain lemma is decomposed recursively inside its own
+    language, so memoriālis reads memor + -ia + -ālis rather than anchoring
+    on memoria, and every English word built on the family lands on the same
+    deepest bases instead of fragmenting one card per intermediate lemma.
+    The fragmentation was not only ugly: a card referenced by one word is
+    pruned by the 2-word threshold, so those org rows were disappearing.
+
+    Two rules keep the recursion honest. Depth is capped at ORG_DEPTH. And a
+    split is taken all or nothing: if any piece of it has no glossable entry
+    of its own, the whole split is refused and the part stays whole. That is
+    Okpyeon's dead-end rule, and the extract needs it. recordor "splits" as
+    re- + corcord-> + -ō, where the middle piece is a wiktextract artifact
+    with no page behind it, and the whole split is rightly refused.
+    """
 
     def __init__(self, classical):
         self.cl = classical
-        self.alias = {}          # intermediate lemma -> root key
-        self.hops = 0
+        self.alias = {}          # inflected lemma -> root key, for card alt
+        self.stats = collections.Counter()
 
-    def anchor(self, lang, lemma):
-        """Root key for a chain lemma. One hop, never recursive."""
+    def settle(self, lang, lemma):
+        """The source-language key a chain lemma settles on, or None.
+
+        An inflection page carries no gloss and no split of its own, so it
+        steps to its lemma first: territōriī is judged as territōrium.
+        """
         key = norm_key(lang, lemma)
+        if not key:
+            return None
+        cl = self.cl[lang]
+        if key not in cl["gloss"] and key not in cl["split"] and key in cl["fo"]:
+            stepped = cl["fo"][key]
+            if stepped:
+                self.alias[key] = lang + ":" + stepped
+                key = stepped
+        return key
+
+    def flatten(self, lang, key, depth, seen):
+        """[(display form, root key or None)] for a lemma, or None.
+
+        None means the lemma does not decompose and should stay whole. A
+        part whose key is a ROOT_SKIPS entry keeps its display form and
+        loses its link, exactly as an inert morph chip does.
+        """
+        cl = self.cl[lang]
+        raw = cl["split"].get(key)
+        if not raw or len(raw) < 2 or depth <= 0:
+            return None
+        pieces = []
+        for p in raw:
+            pk = norm_key(lang, p)
+            if not pk:
+                return None
+            a = curation.ROOT_ALIASES.get(p) or curation.ROOT_ALIASES.get(pk)
+            if a:
+                pieces.append((p, a, None))
+                continue
+            # All or nothing: a piece with no card of its own would ship as
+            # an inert fragment, which teaches less than the whole part.
+            if pk not in cl["gloss"]:
+                return None
+            pieces.append((p, lang + ":" + pk, pk))
+        out = []
+        for form, rkey, pk in pieces:
+            if rkey in curation.ROOT_SKIPS:
+                out.append((form, None))
+                continue
+            sub = None
+            if pk is not None and pk not in seen:
+                sub = self.flatten(lang, pk, depth - 1, seen | {pk})
+            if sub:
+                out.extend(sub)
+            else:
+                out.append((form, rkey))
+        return out
+
+    def resolve(self, lang, lemma):
+        """The `org` value for a chain lemma: decomposed, single, or None."""
+        key = self.settle(lang, lemma)
         if not key:
             return None
         a = curation.ROOT_ALIASES.get(key)
         if a:
-            return a
-        cl = self.cl[lang]
-        # An inflection page has no gloss of its own. Step to its lemma
-        # first, so terrenum is judged as terrenus.
-        if key not in cl["gloss"] and key in cl["fo"]:
-            key = cl["fo"][key]
-            a = curation.ROOT_ALIASES.get(key)
-            if a:
-                return a
-        b = cl["base"].get(key)
-        if b and b != key and b in cl["gloss"]:
-            self.alias[key] = lang + ":" + b
-            self.hops += 1
-            return lang + ":" + b
-        return lang + ":" + key
+            # A curated alias is a decision about where the family belongs,
+            # so it wins over anything the extract would decompose.
+            self.stats["single"] += 1
+            return {"r": a}
+        flat = self.flatten(lang, key, ORG_DEPTH, {key})
+        if flat and len(flat) >= 2:
+            self.stats["decomposed"] += 1
+            self.stats["parts_%d" % min(len(flat), 6)] += 1
+            disp = self.cl[lang]["form"].get(key) or lemma
+            parts = []
+            for form, rkey in flat:
+                part = {"f": form}
+                if rkey:
+                    part["r"] = rkey
+                parts.append(part)
+            return {"l": disp, "lang": lang, "parts": parts}
+        self.stats["single"] += 1
+        return {"r": lang + ":" + key}
 
 
 def resolve_part(part, word, affixes, shipped):
@@ -1201,6 +1269,26 @@ def show_fo(k, words):
     return "fo=%s, first def %r" % (w.get("fo"), w["senses"][0]["defs"][0][:60])
 
 
+def show_org(org):
+    """An org row as one readable line, for the build report."""
+    if not org:
+        return "-"
+    if "parts" in org:
+        return "%s = %s" % (org["l"], " + ".join(
+            p["f"] + ("[" + p["r"] + "]" if p.get("r") else "")
+            for p in org["parts"]))
+    return org.get("r") or "-"
+
+
+def org_roots(org):
+    """Root keys an org row references, whichever shape it takes."""
+    if not org:
+        return ()
+    if "parts" in org:
+        return [p["r"] for p in org["parts"] if p.get("r")]
+    return [org["r"]] if org.get("r") else []
+
+
 def family_index(words):
     """root key -> word keys, the index the service worker derives at runtime.
 
@@ -1215,9 +1303,8 @@ def family_index(words):
         for m in w.get("morphs") or ():
             if m.get("r"):
                 credited.add(m["r"])
-        org = w.get("org")
-        if org and org.get("r"):
-            credited.add(org["r"])
+        for r in org_roots(w.get("org")):
+            credited.add(r)
         for r in sorted(credited):
             idx[r].append(k)
     return idx
@@ -1278,6 +1365,44 @@ def verify(words_obj, roots_obj, forms_obj):
     add("la:terra ships with a land gloss",
         terra is not None and "land" in (terra.get("gloss") or "").lower(),
         json.dumps(terra, ensure_ascii=False) if terra else "MISSING")
+    # ---- the FROM LATIN row --------------------------------------------
+    def org_of(k):
+        return (words.get(k) or {}).get("org")
+
+    mem = org_of("memory")
+    add("memory carries a decomposed org: memoria = memor + -ia",
+        bool(mem) and mem.get("l") == "memoria" and mem.get("lang") == "la"
+        and [p["f"] for p in mem["parts"]] == ["memor", "-ia"]
+        and mem["parts"][0].get("r") == "la:memor",
+        json.dumps(mem, ensure_ascii=False))
+
+    terr = org_of("territory")
+    add("territory upgrades to a decomposed org: territōrium = terra + -tōrium",
+        bool(terr) and "parts" in terr
+        and [p.get("r") for p in terr["parts"]] == ["la:terra", "la:-torium"],
+        json.dumps(terr, ensure_ascii=False))
+
+    memfam = set(idx.get("la:memor") or ())
+    add("la:memor ships with memory and remember in its family",
+        "la:memor" in roots and "memory" in memfam and "remember" in memfam,
+        "family %d: %s" % (len(memfam), ", ".join(sorted(memfam)[:10])))
+
+    # Latin and Greek affix pages are root nodes now, reached through org
+    # parts, with their kind from the entry pos exactly as en: affixes take
+    # theirs.
+    for key, kind in (("la:re-", "prefix"), ("la:-torium", "suffix")):
+        r = roots.get(key)
+        add("%s ships as a %s root node" % (key, kind),
+            r is not None and r.get("kind") == kind,
+            json.dumps(r, ensure_ascii=False) if r else "MISSING")
+
+    orgparts = [k for k, w in words.items()
+                if (w.get("org") or {}).get("parts")]
+    add("every decomposed org keeps at least one navigable part",
+        all(any(p.get("r") for p in words[k]["org"]["parts"])
+            for k in orgparts),
+        "%d decomposed org rows" % len(orgparts))
+
     add("la:terra family contains terrain and territory",
         "terrain" in fam and "territory" in fam,
         "family %d words, terrain=%s territory=%s, e.g. %s"
@@ -1470,7 +1595,7 @@ def verify(words_obj, roots_obj, forms_obj):
 
     referenced = {m["r"] for w in words.values()
                   for m in (w.get("morphs") or ()) if m.get("r")}
-    referenced |= {w["org"]["r"] for w in words.values() if w.get("org")}
+    referenced |= {r for w in words.values() for r in org_roots(w.get("org"))}
     dangling = sorted(referenced - set(roots))
     add("every referenced root key exists in roots.json", not dangling,
         "%d dangling%s" % (len(dangling), (": " + ", ".join(dangling[:5])) if dangling else ""))
@@ -1679,11 +1804,11 @@ def main(argv):
             "%s lemmas with an in-language split"
             % (lang, format(c["stats"]["lines"], ","),
                format(len(c["gloss"]), ","), format(len(c["fo"]), ","),
-               format(len(c["base"]), ",")))
+               format(len(c["split"]), ",")))
 
     # ---- curate and cap -----------------------------------------------
     log("[6/7] curating, capping and resolving roots")
-    anchors = Anchors(classical)
+    origin = Origin(classical)
     shipped = {}
     n_forced = n_blocked = n_infl = 0
     for wl, rec in harvest.items():
@@ -1715,15 +1840,17 @@ def main(argv):
         if parts:
             w["morphs"] = [{"f": p} for p in parts]
         elif rec["org"]:
-            key = anchors.anchor(rec["org"][0], rec["org"][1])
-            if key:
-                w["org"] = {"r": key}
+            org = origin.resolve(rec["org"][0], rec["org"][1])
+            if org:
+                w["org"] = org
         shipped[wl] = w
     log("  %s words ship (%s forced splits, %s blocked, %s inflectional "
-        "splits suppressed, %s unification hops)"
+        "splits suppressed)"
         % (format(len(shipped), ","), format(n_forced, ","),
-           format(n_blocked, ","), format(n_infl, ","),
-           format(anchors.hops, ",")))
+           format(n_blocked, ","), format(n_infl, ",")))
+    log("  origin chains: %s decomposed, %s single"
+        % (format(origin.stats["decomposed"], ","),
+           format(origin.stats["single"], ",")))
 
     # ---- resolve morphemes to roots, count references -------------------
     # One word credits a root once, however many of its morphs name it, and
@@ -1745,8 +1872,14 @@ def main(argv):
             elif field == "w":
                 m["w"] = k
                 n_wchip += 1
+        # An org row credits its roots exactly as morph chips do, once per
+        # word, whether it is a single lemma or a decomposed one.
         org = w.get("org")
-        if org:
+        if org and "parts" in org:
+            for p in org["parts"]:
+                if p.get("r"):
+                    credited.add(p["r"])
+        elif org:
             if org["r"] in curation.ROOT_SKIPS:
                 del w["org"]
             else:
@@ -1781,10 +1914,11 @@ def main(argv):
             r["rom"] = rom
         roots[key] = r
 
-    # Alias forms, from curation and from the unification hop, listed on the
-    # card they were folded into.
+    # Alias forms, from curation and from the inflection step, listed on the
+    # card they were folded into. Flattening produces no aliases of its own:
+    # an intermediate lemma is now decomposed rather than folded away.
     alt = collections.defaultdict(set)
-    for src, dst in list(curation.ROOT_ALIASES.items()) + list(anchors.alias.items()):
+    for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
         if dst in roots and src != roots[dst]["form"]:
             alt[dst].add(src)
     for key, forms in alt.items():
@@ -1799,28 +1933,43 @@ def main(argv):
         a = affixes.get(key.split(":", 1)[1])
         if not a or not a["src"]:
             continue
-        s = anchors.anchor(a["src"][0], a["src"][1])
+        # src names one lemma card, so it takes the settled key rather than
+        # a decomposition.
+        s = origin.settle(a["src"][0], a["src"][1])
+        s = curation.ROOT_ALIASES.get(s) or (a["src"][0] + ":" + s if s else None)
         if s and s in roots and s != key:
             r["src"] = s
             n_src += 1
 
     # ---- drop references to roots that did not make it ------------------
-    n_inert = n_orgdrop = 0
+    n_inert = n_orgdrop = n_inertpart = 0
     for wl, w in shipped.items():
         for m in w.get("morphs") or ():
             if m.get("r") and m["r"] not in roots:
                 del m["r"]
                 n_inert += 1
         org = w.get("org")
-        if org and org["r"] not in roots:
+        if org and "parts" in org:
+            # A part whose root missed the threshold renders inert. A row
+            # where every part did teaches nothing navigable, so it goes.
+            for p in org["parts"]:
+                if p.get("r") and p["r"] not in roots:
+                    del p["r"]
+                    n_inertpart += 1
+            if not any(p.get("r") for p in org["parts"]):
+                del w["org"]
+                n_orgdrop += 1
+        elif org and org["r"] not in roots:
             del w["org"]
             n_orgdrop += 1
         elif org:
             org["f"] = roots[org["r"]]["form"]
     log("  %s roots kept (%s src links); %s word chips, %s morph chips left "
-        "inert, %s org rows dropped, %s repeated morphs credited once"
+        "inert, %s org parts inert, %s org rows dropped, %s repeated morphs "
+        "credited once"
         % (format(len(roots), ","), format(n_src, ","), format(n_wchip, ","),
-           format(n_inert, ","), format(n_orgdrop, ","), format(n_repeat, ",")))
+           format(n_inert, ","), format(n_inertpart, ","),
+           format(n_orgdrop, ","), format(n_repeat, ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader
@@ -1952,9 +2101,8 @@ def main(argv):
                 m["f"] + ("[r " + m["r"] + "]" if m.get("r")
                           else "[w " + m["w"] + "]" if m.get("w") else "")
                 for m in w.get("morphs") or ()) or "-"
-            org = (w.get("org") or {}).get("r") or "-"
-            log("    %-22s fr=%-7s org=%-14s %s\n        %s"
-                % (k, w.get("fr", "-"), org, bits,
+            log("    %-22s fr=%-7s org=%-28s %s\n        %s"
+                % (k, w.get("fr", "-"), show_org(w.get("org")), bits,
                    w["senses"][0]["defs"][0][:70]))
 
     failed = verify(words_obj, roots_obj, forms_obj)

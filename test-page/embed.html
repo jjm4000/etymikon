@@ -88,7 +88,8 @@
 <div class="app">
   <header class="header">
     <button type="button" id="okp-brand" class="brand"
-            aria-label="Etymikon" title="Look up etymology">Etymikon</button>
+            aria-label="Etymikon: back to search"
+            title="Back to search">Etymikon</button>
     <nav id="okp-nav" class="nav" aria-label="Views"></nav>
     <div id="okp-actions" class="actions"></div>
   </header>
@@ -161,12 +162,22 @@
       fr: 4712,
       org: { r: "la:terra", f: "terra" }
     },
+    // A DECOMPOSED origin: the chain reaches a Latin lemma that itself splits,
+    // so the card lays that split out under "FROM LATIN territōrium" instead
+    // of saying it in one line. The suffix part is inert on purpose: la:-torium
+    // does not ship, and a part with no card of its own must still show.
     territory: {
       senses: [{ pos: "noun", defs: [
         "An area of land under the jurisdiction of a ruler or a state."
       ] }],
       fr: 2210,
-      org: { r: "la:terra", f: "terra" }
+      org: {
+        l: "territōrium", lang: "la",
+        parts: [
+          { f: "terra", r: "la:terra" },
+          { f: "-tōrium" }
+        ]
+      }
     },
     // Two POS sections, and the lemma "running" resolves to. The second verb
     // sense is deliberately long: it is what the clamp and its geometry-derived
@@ -245,6 +256,38 @@
       fr: 47000,
       seeAlso: "run"
     },
+    // The chain that does NOT decompose: Wiktionary's Latin data carries no
+    // split for rememorārī, so remember reaches la:memor through a curated
+    // alias and gets the one-line row.
+    remember: {
+      senses: [{ pos: "verb", defs: [
+        "To bring back to mind something known before."
+      ] }],
+      fr: 700,
+      org: { r: "la:memor", f: "memor" }
+    },
+    // The used-in pair: absolutely names absolute as a part, so absolute is
+    // "used in" it. Both ship, so the row and its list are real either way.
+    absolute: {
+      senses: [{ pos: "adj", defs: ["Complete, and not qualified by anything."] }],
+      fr: 3400
+    },
+    absolutely: {
+      senses: [{ pos: "adv", defs: ["Completely, and without qualification."] }],
+      fr: 2900,
+      morphs: [
+        { f: "absolute", w: "absolute" },
+        { f: "-ly", r: "en:-ly" }
+      ]
+    },
+    // A stem used in more words than one chunk carries, so the used-in list
+    // has something to page through. The words themselves are generated below,
+    // as real entries, so the index derives from morphs exactly as it does for
+    // every other word here.
+    over: {
+      senses: [{ pos: "prep", defs: ["Above, or across the top of."] }],
+      fr: 260
+    },
     // The re-entry guard's own case: a form-of link that resolves back to the
     // entry it sits on. Degenerate data, and absorbing it is what the guard is
     // for, so the row orients the reader on the card they are already reading
@@ -297,6 +340,19 @@
       ]
     }
   };
+
+  // 260 words built on "over", generated the way bigFamily generates a long
+  // family: real entries with real morphs, so nothing about the used-in index
+  // is special-cased for them.
+  (function () {
+    for (var i = 1; i <= 260; i++) {
+      WORDS["over" + i] = {
+        senses: [{ pos: "noun", defs: ["Fixture word " + i + "."] }],
+        fr: i * 100,
+        morphs: [{ f: "over", w: "over" }, { f: "-" + i }]
+      };
+    }
+  })();
 
   // The re-key rule puts the British spelling here too, so both spellings
   // resolve and the inflection note names whichever was selected.
@@ -407,6 +463,21 @@
       family: [
         { word: "etymology", fr: 32000 },
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
+      ]
+    },
+    // The lemma remember's chain reaches, through a curated alias.
+    "la:memor": {
+      form: "memor", lang: "la", gloss: "mindful", kind: "root",
+      family: [
+        { word: "remember", fr: 700 },
+        { word: "memory", def: "The faculty of recalling.", fr: 2400 }
+      ]
+    },
+    "en:-ly": {
+      form: "-ly", lang: "en", gloss: "forming adverbs", kind: "suffix",
+      family: [
+        { word: "absolutely", fr: 2900 },
+        { word: "kindly", def: "In a kind manner.", fr: 11000 }
       ]
     },
     // A gloss at the safety cap, so the chip clamp has something real to hold.
@@ -541,12 +612,23 @@
     match.tier = tier(entry.fr);
     match.tierLabel = tierLabel(match.tier);
     if (entry.morphs) match.morphs = joinMorphs(entry.morphs);
-    if (entry.org) {
+    // `org` travels in whichever of its two shapes the entry carries, with
+    // glosses joined on either way: a decomposed lemma joins its parts exactly
+    // as a breakdown joins its morphs, a single lemma joins the root's gloss.
+    if (entry.org && entry.org.parts) {
+      match.org = {
+        l: entry.org.l, lang: entry.org.lang,
+        parts: joinMorphs(entry.org.parts)
+      };
+    } else if (entry.org) {
       match.org = { r: entry.org.r, f: entry.org.f };
       var root = ROOTS[entry.org.r];
       if (root && root.gloss) match.org.gloss = root.gloss;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
+    // Omitted when nothing is built on this word, exactly like the worker.
+    var usedIn = usedInRows(lemma).length;
+    if (usedIn > 0) match.usedInCount = usedIn;
     // The Wiktionary title, passed through when the entry carries one.
     if (entry.wik) match.wik = entry.wik;
     if (inflected) match.formOf = { surface: surface, lemma: lemma };
@@ -568,10 +650,10 @@
    * unranked last, ties by word.
    * ------------------------------------------------------------------ */
 
-  function rankedFamily(key) {
-    var root = ROOTS[key];
-    if (!root) return [];
-    return root.family.slice().sort(function (a, b) {
+  // The one ranking rule, shared by the family index and the used-in index:
+  // fr ascending, unranked last, ties by word.
+  function rankRows(rows) {
+    return rows.slice().sort(function (a, b) {
       var af = typeof a.fr === "number" ? a.fr : Infinity;
       var bf = typeof b.fr === "number" ? b.fr : Infinity;
       if (af !== bf) return af - bf;
@@ -583,6 +665,40 @@
       row.tierLabel = tierLabel(row.tier);
       return row;
     });
+  }
+
+  function rankedFamily(key) {
+    var root = ROOTS[key];
+    if (!root) return [];
+    return rankRows(root.family);
+  }
+
+  // The used-in index, DERIVED here the way the worker derives it from
+  // words.json: every shipped word whose morphs name this one by `w`. Never
+  // stored, and ranked by the same rule the family index uses.
+  function usedInRows(key) {
+    var out = [];
+    Object.keys(WORDS).forEach(function (word) {
+      var morphs = WORDS[word].morphs;
+      if (!morphs) return;
+      for (var i = 0; i < morphs.length; i++) {
+        if (morphs[i].w === key) {
+          out.push({ word: word, fr: WORDS[word].fr });
+          return;
+        }
+      }
+    });
+    return rankRows(out);
+  }
+
+  // One chunk of the used-in list, in the family chunk shape and size.
+  function usedInChunk(key, offset) {
+    var all = usedInRows(key);
+    var at = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
+    return {
+      ok: true, rows: all.slice(at, at + FAMILY_CHUNK),
+      total: all.length, offset: at
+    };
   }
 
   function rootResponse(key) {
@@ -1022,8 +1138,15 @@
     }
   };
 
+  // The shipped manifest version, in miniature. The settings view reads it off
+  // whichever runtime is in play, so the fake worker is where it belongs here:
+  // giving the page a real chrome.runtime instead would flip content.js out of
+  // stub mode and silently disable every test hook on it.
+  var MANIFEST = { name: "Etymikon", version: "1.2.0" };
+
   globalThis.__hanjaHoverTestRuntime = {
     __isStub: true,
+    getManifest: function () { return { name: MANIFEST.name, version: MANIFEST.version }; },
     __calls: 0,          // dictionary sendMessage: proves "back" does not re-query
     __lastText: null,
     __rootCalls: 0,
@@ -1032,6 +1155,9 @@
     __lastFamilyKey: null,
     __lastFamilyOffset: null,
     __failFamily: false,
+    __usedInCalls: 0,
+    __lastUsedInKey: null,
+    __lastUsedInOffset: null,
     // {type:"openTab"}: the in-page popup's route to a background tab, since
     // a content script cannot reach chrome.tabs itself. The real worker
     // validates the url against the Wiktionary base; flip __failOpenTab to
@@ -1060,6 +1186,11 @@
           resp = this.__failFamily
             ? { ok: false, error: "simulated failure" }
             : familyChunk(String(msg.key || ""), msg.offset);
+        } else if (msg && msg.type === "usedIn") {
+          this.__usedInCalls++;
+          this.__lastUsedInKey = msg.key;
+          this.__lastUsedInOffset = msg.offset;
+          resp = usedInChunk(String(msg.key || ""), msg.offset);
         } else if (msg && msg.type === "openTab") {
           this.__openTabCalls++;
           this.__lastOpenTabUrl = msg.url;
@@ -1081,6 +1212,8 @@
     __root: rootResponse,
     __family: rankedFamily,
     __familyChunk: familyChunk,
+    __usedIn: usedInRows,
+    __usedInChunk: usedInChunk,
     __words: WORDS,
     __roots: ROOTS,
     __savedStore: savedStore
@@ -1545,7 +1678,7 @@
     await until(function () { return api.viewDepth() === 2; });
     api.queryAll(".fam-row")[0].click();        // territory
     await until(function () { return api.viewDepth() === 3; });
-    api.query(".origin-row").click();           // terra again, forward travel
+    api.queryAll(".morph")[0].click();          // terra again, forward travel
     await checkSoon("a deep trail renders every level while it fits",
       function () { return api.crumbLabels().length === 4; },
       function () { return api.crumbLabels().join(" › "); });
@@ -1565,6 +1698,46 @@
         return api.crumbLabels().indexOf("…") < 0 && api.crumbLabels().length === 4;
       },
       function () { return api.crumbLabels().join(" › "); });
+
+    // --- the FROM LATIN row and the used-in list on this surface --------------
+    // Both features are renderer-side, so the sidebar gets them with no code
+    // of its own. What this surface adds is the panel width and the crumbs.
+    await search("territory");
+    check("a decomposed origin renders its chip row in the sidebar too",
+      !!api.query(".morphs") && !api.query(".origin-row:not(.usedin-row)") &&
+      texts(api.queryAll(".morph-form")).join(" ") === "terra -tōrium",
+      texts(api.queryAll(".morph-form")).join(" "));
+    // The card also carries POS labels, so name the origin label by the lemma
+    // inside it rather than taking whichever .label comes first.
+    var originLabel = api.query(".origin-lemma").parentNode;
+    check("the label reads FROM LATIN with the lemma beside it, italic",
+      originLabel.textContent === "FROM LATIN territōrium" &&
+      getComputedStyle(api.query(".origin-lemma")).fontStyle === "italic",
+      originLabel.textContent);
+    api.queryAll(".morph")[0].click();           // terra
+    await checkSoon("a chip in that row drills into its root card with a crumb",
+      function () {
+        return api.viewDepth() === 2 &&
+          api.crumbLabels().join(" › ") === "territory › terra";
+      },
+      function () { return api.crumbLabels().join(" › "); });
+
+    await search("absolute");
+    check("the used-in row renders here with its count",
+      !!api.query(".usedin-row") &&
+      api.query(".usedin-row").textContent === "Used in 1 word",
+      api.query(".usedin-row") ? api.query(".usedin-row").textContent : "no row");
+    api.query(".usedin-row").click();
+    await checkSoon("it opens the list view, crumbed by the word",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.usedin") &&
+          api.crumbLabels().join(" › ") === "absolute › absolute";
+      },
+      function () { return api.crumbLabels().join(" › "); });
+    api.queryAll(".crumb")[0].click();
+    await checkSoon("the crumb walks back out of the list",
+      function () { return api.viewDepth() === 1 && surfaceText() === "absolute"; },
+      function () { return "depth=" + api.viewDepth(); });
 
     // --- the Wiktionary link on this surface ----------------------------------
     await search("subterranean");
@@ -1612,19 +1785,38 @@
 
     // --- the wordmark ----------------------------------------------------------
     var brand = document.getElementById("okp-brand");
-    check("the wordmark is a plain-text button with a readable name",
+    check("the wordmark is a plain-text button that says where it goes",
       brand.tagName === "BUTTON" && brand.textContent === "Etymikon" &&
-      brand.getAttribute("aria-label") === "Etymikon",
+      brand.getAttribute("aria-label") === "Etymikon: back to search",
       brand.textContent + " / " + brand.getAttribute("aria-label"));
     check("the wordmark carries no CJK font stack",
       !/Batang|Myeongjo|Songti|SimSun/i.test(getComputedStyle(brand).fontFamily),
       getComputedStyle(brand).fontFamily);
+    // HOME, from as deep as the reader can get: a drill-down inside a view
+    // that is not even the search view.
+    await search("subterranean");
+    api.queryAll(".morph")[1].click();            // terra
+    await until(function () { return api.viewDepth() === 2; });
+    api.queryAll(".fam-row")[0].click();          // territory
+    await until(function () { return api.viewDepth() === 3; });
+    sidebar.showView("saved");
+    await until(function () { return sidebar.activeView() === "saved"; });
+    var brandCalls = fake.__calls;
     brand.click();
-    await checkSoon("clicking the wordmark looks up the word the name is built from",
+    await checkSoon("the wordmark goes home: search view, empty field, empty state",
       function () {
-        return input.value === "etymology" && surfaceText() === "etymology";
+        return sidebar.activeView() === "search" && input.value === "" &&
+          !api.isVisible() && status.getAttribute("data-state") === "empty";
       },
-      function () { return input.value + " / " + surfaceText(); });
+      function () {
+        return sidebar.activeView() + " / value=" + JSON.stringify(input.value) +
+          " / " + status.getAttribute("data-state");
+      });
+    check("it drops the whole descent rather than leaving a trail behind",
+      api.viewDepth() === 0 && !api.isVisible(),
+      "depth=" + api.viewDepth() + " visible=" + api.isVisible());
+    check("and it never runs a lookup, because the name is not an entry",
+      fake.__calls === brandCalls, "calls=" + (fake.__calls - brandCalls));
 
     // --- the save star and its bubble ------------------------------------------
     store.reset();
@@ -2151,6 +2343,42 @@
       },
       function () { return checkedValues("anki.rootBack"); });
 
+    // --- the attribution footer -------------------------------------------------------
+    // Not a setting, so not in the schema: a static block under the controls,
+    // which is also what makes the seal count it as content.
+    var footer = document.querySelector("#okp-settings .settings-footer");
+    check("the settings body ends with the attribution block, outside the schema",
+      !!footer && document.querySelector("#okp-settings").lastElementChild === footer &&
+      settingsView.schema.every(function (e) { return e.key !== "footer"; }),
+      footer ? footer.className : "no footer");
+    check("it names the app at the shipped version and credits Wiktionary",
+      /^Etymikon 1\.2\.0\. Definitions from Wiktionary, CC BY-SA\. /
+        .test(footer.textContent) && settingsView.appVersion() === "1.2.0",
+      footer.textContent);
+    var repo = footer.querySelector(".settings-repo");
+    check("the source link is a real link to the repository",
+      !!repo && repo.href === settingsView.repoUrl &&
+      repo.href === "https://github.com/jjm4000/etymikon" &&
+      repo.target === "_blank" && /noopener/.test(repo.rel),
+      repo ? repo.href : "no link");
+    tabsSpy.reset();
+    repo.dispatchEvent(new MouseEvent("click", {
+      bubbles: true, cancelable: true, button: 0
+    }));
+    await checkSoon("a plain click opens it in a BACKGROUND tab, like every other link",
+      function () {
+        return tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
+          tabsSpy.calls[0].url === "https://github.com/jjm4000/etymikon";
+      },
+      function () { return JSON.stringify(tabsSpy.calls[0]); });
+    tabsSpy.reset();
+    repo.dispatchEvent(new MouseEvent("click", {
+      bubbles: true, cancelable: true, button: 0, metaKey: true
+    }));
+    await elapse(60);
+    check("a MODIFIED click is left to the browser, untouched",
+      tabsSpy.calls.length === 0, "calls=" + tabsSpy.calls.length);
+
     // --- the corner seal --------------------------------------------------------------
     // One threshold and one debounce, measured in one place, with the only
     // per-view knob being which box holds the content. A view that names no box
@@ -2208,6 +2436,11 @@
     check("a poke with nothing pending changes nothing",
       applied.applied === false && fake.__calls === pokeCallsBefore,
       JSON.stringify(applied));
+    // Quiesce the shell before the poke: an earlier check's typed-search
+    // debounce can still be pending, and under timer clamping it fires AFTER
+    // the poke's immediate search, legitimately re-rendering the old query.
+    // elapse guarantees the wall-clock passes so any stale timer lands first.
+    await elapse(DEBOUNCE + 150);
     pendingSpy.set("terrain");
     sidebar.showView("settings");
     applied = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
@@ -2247,8 +2480,8 @@
         "content.js could not be fetched (serve the repo over http://)");
     } else {
       ["appendWordHead", "appendGlosses", "appendBreakdown", "appendOrigin",
-       "appendSeeAlso", "appendRootHead", "appendRootGloss", "appendRootSource",
-       "appendFamily"
+       "appendUsedIn", "appendSeeAlso", "appendRootHead", "appendRootGloss",
+       "appendRootSource", "appendFamily", "appendUsedInHead", "appendUsedInRows"
       ].forEach(function (name) {
         var defs = source.split("function " + name + "(").length - 1;
         var uses = source.split(name + "(").length - 1;
@@ -2257,7 +2490,7 @@
       });
       check("one settings accessor, and every section predicate goes through it",
         (source.split("function sectionSettings(").length - 1) === 1 &&
-        (source.split("Enabled(sectionSettings())").length - 1) === 9,
+        (source.split("Enabled(sectionSettings())").length - 1) === 12,
         "predicates=" + (source.split("Enabled(sectionSettings())").length - 1));
     }
 

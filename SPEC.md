@@ -16,7 +16,9 @@ needs its full binding detail.
 ## Product decisions (ratified with Jesse, 2026-08-24/25)
 
 - Name: Etymikon (Greek etymos "true sense" + -ikon, the lexicon
-  formation). The K spelling is binding.
+  formation). The K spelling is binding. Tagline (Jesse decision
+  2026-08-25, the Okpyeon pattern with a colon): the manifest and
+  store name is "Etymikon: Word Roots Popup Dictionary".
 - Audience: native speakers building vocabulary (GRE/SAT register).
   Wiktionary definitions ship as harvested, no simplification pass.
 - Dictionary scope: general English dictionary. Every shipped word gets
@@ -117,10 +119,43 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   ("everyday" | "common" | "advanced" | "rare") onto every word match
   and family row, because the renderer is a classic script that cannot
   import lookup.js; the cutoffs still live in exactly one place.
-- `org`: optional origin chain, present when the word has no `morphs`
-  but its etymology chain reaches a shipped Latin/Greek root:
-  `"org": { "r": "la:terra", "f": "terra" }`. A word never carries both
-  `morphs` and `org`.
+- `org`: optional origin, present when the word has no `morphs` but
+  its etymology chain reaches Latin or Greek. Two shapes (Jesse
+  decision 2026-08-25, the FROM LATIN row):
+  - Decomposed, when the chain's source lemma itself decomposes in
+    the source-language extract:
+    `"org": { "l": "territōrium", "lang": "la", "parts": [
+    { "f": "terra", "r": "la:terra" },
+    { "f": "-tōrium", "r": "la:-torium" } ] }`. `l` is the source lemma's
+    display form, macrons kept. `parts` (2 or more) follow the morphs
+    chip contract: `f` display form, `r` root key when that root
+    ships, absent for an inert chip. Parts come from the recursive
+    flattening rule below.
+  - Single, when the lemma does not decompose:
+    `"org": { "r": "la:terra", "f": "terra" }` as before.
+  A word never carries both `morphs` and `org`.
+- Recursive flattening (supersedes the one-hop unification rule): the
+  chain's source lemma is decomposed recursively WITHIN its source
+  language, depth capped at 3, expanding a part only when every
+  resulting piece still has an entry in that language's extract (the
+  all-or-nothing spirit of Okpyeon's dead-end rule: a split that
+  introduces an inert fragment teaches less than the whole part).
+  ROOT_SKIPS and ROOT_ALIASES apply at every level. Root families
+  anchor at the deepest bases this reaches. Where the source has no
+  decomposition templates at all (Latin rememoror and memorō carry
+  only prose etymologies, verified 2026-08-25), recursion cannot
+  reach the base and ROOT_ALIASES is the stated tool: the memor
+  group lands together in la:memor through four curated aliases,
+  and remember keeps the SINGLE org shape pointing at la:memor.
+  memorial reaches memor by drilling memorial to memory to its FROM
+  LATIN row (it carries English morphs, and a word never carries
+  both morphs and org).
+- Latin and Greek AFFIX entries (la:re-, la:-ari) join the root node
+  set through org parts, with kind from their entry pos and the
+  composed labels already specced (Latin prefix, Greek suffix). The
+  2-distinct-word ship threshold applies to them unchanged, and org
+  parts credit families exactly as morphs `r` references do
+  (per-word dedupe).
 - `fo`: optional, on shipped words that ALSO carry INFLECTION form-of
   senses pointing at a shipped lemma (ran has a marginal noun sense,
   so it ships as a word and shadows run at lookup time): the lemma
@@ -309,7 +344,20 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 - Word matches pass through `wik` when the entry carries it (the
   US-primary re-key case): the Wiktionary page title the card must
   link to instead of the canonical key.
-- `org` words carry `"org": { "r": "la:terra", "f": "terra",
+- Used-in (Jesse decision 2026-08-25, the Okpyeon "Used in N larger
+  words" analog): word matches carry `usedInCount` (omitted when 0),
+  the number of shipped words whose `morphs` reference this word by
+  `w`. `{ "type": "usedIn", "key": "absolute", "offset": 0 }` answers
+  `{ "ok": true, "rows": [...], "total": N, "offset": 0 }` in the
+  family chunk shape and size, rows ranked by `fr` ascending,
+  unranked last, ties by key. The index derives at runtime from
+  words.json exactly like the family index (never stored; the
+  recomposition property applies) and is cleared with the data cache.
+- `org` words carry their shape with glosses joined: decomposed
+  `"org": { "l": "territōrium", "lang": "la", "parts": [ { "f": "terra",
+  "r": "la:terra", "gloss": "dry land" }, ... ] }` (parts follow the
+  morphs join rules: `r` chips get the root gloss, partless chips get
+  `f` only); single `"org": { "r": "la:terra", "f": "terra",
   "gloss": "earth, land" }`.
 - On failure: `{ "ok": false, "error": "message" }`. No match:
   `{ "ok": true, "matches": [] }`.
@@ -410,13 +458,27 @@ Sections in order:
   not suppress navigation (review finding 2026-08-24: Chrome's closed
   shadow getSelection reflects the page selection, and the guard as
   written killed every nav row in the select-then-click flow).
-- `appendOrigin`: for `org` words, one quiet nav row in the used-in
-  style: "From Latin terra (earth, land) ›", navigating to the root
-  card. Absent when no `org`. A word card never renders both this and
-  the breakdown (data invariant).
+- `appendOrigin`: for `org` words, by shape. Decomposed org renders a
+  chip row exactly like appendBreakdown's, under the label
+  "FROM LATIN territōrium" (or FROM GREEK): the label word is in the
+  house uppercase label style, the lemma beside it italic in normal
+  case, macrons kept. Chips are the morphs chip anatomy verbatim:
+  form over gloss, `r` chips navigate to root cards, chips without
+  `r` inert. Single org keeps the quiet nav row: "From Latin terra
+  (earth, land) ›", navigating to the root card. Absent when no
+  `org`. A word card never renders both this and the breakdown (data
+  invariant).
 - `appendSeeAlso`: for matches carrying `seeAlso`, one quiet nav row
   last in the word body: "Also a form of run ›", an ordinary lookup
   drill-down to the lemma. Absent otherwise.
+- `appendUsedIn`: for matches carrying `usedInCount`, one quiet nav
+  row after the breakdown or origin section and before appendSeeAlso:
+  "Used in N words ›". Tapping navigates (Okpyeon's usedIn pattern:
+  a list view, not in-place expansion) to a `usedin:<key>` view
+  titled by the word, rows in the family-row format (word, first def,
+  tier chip), each an ordinary lookup drill-down, chunk-fetched by
+  offset like family lists, cached per view, crumb labeled with the
+  word. Absent when no `usedInCount`.
 
 ### Root card
 
@@ -483,10 +545,21 @@ tier chip; the family count line is the root's weight signal.
   [`gloss`, `family`]. CSV columns: kind, key, defs/gloss, breakdown,
   tier, folder, added.
 - Brand: the sidebar wordmark is "Etymikon" (plain text, no CJK font
-  stack), aria-label "Etymikon", clickable exactly like Okpyeon's
-  wordmark: it looks up the word "etymology". The corner seal keeps its
+  stack), aria-label "Etymikon: back to search". Clicking it is HOME
+  (Jesse decision 2026-08-25, replacing the Okpyeon self-lookup,
+  which read as a bug here because Etymikon is not an entry): it
+  shows the search view, clears the input and results to the empty
+  state, and resets the view stack; it never runs a lookup. The
+  attribution that has no surface today moves to the settings view:
+  a static muted footer block under the schema-rendered controls
+  reading "Etymikon <version>. Definitions from Wiktionary,
+  CC BY-SA." with the version read from the manifest and a link to
+  the GitHub repository (background-open rules apply). The corner
+  seal keeps its
   mechanism (fit-gated, z-index rules) with new artwork: the Greek word
-  "ἔτυμον" in the seal frame. Fonts: system stack everywhere; the
+  "ἐτυμικόν", the app's name in its native Greek shape, in the seal
+  frame (Jesse decision 2026-08-25, replacing the earlier ἔτυμον).
+  Fonts: system stack everywhere; the
   Batang/serif rules are deleted.
 - Icon (chosen 2026-08-25, rendered by pipeline/make_icons.py): a bare
   lowercase epsilon in Georgia Bold, cream (#FFF7F0) on a terracotta
@@ -605,7 +678,14 @@ silently diverged from):
   root; en:un- ships with a family of 5 or more; la:terra ships with
   gloss containing "land" (the Latin extract's first sense reads "dry
   land", verified 2026-08-24) and family containing terrain and
-  territory; understand ships with no morphs (BLOCKED); had ships with
+  territory; remember carries a single org referencing la:memor (via
+  ROOT_ALIASES; its Latin chain has no decomposition templates);
+  memory carries a decomposed org with a memor part; territory
+  carries a decomposed org (terra + -tōrium); la:memor's family
+  contains memory, remember, and memorandum; la:re- ships as a Latin
+  prefix node and la:-tōrium as a Latin suffix node; absolute's
+  usedIn contains absolutely; understand ships with no morphs
+  (BLOCKED); had ships with
   no morphs (its -ed split is inflectional, and it carries auxiliary
   senses of its own so it is a word, not a forms.json entry); "running"
   ships as a word with no morphs (same reason: it carries adjective,

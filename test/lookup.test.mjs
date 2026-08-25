@@ -24,6 +24,8 @@ import {
   buildOmniboxSuggestions,
   buildRoot,
   buildSearchIndex,
+  buildUsedIn,
+  buildUsedInIndex,
   escapeXml,
   extractToken,
   firstDef,
@@ -71,6 +73,14 @@ const words = {
     // A one-letter word, so the "no one-letter lemma" guard has something to
     // wrongly resolve to.
     a: { senses: [{ pos: "article", defs: ["The indefinite article."] }], fr: 5 },
+    // The used-in anchor: one bigger word is built on this one.
+    absolute: { senses: [{ pos: "adj", defs: ["Free from imperfection."] }], fr: 2100 },
+    absolutely: {
+      senses: [{ pos: "adv", defs: ["In an absolute manner."] }],
+      // "en:-ly" does not ship here, so that chip is inert and credits no root.
+      morphs: [{ f: "absolute", w: "absolute" }, { f: "-ly", r: "en:-ly" }],
+      fr: 1802,
+    },
     beautiful: {
       senses: [{ pos: "adj", defs: ["Having beauty."] }],
       // "beauty" does not ship here, so that chip must come back inert.
@@ -108,6 +118,17 @@ const words = {
       morphs: [{ f: "logos", r: "grc:λόγος" }, { f: "-ic", r: "en:-ic" }],
       fr: 5000,
     },
+    // A decomposed org whose lemma splits in its own language. The third part
+    // names a root this bundle does not ship, so its chip comes back inert.
+    memory: {
+      senses: [{ pos: "noun", defs: ["The faculty of recalling."] }],
+      org: {
+        l: "memoria",
+        lang: "la",
+        parts: [{ f: "memor", r: "la:memor" }, { f: "-ia" }],
+      },
+      fr: 1015,
+    },
     muse: { senses: [{ pos: "noun", defs: ["A source of inspiration."] }], fr: 24810 },
     music: {
       senses: [{ pos: "noun", defs: ["Sounds arranged for beauty of form."] }],
@@ -121,6 +142,20 @@ const words = {
       senses: [{ pos: "noun", defs: ["A marginal noun sense."] }],
       fo: "run",
       fr: 8400,
+    },
+    remember: {
+      senses: [{ pos: "verb", defs: ["To recall to mind."] }],
+      org: {
+        l: "rememorārī",
+        lang: "la",
+        parts: [
+          { f: "re-", r: "la:re-" },
+          { f: "memor", r: "la:memor" },
+          // A part naming a root that did not ship: the chip renders inert.
+          { f: "-ārī", r: "la:-ari" },
+        ],
+      },
+      fr: 1120,
     },
     run: {
       senses: [
@@ -210,6 +245,9 @@ const roots = {
       gloss: "word, reason",
       kind: "root",
     },
+    // The Latin affix and base an org decomposition lands on.
+    "la:memor": { form: "memor", lang: "la", gloss: "mindful", kind: "root" },
+    "la:re-": { form: "re-", lang: "la", gloss: "back, again", kind: "prefix" },
     "la:sub": { form: "sub", lang: "la", gloss: "under", kind: "root" },
     "la:terra": {
       form: "terra",
@@ -237,7 +275,10 @@ const forms = {
   },
 };
 
-const data = { words, roots, forms };
+// The worker hands the used-in index to every lookup, since each word match
+// carries its count, so the fixture bundle carries it too.
+const usedInIndex = buildUsedInIndex(words);
+const data = { words, roots, forms, usedInIndex };
 const familyIndex = buildFamilyIndex(words);
 const joinData = { ...data, familyIndex };
 
@@ -571,6 +612,145 @@ test("a morph word carries no org row", () => {
   assert.equal("org" in one("subterranean"), false);
 });
 
+test("a decomposed org joins its parts exactly like morph chips", () => {
+  const match = one("remember");
+  assert.deepEqual(match.org, {
+    l: "rememorārī",
+    lang: "la",
+    parts: [
+      { f: "re-", r: "la:re-", gloss: "back, again" },
+      { f: "memor", r: "la:memor", gloss: "mindful" },
+      // The unshipped root loses its key, so the chip renders inert.
+      { f: "-ārī" },
+    ],
+  });
+  assert.equal("morphs" in match, false);
+  assert.equal("r" in match.org, false, "a decomposed org names no single root");
+});
+
+test("a decomposed org part with no link at all renders inert", () => {
+  const match = one("memory");
+  assert.deepEqual(match.org, {
+    l: "memoria",
+    lang: "la",
+    parts: [{ f: "memor", r: "la:memor", gloss: "mindful" }, { f: "-ia" }],
+  });
+});
+
+test("an org part never comes back as a word chip", () => {
+  // "memor" is not a shipped word here, but even when a part names one, parts
+  // join against no word table: the org chip contract is `f` and at most `r`.
+  const wordish = {
+    words: {
+      v: 1,
+      words: {
+        x: {
+          senses: [{ pos: "noun", defs: ["A thing."] }],
+          org: { l: "muse", lang: "la", parts: [{ f: "muse", w: "muse" }, { f: "-x" }] },
+        },
+        muse: { senses: [{ pos: "noun", defs: ["A source of inspiration."] }] },
+      },
+    },
+    roots,
+  };
+  assert.deepEqual(buildMatches("x", wordish)[0].org.parts, [{ f: "muse" }, { f: "-x" }]);
+});
+
+test("org parts credit root families exactly as morphs do", () => {
+  // Both words reach la:memor through their org parts, per-word deduped, and
+  // the family ranks like any other.
+  assert.deepEqual(familyIndex["la:memor"], ["memory", "remember"]);
+  assert.deepEqual(familyIndex["la:re-"], ["remember"]);
+  const root = buildRoot("la:memor", data, familyIndex);
+  assert.equal(root.familyCount, 2);
+  assert.equal(root.label, "Latin root");
+  assert.deepEqual(buildRoot("la:re-", data, familyIndex).label, "Latin prefix");
+  // A repeated part credits once, like a repeated morpheme.
+  const twice = buildFamilyIndex({
+    v: 1,
+    words: {
+      rememorate: {
+        senses: [{ pos: "verb", defs: ["To recall."] }],
+        org: {
+          l: "rememorāre",
+          lang: "la",
+          parts: [{ f: "memor", r: "la:memor" }, { f: "memor-", r: "la:memor" }],
+        },
+      },
+    },
+  });
+  assert.deepEqual(twice["la:memor"], ["rememorate"]);
+});
+
+// --- used in --------------------------------------------------------------
+
+test("the used-in index credits w chips and nothing else", () => {
+  assert.deepEqual(usedInIndex["muse"], ["music"]);
+  assert.deepEqual(usedInIndex["hope"], ["hopeful"]);
+  assert.deepEqual(usedInIndex["absolute"], ["absolutely"]);
+  // A root key never enters it, whether it arrived through morphs or org parts.
+  assert.equal(usedInIndex["en:-ic"], undefined, "an r chip credits no word");
+  assert.equal(usedInIndex["la:memor"], undefined, "an org part credits no word");
+  assert.equal(usedInIndex["memor"], undefined);
+  // A w chip naming a word that did not ship is still a reference; buildUsedIn
+  // is where an unknown key stops.
+  assert.deepEqual(usedInIndex["beauty"], ["beautiful"]);
+  assert.deepEqual(buildUsedIn("beauty", data, usedInIndex), { rows: [], total: 0, offset: 0 });
+});
+
+test("used-in lists rank by fr ascending, unranked last, ties by key", () => {
+  const sense = [{ pos: "noun", defs: ["A word."] }];
+  const built = (fr) => ({ senses: sense, morphs: [{ f: "base", w: "base" }], fr });
+  const index = buildUsedInIndex({
+    v: 1,
+    words: {
+      base: { senses: sense },
+      zed: built(10),
+      alpha: built(10),
+      later: built(99),
+      never: built(undefined),
+      also: built(undefined),
+    },
+  });
+  assert.deepEqual(index.base, ["alpha", "zed", "later", "also", "never"]);
+});
+
+test("a word match carries usedInCount, and omits it at zero", () => {
+  assert.equal(one("absolute").usedInCount, 1);
+  assert.equal(one("muse").usedInCount, 1);
+  assert.equal(one("hope").usedInCount, 1);
+  assert.equal("usedInCount" in one("absolutely"), false, "nothing is built on it");
+  assert.equal("usedInCount" in one("subterranean"), false);
+  // No index at all is the same as an empty one: the field simply stays off.
+  assert.equal("usedInCount" in buildMatches("muse", { words, roots, forms })[0], false);
+});
+
+test("a usedIn chunk is the family row shape", () => {
+  const chunk = buildUsedIn("absolute", data, usedInIndex);
+  assert.deepEqual(chunk, {
+    rows: [
+      {
+        word: "absolutely",
+        def: "In an absolute manner.",
+        tier: "everyday",
+        tierLabel: "Everyday",
+        fr: 1802,
+      },
+    ],
+    total: 1,
+    offset: 0,
+  });
+});
+
+test("a usedIn key is folded and an unknown key answers with no rows", () => {
+  assert.equal(buildUsedIn("ABSOLUTE", data, usedInIndex).total, 1);
+  assert.equal(buildUsedIn("  absolute", data, usedInIndex).total, 0, "no token rule here");
+  assert.deepEqual(buildUsedIn("zzzyzx", data, usedInIndex), { rows: [], total: 0, offset: 0 });
+  assert.deepEqual(buildUsedIn(undefined, data, usedInIndex), { rows: [], total: 0, offset: 0 });
+  // A shipped word nothing is built on: a real key, an empty list.
+  assert.deepEqual(buildUsedIn("terrain", data, usedInIndex), { rows: [], total: 0, offset: 0 });
+});
+
 // --- the shadow-entry row -------------------------------------------------
 
 test("a shipped word that shadows an inflection points at its lemma", () => {
@@ -776,6 +956,56 @@ test("an unusable offset reads as 0", () => {
     const chunk = buildFamily("la:terra", data, familyIndex, offset);
     assert.equal(chunk.offset, 0, `offset ${String(offset)} must read as 0`);
     assert.equal(chunk.rows.length, 5);
+  }
+});
+
+// A used-in list two and a bit chunks deep, for the same offset math.
+const bigUsedInWords = { v: 1, words: { absolute: { senses: [{ pos: "adj", defs: ["Whole."] }] } } };
+const BIG_USED_IN = FAMILY_CHUNK * 2 + 45;
+for (let i = 0; i < BIG_USED_IN; i += 1) {
+  bigUsedInWords.words[`absolute${String(i).padStart(4, "0")}`] = {
+    senses: [{ pos: "adv", defs: [`Word ${i}.`] }],
+    morphs: [{ f: "absolute", w: "absolute" }],
+    fr: 100 + i,
+  };
+}
+const bigUsedInData = { words: bigUsedInWords, roots };
+const bigUsedInIndex = buildUsedInIndex(bigUsedInWords);
+
+test(`a usedIn answers at most ${FAMILY_CHUNK} rows, with the total behind them`, () => {
+  const first = buildUsedIn("absolute", bigUsedInData, bigUsedInIndex);
+  assert.equal(first.rows.length, FAMILY_CHUNK);
+  assert.equal(first.total, BIG_USED_IN);
+  assert.equal(first.offset, 0);
+  assert.equal(first.rows[0].word, "absolute0000");
+});
+
+test("later usedIn chunks continue the ranked order at their offset", () => {
+  const second = buildUsedIn("absolute", bigUsedInData, bigUsedInIndex, FAMILY_CHUNK);
+  assert.equal(second.offset, FAMILY_CHUNK);
+  assert.equal(second.total, BIG_USED_IN);
+  assert.equal(second.rows[0].word, `absolute0${FAMILY_CHUNK}`);
+
+  const third = buildUsedIn("absolute", bigUsedInData, bigUsedInIndex, FAMILY_CHUNK * 2);
+  assert.equal(third.rows.length, BIG_USED_IN - FAMILY_CHUNK * 2);
+  assert.equal(third.rows.at(-1).word, `absolute0${BIG_USED_IN - 1}`);
+
+  const past = buildUsedIn("absolute", bigUsedInData, bigUsedInIndex, BIG_USED_IN + 10);
+  assert.deepEqual(past, { rows: [], total: BIG_USED_IN, offset: BIG_USED_IN + 10 });
+
+  // Every chunk together is the whole ranked list, once.
+  const walked = [];
+  for (let offset = 0; offset < BIG_USED_IN; offset += FAMILY_CHUNK) {
+    walked.push(...buildUsedIn("absolute", bigUsedInData, bigUsedInIndex, offset).rows);
+  }
+  assert.equal(new Set(walked.map((r) => r.word)).size, BIG_USED_IN);
+});
+
+test("an unusable usedIn offset reads as 0", () => {
+  for (const offset of [undefined, null, -5, 1.5, "200"]) {
+    const chunk = buildUsedIn("absolute", data, usedInIndex, offset);
+    assert.equal(chunk.offset, 0, `offset ${String(offset)} must read as 0`);
+    assert.equal(chunk.rows.length, 1);
   }
 });
 
@@ -1380,6 +1610,7 @@ await testAsync("the router carries exactly the SPEC's message types", async () 
     "savedToggle",
     "settingsGet",
     "settingsSet",
+    "usedIn",
   ]);
 });
 
@@ -1519,6 +1750,31 @@ await testAsync("the root and family handlers answer from the ranked index", asy
   assert.equal((await worker.handleRoot(`grc:${NFD_LOGOS}`)).root.key, `grc:${NFC_LOGOS}`);
 });
 
+await testAsync("the worker joins usedInCount and answers usedIn chunks", async () => {
+  const match = (await worker.handleLookup("absolute")).matches[0];
+  assert.equal(match.usedInCount, 1, "the lookup path builds the used-in index");
+  assert.equal("usedInCount" in (await worker.handleLookup("terrain")).matches[0], false);
+
+  const chunk = await worker.handleUsedIn("absolute", 0);
+  assert.equal(chunk.ok, true);
+  assert.equal(chunk.total, 1);
+  assert.equal(chunk.offset, 0);
+  assert.deepEqual(chunk.rows.map((r) => r.word), ["absolutely"]);
+  assert.equal(chunk.rows[0].tierLabel, "Everyday");
+
+  const unknown = await worker.handleUsedIn("zzzyzx", 0);
+  assert.deepEqual(unknown, { ok: true, rows: [], total: 0, offset: 0 });
+  // The router carries it under the SPEC's message type.
+  assert.equal((await worker.MESSAGE_HANDLERS.usedIn({ key: "absolute" })).total, 1);
+});
+
+await testAsync("the worker joins a decomposed org with its part glosses", async () => {
+  const match = (await worker.handleLookup("remember")).matches[0];
+  assert.equal(match.org.lang, "la");
+  assert.equal(match.org.l, "rememorārī");
+  assert.deepEqual(match.org.parts.map((p) => p.gloss), ["back, again", "mindful", undefined]);
+});
+
 console.log("\nshipped data (skipped when extension/data is empty)");
 
 // --- smoke tests over the real files, asserting only SPEC anchors ---------
@@ -1627,6 +1883,101 @@ await testAsync("smoke: the shipped bundle resolves the SPEC's anchor words", as
       `${Object.keys(bundle.forms.map).length} forms` +
       `${placeholder ? ", placeholder" : ""})`
   );
+});
+
+await testAsync("smoke: decomposed org rows join their parts", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const table = bundle.words.words;
+  const decomposed = Object.keys(table).filter(
+    (key) => table[key].org && Array.isArray(table[key].org.parts)
+  );
+  if (decomposed.length === 0) {
+    console.log("      (no decomposed org in this build yet, org parts unverified)");
+    return;
+  }
+
+  // The invariants the card renders on: 2 or more parts, every part a form,
+  // and no part carrying a word link (org chips are `f` and at most `r`).
+  const bad = decomposed.filter((key) => {
+    const parts = table[key].org.parts;
+    return (
+      parts.length < 2 ||
+      parts.some((p) => p === null || typeof p !== "object" || typeof p.f !== "string" || p.f === "")
+    );
+  });
+  assert.deepEqual(bad.slice(0, 5), [], `${bad.length} decomposed org rows are unrenderable`);
+
+  const sample = lookup(decomposed[0], bundle).matches[0];
+  assert.equal(sample.org.parts.length, table[decomposed[0]].org.parts.length);
+  assert.equal("morphs" in sample, false, "a word never carries both shapes");
+  for (const part of sample.org.parts) {
+    if (typeof part.r === "string") {
+      assert.ok(part.r in bundle.roots.roots, `${part.r} must ship`);
+      assert.equal("w" in part, false, "an org part is never a word chip");
+    }
+  }
+
+  // The SPEC's anchor: remember decomposes in Latin and lands on la:memor.
+  if (Object.prototype.hasOwnProperty.call(table, "remember")) {
+    const match = lookup("remember", bundle).matches[0];
+    if (match.org && Array.isArray(match.org.parts)) {
+      assert.equal(match.org.lang, "la");
+      assert.ok(match.org.l.includes("rememor"), `lemma reads ${match.org.l}`);
+      const keys = match.org.parts.map((p) => p.r);
+      assert.ok(keys.includes("la:re-"), "a re- part");
+      assert.ok(
+        keys.some((key) => typeof key === "string" && key.includes("memor")),
+        "a memor part"
+      );
+      const index = buildFamilyIndex(bundle.words);
+      const memor = index["la:memor"] || [];
+      assert.ok(memor.includes("remember"), "remember is in la:memor's family");
+    }
+  }
+  console.log(`      (${decomposed.length} words carry a decomposed org)`);
+});
+
+await testAsync("smoke: used-in derives from the shipped w chips", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const index = buildUsedInIndex(bundle.words);
+  const keys = Object.keys(index);
+  if (keys.length === 0) {
+    console.log("      (no w chips in this build yet, used-in unverified)");
+    return;
+  }
+
+  // Every list is ranked and holds only shipped words; a key that is itself a
+  // shipped word is what the card can navigate to.
+  const table = bundle.words.words;
+  const sample = keys.find((key) => Object.prototype.hasOwnProperty.call(table, key)) || keys[0];
+  const chunk = buildUsedIn(sample, bundle, index);
+  assert.equal(chunk.total, index[sample].length);
+  assert.ok(chunk.rows.length <= FAMILY_CHUNK, "a chunk never exceeds the chunk size");
+  for (const row of chunk.rows) {
+    assert.ok(row.word in table, `${row.word} must ship`);
+    assert.equal(typeof row.tierLabel, "string");
+  }
+  const match = lookup(sample, { ...bundle, usedInIndex: index }).matches[0];
+  if (match) assert.equal(match.usedInCount, index[sample].length);
+
+  // The SPEC's anchor.
+  if (Object.prototype.hasOwnProperty.call(table, "absolute")) {
+    const used = index["absolute"] || [];
+    assert.ok(used.includes("absolutely"), "absolute's usedIn contains absolutely");
+  }
+  console.log(`      (${keys.length} words are used in a bigger word)`);
 });
 
 await testAsync("smoke: US-primary re-keyed words carry their page title", async () => {

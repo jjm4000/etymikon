@@ -79,6 +79,17 @@ ROOT_ALIASES = {
     # terrestrial reaches terrestris, whose split is also recorded at the
     # Italic stage (*terzos + *-tris).
     "terrestris": "la:terra",
+    # The memor verbs. Recursive flattening consolidates memoria as memor +
+    # -ia, but it cannot reach the verbs: Wiktionary records memorō as "From
+    # memor" in prose and rememoror as "From memoror", neither of them a
+    # decomposition template, so the family fragments one card per lemma and
+    # the 2-word threshold then prunes every one of them. These four links
+    # are what the flattening rule would find if the source recorded them.
+    # remember reaches rememoror, memorandum reaches memorandum itself.
+    "memoro": "la:memor",
+    "memoror": "la:memor",
+    "rememoror": "la:memor",
+    "memorandum": "la:memor",
 }
 
 # ----------------------------------------------------------------- root skips

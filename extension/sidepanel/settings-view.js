@@ -316,6 +316,7 @@
       note.className = "settings-unavailable";
       note.textContent = "Settings are not available in this browser session.";
       body.appendChild(note);
+      renderFooter();
       return 0;
     }
 
@@ -352,7 +353,81 @@
       group.appendChild(row);
       rendered++;
     }
+    renderFooter();
     return rendered;
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Attribution
+   *
+   * Deliberately NOT a schema entry: it is not a setting, nothing reads or
+   * writes it, and putting it in SETTINGS_SCHEMA would make the schema mean
+   * two things. It is a static block appended after the rendered controls,
+   * which also makes the seal count it as content: the fit measurement reads
+   * the body's children, and this is one of them.
+   * ------------------------------------------------------------------ */
+
+  var REPO_URL = "https://github.com/jjm4000/etymikon";
+  var CREDIT = "Definitions from Wiktionary, CC BY-SA.";
+
+  // The shipped version, from the manifest. Read off the RUNTIME rather than
+  // off chrome.runtime directly: that is the one place this file already
+  // decides which runtime is in play, and it keeps the harness (whose fake
+  // runtime supplies a manifest) on the same path as the extension. No
+  // manifest means no version, and the line simply reads without one.
+  function appVersion() {
+    try {
+      var runtime = workerRuntime();
+      if (runtime && typeof runtime.getManifest === "function") {
+        var manifest = runtime.getManifest();
+        var version = manifest && manifest.version;
+        if (typeof version === "string" && version !== "") return version;
+      }
+    } catch (e) { /* not an extension page: fall through */ }
+    return "";
+  }
+
+  /**
+   * Open a url in a BACKGROUND tab, by the same rules the cards use for their
+   * Wiktionary links: an extension page can call chrome.tabs itself, and
+   * anything else asks the worker. Plain clicks never steal the panel.
+   */
+  function openInBackground(url) {
+    try {
+      var tabs = globalThis.chrome && globalThis.chrome.tabs;
+      if (tabs && typeof tabs.create === "function") {
+        tabs.create({ url: url, active: false });
+        return;
+      }
+    } catch (e) { /* fall through to the worker */ }
+    sendToWorker({ type: "openTab", url: url });
+  }
+
+  function renderFooter() {
+    var footer = document.createElement("p");
+    footer.className = "settings-footer";
+    var version = appVersion();
+    footer.appendChild(document.createTextNode(
+      "Etymikon" + (version ? " " + version : "") + ". " + CREDIT + " "
+    ));
+    // A real link: modified clicks, "copy link address" and assistive tech all
+    // keep working, and only the plain click is intercepted.
+    var link = document.createElement("a");
+    link.className = "settings-repo";
+    link.href = REPO_URL;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Source";
+    link.setAttribute("aria-label", "Etymikon source code (opens in a new tab)");
+    link.addEventListener("click", function (ev) {
+      if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) {
+        return;                       // a modified click is the browser's
+      }
+      ev.preventDefault();
+      openInBackground(REPO_URL);
+    });
+    footer.appendChild(link);
+    body.appendChild(footer);
   }
 
   // The worker's two option lists, gathered into one map an `optionsFrom` names.
@@ -450,6 +525,10 @@
       Object.keys(sources).forEach(function (name) { copy[name] = sources[name].slice(); });
       return copy;
     },
-    controlId: controlId
+    controlId: controlId,
+    // The attribution block is not a setting, so it is not in the schema; the
+    // checks still need to name its parts.
+    appVersion: appVersion,
+    repoUrl: REPO_URL
   };
 })();

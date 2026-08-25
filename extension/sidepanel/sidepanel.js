@@ -457,13 +457,20 @@
   })();
 
   /* ------------------------------------------------------------------ *
-   * The wordmark looks up the word the name is built from: "etymology" is
-   * itself an entry, so clicking the brand fills the search input and
-   * searches for it. Clicks that land before boot finishes queue on `ready`
-   * rather than being dropped.
+   * The wordmark is HOME. It shows the search view, empties the field and
+   * the results, and drops whatever descent the reader was in.
+   *
+   * It used to look up "etymology", the word the name is built from. That
+   * read as a bug on this surface: the reader presses the app's own name and
+   * gets a card for a different word, as though Etymikon were an entry
+   * (Jesse decision 2026-08-25). Home is what a wordmark means everywhere
+   * else, and it is the one thing this button can promise.
+   *
+   * The empty search does all three parts at once: the shell clears the panel
+   * through the renderer (which resets the view stack with it) and settles on
+   * the empty state, and no lookup is ever issued. Clicks that land before
+   * boot finishes queue on `ready` rather than being dropped.
    * ------------------------------------------------------------------ */
-
-  var BRAND_QUERY = "etymology";
 
   (function () {
     var brand = document.getElementById("okp-brand");
@@ -474,9 +481,9 @@
         var controller = shell && shell.controller && shell.controller();
         if (!controller) return;
         var inputEl = document.getElementById("okp-input");
-        if (inputEl) inputEl.value = BRAND_QUERY;
+        if (inputEl) inputEl.value = "";
         showView("search");
-        controller.search(BRAND_QUERY);
+        controller.search("");
       });
     });
   })();

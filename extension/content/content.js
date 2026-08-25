@@ -430,6 +430,14 @@
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
     "}",
+    // The source lemma rides IN the label row, on the same line: "FROM LATIN
+    // rememorārī". It is a word being quoted rather than a heading, so it
+    // opts out of the label's uppercasing and tracking and leans italic. The
+    // macrons come through untouched.
+    ".label .origin-lemma {",
+    "  margin-left: 2px; font-size: 12px; font-weight: 600; font-style: italic;",
+    "  text-transform: none; letter-spacing: 0; color: var(--muted);",
+    "}",
     // The part-of-speech label heads its own sense list, so it sits closer to
     // the senses under it than a section label does to its section.
     ".label.pos { margin-top: 8px; }",
@@ -642,6 +650,8 @@
   var rootPending = null;     // root key -> in-flight promise, so two chips share it
   var familyCache = null;     // root key -> the full ranked family list
   var familyPending = null;   // root key -> in-flight promise
+  var usedInCache = null;     // word key -> chunks of the used-in list
+  var usedInPending = null;   // word key -> in-flight promise
   var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
   var viewStack = [];         // the descent; last entry is the current view
   var currentSrcText = "";    // source text of the view being rendered (see noteApplies)
@@ -870,6 +880,8 @@
     rootPending = Object.create(null);
     familyCache = Object.create(null);
     familyPending = Object.create(null);
+    usedInCache = Object.create(null);
+    usedInPending = Object.create(null);
     crumbsExpanded = false;
     viewStack = [];
     pendingScrollTop = null;
@@ -920,7 +932,7 @@
   // What a match is ABOUT: the lemma for a word, the root key for a root.
   function matchKey(m) {
     if (!m || typeof m !== "object") return "";
-    if (m.kind === "root") return nonEmptyString(m.key);
+    if (m.kind === "root" || m.kind === "usedin") return nonEmptyString(m.key);
     return nonEmptyString(m.canonical) || nonEmptyString(m.surface);
   }
 
@@ -1827,22 +1839,29 @@
     return true;
   }
 
-  // MADE OF: the morphemes as chips joined by plus signs, each showing the
-  // form the reader sees in the word over the gloss the worker joined for it.
-  // A chip links in one of two directions, and looks the same either way:
-  // `r` opens a root card, `w` opens the card of a word that happens to be a
-  // part (muse in music). A chip with neither is inert and carries no hover
-  // affordance at all, because there is nowhere for it to go.
-  function appendBreakdown(card, m) {
-    if (!breakdownEnabled(sectionSettings())) return;
-    var morphs = asArray(m.morphs).filter(function (p) {
+  // Parts of a chip row, in the shape the chips need: an object with a display
+  // form, and at most one destination.
+  function usableParts(list) {
+    return asArray(list).filter(function (p) {
       return p && typeof p === "object" && nonEmptyString(p.f);
     });
-    if (!morphs.length) return;
+  }
 
-    card.appendChild(el("div", "label", "MADE OF"));
+  /**
+   * THE chip row. One implementation, two call sites: the breakdown of an
+   * English word, and the decomposed source lemma of an origin. The two say
+   * the same kind of thing about different languages, so they must not drift
+   * into two anatomies (SPEC: "the morphs chip anatomy verbatim").
+   *
+   * A chip is the form over the gloss the worker joined for it, and it links
+   * in one of two directions while looking the same either way: `r` opens a
+   * root card, `w` opens the card of a word that happens to be a part (muse in
+   * music). A chip with neither is inert and carries no hover affordance at
+   * all, because there is nowhere for it to go.
+   */
+  function buildChipRow(parts) {
     var row = el("div", "morphs");
-    morphs.forEach(function (p, i) {
+    parts.forEach(function (p, i) {
       if (i) row.appendChild(el("span", "morph-plus", "+"));
       var chip = el("span", "morph");
       chip.appendChild(el("span", "morph-form", nonEmptyString(p.f)));
@@ -1864,20 +1883,68 @@
       }
       row.appendChild(chip);
     });
-    card.appendChild(row);
+    return row;
+  }
+
+  // MADE OF: the morphemes as chips joined by plus signs.
+  function appendBreakdown(card, m) {
+    if (!breakdownEnabled(sectionSettings())) return;
+    var morphs = usableParts(m.morphs);
+    if (!morphs.length) return;
+
+    card.appendChild(el("div", "label", "MADE OF"));
+    card.appendChild(buildChipRow(morphs));
   }
 
   function originEnabled(settings) {
     return true;
   }
 
-  // One quiet nav row for a word whose story is a chain rather than a split:
-  // "From Latin terra (earth, land)". A word card never carries both this and
-  // the breakdown; the data guarantees it.
+  /**
+   * Where a word came from, in one of TWO shapes, because the data has two
+   * things to say (SPEC appendOrigin).
+   *
+   * DECOMPOSED: the source lemma itself splits, so the card shows that split
+   * the way it shows an English one, under a label naming the language and the
+   * lemma: "FROM LATIN rememorārī". The label word keeps the house uppercase
+   * style; the lemma rides beside it in normal case and italic, macrons and
+   * all, because it is a word being quoted rather than a heading.
+   *
+   * SINGLE: the lemma does not split, so there is nothing to lay out and the
+   * quiet nav row says it in a line: "From Latin terra (earth, land)".
+   *
+   * A word card never carries both this and the breakdown; the data
+   * guarantees it.
+   */
   function appendOrigin(card, m) {
     if (!originEnabled(sectionSettings())) return;
     var org = m.org && typeof m.org === "object" ? m.org : null;
     if (!org) return;
+    if (appendOriginChips(card, org)) return;
+    appendOriginRow(card, org);
+  }
+
+  // The decomposed shape. Returns false when the org is not one, so the caller
+  // can fall through to the single-lemma row.
+  function appendOriginChips(card, org) {
+    var parts = usableParts(org.parts);
+    if (parts.length < 2) return false;
+    var lemma = nonEmptyString(org.l);
+    var name = langName(org.lang);
+    if (!lemma || !name) return false;
+
+    var label = el("div", "label", "FROM " + name.toUpperCase());
+    // A real space, not just the margin: the line is one phrase, and it has to
+    // read as one when it is copied or spoken.
+    label.appendChild(document.createTextNode(" "));
+    label.appendChild(el("i", "origin-lemma", lemma));
+    card.appendChild(label);
+    card.appendChild(buildChipRow(parts));
+    return true;
+  }
+
+  // The single-lemma shape: one quiet nav row into the root card.
+  function appendOriginRow(card, org) {
     var key = nonEmptyString(org.r);
     var parts = splitRootKey(key);
     var form = nonEmptyString(org.f) || parts.form;
@@ -1900,6 +1967,31 @@
     var short = nonEmptyString(gloss);
     if (short) text.appendChild(document.createTextNode(" (" + short + ")"));
     return text;
+  }
+
+  function usedInEnabled(settings) {
+    return true;
+  }
+
+  // "Used in 4 words ›": the words this one is a PART of, which is the mirror
+  // of the breakdown above it. The count comes joined on the match; the rows
+  // themselves are a list view rather than an in-place expansion, because a
+  // common stem is used in far more words than a card can hold.
+  function appendUsedIn(card, m) {
+    if (!usedInEnabled(sectionSettings())) return;
+    var count = m.usedInCount;
+    if (typeof count !== "number" || !isFinite(count) || count < 1) return;
+    var key = matchKey(m);
+    if (!key) return;
+    var total = Math.floor(count);
+
+    // Its own modifier beside the shared quiet-row look, so a later tweak has
+    // somewhere to land and the self-checks can name this row exactly.
+    var row = el("div", "entry-row origin-row usedin-row nav");
+    row.appendChild(el("span", "origin-text",
+      "Used in " + total + " " + (total === 1 ? "word" : "words")));
+    makeNavRow(row, function () { navigateToUsedIn(key, total); });
+    card.appendChild(row);
   }
 
   function seeAlsoEnabled(settings) {
@@ -1933,6 +2025,8 @@
     appendBreakdown(card, m);
 
     appendOrigin(card, m);
+
+    appendUsedIn(card, m);
 
     appendSeeAlso(card, m);
 
@@ -2046,24 +2140,29 @@
     return true;
   }
 
-  // BUILDS N WORDS: the inline rows the response carried, plus a
-  // "Show 5 more (N)" control when the root builds more than that.
-  //
-  // The list is CHUNKED, because a common affix builds thousands of words:
-  // each press reveals five more from rows already in hand, and only when
-  // those run out does it ask the worker for the next chunk. When the whole
-  // family fits in what a card normally shows inline it is fetched up front
-  // and rendered whole: a button whose one press would reveal all it ever
-  // could is only a delay.
-  function appendFamily(card, m) {
-    if (!familyEnabled(sectionSettings())) return;
-    var r = rootOf(m);
-    var key = nonEmptyString(m.key) || nonEmptyString(r.key);
+  /**
+   * THE ranked word list: preview rows, a label, and the "Show 5 more (N)"
+   * control behind them. One implementation, two call sites: a root card's
+   * family, and the used-in list view. They page identically, so they must not
+   * drift into two paging contracts.
+   *
+   * The list is CHUNKED, because a common affix builds thousands of words:
+   * each press reveals five more from rows already in hand, and only when
+   * those run out does it ask the worker for the next chunk. When the whole
+   * list fits in what a card normally shows inline it is fetched up front and
+   * rendered whole: a button whose one press would reveal all it ever could is
+   * only a delay.
+   *
+   * `spec` is { key, rows, total, label(total), fetch(key, offset) }.
+   */
+  function appendRankedList(card, spec) {
+    var key = nonEmptyString(spec.key);
+    var fetchChunk = typeof spec.fetch === "function" ? spec.fetch : null;
     var box = el("div", "family");
     var shown = Object.create(null);   // words already on screen
     var rowCount = 0;
 
-    asArray(r.family).slice(0, MAX_FAMILY).forEach(function (entry) {
+    asArray(spec.rows).slice(0, MAX_FAMILY).forEach(function (entry) {
       var word = entry && typeof entry === "object" ? nonEmptyString(entry.word) : "";
       if (!word || shown[word]) return;
       var node = buildFamilyRow(entry);
@@ -2073,13 +2172,13 @@
       rowCount++;
     });
 
-    var count = (typeof r.familyCount === "number" && isFinite(r.familyCount) &&
-      r.familyCount > 0) ? Math.floor(r.familyCount) : rowCount;
+    var count = (typeof spec.total === "number" && isFinite(spec.total) &&
+      spec.total > 0) ? Math.floor(spec.total) : rowCount;
     var total = Math.max(count, rowCount);
-    var remaining = key ? Math.max(0, total - rowCount) : 0;
+    var remaining = (key && fetchChunk) ? Math.max(0, total - rowCount) : 0;
 
     if (!rowCount && !remaining) return;
-    card.appendChild(el("div", "label", "BUILDS " + total + " WORDS"));
+    card.appendChild(el("div", "label", spec.label(total)));
     card.appendChild(box);
     if (!remaining) return;
 
@@ -2145,7 +2244,7 @@
       if (exhausted) return;
       var seq = requestSeq;     // dismissal or a new selection cancels this
       button.disabled = true;
-      fetchFamily(key, nextOffset).then(function (chunk) {
+      fetchChunk(key, nextOffset).then(function (chunk) {
         if (seq !== requestSeq) return;
         button.disabled = false;
         // Failure: leave the rows alone and stay pressable for a retry.
@@ -2209,8 +2308,8 @@
     card.appendChild(button);
 
     if (total <= MAX_FAMILY) {
-      // The whole family fits in what a card normally displays inline: render
-      // it whole. MAX_FAMILY deliberately, not FAMILY_PAGE. The rule is "no
+      // The whole list fits in what a card normally displays inline: render it
+      // whole. MAX_FAMILY deliberately, not FAMILY_PAGE. The rule is "no
       // smaller than a normal card", and it must follow the inline cap if
       // that cap ever changes. The button stays in the DOM but hidden, so a
       // failed fetch can fall back to the press-to-retry path.
@@ -2226,6 +2325,66 @@
     } else {
       restoreTo = 0;
     }
+  }
+
+  // BUILDS N WORDS: the root's own ranked family, on the ranked-list contract.
+  function appendFamily(card, m) {
+    if (!familyEnabled(sectionSettings())) return;
+    var r = rootOf(m);
+    appendRankedList(card, {
+      key: nonEmptyString(m.key) || nonEmptyString(r.key),
+      rows: r.family,
+      total: r.familyCount,
+      label: function (total) { return "BUILDS " + total + " WORDS"; },
+      fetch: fetchFamily
+    });
+  }
+
+  /* ---- Used-in list view ------------------------------------------------ *
+   * Not a card ABOUT a word, but a list of the words one word is a part of.
+   * It is its own view rather than an in-place expansion because a common stem
+   * is used in more words than any card should try to hold, and because a list
+   * the reader can leave by the breadcrumb is easier to get out of than one
+   * that grew under them.
+   * -------------------------------------------------------------------- */
+
+  function usedInListEnabled(settings) {
+    return true;
+  }
+
+  // The head of the list view: the word as the big text, and a label line
+  // saying what the list is. No star and no Wiktionary link: this view is a
+  // list, and both of those belong to the word's own card.
+  function appendUsedInHead(card, m) {
+    if (!usedInListEnabled(sectionSettings())) return;
+    var word = nonEmptyString(m.key);
+    var head = el("div", "head");
+    head.appendChild(el("div", "surface", word));
+    var meta = el("div", "headmeta");
+    meta.appendChild(el("div", "rootlabel", "Used in"));
+    head.appendChild(meta);
+    card.appendChild(head);
+  }
+
+  function appendUsedInRows(card, m) {
+    if (!usedInListEnabled(sectionSettings())) return;
+    appendRankedList(card, {
+      key: nonEmptyString(m.key),
+      rows: m.rows,
+      total: m.total,
+      label: function (total) { return "USED IN " + total + " WORDS"; },
+      fetch: fetchUsedIn
+    });
+  }
+
+  function buildUsedInCard(m) {
+    var card = el("div", "card usedin");
+
+    appendUsedInHead(card, m);
+
+    appendUsedInRows(card, m);
+
+    return card;
   }
 
   function buildRootCard(m) {
@@ -2342,7 +2501,9 @@
   function appendMatchCards(list) {
     var count = 0;
     list.forEach(function (m) {
-      var card = m.kind === "root" ? buildRootCard(m) : buildWordCard(m);
+      var card = m.kind === "root" ? buildRootCard(m)
+        : m.kind === "usedin" ? buildUsedInCard(m)
+        : buildWordCard(m);
       if (!card) return;
       viewRoot.appendChild(card);
       count++;
@@ -2369,6 +2530,9 @@
     var key = matchKey(m);
     if (!key) return null;
     if (m.kind === "root") return "root:" + key;
+    // A used-in list is ABOUT the word it lists, but it is not that word's
+    // card: the two are different views and must not collapse into each other.
+    if (m.kind === "usedin") return "usedin:" + key;
     // The lemma, never the surface: a view reached from "territories" and one
     // reached from "Territory" are the same view.
     return "word:" + key;
@@ -2412,7 +2576,8 @@
     if (key) {
       var cut = key.indexOf(":");
       var kind = key.slice(0, cut);
-      if (kind === "word") return key.slice(cut + 1);
+      // A used-in crumb is labeled by the word it lists (SPEC).
+      if (kind === "word" || kind === "usedin") return key.slice(cut + 1);
       // A root crumb reads as the form, not as the la:terra key.
       if (kind === "root") {
         var m = usableMatches(matches)[0];
@@ -2738,6 +2903,34 @@
     });
   }
 
+  /* ---- Used-in drill-down ----------------------------------------------- *
+   * The "Used in N words" row opens a LIST rather than expanding one in place.
+   * It asks for the first chunk by the same offset contract the family list
+   * uses, then pushes it as an ordinary view: crumbs, cache, cycle handling
+   * and scroll restore all come along unchanged.
+   * -------------------------------------------------------------------- */
+
+  function navigateToUsedIn(key, total) {
+    var target = nonEmptyString(key);
+    if (!target) return;
+    if (reenterCurrentView("usedin:" + target)) return;
+
+    var seq = requestSeq;
+    fetchUsedIn(target, 0).then(function (chunk) {
+      if (seq !== requestSeq) return;
+      if (!chunk || !chunk.rows.length) return;   // nothing to show, no view
+      pushView({
+        key: "usedin:" + target,
+        label: target,
+        matches: [{
+          kind: "usedin", key: target, rows: chunk.rows,
+          total: chunk.total || total || chunk.rows.length
+        }],
+        srcText: target
+      });
+    });
+  }
+
   /* ------------------------------------------------------------------ *
    * Positioning
    * ------------------------------------------------------------------ */
@@ -2926,20 +3119,23 @@
     return promise;
   }
 
-  // One CHUNK of a root's ranked family, starting at `offset`. Same caching
-  // contract as the root itself, per key and offset: one request each per
-  // popup session, failures resolve to null and are not cached, so the
-  // control can simply be pressed again. Resolves {rows, total, offset}.
-  function fetchFamily(key, offset) {
+  /**
+   * One CHUNK of a ranked word list, starting at `offset`. Family lists and
+   * used-in lists answer in the same shape and are cached the same way, per
+   * key and offset: one request each per popup session, failures resolve to
+   * null and are not cached, so the control can simply be pressed again.
+   * Resolves {rows, total, offset}.
+   */
+  function fetchListChunk(type, cache, pending, key, offset) {
     var at = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
     var cacheKey = key + "@" + at;
-    if (familyCache && Object.prototype.hasOwnProperty.call(familyCache, cacheKey)) {
-      return Promise.resolve(familyCache[cacheKey]);
+    if (cache && Object.prototype.hasOwnProperty.call(cache, cacheKey)) {
+      return Promise.resolve(cache[cacheKey]);
     }
-    if (familyPending && familyPending[cacheKey]) return familyPending[cacheKey];
-    var promise = sendToWorker({ type: "family", key: key, offset: at })
+    if (pending && pending[cacheKey]) return pending[cacheKey];
+    var promise = sendToWorker({ type: type, key: key, offset: at })
       .then(function (response) {
-        if (familyPending) delete familyPending[cacheKey];
+        if (pending) delete pending[cacheKey];
         if (!response || response.ok !== true || !Array.isArray(response.rows)) {
           return null;
         }
@@ -2950,11 +3146,21 @@
           total: typeof response.total === "number" ? response.total : 0,
           offset: typeof response.offset === "number" ? response.offset : at
         };
-        if (familyCache) familyCache[cacheKey] = chunk;
+        if (cache) cache[cacheKey] = chunk;
         return chunk;
       });
-    if (familyPending) familyPending[cacheKey] = promise;
+    if (pending) pending[cacheKey] = promise;
     return promise;
+  }
+
+  function fetchFamily(key, offset) {
+    return fetchListChunk("family", familyCache, familyPending, key, offset);
+  }
+
+  // The words this word is a part of. Its own cache, because a word and a root
+  // can share a key spelling and must never share a list.
+  function fetchUsedIn(key, offset) {
+    return fetchListChunk("usedIn", usedInCache, usedInPending, key, offset);
   }
 
   function handleSelection() {

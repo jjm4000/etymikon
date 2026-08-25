@@ -6,7 +6,7 @@
  * All chrome glue lives in background.js.
  *
  * Implements SPEC.md "Service worker lookup behavior" rules 1-4, the tier
- * function, the root/family builders and the omnibox suggestions.
+ * function, the root/family/used-in builders and the omnibox suggestions.
  */
 
 /** Rule 1: the selected text is cut to this many characters before lookup. */
@@ -268,8 +268,41 @@ function morphRow(morph, roots, wordTable) {
   return row;
 }
 
-/** The origin row of an `org` word, joined the same way a morph chip is. */
+/**
+ * The word table an org part is joined against: none. Parts carry `f` and at
+ * most `r`, so they run through morphRow with nothing to resolve a `w` against
+ * and structurally cannot come back as word chips.
+ */
+const NO_WORDS = Object.freeze({});
+
+/**
+ * The origin row of an `org` word, in whichever of the two shapes the entry
+ * carries.
+ *
+ * Decomposed: the source lemma decomposes in its own language, so the card
+ * renders a chip row under "FROM LATIN rememorārī". `l` and `lang` pass through
+ * and the parts join exactly like morph chips, an `r` part carrying its root
+ * gloss and anything else coming back as the form alone.
+ *
+ * Single: the lemma does not decompose, so one quiet nav row names it.
+ *
+ * @returns {object|null} null when neither shape has anything to render
+ */
 function originRow(org, roots) {
+  const parts = (Array.isArray(org.parts) ? org.parts : [])
+    .filter((part) => part !== null && typeof part === "object")
+    .map((part) => morphRow(part, roots, NO_WORDS))
+    .filter((part) => part.f !== "");
+  if (parts.length > 0) {
+    const row = {};
+    const lemma = str(org.l);
+    if (lemma !== "") row.l = lemma;
+    const lang = str(org.lang);
+    if (lang !== "") row.lang = lang;
+    row.parts = parts;
+    return row;
+  }
+
   const key = str(org.r);
   if (key === "" || !hasOwn(roots, key)) return null;
   const row = { r: key, f: str(org.f) || str(roots[key].form) };
@@ -323,6 +356,12 @@ function buildWordMatch(resolved, data) {
     const org = originRow(entry.org, roots);
     if (org !== null) match.org = org;
   }
+
+  // The used-in row: how many bigger words are built on this one. A count, not
+  // a list, since the card shows "Used in 12 words ›" and fetches the rows in
+  // chunks only when the reader opens them.
+  const usedIn = rankedList(resolved.canonical, data && data.usedInIndex);
+  if (usedIn.length > 0) match.usedInCount = usedIn.length;
 
   // The shadow-entry row: "ran" ships as a word on a marginal noun sense and
   // shadows "run" at lookup time, so the card hands the reader a way to the
@@ -383,24 +422,77 @@ function rankOf(entry) {
 }
 
 /**
- * The root keys one entry credits, each at most once. Both reference kinds
- * count: a `morphs[].r` chip and an `org.r` chain. A `morphs[].w` chip names
- * another word rather than a root, so it credits nothing. A word credits a root
- * once even when two of its morphs name it, which is the same rule the build's
- * threshold applies.
+ * The root keys one entry credits, each at most once. Three reference kinds
+ * count: a `morphs[].r` chip, a single `org.r` chain, and a decomposed org's
+ * `parts[].r` (SPEC: org parts credit families exactly as morphs do, which is
+ * what anchors memory and remember in la:memor instead of fragmenting them).
+ * A `morphs[].w` chip names another word rather than a root, so it credits
+ * nothing here. A word credits a root once even when two of its morphs name it,
+ * which is the same rule the build's threshold applies.
  */
 function creditedRoots(entry) {
   const keys = new Set();
-  for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
-    if (morph === null || typeof morph !== "object") continue;
-    const key = str(morph.r);
+  const credit = (value) => {
+    const key = str(value);
     if (key !== "") keys.add(key);
+  };
+  for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
+    if (morph !== null && typeof morph === "object") credit(morph.r);
   }
   if (entry.org !== null && typeof entry.org === "object") {
-    const key = str(entry.org.r);
+    credit(entry.org.r);
+    for (const part of Array.isArray(entry.org.parts) ? entry.org.parts : []) {
+      if (part !== null && typeof part === "object") credit(part.r);
+    }
+  }
+  return keys;
+}
+
+/**
+ * The word keys one entry credits through its `morphs[].w` chips, each at most
+ * once. This is the used-in relation: music crediting muse means muse is USED
+ * IN music. Only `w` counts. An `r` chip names a root and an org part names a
+ * source-language morpheme, and neither is a shipped English word.
+ */
+function creditedWords(entry) {
+  const keys = new Set();
+  for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
+    if (morph === null || typeof morph !== "object") continue;
+    const key = str(morph.w);
     if (key !== "") keys.add(key);
   }
   return keys;
+}
+
+/**
+ * The one ranked-index builder: walk the word table, credit each word to every
+ * key `creditsOf` names for it, then rank each list by `fr` ascending, unranked
+ * last, ties by key. Both runtime indexes are this walk with a different credit
+ * rule, and neither is stored in a data file, so a pipeline change to morphs
+ * changes both on the next worker start with no other work.
+ */
+function rankedIndex(table, creditsOf) {
+  /** @type {Record<string, string[]>} */
+  const index = Object.create(null);
+  for (const word of Object.keys(table)) {
+    const entry = table[word];
+    if (entry === null || typeof entry !== "object") continue;
+    for (const key of creditsOf(entry)) {
+      if (index[key] === undefined) index[key] = [];
+      index[key].push(word);
+    }
+  }
+  for (const key of Object.keys(index)) {
+    index[key].sort((a, b) => {
+      // Compared, not subtracted: two unranked words are both Infinity, and
+      // Infinity minus Infinity is NaN, which leaves their order to the sort.
+      const ra = rankOf(table[a]);
+      const rb = rankOf(table[b]);
+      if (ra !== rb) return ra < rb ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  }
+  return index;
 }
 
 /**
@@ -416,27 +508,22 @@ function creditedRoots(entry) {
  * @returns {Record<string, string[]>} root key -> word keys, ranked
  */
 export function buildFamilyIndex(wordsFile) {
-  const table = (wordsFile && wordsFile.words) || {};
-  /** @type {Record<string, string[]>} */
-  const index = Object.create(null);
+  return rankedIndex((wordsFile && wordsFile.words) || {}, creditedRoots);
+}
 
-  for (const word of Object.keys(table)) {
-    const entry = table[word];
-    if (entry === null || typeof entry !== "object") continue;
-    for (const key of creditedRoots(entry)) {
-      if (index[key] === undefined) index[key] = [];
-      index[key].push(word);
-    }
-  }
-
-  for (const key of Object.keys(index)) {
-    index[key].sort((a, b) => {
-      const diff = rankOf(table[a]) - rankOf(table[b]);
-      if (diff !== 0) return diff;
-      return a < b ? -1 : a > b ? 1 : 0;
-    });
-  }
-  return index;
+/**
+ * Derive the word-to-words index from words.json: for each word, the shipped
+ * words whose `morphs` name it with a `w` chip, ranked the same way a family
+ * is. muse is used in music; absolute is used in absolutely.
+ *
+ * The same runtime derivation as the family index, and stored in no data file
+ * either.
+ *
+ * @param {object} wordsFile parsed words.json
+ * @returns {Record<string, string[]>} word key -> the bigger words built on it
+ */
+export function buildUsedInIndex(wordsFile) {
+  return rankedIndex((wordsFile && wordsFile.words) || {}, creditedWords);
 }
 
 /**
@@ -474,15 +561,14 @@ function familyRow(word, table) {
 }
 
 /**
- * The ranked family of a root key: the index entry itself, never a copy. The
- * index derives from the same word table the rows are read from, so a filter
- * against that table dropped 0 of 53,229 entries (measured 2026-08-24) and
- * copied the whole family on every chunk request to do it.
+ * The ranked list at a key of either runtime index: the index entry itself,
+ * never a copy. Both indexes derive from the same word table the rows are read
+ * from, so a filter against that table dropped 0 of 53,229 family entries
+ * (measured 2026-08-24) and copied the whole list on every chunk request to do
+ * it. A missing key, or no index at all, is an empty list.
  */
-function familyOf(key, familyIndex) {
-  const list = familyIndex !== null && typeof familyIndex === "object"
-    ? familyIndex[key]
-    : undefined;
+function rankedList(key, index) {
+  const list = index !== null && typeof index === "object" ? index[key] : undefined;
   return Array.isArray(list) ? list : [];
 }
 
@@ -519,7 +605,7 @@ export function buildRoot(key, data, familyIndex) {
   if (rootKey === "") return null;
   const entry = roots[rootKey];
   const table = wordTableOf(data);
-  const words = familyOf(rootKey, familyIndex);
+  const words = rankedList(rootKey, familyIndex);
   const lang = rootLangOf(rootKey, entry);
   const kind = str(entry.kind) || "root";
 
@@ -563,7 +649,45 @@ export function buildFamily(key, data, familyIndex, offset) {
   const rootKey = rootKeyOf(key, rootTableOf(data));
   if (rootKey === "") return { rows: [], total: 0, offset: start };
   const table = wordTableOf(data);
-  const words = familyOf(rootKey, familyIndex);
+  const words = rankedList(rootKey, familyIndex);
+  return {
+    rows: words.slice(start, start + FAMILY_CHUNK).map((word) => familyRow(word, table)),
+    total: words.length,
+    offset: start,
+  };
+}
+
+/**
+ * Rule 2 at the used-in boundary, the word twin of rootKeyOf: the key a surface
+ * sends is folded exactly like a selection. Exact first, so a bundle whose keys
+ * are not fold-stable still answers for its own keys.
+ *
+ * @returns {string} the shipped word key, or "" when nothing matches
+ */
+function wordKeyOf(key, table) {
+  if (typeof key !== "string" || key === "") return "";
+  if (hasOwn(table, key)) return key;
+  const folded = fold(key);
+  return hasOwn(table, folded) ? folded : "";
+}
+
+/**
+ * The `{type:"usedIn"}` response body: ONE CHUNK of the words built on this
+ * word, in the family row shape and the family chunk size, plus the full
+ * `total` and the offset the chunk starts at. The card's "Used in N words" row
+ * opens a list view that pages exactly like a family list.
+ *
+ * An unknown key, and an offset past the end, both answer with no rows rather
+ * than an error, which is what buildFamily does with the same cases.
+ *
+ * @returns {{rows:object[], total:number, offset:number}}
+ */
+export function buildUsedIn(key, data, usedInIndex, offset) {
+  const start = Number.isInteger(offset) && offset > 0 ? offset : 0;
+  const table = wordTableOf(data);
+  const wordKey = wordKeyOf(key, table);
+  if (wordKey === "") return { rows: [], total: 0, offset: start };
+  const words = rankedList(wordKey, usedInIndex);
   return {
     rows: words.slice(start, start + FAMILY_CHUNK).map((word) => familyRow(word, table)),
     total: words.length,

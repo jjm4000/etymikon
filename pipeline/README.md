@@ -349,25 +349,55 @@ learned-borrowing templates of the dominant entry, and the chain's root is the
 step is the one that means something. A chain that reaches only a
 reconstructed proto form yields no `org`.
 
-### Root unification
+### The FROM LATIN row
+
+(Jesse decision 2026-08-25.) An `org` row takes one of two shapes. When the
+chain's source lemma decomposes inside its own language it ships decomposed,
+`{l, lang, parts}`, where `parts` follow the morphs chip contract: `f` to
+display, `r` when that root ships, absent for an inert chip. When it does not
+decompose it keeps the single `{r, f}` shape. 2,065 of the 3,233 org rows are
+decomposed.
+
+**Recursive flattening** replaces the one-hop unification rule. A chain lemma
+is decomposed inside its source language, recursively, capped at
+`ORG_DEPTH` = 3 levels, so `memoriālis` reads memor + -ia + -ālis rather than
+anchoring on memoria, and every English word built on the family lands on the
+same deepest bases. Fragmentation was not only ugly: a card referenced by one
+word is pruned by the 2-word threshold, so those rows were vanishing.
+
+A split is taken **all or nothing**. If any piece of it has no glossable
+entry of its own, the whole split is refused and the part stays whole. That
+is Okpyeon's dead-end rule, and the extract needs it: `recordor` "splits" as
+re- + `corcord->` + -ō, whose middle piece is a wiktextract artifact with no
+page behind it. `ROOT_SKIPS` and `ROOT_ALIASES` apply at every level, and a
+curated alias stops the recursion where it lands.
+
+**Latin and Greek affix pages are root nodes** now, reached through org
+parts, with `kind` from their entry pos. 131 of them ship: la:re-, la:-tōrium,
+grc:-ισμός. The 2-distinct-word threshold applies unchanged, and org parts
+credit families exactly as morphs `r` chips do, once per word.
+
+Recursion is honest about what it cannot see. The extract records `memorō` as
+"From memor" and `rememoror` as "From memoror", in prose, with no
+decomposition template, so flattening cannot reach memor from either. Four
+`ROOT_ALIASES` entries supply the links the source omits, which is what that
+table is for, and la:memor then carries memory, remember and memorandum
+instead of fragmenting into three pruned cards.
+
+### Inflection pages and curated links
 
 Chains stop where Wiktionary stops, which is at the derived lemma rather than
-the base one. `territory` reaches Latin territōrium, `terrestrial` reaches
-terrestris, `terrain` reaches terrenum. Three cards where the reader wants
-one.
+the base one, and often at an inflection of it. An inflection page carries no
+gloss and no split of its own, so it is stepped through to its lemma first:
+`territōriī` is judged as territōrium, and the inflected surface is recorded
+as an alias on the resulting card.
 
-So a chain-derived lemma gets one hop inside its own language. If the lemma's
-entry in the Latin or Greek extract carries a decomposition template of its
-own, and that template's base part has an entry in the same extract, the root
-anchors at the base lemma and the intermediate is recorded as an alias on the
-resulting card. One hop, never recursive, never past the source language. A
-lemma with no such split anchors as itself.
-
-An inflection page is stepped through first: terrenum is an inflection of
-terrenus and carries no gloss of its own, so it is normalised to its lemma
-before the hop is considered. That is not always enough. Wiktionary records
-the split of terrenus at the Italic stage rather than the Latin one, so the
-hop cannot see it, and the link is made by hand in `curation.py` instead.
+That is not always enough, and where the source records a split at a stage
+flattening cannot reach, the link is made by hand in `curation.py`.
+Wiktionary records the split of `terrēnus` at the Italic stage rather than
+the Latin one, so `terrain` reaches terra by a curated alias rather than by
+decomposition. Flattening itself produces no aliases: an intermediate lemma
+is decomposed now rather than folded away.
 
 ### Keys and forms
 
@@ -419,7 +449,7 @@ tells a reader nothing. `subterranean` is the shape of a forced split: the
 extract analyses it as Latin subterrāneus + -an, which would put a macronised
 Latin word on a chip.
 
-The build adds its own aliases at run time from the unification hop and never
+The build adds its own aliases at run time from the inflection step and never
 writes back to this file.
 
 ## The dictionary cap
@@ -480,6 +510,12 @@ with muse as a word chip, beautiful = beauty + -ful with en:-ful shipping.
 Root anchors: subterranean's breakdown contains a terra-rooted morpheme,
 la:terra ships with a gloss containing "land" and a family containing terrain
 and territory, en:un- ships with a family of five or more.
+
+Origin anchors: memory carries a decomposed org reading memoria = memor +
+-ia with the memor part linked; territory upgrades to territōrium = terra +
+-tōrium; la:memor ships with memory and remember in its family; la:re- ships
+as a prefix node and la:-tōrium as a suffix node; every decomposed org row
+keeps at least one navigable part.
 
 Curation anchors: understand ships with no morphs; had ships as a word with no
 morphs and no forms.json row; running ships with no morphs because its split

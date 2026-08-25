@@ -12,6 +12,8 @@ import {
   buildOmniboxSuggestions,
   buildRoot,
   buildSearchIndex,
+  buildUsedIn,
+  buildUsedInIndex,
   escapeXml,
   lookup,
   toErrorMessage,
@@ -58,6 +60,17 @@ let dataPromise = null;
 let familyIndex = null;
 
 /**
+ * Rule 4: the word-to-words index behind "Used in N words", derived from the
+ * same words.json and stored in no data file either. Every word match carries
+ * the count, so unlike the family index this one builds on the first LOOKUP,
+ * not on the first card that shows a list. It costs 73 ms over 79,380 words
+ * (measured 2026-08-25), once per worker wake, against a cold start that is
+ * already parsing 19 MB of JSON.
+ * @type {Record<string, string[]>|null}
+ */
+let usedInIndex = null;
+
+/**
  * Rule 4: the omnibox index, derived the same way and cached the same way. It
  * carries family SIZES rather than lists, so a keystroke never pays for the
  * ranked index above.
@@ -88,6 +101,7 @@ function getData() {
     dataPromise.catch(() => {
       dataPromise = null;
       familyIndex = null;
+      usedInIndex = null;
       searchIndex = null;
     });
   }
@@ -98,6 +112,12 @@ function getData() {
 function getFamilyIndex(data) {
   if (familyIndex === null) familyIndex = buildFamilyIndex(data.words);
   return familyIndex;
+}
+
+/** The used-in index for the loaded bundle, built on first use. */
+function getUsedInIndex(data) {
+  if (usedInIndex === null) usedInIndex = buildUsedInIndex(data.words);
+  return usedInIndex;
 }
 
 /** The omnibox index for the loaded bundle, built on the first keystroke. */
@@ -112,7 +132,10 @@ function getSearchIndex(data) {
  */
 export async function handleLookup(text) {
   try {
-    return lookup(text, await getData());
+    const data = await getData();
+    // Every word match carries usedInCount, so the lookup path is where the
+    // used-in index earns its build.
+    return lookup(text, { ...data, usedInIndex: getUsedInIndex(data) });
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -142,6 +165,20 @@ export async function handleFamily(key, offset) {
   try {
     const data = await getData();
     return { ok: true, ...buildFamily(key, data, getFamilyIndex(data), offset) };
+  } catch (err) {
+    return { ok: false, error: toErrorMessage(err) };
+  }
+}
+
+/**
+ * Handle a {type:"usedIn", key, offset} message: one chunk of the words built
+ * on this word, in the family chunk shape. `offset` defaults to 0.
+ * @returns {Promise<{ok:true, rows:object[], total:number, offset:number}|{ok:false, error:string}>}
+ */
+export async function handleUsedIn(key, offset) {
+  try {
+    const data = await getData();
+    return { ok: true, ...buildUsedIn(key, data, getUsedInIndex(data), offset) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
@@ -519,6 +556,7 @@ export const MESSAGE_HANDLERS = {
   lookup: (m) => handleLookup(m.text),
   root: (m) => handleRoot(m.key),
   family: (m) => handleFamily(m.key, m.offset),
+  usedIn: (m) => handleUsedIn(m.key, m.offset),
   openTab: (m) => handleOpenTab(m.url),
   getPendingQuery: () => handleGetPendingQuery(),
   savedGet: () => handleSavedGet(),
