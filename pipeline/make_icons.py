@@ -1,72 +1,73 @@
-"""Render the Okpyeon extension icons.
+"""Render the Etymikon extension icons.
 
     python pipeline/make_icons.py
 
-Design: white 玉 (the first character of 玉篇, the app's namesake) in Batang
-myeongjo on a jade ground, inside a cinnabar rule with squared corners — a
-낙관 seal rather than a rounded app tile. 玉 is used rather than a more
-on-the-nose 國 because five strokes survive 16px, where eleven do not.
+Design (chosen 2026-08-25): a lowercase Greek epsilon in Georgia Bold,
+cream on a terracotta clay ground, inside an Aegean blue rule with
+rounded corners. A seal in the Okpyeon tradition with new ink: the clay
+is terra, the app's demonstration root, and the blue ring is the sea it
+crossed. The bare epsilon won over the diacritic forms because marks
+above the bowl read as noise at toolbar size.
 
-Every size is drawn at SS× and downsampled, which antialiases the myeongjo
-terminals far better than hinting at target size. The 16px asset is NOT a
-downscale of the 128: its glyph is a touch smaller, its strokes markedly
-heavier, and its rule proportionally thicker — at that size a hairline rule
-reads as a rendering artifact rather than a deliberate edge, and the serif
-detail is invisible anyway.
+Reference geometry, from the approved 64-unit mockup: body corner 14,
+ring inset 6.5 with corner 10.5 and stroke 2.6, glyph at font size 68
+with its ink optically centred (the "B" centering pick).
+
+Every size is drawn at SS x and downsampled with Lanczos, which suits a
+single smooth bowl far better than hinting at target size. The 16px
+asset drops the ring: at that size the rule is under a pixel wide and
+reads as edge dirt, so the clay square and the biggest possible epsilon
+carry the identity alone.
 """
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 
 OUT = Path(__file__).resolve().parent.parent / "extension" / "icons"
-FONT = r"C:\Windows\Fonts\batang.ttc"
-FONT_INDEX = 0            # 0 = Batang (proportional myeongjo)
-GLYPH = "\u7389"          # 玉
+FONT = r"C:\Windows\Fonts\georgiab.ttf"
+GLYPH = "\u03b5"  # lowercase epsilon
 
-JADE = (46, 107, 87, 255)
-CINNABAR = (184, 64, 47, 255)
-WHITE = (255, 255, 255, 255)
+CLAY = (192, 85, 43, 255)      # #C0552B, the seal body
+AEGEAN = (159, 195, 232, 255)  # #9FC3E8, the ring
+CREAM = (255, 247, 240, 255)   # #FFF7F0, the glyph
 
-# size -> (supersample, glyph fraction, dilate fraction, corner fraction, rule fraction)
+# size -> (supersample, glyph fraction, corner fraction,
+#          ring: None or (inset fraction, corner fraction, stroke fraction))
 #
-# Strokes are thickened by DILATING the glyph mask with a square kernel, not by
-# PIL's stroke_width. stroke_width uses round caps, which turns Batang's sharp
-# triangular serifs into sausage ends — it stops looking like myeongjo at all.
-# A square structuring element keeps the flares angular, matching how the
-# browser renders -webkit-text-stroke.
-#
-# 128 and 48 supersample, which smooths the terminals. 16 does NOT: rendered
-# natively, FreeType's hinter snaps 玉's three horizontals onto whole pixels,
-# and supersampling is precisely what destroys that. 16 also takes no
-# dilation — it is counter-limited, so thickening closes the gaps between the
-# horizontals into a blob.
+# Fractions are of the finished size; the reference mockup is 64 units,
+# so body corner 14/64 = 0.219, ring inset 6.5/64 = 0.102, ring corner
+# 10.5/64 = 0.164, ring stroke 2.6/64 = 0.041, glyph 68/64 = 1.0625.
+# 48 thickens the ring a touch so it survives the smaller raster; 16
+# has no ring and a slightly larger glyph instead.
 TUNING = {
-    128: (4, 0.75, 0.025, 0.094, 0.052),
-    48:  (4, 0.76, 0.025, 0.104, 0.055),
-    16:  (1, 0.80, 0.000, 0.125, 0.085),
+    128: (4, 1.0625, 0.219, (0.102, 0.164, 0.041)),
+    48:  (4, 1.0625, 0.219, (0.102, 0.164, 0.050)),
+    16:  (4, 1.1500, 0.219, None),
 }
 
 
 def render(size: int) -> Image.Image:
-    ss, glyph_frac, dilate_frac, corner_frac, rule_frac = TUNING[size]
+    ss, glyph_frac, corner_frac, ring = TUNING[size]
     S = size * ss
 
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
 
-    # Jade ground and cinnabar rule, both following the squared-off corner.
     radius = round(S * corner_frac)
-    d.rounded_rectangle([0, 0, S - 1, S - 1], radius=radius, fill=JADE)
-    d.rounded_rectangle(
-        [0, 0, S - 1, S - 1],
-        radius=radius,
-        outline=CINNABAR,
-        width=max(1, round(S * rule_frac)),
-    )
+    d.rounded_rectangle([0, 0, S - 1, S - 1], radius=radius, fill=CLAY)
+    if ring is not None:
+        inset_frac, ring_corner_frac, stroke_frac = ring
+        inset = round(S * inset_frac)
+        d.rounded_rectangle(
+            [inset, inset, S - 1 - inset, S - 1 - inset],
+            radius=round(S * ring_corner_frac),
+            outline=AEGEAN,
+            width=max(1, round(S * stroke_frac)),
+        )
 
     # Glyph mask, optically centred on its ink rather than its em box.
     px = round(S * glyph_frac)
-    font = ImageFont.truetype(FONT, px, index=FONT_INDEX)
+    font = ImageFont.truetype(FONT, px)
     mask = Image.new("L", (S, S), 0)
     md = ImageDraw.Draw(mask)
     box = md.textbbox((0, 0), GLYPH, font=font)
@@ -76,12 +77,7 @@ def render(size: int) -> Image.Image:
         font=font,
         fill=255,
     )
-
-    k = round(px * dilate_frac)
-    if k > 0:
-        mask = mask.filter(ImageFilter.MaxFilter(2 * k + 1))
-
-    img = Image.composite(Image.new("RGBA", (S, S), WHITE), img, mask)
+    img = Image.composite(Image.new("RGBA", (S, S), CREAM), img, mask)
 
     return img if ss == 1 else img.resize((size, size), Image.LANCZOS)
 
@@ -92,7 +88,7 @@ def main() -> None:
         path = OUT / f"icon{size}.png"
         render(size).save(path, "PNG", optimize=True)
         print(f"{path.name:14s} {size}x{size}  {path.stat().st_size:,} B")
-    # A 4x sheet of the 16px asset, for eyeballing the small size without squinting.
+    # An 8x sheet of the 16px asset, for eyeballing the small size without squinting.
     preview = Image.new("RGBA", (16 * 8, 16 * 8), (0, 0, 0, 0))
     preview.paste(render(16).resize((16 * 8, 16 * 8), Image.NEAREST), (0, 0))
     preview.save(OUT.parent.parent / "pipeline" / "icon16-preview.png", "PNG")

@@ -420,6 +420,12 @@ tier chip; the family count line is the root's weight signal.
   mechanism (fit-gated, z-index rules) with new artwork: the Greek word
   "ἔτυμον" in the seal frame. Fonts: system stack everywhere; the
   Batang/serif rules are deleted.
+- Icon (chosen 2026-08-25, rendered by pipeline/make_icons.py): a bare
+  lowercase epsilon in Georgia Bold, cream (#FFF7F0) on a terracotta
+  clay ground (#C0552B) inside an Aegean blue ring (#9FC3E8), rounded
+  seal corners. Reference geometry in the tool's docstring. The 16px
+  asset drops the ring and enlarges the glyph. The bare epsilon is
+  binding: no diacritics at icon size.
 
 ## Pipeline (build.py rewrite)
 
