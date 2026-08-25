@@ -312,8 +312,32 @@ A morpheme chip carries at most one link field.
 
 * A curated alias in `ROOT_ALIASES` overrides everything.
 * A part with an English affix entry links to that affix root: `r`.
+* A curated base route in `BASE_ROUTES` links to a classical root, **when
+  this word's own chain reaches it**: `r`.
 * A hyphen-free part that is itself a shipped word links to that word: `w`.
 * Anything else stays inert.
+
+### Base routing
+
+(Owner ruling 2026-08-25, from the alignment measurement.) Some base parts
+are spelled like an English word and mean a Latin verb. `subscribe` split as
+sub- + scribe, and the chip pointed at the English noun for a draughtsperson
+when the operative unit is scrībō, to write. Same class: transport's `port`
+went to the harbour rather than portō, relax's `lax` to a card whose first
+definition is "A salmon", resound's `sound` to one that opens "Healthy".
+
+`BASE_ROUTES` names those bases, thirteen of them, each with the reason it is
+there. **The gate is what makes the table safe**: a route fires only when the
+word's own etymology chain reaches that root. The part alone is not evidence.
+`port` is a morph in 34 shipped words and in most of them it really is the
+harbour, so airport, carport, seaport and jetport keep their word chip while
+transport routes. The same guard keeps `view` out of lakeview and overview,
+`sound` out of soundboard and soundcheck, `current` out of undercurrent.
+
+The gate also earns more than the thirteen measured words: any word whose own
+chain runs through the root routes too, which is how ascribe, scribble and
+portable joined their families. 22 chips route in all, and the thirteen
+families they join grew from 80 words to 102.
 
 Origin plays no part. `un-` and `-ness` resolve exactly as `sub-` and `-ation`
 do, and Germanic affixes get root cards on the same terms as Latinate ones.
@@ -440,7 +464,7 @@ the pipeline can fix that; it is a cap-rule question for the owner.
 
 ## Curation
 
-`curation.py` is data only, five tables, every entry carrying the reason it
+`curation.py` is data only, six tables, every entry carrying the reason it
 exists:
 
 | table            | what it holds                                                    |
@@ -450,6 +474,7 @@ exists:
 | `ROOT_ALIASES`   | surface form or chain lemma -> root key                           |
 | `ROOT_SKIPS`     | keys that must never become root cards                            |
 | `ROOT_GLOSSES`   | hand glosses overriding the harvested one                         |
+| `BASE_ROUTES`    | bound base part -> the classical root it really names             |
 
 An alias key is a bare surface form (`terra`, `terr-`) when it should bind
 wherever that form appears, English morphemes included, and a
@@ -542,6 +567,12 @@ with muse as a word chip, beautiful = beauty + -ful with en:-ful shipping.
 Root anchors: subterranean's breakdown contains a terra-rooted morpheme,
 la:terra ships with a gloss containing "land" and a family containing terrain
 and territory, en:un- ships with a family of five or more.
+
+Base-routing anchors: subscribe routes its scribe chip to la:scribo and that
+family holds subscribe and describe; relax routes lax to la:laxo; append
+routes pend to la:pendo, where the chip was inert; airport, lakeview,
+soundboard and undercurrent keep their word chips, because no chain of theirs
+reaches the Latin verb; every BASE_ROUTES target ships as a root.
 
 Origin anchors: memory carries a decomposed org reading memoria = memor +
 -ia with the memor part linked; territory upgrades to territōrium = terra +

@@ -674,19 +674,31 @@ Parsing rules, English extract:
   no origin filter on `r`. en: affix roots get `src` when their own
   etymology chain reaches a Latin/Greek lemma by the chain rule; a
   Germanic affix simply has no src row.
-- Alignment routing (Jesse decision 2026-08-25, rule ratified ahead of
-  the measurement): when a word carries BOTH an en surface split and a
-  Latin/Greek chain whose recursive flattening aligns with it
-  part-for-part, the base part takes `r` to the classical root instead
-  of `w` to its English homograph. Rationale: subscribe's surface
-  split paired the scribe chip with the English noun (a
-  draughtsperson) when the operative unit is la:scrībō, which also
-  assembles describe, inscribe, and prescribe; same class:
-  export/portō, subtract/trahō, reverse/vertō. A curated keep-list
-  (FREE_BASES in curation.py) preserves the `w` chip where the base's
-  meaning flows into the compound and the English word card is the
-  right destination (muse in music, form in reform, cede in concede);
-  its members come from the measurement report and owner review.
+- Base routing (Jesse decision 2026-08-25, the shape inverted from
+  the first ratification after measurement): a curated route-list,
+  `BASE_ROUTES` in curation.py, maps an English base part to a
+  classical root key, and morph resolution honors it ahead of the
+  `w` rule, GATED on the word's own chain reaching that root
+  (build-verified 2026-08-25: ungated, the port entry alone would
+  have rerouted airport and 33 other harbor words to a Latin verb;
+  transport routes through trānsportō, airport never routes).
+  It fails closed: no English word card is ever traded for
+  a classical one without a signed-off entry carrying its reason.
+  Guard anchors: airport, lakeview, soundboard, and undercurrent
+  keep their word chips.
+  Rationale: subscribe's surface split paired the scribe chip with
+  the English noun (a draughtsperson) when the operative unit is
+  la:scrībō, and the measurement showed the class is 43 aligned
+  words, 13 wanting routing against 15 wanting their English card
+  kept, with siblings like describe and export already on the
+  classical cards via FROM LATIN rows; routing the 13 makes families
+  agree. Seed entries (owner-ratified, including the two flagged
+  debatable): lax to la:laxō, sound to la:sonō, tract to la:trahō,
+  port to la:portō, scribe to la:scrībō, lupus to la:lupus, view to
+  la:videō, current to la:currō, elector to la:ēligō, victor to
+  la:vincō, pend to la:pendō, claim to la:clāmō, flex to la:flectō.
+  Anchor: subscribe's scribe chip is `r` to la:scrībō and la:scrībō's
+  family contains subscribe and describe.
 - Root emission: collect every referenced root key; keep those with 2
   or more referencing words; gloss la:/grc: keys from the Latin/Greek
   extracts (first gloss of the lemma entry, macrons preserved for

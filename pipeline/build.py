@@ -1111,7 +1111,10 @@ class Origin:
             # an inert fragment, which teaches less than the whole part.
             if pk not in cl["gloss"]:
                 return None
-            pieces.append((p, lang + ":" + pk, pk))
+            # One page, one spelling. Source templates write the same lemma
+            # both ways (creō in creātrīx, creo in prōcreātus), so the chip
+            # takes the headword form the page itself carries.
+            pieces.append((cl["form"].get(pk) or p, lang + ":" + pk, pk))
         out = []
         for form, rkey, pk in pieces:
             if rkey in curation.ROOT_SKIPS:
@@ -1126,7 +1129,23 @@ class Origin:
                 out.append((form, rkey))
         return out
 
-    def resolve(self, lang, lemma):
+    def chain_roots(self, chain):
+        """Every root key a word's chain reaches, decomposed or whole.
+
+        Used by the base-route gate in resolve_part. A word carrying morphs
+        ships no org row, but its chain is still the evidence for whether a
+        base part names a classical root.
+        """
+        if not chain:
+            return ()
+        org = self.resolve(chain[0], chain[1], count=False)
+        if not org:
+            return ()
+        if "parts" in org:
+            return {p["r"] for p in org["parts"] if p.get("r")}
+        return {org["r"]} if org.get("r") else ()
+
+    def resolve(self, lang, lemma, count=True):
         """The `org` value for a chain lemma: decomposed, single, or None."""
         key = self.settle(lang, lemma)
         if not key:
@@ -1136,12 +1155,14 @@ class Origin:
         if a:
             # A curated alias is a decision about where the family belongs,
             # so it wins over anything the extract would decompose.
-            self.stats["single"] += 1
+            if count:
+                self.stats["single"] += 1
             return {"r": a}
         flat = self.flatten(lang, key, ORG_DEPTH, {key})
         if flat and len(flat) >= 2:
-            self.stats["decomposed"] += 1
-            self.stats["parts_%d" % min(len(flat), 6)] += 1
+            if count:
+                self.stats["decomposed"] += 1
+                self.stats["parts_%d" % min(len(flat), 6)] += 1
             disp = self.cl[lang]["form"].get(key) or lemma
             parts = []
             for form, rkey in flat:
@@ -1150,17 +1171,22 @@ class Origin:
                     part["r"] = rkey
                 parts.append(part)
             return {"l": disp, "lang": lang, "parts": parts}
-        self.stats["single"] += 1
+        if count:
+            self.stats["single"] += 1
         return {"r": lang + ":" + key}
 
 
-def resolve_part(part, word, affixes, shipped):
+def resolve_part(part, word, affixes, shipped, chain_roots=()):
     """Link target for one morpheme: ("r", key), ("w", key), or (None, None).
 
     A curated alias overrides everything. After that an affix part takes the
-    affix root card, and a hyphen-free part that is itself a shipped word
+    affix root card, a curated base route takes the classical root that the
+    part really names, and a hyphen-free part that is itself a shipped word
     takes that word card. Anything else leaves the chip inert. Origin is
-    never consulted: un- resolves the same way sub- does.
+    never consulted for affixes: un- resolves the same way sub- does.
+
+    `chain_roots` is the set of root keys this word's own etymology chain
+    reaches. It gates BASE_ROUTES and nothing else.
     """
     p = part.lower()
     a = curation.ROOT_ALIASES.get(part) or curation.ROOT_ALIASES.get(p)
@@ -1168,6 +1194,11 @@ def resolve_part(part, word, affixes, shipped):
         return "r", a
     if p in affixes:
         return "r", "en:" + p
+    # A curated base route, and only when this word's own chain reaches the
+    # root it names. See BASE_ROUTES for why the gate carries the safety.
+    routed = curation.BASE_ROUTES.get(p)
+    if routed and routed in chain_roots:
+        return "r", routed
     if "-" not in p and p != word and p in shipped:
         return "w", p
     return None, None
@@ -1387,6 +1418,51 @@ def verify(words_obj, roots_obj, forms_obj):
     add("la:terra ships with a land gloss",
         terra is not None and "land" in (terra.get("gloss") or "").lower(),
         json.dumps(terra, ensure_ascii=False) if terra else "MISSING")
+    # ---- base routing ---------------------------------------------------
+    def chip(k, form):
+        for m in (words.get(k) or {}).get("morphs") or ():
+            if m["f"].lower() == form:
+                return m
+        return None
+
+    sc = chip("subscribe", "scribe")
+    scfam = set(idx.get("la:scribo") or ())
+    add("subscribe routes its scribe chip to la:scribo",
+        sc is not None and sc.get("r") == "la:scribo" and not sc.get("w"),
+        json.dumps(sc, ensure_ascii=False))
+    add("la:scribo family holds subscribe and describe",
+        "subscribe" in scfam and "describe" in scfam,
+        "family %d: %s" % (len(scfam), ", ".join(sorted(scfam)[:10])))
+
+    lx = chip("relax", "lax")
+    add("relax routes its lax chip to la:laxo",
+        lx is not None and lx.get("r") == "la:laxo" and not lx.get("w"),
+        json.dumps(lx, ensure_ascii=False))
+
+    pd = chip("append", "pend")
+    add("append routes its pend chip to la:pendo (was inert)",
+        pd is not None and pd.get("r") == "la:pendo",
+        json.dumps(pd, ensure_ascii=False))
+
+    # The gate. These four spell a routed base and mean the English word:
+    # the harbour, the lake view, the noise, the flow. None has a chain
+    # reaching the Latin verb, so none routes. Verified 2026-08-25:
+    # claimant, flexible and scribble DO route, because their own chains run
+    # through clāmō, flectō and scribillāre.
+    guards = ("airport", "lakeview", "soundboard", "undercurrent")
+    kept = [k for k in guards
+            if any(m.get("w") for m in (words.get(k) or {}).get("morphs") or ())]
+    add("base routes stay off words whose chain does not reach the root",
+        len(kept) == len(guards),
+        "%d of %d keep their word chip: %s"
+        % (len(kept), len(guards), ", ".join(kept)))
+
+    missing = sorted(v for v in set(curation.BASE_ROUTES.values())
+                     if v not in roots)
+    add("every BASE_ROUTES target ships as a root", not missing,
+        "%d missing%s" % (len(missing),
+                          (": " + ", ".join(missing)) if missing else ""))
+
     # ---- the FROM LATIN row --------------------------------------------
     def org_of(k):
         return (words.get(k) or {}).get("org")
@@ -1881,11 +1957,20 @@ def main(argv):
     # to agree with it or a root ships whose card renders a family of one
     # (review finding 2026-08-24, 12 shipped words double-credited).
     refs = collections.Counter()
-    n_wchip = n_repeat = 0
+    n_wchip = n_repeat = n_routed = 0
     for wl, w in shipped.items():
         credited = set()
+        # The roots this word's own chain reaches, for the base-route gate.
+        # A word with morphs keeps its chain in the harvest even though the
+        # schema gives it no org row, and that chain is the evidence a route
+        # needs: transport runs through trānsportō, airport runs through
+        # nothing at all.
+        chain_roots = origin.chain_roots(harvest.get(wl, {}).get("org")) \
+            if w.get("morphs") else ()
         for m in w.get("morphs") or ():
-            field, k = resolve_part(m["f"], wl, affixes, shipped)
+            field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots)
+            if field == "r" and curation.BASE_ROUTES.get(m["f"].lower()) == k:
+                n_routed += 1
             if field == "r" and k not in curation.ROOT_SKIPS:
                 m["r"] = k
                 if k in credited:
@@ -1990,10 +2075,11 @@ def main(argv):
             org["f"] = roots[org["r"]]["form"]
     log("  %s roots kept (%s src links); %s word chips, %s morph chips left "
         "inert, %s org parts inert, %s org rows dropped, %s repeated morphs "
-        "credited once"
+        "credited once, %s base chips routed to a classical root"
         % (format(len(roots), ","), format(n_src, ","), format(n_wchip, ","),
            format(n_inert, ","), format(n_inertpart, ","),
-           format(n_orgdrop, ","), format(n_repeat, ",")))
+           format(n_orgdrop, ","), format(n_repeat, ","),
+           format(n_routed, ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader

@@ -8,7 +8,7 @@ only, loaded because sys.path[0] is pipeline/ whenever build.py runs as a
 script.
 
 Wiktionary is right about etymology and wrong about what a reader wants to
-see. These five tables are where that gap is recorded, one entry at a
+see. These six tables are where that gap is recorded, one entry at a
 time, each with the reason it exists. They are reviewed in PR diffs.
 
     BLOCKED_SPLITS   harvested split is true but semantically dead
@@ -16,6 +16,7 @@ time, each with the reason it exists. They are reviewed in PR diffs.
     ROOT_ALIASES     surface form or chain lemma -> root key
     ROOT_SKIPS       keys never emitted as roots
     ROOT_GLOSSES     hand gloss overriding the harvested one
+    BASE_ROUTES      bound base part -> the classical root it really names
 
 An ROOT_ALIASES key is a bare surface form (terra, terr-) when it should
 bind wherever that form appears, English morphemes included, and a
@@ -195,4 +196,58 @@ ROOT_GLOSSES = {
     # fullest sense on the page reads as below.
     "la:-eus": "derives relational adjectives from nouns, used chiefly to "
                "indicate material composition",
+}
+
+# ----------------------------------------------------------------- base routes
+# Bound base parts that name a classical root rather than the English
+# homograph they are spelled like. A morph chip on this list links to the
+# root card instead of to the English word card (owner ruling 2026-08-25,
+# from the alignment measurement).
+#
+# GATED, and the gate is the whole safety of this table: a route fires only
+# when the word's OWN etymology chain reaches that root. The part alone is
+# not enough evidence. `port` is a morph in 34 shipped words and in most of
+# them it is the harbour: airport, carport, seaport, jetport, lakeport,
+# moonport. Only transport, whose chain runs through Latin trānsportō,
+# routes. The same guard keeps view out of lakeview and overview (23 words),
+# sound out of soundboard and soundcheck (21), current out of undercurrent,
+# claim out of claimant, flex out of flexible, scribe out of scribble.
+#
+# Keys are lowercase English morph forms, values are root keys.
+
+BASE_ROUTES = {
+    # relax: the English card leads "A salmon". laxō is "to extend, expand".
+    "lax": "la:laxo",
+    # resound: the English card leads "Healthy", the wrong homograph twice
+    # over. sonō is "to sound, make a noise".
+    "sound": "la:sono",
+    # protract, tractotomy: the English noun is "an area or expanse",
+    # trahō is "to drag, pull".
+    "tract": "la:traho",
+    # transport: the English noun is a harbour, portō is "to carry".
+    "port": "la:porto",
+    # subscribe, circumscribe, superscribe: the English noun is a
+    # draughtsperson, scrībō is "to write".
+    "scribe": "la:scribo",
+    # lupulus: the English card is the autoimmune disease, lupus is "wolf".
+    "lupus": "la:lupus",
+    # review: the English noun is "visual perception", videō is "to see".
+    "view": "la:video",
+    # intercurrent: the English noun is the movement of a fluid, currō is
+    # "to run".
+    "current": "la:curro",
+    # electrix: the English noun is a voter, ēligō is "to choose".
+    "elector": "la:eligo",
+    # victrix: the English noun is the winner, vincō is "to win", and the
+    # -trīx forms are Latin morphology throughout.
+    "victor": "la:vinco",
+    # append: `pend` is not an English word at all, so the chip is inert
+    # today. pendō is "to weigh, weigh out".
+    "pend": "la:pendo",
+    # reclaim: the English noun is a demand of ownership, clāmō is "to cry
+    # out". Ratified with flex as a knowingly debatable pair.
+    "claim": "la:clamo",
+    # reflex: the English noun is "flexibility, pliancy", flectō is "to
+    # bend, curve".
+    "flex": "la:flecto",
 }
