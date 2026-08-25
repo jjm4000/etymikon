@@ -84,6 +84,13 @@ const words = {
       org: { r: "grc:λόγος", f: "λόγος" },
       fr: 7100,
     },
+    // The US-primary re-key: the key and the headword are American, but the
+    // page holding the content is the British one.
+    favorite: {
+      senses: [{ pos: "noun", defs: ["A person or thing preferred above others."] }],
+      wik: "favourite",
+      fr: 1804,
+    },
     hope: {
       senses: [
         { pos: "noun", defs: ["Expectation of a thing to come."] },
@@ -219,6 +226,9 @@ const forms = {
   map: {
     // A form whose lemma ships, and which no suffix rule reaches.
     taught: "teach",
+    // The British spelling of a re-keyed word: both spellings resolve, and the
+    // card is the US-keyed one.
+    favourite: "favorite",
     // A form the map still carries although the surface ships as a word of
     // its own: the exact rule must win over the map.
     ran: "run",
@@ -589,6 +599,42 @@ test("seeAlso is dropped when a bundle points a word at itself", () => {
 test("an ordinary word carries no seeAlso", () => {
   assert.equal("seeAlso" in one("run"), false);
   assert.equal("seeAlso" in one("terrain"), false);
+});
+
+// --- the re-keyed Wiktionary page title -----------------------------------
+
+test("a re-keyed word passes its Wiktionary page title through", () => {
+  const match = one("favorite");
+  assert.equal(match.canonical, "favorite", "the US spelling is the key");
+  assert.equal(match.wik, "favourite", "the card links to the page holding the content");
+});
+
+test("the British spelling resolves to the same card and the same page title", () => {
+  const match = one("favourite");
+  assert.equal(match.canonical, "favorite");
+  assert.deepEqual(match.formOf, { surface: "favourite", lemma: "favorite" });
+  assert.equal(match.wik, "favourite");
+});
+
+test("a word with no re-keying carries no wik", () => {
+  assert.equal("wik" in one("terrain"), false);
+  assert.equal("wik" in one("run"), false);
+});
+
+test("an unusable wik is dropped rather than passed on", () => {
+  for (const wik of [5, "", null, {}]) {
+    const junk = {
+      words: {
+        v: 1,
+        words: { favorite: { senses: [{ pos: "noun", defs: ["A thing."] }], wik } },
+      },
+    };
+    assert.equal(
+      "wik" in buildMatches("favorite", junk)[0],
+      false,
+      `wik ${JSON.stringify(wik)} must not reach the card`
+    );
+  }
 });
 
 // --- roots and families ---------------------------------------------------
@@ -1581,6 +1627,43 @@ await testAsync("smoke: the shipped bundle resolves the SPEC's anchor words", as
       `${Object.keys(bundle.forms.map).length} forms` +
       `${placeholder ? ", placeholder" : ""})`
   );
+});
+
+await testAsync("smoke: US-primary re-keyed words carry their page title", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const table = bundle.words.words;
+  const own = (key) => Object.prototype.hasOwnProperty.call(table[key], "wik");
+  const rekeyed = Object.keys(table).filter(own);
+  if (rekeyed.length === 0) {
+    console.log("      (no wik field in this build yet, re-keying unverified)");
+    return;
+  }
+
+  // A page title that is empty, or that is just the key again, is a pointer to
+  // nothing: the link it builds is the one the canonical key already gives.
+  const bad = rekeyed.filter((key) => {
+    const wik = table[key].wik;
+    return typeof wik !== "string" || wik === "" || wik === key;
+  });
+  assert.deepEqual(bad.slice(0, 5), [], `${bad.length} wik values are empty or their own key`);
+
+  // The worker hands it to the card untouched.
+  const sample = rekeyed[0];
+  assert.equal(lookup(sample, bundle).matches[0].wik, table[sample].wik);
+
+  // The SPEC's anchor pair.
+  if (Object.prototype.hasOwnProperty.call(table, "favorite")) {
+    assert.equal(table.favorite.wik, "favourite", "favorite links to the favourite page");
+    assert.equal(lookup("favorite", bundle).matches[0].wik, "favourite");
+    assert.equal(lookup("favourite", bundle).matches[0].canonical, "favorite");
+  }
+  console.log(`      (${rekeyed.length} words carry a re-keyed page title)`);
 });
 
 await testAsync("smoke: the shipped bundle folds, labels and indexes as specified", async () => {

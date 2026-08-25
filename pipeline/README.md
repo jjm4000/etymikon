@@ -5,7 +5,7 @@ Builds the three data files the extension ships with:
 ```
 extension/data/words.json   per-word: definitions, morpheme breakdown, frequency rank
 extension/data/roots.json   per-root: form, gloss, kind, aliases
-extension/data/forms.json   inflected form -> lemma
+extension/data/forms.json   inflected form or spelling variant -> lemma
 ```
 
 All three are UTF-8 **without BOM** and compact (no indentation, no newlines),
@@ -92,50 +92,184 @@ multiword phrases fail that test and never become words.
 
 ### Inflected forms
 
-`forms.json` and the `fo` field on a word are the same harvest, split by
-whether the form itself ships. Both accept exactly one relation: a pure
-form-of page, carrying no `alt_of` sense at all, with at least one sense
-**tagged as an inflection**. The lemma comes from the first such sense. The
-accepted tags are enumerated in `INFLECTION_TAGS`, read off a tag census of
-the extract, and cover number, tense, aspect and mood, person, and degree.
+Three harvests feed the lemma pointers, and they are kept apart:
+
+| harvest              | source page                                   | may produce      |
+| -------------------- | --------------------------------------------- | ---------------- |
+| inflection           | pure form-of page, inflection-tagged           | `fo` or a row    |
+| alternative spelling | pure alt-of page, spelling-tagged              | a row only       |
+| mixed page           | lemma senses beside inflection senses          | `fo` only        |
+
+A fourth rule, US-primary re-keying, runs at emit rather than at harvest and
+rewrites which spelling owns the record. It is described below.
+
+**Inflection.** A pure form-of page, carrying no `alt_of` sense at all, with
+at least one sense **tagged as an inflection**. The lemma comes from the first
+such sense. The accepted tags are enumerated in `INFLECTION_TAGS`, read off a
+tag census of the extract, and cover number, tense, aspect and mood, person,
+and degree.
 
 One qualifying sense is enough rather than all of them, because a plural page
 often carries a second sense that is not an inflection. `wives` is the plural
 of wife and the obsolete genitive of wife, and the commonest irregular plural
 in the language must not be lost to its second line.
 
-An `alt_of` link never qualifies, whatever it is tagged. That is the whole
-abbreviation, initialism, misspelling, eye-dialect, pronunciation-spelling and
-alternative-spelling vocabulary of Wiktionary, and it is not inflection. Read
-as one, it wires the commonest words in the language to nonsense: `the` to
+An `alt_of` link never counts as inflection, whatever it is tagged. Read as
+one, it wires the commonest words in the language to nonsense: `the` to
 `thee`, `a` to `to`, `of` to `outfield`, `it` to `intrathecal`, `restarted` to
 `retarded`, and `don't` to `done` (review finding 2026-08-24). Landing the
 rule removed or corrected 202 mappings inside the top 3,000 corpus tokens and
-took `forms.json` from 105,512 rows to 82,553.
+took the inflection harvest from 105,512 rows to 82,553.
 
-A page that mixes inflection senses with lemma senses on ONE entry is not a
-pure form-of page, so it yields no mapping. `had` and `teeth` are that shape:
-both ship as words, and neither carries `fo` back to have or tooth. Whether
-the `fo` harvest should read senses instead of entries is an open question for
-the owner, not a pipeline decision.
-
-A word that ships **and** has inflection senses shadows its lemma, because the
+A word that ships **and** inflects something shadows its lemma, because the
 runtime finds the key and never reaches its suffix rules. It gets `fo`, the
 way back to the lemma, and stays out of `forms.json`. `ran` is the shape of
 it: a marginal noun sense about yarn on a winch makes it a word, and `fo`
 still points at `run`.
 
-The rule has a cost worth knowing. An alternative spelling whose page carries
-`alt_of` links defines nothing of its own, so it neither ships as a word nor
-resolves through `forms.json`, and a lookup of it returns no match. 918 such
-keys rank inside the top 50,000, and 22 of those inside the top 3,000: okay
-at rank 76, mr at 450, tv at 762, favorite at 1,237, neighbor at 2,949, with
-labor, humor and e-mail just past the line. Wiktionary is inconsistent
-here, which is why `colour` and `theater` are unaffected: their pages write
-the relation as a plain gloss ("Commonwealth and Ireland standard spelling of
-color") rather than as a link, so they ship as ordinary words. Closing that
-hole means a spelling-variant relation of its own, which is an owner
-decision, not a pipeline one.
+**Alternative spelling** (Jesse decision 2026-08-25). Excluding every
+`alt_of` link left a hole: a spelling variant whose page carries `alt_of`
+links defines nothing of its own, so it neither shipped as a word nor
+resolved, and a lookup of it returned no match. 914 such keys ranked inside
+the top 50,000, okay at rank 76 and favorite at 1,237 among them.
+
+So an `alt_of` sense does produce a `forms.json` row, never a `fo`, when its
+tags say it is a spelling and no excluded class applies. Both sets are in
+`build.py` and both are read off a census of every `alt_of` sense on a pure
+form-of page in the extract:
+
+* accepted, `ALT_SPELLING_TAGS`: `alternative` (92,150 senses) and
+  `standard` (198). No other tag in the census ever means "this is how the
+  word is spelled somewhere else".
+* excluded, `ALT_EXCLUDED_TAGS`: misspelling, misconstruction, abbreviation,
+  initialism, acronym, clipping, ellipsis, pronunciation-spelling, obsolete,
+  archaic, dated. Eye dialect has no tag of its own; wiktextract writes it as
+  `pronunciation-spelling`, so that one tag covers both SPEC classes. Acronym,
+  clipping, ellipsis and misconstruction never co-occur with an accepted tag,
+  so they are listed for the reader rather than for the filter.
+
+**Gloss-prefix extension** (Jesse decision 2026-08-25). wiktextract leaves
+the same relation untagged on a good many pages and states it in prose
+instead, so a sense also qualifies when its gloss OPENS with a spelling
+statement. `ACCEPTED_GLOSS_PREFIXES` is the census of every such opening on
+an otherwise unqualified `alt_of` sense: 9 phrases ending in "spelling", all
+accepted, and 10 of the 24 ending in "form", the ones naming a country or a
+standard. The exclusion classes still apply, and the opening is matched
+exactly rather than by pattern, because what is left out is the whole point:
+
+| left out                       | senses | why                                 |
+| ------------------------------ | ------ | ----------------------------------- |
+| alternative letter-case form   | 2,623  | a case variant is not a spelling    |
+| early or late modern form      | 18     | a period statement, and the exact shape that pointed `the` at thee |
+| dialect and language forms     | 14     | Geordie, Appalachia, Scotland, Russian: the acrost and fount class |
+| symbol, name, romanisation     | 9      | not a spelling relation at all      |
+
+The extension adds 539 rows and recovers 26 of the 30 keys that the tag rule
+left stranded with a spelling statement in prose: recognise, apologise,
+enquiry, dialog, archeology, criticise, authorise and kin. Four stay out and
+should: `homos` points at hommos, which does not ship; `noone` points at "no
+one", which is two words and outside the key charset; `ig` reads "Symbol for
+immunoglobulin"; `joo` is a letter-case form of Joo and would map to itself.
+
+Requiring an accepted tag or an accepted opening is what holds the old
+negatives. `the` points at thee on a sense tagged Early Modern under the
+gloss "Early Modern form of thee", which is neither a spelling tag nor an
+accepted opening; `a` is a pronunciation spelling of to and `of` an
+abbreviation of outfield, both excluded outright. Exclusions beat acceptance,
+so an alternative spelling also tagged obsolete or archaic stays out.
+
+An inflection outranks a spelling on the same surface, and 83 surfaces carry
+both: `canceled` is the past of cancel before it is the American spelling of
+cancelled, `flier` a form of fly before it is a spelling of flyer. A shipped
+word is never a forms.json key either, so a variant that earned its own card
+keeps it. Tags and gloss openings together add 12,126 rows, taking
+`forms.json` to 103,731, and recover most of the keys the inflection-only
+rule had stranded.
+
+What stays unreachable is the classes the rules exclude on purpose, plus one
+they cannot see. By count: 98 obsolete spellings (mostly given-name pages), 76
+abbreviations, 48 pronunciation spellings (goin, doin, comin), 35 clippings,
+33 initialisms, 23 misspellings, 21 archaic, 10 dated, and 24 keys with no
+pure alt-of page at all.
+
+**One hop through a spelling.** An inflection often lands on a lemma that is
+itself only a spelling: `recognises` inflects `recognise`, which is a row
+rather than a word. The shipped map is single hop, so the plural would
+resolve to nothing while the singular resolved. The chase happens at build
+time instead, and the form is emitted pointing at the final shipped word
+(`recognises` to `recognize`). One hop only; a chase that does not land on a
+shipped word drops the form. That adds **9,067 rows**, taking the inflection
+half to 91,605.
+
+The mirror case needs no chase. When an inflection's lemma is re-keyed to its
+US spelling, the rename map repoints the row on its way out, which is why
+`favourites` resolves to `favorite`. Both classes are anchored.
+
+### Mixed page
+
+(Jesse decision 2026-08-25.) `fo` is harvested per sense as well.
+A page that carries lemma senses beside inflection-tagged `form_of`
+senses is not a pure form-of page, so the first harvest refuses it, and the
+commonest shadow words in the language sat in that gap. The word takes `fo`
+from the first inflection-tagged `form_of` sense whose target is a different
+shipped word, in sense order, so a page inflecting two lemmas keeps the first:
+`best` is the superlative of good and of well, and it points at good. Same
+`INFLECTION_TAGS` filter, and `alt_of` senses never feed it. 109 shipped words
+gain a shadow row this way, 23 of them inside the top 3,000: is to be, had to
+have, were to be, going to go, could to can, people to person, teeth to
+tooth. A pure form-of page wins when a word has both, since such a page is
+about nothing else.
+
+### US-primary re-keying
+
+(Jesse decision 2026-08-25.) Wiktionary writes the content on the British
+page and leaves a pointer on the American one, so the harvest keys
+`favourite` and calls `favorite` a redirect. For this dictionary's reader
+that is backwards. When a shipped lemma's American spelling is a pointer page
+whose tags mark it as the US standard spelling, the emit moves the whole
+record onto the US key. The British spelling becomes a `forms.json` row
+pointing at it, so both spellings still resolve, and the record carries `wik`,
+the page title that actually holds the text, so the Wiktionary link still
+lands somewhere real.
+
+Detection is from the pointer page, never from a word list, and it reads two
+things. Either the tags carry a US marker (`US`; the census has no `American`
+tag) with Wiktionary's own `standard` tag, or the gloss opens with a phrase
+in `US_GLOSS_PREFIXES` saying the page is the American spelling ("US spelling
+of humour"). Neither fires when the page is also tagged for the other side of
+the Atlantic.
+
+The `standard` tag and the "spelling" head noun are what do the work.
+Requiring them yields 53 pairs, all real: favorite, catalog, traveler,
+humor, kilometer, omelet, valor. Accepting `alternative` or a bare "form"
+instead yields 126 and pulls in Southern dialect and name spellings, which
+would re-key `found` to `fount`, `across` to `acrost` and `marshal` to
+`marshall`. Those three stay ordinary forms.json rows, pointing the American
+surface at the word, which is the correct treatment for a dialect spelling.
+Wiktionary applies `standard` unevenly, so `labor` and `ameba` read
+`alternative` with no spelling statement in prose and stay redirects rather
+than becoming keys.
+
+Pairs where both spellings carry full entries are left alone, because neither
+is a pointer: color and colour, practice and practise, story and storey, 12
+pairs in all.
+
+The re-key runs **last**, after every harvest and after `forms.json` is
+assembled, so one rename map covers every reference at once: forms targets
+(`favourites` now points at `favorite`), `fo` fields on other words, and `w`
+chips naming the old key. The root family index is derived from the records
+themselves and moves with them. Verify asserts the result: every `wik` page
+is absent from words.json and present in forms.json pointing back, no
+words.json key is a forms.json key, and nothing dangles.
+
+The rank follows the headword (Jesse decision 2026-08-25): a re-keyed record
+keeps the better of the two spellings' ranks, and the tier chip follows it. A
+card titled favorite reporting the rank of favourite understates the word the
+reader selected. 36 of the 53 pairs take the American rank, and 13 of the
+original 39 change tier as a result: favorite and neighbor become Everyday,
+cozy and traveler and somber and omelet become Common, and seven rare cards
+become Advanced. The re-measure also moves 7 words inside the rank cap, which
+is why the ranked count reads 29,257 rather than 29,250.
 
 ### Splits
 
@@ -348,12 +482,35 @@ la:terra ships with a gloss containing "land" and a family containing terrain
 and territory, en:un- ships with a family of five or more.
 
 Curation anchors: understand ships with no morphs; had ships as a word with no
-morphs, no fo and no forms.json row; running ships with no morphs because its
-split is inflectional; ran and running both carry fo run; territories resolves
-to territory, walked to walk, children to child.
+morphs and no forms.json row; running ships with no morphs because its split
+is inflectional; ran and running both carry fo run; territories resolves to
+territory, walked to walk, children to child.
 
 Form-of anchors: the, a, of and it carry no fo; nothing redirects don't to
 done.
+
+Chain anchors: recognises resolves to recognize, apologised to apologize and
+criticising to criticize, each chased one hop through a spelling; favourites
+resolves to favorite, whose lemma was re-keyed under it.
+
+Alternative-spelling anchors: e-mail resolves to email, okay to ok; the, a,
+of and yeah map to nothing; canceled resolves to cancel rather than cancelled
+and flier to fly rather than flyer, because an inflection outranks a
+spelling. The SPEC pins favorite and neighbor here, but the US-primary rule
+ratified after it re-keys both, so those two anchor in the other direction
+and the exception is pinned on pairs the re-key leaves alone.
+
+Mixed-page anchors: is carries fo be, had carries fo have, teeth carries fo
+tooth, people carries fo person.
+
+Gloss-prefix anchors: enquiry resolves to inquiry and dialog to dialogue on
+a prose statement alone; humor is a words.json key carrying wik humour.
+
+US-primary anchors: favorite and neighbor are words.json keys carrying wik
+favourite and wik neighbour; favourite maps to favorite and neighbour to
+neighbor; favorite carries an Everyday rank, since the rank follows the
+headword; every re-keyed word owns a Wiktionary page absent from words.json
+and present in forms.json pointing back at it.
 
 Charset anchor: x-ray ships, inside rank 50,000.
 

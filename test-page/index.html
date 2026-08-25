@@ -218,6 +218,18 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
+    // The US-primary re-key case. "favorite" is the shipped key and
+    // "favourite" maps to it, but the Wiktionary content lives on the British
+    // page: the US page there is only a pointer, so the card carries `wik` and
+    // links to the page that holds the entry.
+    favorite: {
+      senses: [
+        { pos: "noun", defs: ["A person or thing preferred above all others."] },
+        { pos: "adj", defs: ["Preferred above all others of the same kind."] }
+      ],
+      fr: 2600,
+      wik: "favourite"
+    },
     // A shipped word that also shadows an inflection of another one: the
     // see-also row points at the lemma the reader may have been after.
     ran: {
@@ -278,7 +290,9 @@
     }
   };
 
-  var FORMS = { territories: "territory", running: "run" };
+  // The re-key rule puts the British spelling here too, so both spellings
+  // resolve and the inflection note names whichever was selected.
+  var FORMS = { territories: "territory", running: "run", favourite: "favorite" };
 
   // A family too long for one chunk, so the pagination has something to page
   // through. Ranks ascend with the index, so the ranked order is the
@@ -525,6 +539,8 @@
       if (root && root.gloss) match.org.gloss = root.gloss;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
+    // The Wiktionary title, passed through when the entry carries one.
+    if (entry.wik) match.wik = entry.wik;
     if (inflected) match.formOf = { surface: surface, lemma: lemma };
     return match;
   }
@@ -1076,6 +1092,44 @@
     return { left: left, top: top, right: left + w, bottom: top + h, width: w, height: h };
   }
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
+
+  /* ------------------------------------------------------------------ *
+   * Waiting, and why none of it is a fixed sleep any more
+   *
+   * A BACKGROUND tab clamps setTimeout to roughly one second. A sleep that is
+   * nominally longer than the timer it means to outlast then lands in the
+   * SAME clamped slot, and which callback runs first is a coin flip. Every
+   * assertion that waits on async work therefore polls for the CONDITION.
+   * `until` samples before it ever sleeps, which also keeps the suite quick
+   * when the clamp is in force.
+   *
+   * Polling cannot rescue a CSS transition: a tab that is not painting never
+   * advances one. This page asserts no transition value, only the classes
+   * that drive them, so it runs the same either way. (The embed harness does
+   * read one, and neutralizes the transition to stay honest about it.)
+   * ------------------------------------------------------------------ */
+
+  // Polls `fn` until it answers true or the budget runs out; returns the
+  // final answer, so a check can assert on it directly.
+  async function until(fn, ms) {
+    var deadline = Date.now() + (ms || 4000);
+    for (;;) {
+      var ok = false;
+      try { ok = !!fn(); } catch (e) { ok = false; }
+      if (ok) return true;
+      if (Date.now() >= deadline) return false;
+      await wait(50);
+    }
+  }
+
+  // Sleeps at least `ms` of WALL CLOCK time, for the checks that prove
+  // something did NOT happen. Under the clamp this overshoots, which only
+  // makes such a check stricter.
+  async function elapse(ms) {
+    var target = Date.now() + (ms || 30);
+    do { await wait(50); } while (Date.now() < target);
+  }
+
   // Takes an array (queryAll) or a NodeList (querySelectorAll) alike.
   function texts(nodes) {
     return Array.prototype.slice.call(nodes).map(function (n) {
@@ -1095,6 +1149,13 @@
       skipped++;
       lines.push("SKIP  " + name + "   [" + why + "]");
     }
+    // check(), for a condition that arrives asynchronously: polls it into
+    // place first, then records the verdict. `detail` is a function so it
+    // reports the state the check actually settled on. ALWAYS awaited.
+    async function checkSoon(name, condFn, detailFn, ms) {
+      var ok = await until(condFn, ms);
+      check(name, ok, typeof detailFn === "function" ? detailFn() : detailFn);
+    }
 
     var vw = document.documentElement.clientWidth;
     var vh = document.documentElement.clientHeight;
@@ -1104,6 +1165,11 @@
     // so a second run of the suite would inherit it. Start from the default.
     api.hide();
     if (api.resetPanelSize) api.resetPanelSize();
+    // Start from a clean selection. This page installs the real selection
+    // listeners, so a selection left over from a previous run (or from the
+    // browser driving the page) is read as a fresh lookup the moment a mouseup
+    // reaches the window, which resets the view stack under a later check.
+    if (window.getSelection()) window.getSelection().removeAllRanges();
     fake.__savedStore.reset();
 
     function matches(text) { return fake.__lookup(text).matches; }
@@ -1159,6 +1225,37 @@
         "https://en.wiktionary.org/wiki/subterranean#English",
       api.query(".wiki").href);
 
+    // --- a re-keyed headword links to the page that holds the content --------
+    // The US spelling is the key, and its Wiktionary page is only a pointer at
+    // the British one. The card keeps the canonical headword and sends the
+    // reader where the entry actually is.
+    show("favourite");
+    check("a re-keyed word keeps the canonical headword and notes the spelling",
+      api.query(".surface").textContent === "favorite" &&
+      !!api.query(".canonical") &&
+      api.query(".canonical").textContent === "favourite → favorite",
+      api.query(".surface").textContent);
+    check("its Wiktionary link targets the wik title, not the canonical key",
+      api.query(".wiki").href ===
+        "https://en.wiktionary.org/wiki/favourite#English",
+      api.query(".wiki").href);
+    check("the link names the page it will open",
+      api.query(".wiki").getAttribute("aria-label") ===
+        "Wiktionary entry for favourite (opens in a new tab)",
+      api.query(".wiki").getAttribute("aria-label"));
+    show("favorite");
+    check("the US spelling reaches the same card and the same link",
+      api.query(".surface").textContent === "favorite" &&
+      !api.query(".canonical") &&
+      api.query(".wiki").href ===
+        "https://en.wiktionary.org/wiki/favourite#English",
+      api.query(".wiki").href);
+    show("subterranean");
+    check("a word carrying no wik still links to its canonical key",
+      api.query(".wiki").href ===
+        "https://en.wiktionary.org/wiki/subterranean#English",
+      api.query(".wiki").href);
+
     // --- tier chips ------------------------------------------------------
     check("a word card renders exactly one tier chip",
       api.queryAll(".tier-chip").length === 1,
@@ -1202,10 +1299,15 @@
     var labelledRoot = fake.__root("en:-ness").root;
     labelledRoot.label = "Interfix";
     api.showRoot(anchor, labelledRoot);
-    await wait(40);
-    check("the root label line prints the label the worker joined",
-      api.query(".rootlabel").textContent === "Interfix",
-      api.query(".rootlabel").textContent);
+    await checkSoon("the root label line prints the label the worker joined",
+      function () {
+        var n = api.query(".rootlabel");
+        return !!n && n.textContent === "Interfix";
+      },
+      function () {
+        var n = api.query(".rootlabel");
+        return n ? n.textContent : "no label";
+      });
 
     // --- glosses ---------------------------------------------------------
     show("run");
@@ -1247,7 +1349,7 @@
     // gloss stops at two lines.
     api.resetPanelSize();
     show("photograph");
-    await wait(40);
+    await until(function () { return api.queryAll(".morph-gloss").length === 2; });
     var longGloss = api.queryAll(".morph-gloss")[0];
     check("test setup: the fixture chip really does carry a long gloss",
       longGloss.textContent.length > 120, "chars=" + longGloss.textContent.length);
@@ -1274,11 +1376,14 @@
     // --- a chip opens the root card --------------------------------------
     var rootCallsBefore = fake.__rootCalls;
     api.queryAll(".morph")[1].click();          // terra
-    await wait(60);
-    check("a root chip opens that root card as a drill-down",
-      api.viewDepth() === 2 && !!api.query(".card.root") &&
-      api.query(".surface").textContent === "terra",
-      "depth=" + api.viewDepth() + " text=" + api.query(".surface").textContent);
+    await checkSoon("a root chip opens that root card as a drill-down",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.root") &&
+          api.query(".surface").textContent === "terra";
+      },
+      function () {
+        return "depth=" + api.viewDepth() + " text=" + api.query(".surface").textContent;
+      });
     check("it costs exactly one root request",
       fake.__rootCalls === rootCallsBefore + 1 &&
       fake.__lastRootKey === "la:terra",
@@ -1327,18 +1432,18 @@
       !!more && more.textContent === "Show 5 more (7)",
       more ? more.textContent : "no control");
     more.click();
-    await wait(60);
-    check("one press reveals five more rows",
-      api.queryAll(".fam-row").length === 13,
-      "rows=" + api.queryAll(".fam-row").length);
+    await checkSoon("one press reveals five more rows",
+      function () { return api.queryAll(".fam-row").length === 13; },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
     check("the control re-counts what is left",
       api.query(".fam-more").textContent === "Show 2 more (2)",
       api.query(".fam-more").textContent);
     api.query(".fam-more").click();
-    await wait(60);
-    check("the last press exhausts the family and removes the control",
-      api.queryAll(".fam-row").length === 15 && !api.query(".fam-more"),
-      "rows=" + api.queryAll(".fam-row").length);
+    await checkSoon("the last press exhausts the family and removes the control",
+      function () {
+        return api.queryAll(".fam-row").length === 15 && !api.query(".fam-more");
+      },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
     check("the unranked word sorts last",
       texts(api.queryAll(".fam-word")).pop() === "terroir",
       texts(api.queryAll(".fam-word")).pop());
@@ -1349,11 +1454,12 @@
     // --- family rows drill into word cards ---------------------------------
     var callsBeforeRow = fake.__calls;
     api.queryAll(".fam-row")[1].click();        // terrain
-    await wait(60);
-    check("a family row drills into that word's card",
-      api.viewDepth() === 3 && !!api.query(".card.word") &&
-      api.query(".surface").textContent === "terrain",
-      "depth=" + api.viewDepth());
+    await checkSoon("a family row drills into that word's card",
+      function () {
+        return api.viewDepth() === 3 && !!api.query(".card.word") &&
+          api.query(".surface").textContent === "terrain";
+      },
+      function () { return "depth=" + api.viewDepth(); });
     check("the row costs exactly one lookup",
       fake.__calls === callsBeforeRow + 1 && fake.__lastText === "terrain",
       "text=" + fake.__lastText);
@@ -1370,10 +1476,11 @@
       api.query(".origin-row").textContent);
     var rootCallsBefore2 = fake.__rootCalls;
     api.query(".origin-row").click();
-    await wait(60);
-    check("the origin row navigates to the root card",
-      api.viewDepth() === 4 && api.query(".surface").textContent === "terra",
-      "depth=" + api.viewDepth());
+    await checkSoon("the origin row navigates to the root card",
+      function () {
+        return api.viewDepth() === 4 && api.query(".surface").textContent === "terra";
+      },
+      function () { return "depth=" + api.viewDepth(); });
     check("the root was already cached, so nothing was re-requested",
       fake.__rootCalls === rootCallsBefore2,
       "calls " + rootCallsBefore2 + " → " + fake.__rootCalls);
@@ -1384,27 +1491,28 @@
     // --- the cycle rule ----------------------------------------------------
     var depthBefore = api.viewDepth();
     api.queryAll(".fam-row")[0].click();        // territory, from terra
-    await wait(60);
+    await until(function () { return api.viewDepth() === depthBefore + 1; });
     api.query(".origin-row").click();           // back up to terra: already here?
-    await wait(60);
-    check("navigating to the view you are NOT on pushes normally",
-      api.viewDepth() === depthBefore + 2, "depth=" + api.viewDepth());
+    await checkSoon("navigating to the view you are NOT on pushes normally",
+      function () { return api.viewDepth() === depthBefore + 2; },
+      function () { return "depth=" + api.viewDepth(); });
     var depthOnRoot = api.viewDepth();
     api.queryAll(".fam-row")[0].click();        // territory again, one step down
-    await wait(60);
+    await until(function () { return api.viewDepth() === depthOnRoot + 1; });
     api.query(".origin-row").click();           // terra: the view above, not this one
-    await wait(60);
-    check("only the CURRENT view is protected from duplication",
-      api.viewDepth() === depthOnRoot + 2, "depth=" + api.viewDepth());
+    await checkSoon("only the CURRENT view is protected from duplication",
+      function () { return api.viewDepth() === depthOnRoot + 2; },
+      function () { return "depth=" + api.viewDepth(); });
 
     // --- crumb jumps -------------------------------------------------------
     var callsBeforeJump = fake.__calls + fake.__rootCalls;
     api.queryAll(".crumb")[0].click();
-    await wait(60);
-    check("a crumb jumps straight back to its view",
-      api.viewDepth() === 1 && !api.query(".crumbs") &&
-      api.query(".surface").textContent === "subterranean",
-      "depth=" + api.viewDepth());
+    await checkSoon("a crumb jumps straight back to its view",
+      function () {
+        return api.viewDepth() === 1 && !api.query(".crumbs") &&
+          api.query(".surface").textContent === "subterranean";
+      },
+      function () { return "depth=" + api.viewDepth(); });
     check("going back re-queries nothing",
       fake.__calls + fake.__rootCalls === callsBeforeJump,
       "calls " + callsBeforeJump + " → " + (fake.__calls + fake.__rootCalls));
@@ -1428,7 +1536,7 @@
     }
 
     show("subterranean");
-    await wait(30);
+    await until(function () { return api.queryAll(".morph").length === 3; });
     var pageChars = selectPageText();
     check("test setup: the page carries a live selection",
       pageChars > 0 && !window.getSelection().isCollapsed,
@@ -1437,31 +1545,34 @@
       api.selectionSuppressesNav() === false);
     var guardDepth = api.viewDepth();
     api.queryAll(".morph")[1].click();      // terra, selection still up
-    await wait(80);
-    check("clicking a chip with the opening selection still up navigates",
-      api.viewDepth() === guardDepth + 1 &&
-      api.query(".surface").textContent === "terra",
-      "depth " + guardDepth + " → " + api.viewDepth() +
-      " text=" + api.query(".surface").textContent);
+    await checkSoon("clicking a chip with the opening selection still up navigates",
+      function () {
+        return api.viewDepth() === guardDepth + 1 &&
+          api.query(".surface").textContent === "terra";
+      },
+      function () {
+        return "depth " + guardDepth + " → " + api.viewDepth() +
+          " text=" + api.query(".surface").textContent;
+      });
     clearSelection();
 
     // A selection INSIDE the popup is the one case the guard exists for.
     show("subterranean");
-    await wait(30);
+    await until(function () { return !!api.query(".gloss-text"); });
     var inShadow = api.selectInShadow(".gloss-text");
     check("a selection inside the popup DOES suppress navigation",
       inShadow && api.selectionSuppressesNav() === true,
       "selected=" + inShadow);
     var copyDepth = api.viewDepth();
     api.queryAll(".morph")[1].click();      // the click that ends a copy-drag
-    await wait(80);
+    await elapse(80);
     check("the click that ends a copy-drag navigates nowhere",
       api.viewDepth() === copyDepth, "depth=" + api.viewDepth());
     clearSelection();
     api.queryAll(".morph")[1].click();
-    await wait(80);
-    check("clearing the selection hands navigation straight back",
-      api.viewDepth() === copyDepth + 1, "depth=" + api.viewDepth());
+    await checkSoon("clearing the selection hands navigation straight back",
+      function () { return api.viewDepth() === copyDepth + 1; },
+      function () { return "depth=" + api.viewDepth(); });
     clearSelection();
 
     // --- the selection length gate --------------------------------------------
@@ -1507,7 +1618,7 @@
       texts(api.queryAll(".morph-gloss")).join(" | "));
     var callsBeforeW = fake.__calls;
     api.queryAll(".morph")[0].click();          // muse
-    await wait(60);
+    await until(function () { return api.viewDepth() === 2; });
     check("a w chip opens that WORD's card through an ordinary lookup",
       api.viewDepth() === 2 && !!api.query(".card.word") &&
       api.query(".surface").textContent === "muse" &&
@@ -1526,7 +1637,7 @@
       chips[0].className);
     var callsBeforeInert = fake.__calls;
     chips[0].click();
-    await wait(40);
+    await elapse(40);
     check("clicking an inert chip does nothing at all",
       api.viewDepth() === 1 && fake.__calls === callsBeforeInert,
       "depth=" + api.viewDepth());
@@ -1542,7 +1653,7 @@
       sectionOrder().join(" | "));
     var callsBeforeSeeAlso = fake.__calls;
     api.query(".origin-row").click();
-    await wait(60);
+    await until(function () { return api.viewDepth() === 2; });
     check("the see-also row is an ordinary lookup drill-down",
       api.viewDepth() === 2 && api.query(".surface").textContent === "run" &&
       fake.__calls === callsBeforeSeeAlso + 1 &&
@@ -1566,15 +1677,15 @@
     // from that surface, and must not follow the lemma into a later one.
     show("territories");
     api.query(".origin-row").click();          // → terra
-    await wait(60);
+    await until(function () { return api.viewDepth() === 2; });
     api.queryAll(".fam-row")[0].click();       // → territory, reached as itself
-    await wait(60);
+    await until(function () { return api.viewDepth() === 3; });
     check("the note does not follow the lemma into a later view",
       api.query(".surface").textContent === "territory" &&
       !api.query(".canonical"),
       api.query(".canonical") ? api.query(".canonical").textContent : "no note");
     api.queryAll(".crumb")[0].click();
-    await wait(60);
+    await until(function () { return api.viewDepth() === 1; });
     check("going back to the view that owns the surface restores its note",
       !!api.query(".canonical") &&
       api.query(".canonical").textContent === "territories → territory",
@@ -1587,18 +1698,21 @@
       gloss: "forming adjectives", familyCount: 3,
       family: fake.__root("en:-ic").root.family.slice(0, 1)
     });
-    await wait(60);
-    check("a family that fits the inline cap is fetched up front and rendered whole",
-      api.queryAll(".fam-row").length === 3 && !api.query(".fam-more"),
-      "rows=" + api.queryAll(".fam-row").length +
-      " control=" + !!api.query(".fam-more"));
+    await checkSoon("a family that fits the inline cap is fetched up front and rendered whole",
+      function () {
+        return api.queryAll(".fam-row").length === 3 && !api.query(".fam-more");
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " control=" + !!api.query(".fam-more");
+      });
     check("rendering it whole cost one request and no press",
       fake.__familyCalls === famCallsBeforeWhole + 1,
       "calls " + famCallsBeforeWhole + " → " + fake.__familyCalls);
 
     // --- root heads: affixes, sources and scripts ----------------------------
     api.showRoot(anchor, fake.__root("en:sub-").root);
-    await wait(40);
+    await until(function () { return !!api.query(".rootlabel"); });
     check("an affix says just what it is",
       api.query(".rootlabel").textContent === "Prefix",
       api.query(".rootlabel").textContent);
@@ -1613,21 +1727,21 @@
       api.query(".origin-row b").textContent === "sub",
       api.query(".origin-row b").textContent);
     api.query(".origin-row").click();
-    await wait(60);
+    await until(function () { return api.viewDepth() === 2; });
     check("the source row opens the lemma it names",
       api.viewDepth() === 2 && api.query(".surface").textContent === "sub" &&
       api.query(".rootlabel").textContent === "Latin root",
       api.query(".surface").textContent);
 
     api.showRoot(anchor, fake.__root("en:-ness").root);
-    await wait(40);
+    await until(function () { return !!api.query(".fam-row"); });
     check("a Germanic affix is an ordinary suffix card with no source row",
       api.query(".rootlabel").textContent === "Suffix" &&
       !api.query(".origin-row") && !!api.query(".fam-row"),
       api.query(".rootlabel").textContent);
 
     api.showRoot(anchor, fake.__root("grc:logos").root);
-    await wait(40);
+    await until(function () { return !!api.query(".rom"); });
     check("a Greek root keeps its script and puts the romanization beside it",
       api.query(".surface").textContent === "λόγος" &&
       api.query(".rom").textContent === "logos" &&
@@ -1642,30 +1756,42 @@
     // --- chunked families ----------------------------------------------------
     var famCallsBeforeChunk = fake.__familyCalls;
     api.showRoot(anchor, fake.__root("en:-ful").root);
-    await wait(40);
+    await until(function () { return !!api.query(".fam-more"); });
     check("a long family shows its first eight and counts the rest",
       api.queryAll(".fam-row").length === 8 &&
       api.query(".fam-more").textContent === "Show 5 more (252)",
       api.query(".fam-more").textContent);
     api.query(".fam-more").click();
-    await wait(60);
-    check("the first press fetches a chunk and reveals five from it",
-      api.queryAll(".fam-row").length === 13 &&
-      fake.__familyCalls === famCallsBeforeChunk + 1 &&
-      fake.__lastFamilyOffset === 0,
-      "rows=" + api.queryAll(".fam-row").length +
-      " calls=" + fake.__familyCalls);
+    await checkSoon("the first press fetches a chunk and reveals five from it",
+      function () {
+        return api.queryAll(".fam-row").length === 13 &&
+          fake.__familyCalls === famCallsBeforeChunk + 1 &&
+          fake.__lastFamilyOffset === 0;
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " calls=" + fake.__familyCalls;
+      });
     api.query(".fam-more").click();
-    await wait(60);
-    check("the next press pages LOCALLY, asking the worker nothing",
-      api.queryAll(".fam-row").length === 18 &&
-      fake.__familyCalls === famCallsBeforeChunk + 1,
-      "rows=" + api.queryAll(".fam-row").length +
-      " calls=" + fake.__familyCalls);
+    await checkSoon("the next press pages LOCALLY, asking the worker nothing",
+      function () {
+        return api.queryAll(".fam-row").length === 18 &&
+          fake.__familyCalls === famCallsBeforeChunk + 1;
+      },
+      function () {
+        return "rows=" + api.queryAll(".fam-row").length +
+          " calls=" + fake.__familyCalls;
+      });
     // Press on until the rows in hand run out and the next chunk is needed.
     for (var press = 0; press < 60 && api.query(".fam-more"); press++) {
+      var rowsBeforePress = api.queryAll(".fam-row").length;
       api.query(".fam-more").click();
-      await wait(12);
+      // Each press either reveals rows in hand or fetches the next chunk;
+      // wait for the rows, never for a clock.
+      await until(function () {
+        return api.queryAll(".fam-row").length > rowsBeforePress ||
+          !api.query(".fam-more");
+      });
     }
     check("pressing on walks the whole family, one chunk at a time",
       api.queryAll(".fam-row").length === 260 && !api.query(".fam-more"),
@@ -1684,32 +1810,33 @@
     api.resetPanelSize();
     api.resizePanel(320, 220);
     api.showRoot(anchor, fake.__root("la:terra").root);
-    await wait(60);
-    check("test setup: the root card starts at its eight preview rows",
-      api.queryAll(".fam-row").length === 8,
-      "rows=" + api.queryAll(".fam-row").length);
+    await checkSoon("test setup: the root card starts at its eight preview rows",
+      function () { return api.queryAll(".fam-row").length === 8; },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
     api.query(".fam-more").click();
-    await wait(80);
+    await until(function () { return api.queryAll(".fam-row").length === 13; });
     api.query(".fam-more").click();
-    await wait(80);
-    check("test setup: the reader pages the whole family in",
-      api.queryAll(".fam-row").length === 15 && !api.query(".fam-more"),
-      "rows=" + api.queryAll(".fam-row").length);
+    await checkSoon("test setup: the reader pages the whole family in",
+      function () {
+        return api.queryAll(".fam-row").length === 15 && !api.query(".fam-more");
+      },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
     api.scrollTop(140);
     var deepScroll = api.scrollTop();
     check("test setup: and reads well down the list",
       deepScroll > 60, "scrollTop=" + Math.round(deepScroll));
     var backFamCalls = fake.__familyCalls;
     api.queryAll(".fam-row")[1].click();       // terrain, a shipped word
-    await wait(120);
-    check("test setup: the drill-down landed on the word card",
-      api.viewDepth() === 2 && api.query(".surface").textContent === "terrain",
-      "depth=" + api.viewDepth());
+    await checkSoon("test setup: the drill-down landed on the word card",
+      function () {
+        return api.viewDepth() === 2 &&
+          api.query(".surface").textContent === "terrain";
+      },
+      function () { return "depth=" + api.viewDepth(); });
     api.queryAll(".crumb")[0].click();
-    await wait(160);
-    check("going back re-reveals every row the reader had open",
-      api.queryAll(".fam-row").length === 15,
-      "rows=" + api.queryAll(".fam-row").length);
+    await checkSoon("going back re-reveals every row the reader had open",
+      function () { return api.queryAll(".fam-row").length === 15; },
+      function () { return "rows=" + api.queryAll(".fam-row").length; });
     check("the rows come back from the cache, asking the worker nothing",
       fake.__familyCalls === backFamCalls,
       "calls " + backFamCalls + " → " + fake.__familyCalls);
@@ -1722,17 +1849,9 @@
     // A row whose target IS the view it sits on must not stack a copy of it.
     // The card is already on screen, so the reader gets an orientation cue
     // instead: back to the top, and a tint fade over the head.
-    async function until(fn, ms) {
-      var deadline = Date.now() + (ms || 1500);
-      while (Date.now() < deadline) {
-        if (fn()) return true;
-        await wait(30);
-      }
-      return fn();
-    }
     api.resizePanel(300, 220);
     show("terrace");
-    await wait(60);
+    await until(function () { return !!api.query(".origin-row"); });
     api.scrollTop(60);
     var selfScroll = api.scrollTop();
     check("test setup: the card is tall enough to scroll, and is scrolled",
@@ -1740,7 +1859,7 @@
     var selfDepth = api.viewDepth();
     var selfCalls = fake.__calls;
     api.query(".origin-row").click();
-    await wait(20);
+    await until(function () { return api.queryAll(".flash").length === 1; });
     check("a row pointing at its own view pushes nothing and queries nothing",
       api.viewDepth() === selfDepth && fake.__calls === selfCalls,
       "depth " + selfDepth + " → " + api.viewDepth() +
@@ -1766,7 +1885,7 @@
       return realMatchMedia.call(window, q);
     };
     show("terrace");
-    await wait(60);
+    await until(function () { return !!api.query(".origin-row"); });
     api.scrollTop(60);
     api.query(".origin-row").click();
     check("under reduced motion it jumps to the top with no flash at all",
@@ -1811,16 +1930,20 @@
     // --- the clamp and its geometry-derived expander --------------------------
     api.resetPanelSize();
     show("run");
-    await wait(40);
-    check("a long sense clamps and offers a way to read the rest",
-      api.queryAll(".more").length >= 1,
-      "controls=" + api.queryAll(".more").length);
+    await checkSoon("a long sense clamps and offers a way to read the rest",
+      function () { return api.queryAll(".more").length >= 1; },
+      function () { return "controls=" + api.queryAll(".more").length; });
     var moreBtn = api.query(".more");
     moreBtn.click();
-    await wait(30);
-    check("the control expands the sense in place and re-labels itself",
-      api.query(".clamp.expanded") && api.query(".more").textContent === "less",
-      api.query(".more").textContent);
+    await checkSoon("the control expands the sense in place and re-labels itself",
+      function () {
+        return !!api.query(".clamp.expanded") &&
+          api.query(".more").textContent === "less";
+      },
+      function () {
+        var n = api.query(".more");
+        return n ? n.textContent : "no control";
+      });
     // The panel is bounded to 90% of the viewport, so a window too narrow to
     // hold a width where the sense FITS cannot exercise the geometry rule.
     var wide = Math.min(760, Math.floor(vw * 0.85));
@@ -1830,16 +1953,24 @@
       skip("re-narrowing brings the control back, collapsed", "same");
     } else {
       api.resizePanel(wide, 420);
-      await wait(40);
-      check("a width where the text fits removes the control and the expansion",
-        api.queryAll(".more").length === 0 && !api.query(".clamp.expanded"),
-        "controls=" + api.queryAll(".more").length + " at " + wide + "px");
+      await checkSoon("a width where the text fits removes the control and the expansion",
+        function () {
+          return api.queryAll(".more").length === 0 && !api.query(".clamp.expanded");
+        },
+        function () {
+          return "controls=" + api.queryAll(".more").length + " at " + wide + "px";
+        });
       api.resizePanel(300, 260);
-      await wait(40);
-      check("re-narrowing brings the control back, collapsed",
-        api.queryAll(".more").length >= 1 && !api.query(".clamp.expanded") &&
-        api.query(".more").textContent === "more",
-        api.query(".more").textContent);
+      await checkSoon("re-narrowing brings the control back, collapsed",
+        function () {
+          return api.queryAll(".more").length >= 1 &&
+            !api.query(".clamp.expanded") &&
+            api.query(".more").textContent === "more";
+        },
+        function () {
+          var n = api.query(".more");
+          return n ? n.textContent : "no control";
+        });
     }
     api.resetPanelSize();
 
@@ -1904,11 +2035,11 @@
     // enlarge used to shove the content and leave it there.
     api.resetPanelSize();
     api.showRoot(anchor, fake.__root("la:terra").root);
-    await wait(60);
+    await until(function () { return !!api.query(".fam-more"); });
     api.query(".fam-more").click();     // a card with something to scroll
-    await wait(80);
+    await until(function () { return api.queryAll(".fam-row").length === 13; });
     api.query(".fam-more").click();
-    await wait(80);
+    await until(function () { return api.queryAll(".fam-row").length === 15; });
     var W0 = Math.min(330, LIMIT_W - 30);
     var H0 = Math.min(280, LIMIT_H - 30);
     api.resizePanel(W0, H0);
@@ -1946,10 +2077,10 @@
     // --- a drag must not be read as a click on what is underneath ---------------
     // A mouseup outside the popup re-reads the selection, which dismisses a
     // popup that no longer has one; let that settle before showing a card.
-    await wait(30);
+    await elapse(30);
     api.resizePanel(Math.min(420, LIMIT_W - 8), Math.min(320, LIMIT_H - 8));
     api.showRoot(anchor, fake.__root("la:terra").root);
-    await wait(60);
+    await until(function () { return !!api.query(".fam-row"); });
     var corner = api.resizeCorner();
     var dragDepth = api.viewDepth();
     var dragCalls = fake.__calls;
@@ -1974,7 +2105,7 @@
       "visible=" + api.isVisible() + " resizing=" + api.isResizing());
     releasePanel(corner.x + 40, corner.y + 40);
     api.queryAll(".fam-row")[0].click();      // the click that ends the drag
-    await wait(120);
+    await elapse(120);
     check("the click ending a drag does not trigger row navigation",
       api.viewDepth() === dragDepth && fake.__calls === dragCalls &&
       api.isVisible(),
@@ -1982,13 +2113,13 @@
       ", calls " + dragCalls + " → " + fake.__calls);
     check("the guard clears after that one click", !api.isResizing());
     api.queryAll(".fam-row")[0].click();      // a genuine click still works
-    await wait(120);
-    check("the very next click navigates normally",
-      api.viewDepth() === dragDepth + 1, "depth=" + api.viewDepth());
+    await checkSoon("the very next click navigates normally",
+      function () { return api.viewDepth() === dragDepth + 1; },
+      function () { return "depth=" + api.viewDepth(); });
 
     // A press away from the corner is an ordinary interaction, not a gesture.
     api.showRoot(anchor, fake.__root("la:terra").root);
-    await wait(60);
+    await until(function () { return !!api.query(".fam-row"); });
     var mid = api.hostRect();
     var beforeBody = api.panelSize();
     api.dragResize(mid.left + 30, mid.top + 30, [[80, 80]]);
@@ -1997,7 +2128,7 @@
       Math.abs(api.panelSize().width - beforeBody.width) < 1 &&
       Math.abs(api.panelSize().height - beforeBody.height) < 1,
       JSON.stringify(beforeBody) + " → " + JSON.stringify(api.panelSize()));
-    await wait(30);
+    await elapse(30);
     api.resetPanelSize();
     show("subterranean");
     check("releasing the size restores the default footprint",
@@ -2008,7 +2139,10 @@
     var store = fake.__savedStore;
     store.reset();
     show("subterranean");
-    await wait(40);
+    await until(function () {
+      var n = api.query(".save");
+      return !!n && !n.classList.contains("save--unknown");
+    });
     var star = api.query(".save");
     check("the star renders and is revealed by one batched savedCheck",
       !!star && !star.classList.contains("save--unknown") &&
@@ -2016,7 +2150,11 @@
       JSON.stringify(store.lastCheckKeys()) === '["w:subterranean"]',
       JSON.stringify(store.lastCheckKeys()));
     star.click();
-    await wait(40);
+    // The save flips the star and opens the bubble; both are asserted below,
+    // so wait for BOTH rather than for whichever lands first.
+    await until(function () {
+      return star.textContent === "★" && !!api.saveBubble();
+    });
     check("clicking saves the lemma and flips the star",
       star.textContent === "★" && star.getAttribute("aria-pressed") === "true" &&
       store.state().items.length === 1 &&
@@ -2028,39 +2166,43 @@
     document.dispatchEvent(new KeyboardEvent("keydown", {
       key: "Escape", bubbles: true, composed: true
     }));
-    await wait(30);
-    check("Escape closes the bubble and leaves the popup standing",
-      !api.saveBubble() && api.isVisible());
+    await checkSoon("Escape closes the bubble and leaves the popup standing",
+      function () { return !api.saveBubble() && api.isVisible(); },
+      function () { return "bubble=" + !!api.saveBubble(); });
 
     // A root saves under its own kind and key.
     api.showRoot(anchor, fake.__root("la:terra").root);
-    await wait(40);
+    await until(function () {
+      return JSON.stringify(store.lastCheckKeys()) === '["r:la:terra"]';
+    });
     var rootStar = api.query(".save");
     check("a root card's star asks about the ROOT key",
       JSON.stringify(store.lastCheckKeys()) === '["r:la:terra"]',
       JSON.stringify(store.lastCheckKeys()));
     rootStar.click();
-    await wait(40);
-    check("saving a root files it by kind and key",
-      store.state().items.length === 2 &&
-      store.state().items[1].kind === "root" &&
-      store.state().items[1].key === "la:terra",
-      JSON.stringify(store.state().items[1]));
+    await checkSoon("saving a root files it by kind and key",
+      function () {
+        return store.state().items.length === 2 &&
+          store.state().items[1].kind === "root" &&
+          store.state().items[1].key === "la:terra";
+      },
+      function () { return JSON.stringify(store.state().items[1]); });
 
     // --- the Wiktionary background open -----------------------------------------
     show("subterranean");
-    await wait(30);
+    await until(function () { return !!api.query(".wiki"); });
     var wiki = api.query(".wiki");
     var opensBefore = fake.__openTabCalls;
     wiki.dispatchEvent(new MouseEvent("click", {
       bubbles: true, composed: true, cancelable: true, button: 0
     }));
-    await wait(40);
-    check("a plain click asks the worker to open a background tab",
-      fake.__openTabCalls === opensBefore + 1 &&
-      fake.__lastOpenTabUrl ===
-        "https://en.wiktionary.org/wiki/subterranean#English",
-      fake.__lastOpenTabUrl);
+    await checkSoon("a plain click asks the worker to open a background tab",
+      function () {
+        return fake.__openTabCalls === opensBefore + 1 &&
+          fake.__lastOpenTabUrl ===
+            "https://en.wiktionary.org/wiki/subterranean#English";
+      },
+      function () { return String(fake.__lastOpenTabUrl); });
     check("the link says it opened one", wiki.textContent === "Opened ↗",
       wiki.textContent);
     check("the popup is untouched by the interception", api.isVisible());
@@ -2099,8 +2241,9 @@
       api.queryAll(".save").length === 0);
     actions.push(savedAction);
     show("subterranean");
-    await wait(30);
-    check("putting it back brings them back", api.queryAll(".save").length === 1);
+    await checkSoon("putting it back brings them back",
+      function () { return api.queryAll(".save").length === 1; },
+      function () { return "stars=" + api.queryAll(".save").length; });
 
     } catch (e) {
       fail++;

@@ -501,6 +501,178 @@ def inflection_form_of(e):
     return target
 
 
+def mixed_inflections(e):
+    """Inflection targets on a page that also defines lemma senses.
+
+    The `fo` harvest reads senses here, not whole entries (SPEC, Jesse
+    decision 2026-08-25). A page that mixes its own senses with
+    inflection-tagged form_of senses is not a pure form-of page, so
+    inflection_form_of refuses it, and the commonest shadow words in the
+    language sat in that gap: is, had, going, people, teeth. 109 shipped
+    words, 23 of them inside the top 3,000.
+
+    Returns the targets in sense order. The caller takes the first one that
+    is a different shipped word, so a page inflecting two lemmas (best is
+    the superlative of good and of well) keeps the first. The same
+    INFLECTION_TAGS filter guards this path, and an alt_of sense never
+    feeds it.
+    """
+    senses = e.get("senses") or []
+    if not senses:
+        return ()
+    if not any(not (s.get("form_of") or s.get("alt_of")) for s in senses):
+        return ()          # a pure form-of page; the other harvest owns it
+    out = []
+    for s in senses:
+        links = s.get("form_of")
+        if not links or s.get("alt_of"):
+            continue
+        if not any(t in INFLECTION_TAGS for t in (s.get("tags") or ())):
+            continue
+        w = ((links[0] or {}).get("word") or "").lower()
+        if w and w not in out and RE_WORD_KEY.match(w):
+            out.append(w)
+    return out
+
+
+# The alternative-spelling exception (SPEC, Jesse decision 2026-08-25). An
+# alt_of page reaches its lemma through forms.json when a sense says it is a
+# spelling of that lemma and no excluded class applies. Both sets are read off
+# a census of every alt_of sense on a pure form-of page in the English extract
+# (2026-08-24): 92,150 senses carry `alternative`, 198 carry `standard`, and
+# those are the only two tags that ever mean "this is how the word is spelled
+# somewhere else".
+ALT_SPELLING_TAGS = frozenset({"alternative", "standard"})
+# The excluded classes, SPEC's list translated into the tags that carry them.
+# Two notes from the census. Eye dialect has no tag of its own: wiktextract
+# writes it as pronunciation-spelling ("of" is an eye-dialect page for have),
+# so that one tag covers both SPEC classes. And acronym, clipping, ellipsis
+# and misconstruction never co-occur with an accepted tag, so requiring one
+# already excludes them; they are listed for the reader, not for the filter.
+ALT_EXCLUDED_TAGS = frozenset({
+    "misspelling", "misconstruction",
+    "abbreviation", "initialism", "acronym", "clipping", "ellipsis",
+    "pronunciation-spelling",
+    "obsolete", "archaic", "dated",
+})
+
+# The gloss-prefix extension (SPEC, Jesse decision 2026-08-25). Wiktionary
+# states the same relation in prose on pages wiktextract left untagged, so a
+# gloss that OPENS with an explicit spelling statement qualifies on its own.
+# The set below is the census of every such opening on an otherwise
+# unqualified alt_of sense (2026-08-24): 9 phrases ending in "spelling", all
+# accepted, and 10 of the 24 ending in "form", the ones naming a country or a
+# standard.
+#
+# What is left out is the point of enumerating rather than pattern-matching:
+#   letter-case (2,623 senses)  a case variant is not a spelling variant
+#   early/late modern (18)      a period statement, and the exact shape that
+#                               pointed "the" at thee before the review
+#   dialect and language (14)   Geordie, Appalachia, Scotland, Russian, MLE:
+#                               the same class as the acrost and fount pages
+#                               that must never re-key a word
+#   symbol, name, romanisation  not a spelling relation at all
+ACCEPTED_GLOSS_PREFIXES = frozenset({
+    "us spelling", "chiefly us spelling", "uk and us spelling",
+    "non-oxford british english standard spelling",
+    "rare spelling", "nonstandard spelling", "uncommon spelling",
+    "now uncommon spelling", "informal spelling",
+    "british form", "british english form", "uk form", "us form",
+    "commonwealth form", "standard form", "nonstandard form",
+    "north american english form", "oxford british english form",
+    "non-oxford british english form",
+})
+# The openings that say a page is the AMERICAN spelling, which qualifies the
+# pair for re-keying below. The head noun has to be "spelling", per the SPEC
+# wording, and a phrase naming the other side too ("uk and us spelling") is
+# not distinctly American. The census has only the first two; the rest are
+# listed because the SPEC wording names them.
+US_GLOSS_PREFIXES = frozenset({
+    "us spelling", "chiefly us spelling", "us standard spelling",
+    "american spelling", "american standard spelling",
+})
+RE_GLOSS_PREFIX = re.compile(r"^(.{0,70}?)\s+of\s")
+
+
+def gloss_prefix(s) -> str:
+    """The opening phrase of a sense gloss, up to its first " of "."""
+    m = RE_GLOSS_PREFIX.match(clean_text((s.get("glosses") or [""])[0]))
+    return m.group(1).lower() if m else ""
+
+
+# US-primary re-keying (SPEC, Jesse decision 2026-08-25). A pointer page is
+# the American form of its lemma when the same accepted spelling sense carries
+# a US marker and Wiktionary's own `standard` tag. `standard` is what does the
+# work: it is the tag the source uses for "this is the spelling in that
+# country", and requiring it is the difference between 39 real pairs
+# (favorite, catalog, traveler) and 126 that include Southern dialect and
+# name spellings (fount for found, marshall for marshal). A page tagged for
+# the other side of the Atlantic as well is not distinctly American.
+# The census has no `American` tag, only `US`; both are named because the SPEC
+# wording does.
+US_TAGS = frozenset({"US", "American"})
+US_STANDARD_TAG = "standard"
+NON_US_TAGS = frozenset({"UK", "British", "Commonwealth", "Australia",
+                         "New-Zealand", "Ireland", "India", "South-Africa"})
+
+
+def is_us_standard(tags, prefix="") -> bool:
+    """True when this sense marks the US standard spelling of its lemma.
+
+    Either the tags say so, or the gloss opens by saying so in prose. A page
+    tagged for the other side of the Atlantic is never distinctly American,
+    whichever way it reads.
+    """
+    ts = set(tags or ())
+    if ts & NON_US_TAGS:
+        return False
+    if US_STANDARD_TAG in ts and (ts & US_TAGS):
+        return True
+    return prefix in US_GLOSS_PREFIXES
+
+
+def alt_spelling_of(e):
+    """(lemma, tags, gloss prefix) of the first accepted spelling sense.
+
+    A sense qualifies two ways: its tags say it is a spelling, or its gloss
+    opens with a spelling statement in prose. The exclusion classes apply to
+    both. The tags and the prefix come back with the lemma because the US
+    re-key reads them.
+
+    A forms.json row only, never a `fo` field: `fo` stays inflection-only.
+    The page has to define nothing of its own, and one of its alt_of senses
+    has to be tagged as a spelling without an excluded class. The lemma
+    comes from the first sense that is.
+
+    The tag test is what separates this from the wiring the inflection rule
+    threw out. "the" is an alt_of page pointing at thee, but its sense is
+    tagged Early Modern rather than alternative, so it is not a spelling of
+    thee by this rule; "a" is a pronunciation spelling of to, "of" an
+    abbreviation of outfield, and both classes are excluded outright.
+    """
+    senses = e.get("senses") or []
+    if not senses:
+        return None
+    for s in senses:
+        if not (s.get("alt_of") or s.get("form_of")):
+            return None
+    for s in senses:
+        links = s.get("alt_of")
+        if not links:
+            continue
+        tags = set(s.get("tags") or ())
+        if tags & ALT_EXCLUDED_TAGS:
+            continue
+        prefix = gloss_prefix(s)
+        if not (tags & ALT_SPELLING_TAGS) \
+                and prefix not in ACCEPTED_GLOSS_PREFIXES:
+            continue
+        w = (links[0] or {}).get("word")
+        if w:
+            return w, tags, prefix
+    return None
+
+
 def best_gloss(e) -> str:
     """A root-card gloss for one entry, inside the card budget.
 
@@ -570,10 +742,13 @@ def survey_english(path, ranks):
     not always contiguous (about 32 k words are interleaved with others),
     and the dominant-homograph rule needs to see every entry of a word
     before it can pick a split. So this pass only decides candidacy and
-    harvests the two tables that do not depend on it.
+    harvests the tables that do not depend on it.
     """
     cand = set()
     forms_raw = {}
+    alt_raw = {}
+    us_raw = {}
+    mixed_raw = {}
     affixes = {}
     stats = collections.Counter()
     with gzip.open(path, "rb") as f:
@@ -604,13 +779,37 @@ def survey_english(path, ranks):
             if not RE_WORD_KEY.match(wl):
                 continue
 
-            # Inflection pages only. An abbreviation or an alternative
-            # spelling is a different relation and gets no mapping at all.
+            # Three relations reach a lemma, and they are kept apart. An
+            # inflection on a pure form-of page may become `fo` or a
+            # forms.json row. An alternative spelling may only become a row.
+            # An inflection sense on a page that also defines lemma senses
+            # may only become `fo`, since the surface has a card of its own.
+            # Nothing else maps at all.
+            alt = None if fo else alt_spelling_of(e)
             if fo:
                 t = fo.lower()
                 if t != wl and RE_WORD_KEY.match(t) and wl not in forms_raw:
                     forms_raw[wl] = t
                     stats["formof"] += 1
+            elif alt:
+                lemma, tags, prefix = alt
+                t = lemma.lower()
+                if t != wl and RE_WORD_KEY.match(t) and wl not in alt_raw:
+                    alt_raw[wl] = t
+                    stats["altspell"] += 1
+                    if not (tags & ALT_SPELLING_TAGS):
+                        stats["altspell_gloss"] += 1
+                    if is_us_standard(tags, prefix):
+                        us_raw[wl] = t
+                        stats["us_primary"] += 1
+            else:
+                for t in mixed_inflections(e):
+                    if t == wl:
+                        continue
+                    seen = mixed_raw.setdefault(wl, [])
+                    if t not in seen:
+                        seen.append(t)
+                        stats["mixed"] += 1
 
             if pos == "name" or wl in cand:
                 continue
@@ -633,7 +832,7 @@ def survey_english(path, ranks):
     # A forced split has to be harvested even when nothing else would have
     # nominated the word.
     cand |= set(curation.FORCED_SPLITS)
-    return cand, forms_raw, affixes, stats
+    return cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, stats
 
 
 # ------------------------------------------------------- English pass 2
@@ -914,6 +1113,68 @@ def root_kind(pos, form):
     return "root"
 
 
+def rekey_us_primary(shipped, fmap, us_raw, ranks):
+    """Move each British-keyed record onto its US spelling. Returns the pairs.
+
+    Wiktionary writes the content on the British page and leaves a pointer on
+    the American one, so the harvest keys favourite and calls favorite a
+    redirect. For this dictionary's reader that is backwards. The record moves
+    whole: the US spelling becomes the key, the card headword, the family row,
+    the omnibox row, the saved item; `wik` records the page that actually
+    holds the text so the Wiktionary link still lands somewhere real; and the
+    British spelling becomes a forms.json row pointing at the new key, so both
+    spellings still resolve.
+
+    This runs LAST, after every harvest and after forms.json is assembled, so
+    one rename map covers every reference at once: forms targets, `fo` fields
+    on other words, and `w` chips naming the old key. The root family index is
+    derived from the records themselves and moves with them.
+
+    A pair only forms when the US spelling has no card of its own. Where both
+    spellings carry full entries (color and colour, practice and practise) the
+    two are left alone, because neither is a pointer.
+    """
+    pairs = []
+    taken = set()
+    for us in sorted(us_raw):
+        brit = us_raw[us]
+        # The US page must be a pointer, its lemma must ship, and the row
+        # between them must be the one this rule is about: an inflection
+        # outranks a spelling and keeps the surface pointed elsewhere.
+        if us in shipped or brit not in shipped or brit in taken:
+            continue
+        if fmap.get(us) != brit:
+            continue
+        taken.add(brit)
+        pairs.append((us, brit))
+
+    rename = {brit: us for us, brit in pairs}
+    for us, brit in pairs:
+        rec = shipped.pop(brit)
+        rec["wik"] = brit
+        # The rank follows the headword. A card titled favorite reporting the
+        # rank of favourite understates the word the reader selected, so the
+        # pair keeps the better of the two ranks and the tier follows it
+        # (SPEC, Jesse decision 2026-08-25). Every shipped word is ranked, so
+        # there is always one to compare against.
+        r = ranks.get(us)
+        if r is not None and (rec.get("fr") is None or r < rec["fr"]):
+            rec["fr"] = r
+        shipped[us] = rec
+        del fmap[us]
+        fmap[brit] = us
+    for k in list(fmap):
+        if fmap[k] in rename:
+            fmap[k] = rename[fmap[k]]
+    for w in shipped.values():
+        if w.get("fo") in rename:
+            w["fo"] = rename[w["fo"]]
+        for m in w.get("morphs") or ():
+            if m.get("w") in rename:
+                m["w"] = rename[m["w"]]
+    return pairs
+
+
 # ---------------------------------------------------------------- emit
 
 def write_json(name, obj):
@@ -1046,6 +1307,16 @@ def verify(words_obj, roots_obj, forms_obj):
         (words.get("running") or {}).get("fo") == "run",
         show_fo("running", words))
 
+    # ---- fo from a mixed page -------------------------------------------
+    # Pages that define lemma senses beside inflection senses. The per-entry
+    # harvest cannot see these, and they are the commonest shadow words in
+    # the language.
+    for form, lemma in (("is", "be"), ("had", "have"), ("teeth", "tooth"),
+                        ("people", "person")):
+        add("%s carries fo %s (mixed page)" % (form, lemma),
+            (words.get(form) or {}).get("fo") == lemma and lemma in words,
+            show_fo(form, words))
+
     # ---- form-of is inflection only ------------------------------------
     # The short words the extract hands an alt_of link: an Early Modern
     # spelling (the -> thee), a pronunciation spelling (a -> to), and two
@@ -1078,6 +1349,90 @@ def verify(words_obj, roots_obj, forms_obj):
             fmap.get(form) == lemma and lemma in words,
             "forms[%s]=%s, %s shipped=%s"
             % (form, fmap.get(form), lemma, lemma in words))
+
+    # ---- the alternative-spelling exception -----------------------------
+    # SPEC pins favorite and neighbor here, but the US-primary rule ratified
+    # after it re-keys both, so those two now anchor in the other direction
+    # (below) and the exception is pinned on pairs the re-key leaves alone.
+    # e-mail is the SPEC's own rationale example; okay is the commonest key
+    # the exception recovers, at rank 76.
+    for form, lemma in (("e-mail", "email"), ("okay", "ok")):
+        add("%s resolves to %s via forms.json" % (form, lemma),
+            fmap.get(form) == lemma and lemma in words,
+            "forms[%s]=%s, %s shipped=%s"
+            % (form, fmap.get(form), lemma, lemma in words))
+
+    # The negatives the exception must not reopen. Each is an alt_of page
+    # whose relation is not a spelling: an Early Modern form (the), a
+    # pronunciation spelling (a), an abbreviation (of), a suffixation
+    # recorded as a variant (yeah).
+    for k in ("the", "a", "of", "yeah"):
+        add("%s maps to nothing" % k, fmap.get(k) is None,
+            "forms[%s]=%s, shipped=%s" % (k, fmap.get(k), k in words))
+
+    # An inflection outranks a spelling on the same surface.
+    for form, lemma, other in (("canceled", "cancel", "cancelled"),
+                               ("flier", "fly", "flyer")):
+        add("%s resolves to %s, not to %s (inflection outranks spelling)"
+            % (form, lemma, other),
+            fmap.get(form) == lemma,
+            "forms[%s]=%s" % (form, fmap.get(form)))
+
+    # ---- US-primary re-keying -------------------------------------------
+    for us, brit in (("favorite", "favourite"), ("neighbor", "neighbour")):
+        w = words.get(us)
+        add("%s is a words.json key carrying wik %s" % (us, brit),
+            w is not None and w.get("wik") == brit and brit not in words,
+            "words[%s] wik=%s, %s shipped=%s"
+            % (us, (w or {}).get("wik"), brit, brit in words))
+        add("%s maps to %s in forms.json" % (brit, us),
+            fmap.get(brit) == us,
+            "forms[%s]=%s" % (brit, fmap.get(brit)))
+
+    # The gloss-prefix extension: pages whose spelling statement lives in
+    # prose only. humor reads "US spelling of humour" under a bare US tag.
+    for form, lemma in (("enquiry", "inquiry"), ("dialog", "dialogue")):
+        add("%s resolves to %s (gloss-prefix extension)" % (form, lemma),
+            fmap.get(form) == lemma and lemma in words,
+            "forms[%s]=%s, %s shipped=%s"
+            % (form, fmap.get(form), lemma, lemma in words))
+
+    # An inflection whose lemma is itself only a spelling, chased one hop at
+    # build time so the shipped map stays single hop.
+    for form, lemma in (("recognises", "recognize"),
+                        ("apologised", "apologize"),
+                        ("criticising", "criticize")):
+        add("%s resolves to %s (chased through a spelling)" % (form, lemma),
+            fmap.get(form) == lemma and lemma in words,
+            "forms[%s]=%s, %s shipped=%s"
+            % (form, fmap.get(form), lemma, lemma in words))
+
+    # The mirror class: an inflection whose lemma was re-keyed to its US
+    # spelling. The rename map repoints these, it does not chase them.
+    add("favourites resolves to favorite (lemma re-keyed under it)",
+        fmap.get("favourites") == "favorite" and "favorite" in words,
+        "forms[favourites]=%s" % fmap.get("favourites"))
+
+    hu = words.get("humor")
+    add("humor is a words.json key carrying wik humour",
+        hu is not None and hu.get("wik") == "humour" and "humour" not in words,
+        "words[humor] wik=%s, forms[humour]=%s"
+        % ((hu or {}).get("wik"), fmap.get("humour")))
+
+    # The rank follows the headword after a re-key.
+    fav = words.get("favorite") or {}
+    add("favorite carries an Everyday rank (fr at or under 3,000)",
+        fav.get("fr") is not None and fav["fr"] <= 3000,
+        "favorite fr=%s" % fav.get("fr"))
+
+    rekeyed = sorted(k for k, w in words.items() if w.get("wik"))
+    badwik = [k for k in rekeyed
+              if words[k]["wik"] in words or fmap.get(words[k]["wik"]) != k]
+    add("every re-keyed word owns its Wiktionary page and its old spelling",
+        not badwik,
+        "%d re-keyed, %d broken%s"
+        % (len(rekeyed), len(badwik),
+           (": " + ", ".join(badwik[:5])) if badwik else ""))
 
     # ---- rank charset ---------------------------------------------------
     hyphenated = sorted(k for k in words if "-" in k)
@@ -1214,6 +1569,9 @@ def verify(words_obj, roots_obj, forms_obj):
                 r["kind"] for r in roots.values()).items())), ""),
         ("hyphenated words", format(sum(1 for k in words if "-" in k), ","),
          "0 before the rank charset fix"),
+        ("US-keyed records",
+         format(sum(1 for w in words.values() if w.get("wik")), ","),
+         "British spelling moved to forms.json"),
     ]
 
     failed = 0
@@ -1296,12 +1654,15 @@ def main(argv):
            min(ranks, key=ranks.get) if ranks else "-"))
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
-    cand, forms_raw, affixes, s1 = survey_english(ENGLISH_FILE, ranks)
+    cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, s1 = survey_english(
+        ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits)"
         % (format(s1["lines"], ","), format(len(cand), ","),
            format(s1["tail_split"], ",")))
-    log("  %s form-of pages, %s affix entries"
-        % (format(len(forms_raw), ","), format(len(affixes), ",")))
+    log("  %s inflection pages, %s alternative-spelling pages, %s mixed pages, "
+        "%s affix entries"
+        % (format(len(forms_raw), ","), format(len(alt_raw), ","),
+           format(len(mixed_raw), ","), format(len(affixes), ",")))
 
     log("[4/7] harvesting senses, splits and chains")
     harvest, s2 = harvest_english(ENGLISH_FILE, cand)
@@ -1468,20 +1829,77 @@ def main(argv):
     # back to run. Such a word is a shipped word, so it stays out of
     # forms.json by rule; the two fields divide one harvest between them,
     # and inflection_form_of is what admits anything to that harvest.
+    # One hop through the spelling map when an inflection lands on a lemma
+    # that is itself only a spelling. "recognises" inflects "recognise",
+    # which is a row rather than a word, and the shipped map is single hop,
+    # so the plural would resolve to nothing while the singular resolved.
+    # Chasing here keeps the emitted map single hop and the runtime
+    # untouched. One hop only: a chase that does not land on a shipped word
+    # drops the form.
     fmap = {}
     n_fo = 0
+    n_chased = 0
     for k, v in forms_raw.items():
-        if v not in shipped or k == v:
+        if k == v:
             continue
+        if v not in shipped:
+            v = alt_raw.get(v)
+            if v is None or v not in shipped or v == k:
+                continue
+            n_chased += 1
         if k in shipped:
             shipped[k]["fo"] = v
             n_fo += 1
         else:
             fmap[k] = v
-    log("  %s inflected forms map to a shipped lemma, %s shipped words carry "
-        "fo (%s harvested)"
-        % (format(len(fmap), ","), format(n_fo, ","),
-           format(len(forms_raw), ",")))
+    n_infl = len(fmap)
+
+    # Alternative spellings fill in behind the inflections, and never over
+    # them. The two relations collide on 83 surfaces and the inflection is
+    # the one the reader means every time: "canceled" is the past of cancel
+    # before it is the American spelling of cancelled, and "flier" is a form
+    # of fly before it is a spelling of flyer. A shipped word is never a
+    # forms.json key, so a spelling that earned its own card keeps it.
+    n_alt = 0
+    for k, v in alt_raw.items():
+        if v not in shipped or k == v or k in shipped or k in fmap:
+            continue
+        fmap[k] = v
+        n_alt += 1
+
+    # Mixed pages, the per-sense half of the fo harvest. These surfaces have
+    # cards of their own, so they never reach forms.json: the shadow row on
+    # the card is the whole point. A pure form-of page wins when a word has
+    # both, since that page is about nothing else.
+    n_mixed = 0
+    for k, targets in mixed_raw.items():
+        if k not in shipped or shipped[k].get("fo"):
+            continue
+        for t in targets:
+            if t != k and t in shipped:
+                shipped[k]["fo"] = t
+                n_mixed += 1
+                break
+    log("  %s inflected forms and %s alternative spellings map to a shipped "
+        "lemma (%s chased one hop through a spelling), %s shipped words carry "
+        "fo (%s from a pure page, %s from a mixed one)"
+        % (format(n_infl, ","), format(n_alt, ","), format(n_chased, ","),
+           format(n_fo + n_mixed, ","), format(n_fo, ","),
+           format(n_mixed, ",")))
+
+    # ---- US-primary re-keying, last of all ------------------------------
+    before = {b: shipped[b].get("fr") for u, b in
+              [(u, b) for u, b in us_raw.items() if b in shipped]}
+    us_pairs = rekey_us_primary(shipped, fmap, us_raw, ranks)
+    n_refr = sum(1 for u, b in us_pairs
+                 if shipped[u].get("fr") != before.get(b))
+    log("  %s records re-keyed to their US spelling (%s pages qualify), "
+        "%s took the better rank"
+        % (format(len(us_pairs), ","), format(len(us_raw), ","),
+           format(n_refr, ",")))
+    for us, brit in us_pairs:
+        log("      %-18s <- %-18s fr %s -> %s"
+            % (us, brit, before.get(brit), shipped[us].get("fr")))
 
     # ---- emit -----------------------------------------------------------
     log("[7/7] emitting extension/data")
@@ -1515,8 +1933,11 @@ def main(argv):
     log("  by kind     : %s"
         % " ".join("%s=%s" % (k, format(v, ","))
                    for k, v in sorted(kinds.items())))
-    log("forms         : %s" % format(len(fmap), ","))
-    log("fo fields     : %s" % format(n_fo, ","))
+    log("forms         : %s (%s inflections, %s alternative spellings)"
+        % (format(len(fmap), ","), format(n_infl, ","), format(n_alt, ",")))
+    log("fo fields     : %s (%s pure pages, %s mixed pages)"
+        % (format(n_fo + n_mixed, ","), format(n_fo, ","),
+           format(n_mixed, ",")))
     log("================= SIZES ====================")
     log("words.json    : %s" % mb(s_w))
     log("roots.json    : %s" % mb(s_r))

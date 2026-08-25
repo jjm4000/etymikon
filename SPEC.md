@@ -132,7 +132,70 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   2026-08-24: without this rule "the" carried fo "thee", "a" carried
   "to", and don't hard-redirected to done; 676 of the top 3,000 words
   were affected; measured post-fix as 202 corrected top-3,000 corpus
-  tokens). Anchors: the/a/of/it carry no fo; don't never redirects to
+  tokens).
+- Alternative-spelling exception (Jesse decision 2026-08-25): an
+  alt_of sense DOES produce a forms.json mapping when its tags mark it
+  as an alternative or standard spelling of a shipped lemma AND no
+  excluded class applies (misspelling, abbreviation, initialism,
+  eye-dialect, pronunciation spelling, obsolete, archaic, dated).
+  Rationale: pure alt-spelling pages (favorite, neighbor, e-mail)
+  define nothing themselves and were unreachable, 918 keys in the top
+  50,000. The exact accepted tag set is enumerated in build.py from
+  the real tag distribution, and the surface must itself be a
+  non-shipped page (shipped words never redirect).
+  Anchors: e-mail resolves to email; okay resolves to ok;
+  favorite and neighbor are anchored under the US-primary rule below,
+  which inverts their direction.
+- Gloss-prefix extension (Jesse decision 2026-08-25): a pure alt-of
+  page whose sense gloss BEGINS with an explicit spelling statement
+  qualifies even when untagged (the 31-key residue: humor, dialog,
+  enquiry, recognise carry the statement in prose only). The accepted
+  prefix set is enumerated in build.py from the real gloss
+  distribution (the shape "US spelling of", "American standard
+  spelling of", "British form of", "Uncommon spelling of" and kin);
+  the same exclusions apply, and a gloss stating the page is the US
+  spelling of a shipped lemma ALSO qualifies the pair for US-primary
+  re-keying below, through the same rename machinery and integrity
+  checks. Anchors (verify before asserting): humor is a words.json
+  key carrying wik humour; enquiry resolves to inquiry; dialog
+  resolves to dialogue.
+  the/a/of/yeah map to nothing under this rule.
+- US-primary re-keying (Jesse decision 2026-08-25): when a shipped
+  lemma's American spelling is a pointer page whose own tags mark it
+  as the US or American standard spelling, the emit re-keys the whole
+  record to the US form: it becomes the words.json key, the card
+  headword, the family-row and omnibox and saved-item and export
+  surface. Every internal reference repoints (forms map targets, fo
+  fields, morphs `w` chips), and the British form enters forms.json
+  mapping to the new key, so both spellings resolve and the
+  inflection-note names whichever was selected. Detection is from the
+  pointer page's tags only, never a hardcoded word list; pairs where
+  both spellings ship full entries are left alone. A re-keyed word
+  carries `wik`: the Wiktionary page title that actually holds the
+  content (the British form), because the US page is a pointer.
+  Definition texts ship as harvested and may contain British
+  spellings internally; that is accepted. A re-keyed word's `fr` is
+  re-measured as the better (lower) rank between the two spellings,
+  and the tier follows (Jesse decision 2026-08-25: the concept's
+  frequency is whichever spelling readers actually use; favorite
+  ranks 1,237 as itself against 3,326 as favourite and its chip must
+  say Everyday).
+  Anchors: favorite is a words.json key; favourite maps to favorite
+  in forms.json; favorite's card links to the favourite page;
+  neighbor is a words.json key with favourite-style behavior
+  (verify and pin the exact pair set member during build).
+- Mixed-page shadow rows (Jesse decision 2026-08-25): `fo` is also
+  harvested PER SENSE, not only from pure form-of entries. A shipped
+  word whose page carries lemma senses beside inflection-tagged
+  form_of senses (is, had, going, people, teeth: 109 words measured,
+  23 inside the top 3,000) gets `fo` from the first inflection-tagged
+  form_of sense whose target is a different shipped word, in sense
+  order (multi-lemma pages like best keep the first target only).
+  The same inflection-tag filter guards this path; alt_of senses
+  never feed it. Anchors: is carries fo be; had carries fo have;
+  teeth carries fo tooth; people carries fo person.
+  Anchors carried from the inflection rule: the/a/of/it carry no fo;
+  don't never redirects to
   done; ran keeps fo run. Contractions cannot ship at all on this
   corpus: OpenSubtitles tokenizes don't as don plus 't, so no
   apostrophe-bearing token is ever attested. The apostrophe charset
@@ -243,6 +306,9 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 - A lookup resolved through lemmatization carries
   `"formOf": { "surface": "territories", "lemma": "territory" }` and
   the match body is the lemma's.
+- Word matches pass through `wik` when the entry carries it (the
+  US-primary re-key case): the Wiktionary page title the card must
+  link to instead of the canonical key.
 - `org` words carry `"org": { "r": "la:terra", "f": "terra",
   "gloss": "earth, land" }`.
 - On failure: `{ "ok": false, "error": "message" }`. No match:
@@ -316,7 +382,9 @@ Sections in order:
 - `appendWordHead`: the headword (canonical) as the big text, the tier
   chip, the star (save action registry), the Wiktionary link top-right
   (`https://en.wiktionary.org/wiki/<canonical>#English`, background
-  open rules carried over). When `surface` differs from canonical by
+  open rules carried over; a match carrying `wik` links to that title
+  instead, since a re-keyed US headword's own page is a pointer).
+  When `surface` differs from canonical by
   more than case, a small note in the head meta box: "territories →
   territory" (the variant-note slot, repurposed for inflection; same
   stale-surface rule: the note renders only in the view looked up from

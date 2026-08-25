@@ -1796,7 +1796,11 @@
     // Card actions come first so the star lands beside the link rather than
     // after it.
     appendCardActions(head, m);
-    appendWikiLink(head, big, "English");
+    // The Wiktionary page is not always the headword's own. A word re-keyed to
+    // its US spelling carries `wik`, the title that actually holds the content:
+    // the US page is only a pointer, so the link goes where the entry is
+    // (SPEC, appendWordHead). Everything else about the link is unchanged.
+    appendWikiLink(head, nonEmptyString(m.wik) || big, "English");
     card.appendChild(head);
   }
 

@@ -304,6 +304,13 @@ function buildWordMatch(resolved, data) {
   if (resolved.formOf) match.formOf = resolved.formOf;
   if (Number.isInteger(entry.fr) && entry.fr > 0) match.fr = entry.fr;
 
+  // The US-primary re-key case: "favorite" is the key and the headword, but
+  // the content lives on the "favourite" page, so the card's Wiktionary link
+  // needs the title rather than the key. Passed through untouched, since the
+  // renderer is the only thing that builds a URL out of it.
+  const wik = str(entry.wik);
+  if (wik !== "") match.wik = wik;
+
   const morphs = (Array.isArray(entry.morphs) ? entry.morphs : [])
     .filter((morph) => morph !== null && typeof morph === "object")
     .map((morph) => morphRow(morph, roots, table))

@@ -49,6 +49,14 @@
     line-height: 1.45;
   }
 
+  /* The seal fades in over .18s. A tab that is not painting never advances a
+     CSS transition, so its computed opacity would sit at the start value
+     forever and the seal checks could only pass in a foreground tab. What
+     those checks are about is WHETHER the seal shows, not how it arrives, so
+     the harness settles the transition instantly. Harness-only: the shipped
+     stylesheet keeps its fade. */
+  .view--sealed::after { transition: none !important; }
+
   #run { font: inherit; font-size: 14px; padding: 5px 11px; border-radius: 6px;
          border: 1px solid var(--page-edge); background: var(--field-bg);
          color: var(--page-fg); cursor: pointer; }
@@ -218,6 +226,18 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
+    // The US-primary re-key case. "favorite" is the shipped key and
+    // "favourite" maps to it, but the Wiktionary content lives on the British
+    // page: the US page there is only a pointer, so the card carries `wik` and
+    // links to the page that holds the entry.
+    favorite: {
+      senses: [
+        { pos: "noun", defs: ["A person or thing preferred above all others."] },
+        { pos: "adj", defs: ["Preferred above all others of the same kind."] }
+      ],
+      fr: 2600,
+      wik: "favourite"
+    },
     // A shipped word that also shadows an inflection of another one: the
     // see-also row points at the lemma the reader may have been after.
     ran: {
@@ -278,7 +298,9 @@
     }
   };
 
-  var FORMS = { territories: "territory", running: "run" };
+  // The re-key rule puts the British spelling here too, so both spellings
+  // resolve and the inflection note names whichever was selected.
+  var FORMS = { territories: "territory", running: "run", favourite: "favorite" };
 
   // A family too long for one chunk, so the pagination has something to page
   // through. Ranks ascend with the index, so the ranked order is the
@@ -525,6 +547,8 @@
       if (root && root.gloss) match.org.gloss = root.gloss;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
+    // The Wiktionary title, passed through when the entry carries one.
+    if (entry.wik) match.wik = entry.wik;
     if (inflected) match.formOf = { surface: surface, lemma: lemma };
     return match;
   }
@@ -1163,6 +1187,49 @@
   var out = document.getElementById("out");
 
   function wait(ms) { return new Promise(function (r) { setTimeout(r, ms || 30); }); }
+
+  /* ------------------------------------------------------------------ *
+   * Waiting, and why none of it is a fixed sleep any more
+   *
+   * A BACKGROUND tab clamps setTimeout to roughly one second. A sleep that
+   * is nominally longer than the timer it means to outlast (wait(290) over a
+   * 200ms debounce) then lands in the SAME clamped slot, and which callback
+   * runs first is a coin flip: that is what made the debounce checks fail by
+   * one search, deterministically in a hidden tab and intermittently under
+   * load (diagnosed 2026-08-24).
+   *
+   * So every assertion that waits on async work polls for the CONDITION
+   * instead. `until` samples before it ever sleeps, which also makes the
+   * suite fast again when the clamp is in force.
+   *
+   * The one thing polling cannot rescue is a CSS transition: a tab that is
+   * not painting never advances one, so the seal's fade would sit at its
+   * start value forever. The seal checks neutralize the transition first
+   * (see sealSettled) and then assert the settled value, which is the thing
+   * under test. Without that, the transition checks can only pass in a
+   * foreground tab.
+   * ------------------------------------------------------------------ */
+
+  // Polls `fn` until it answers true or the budget runs out. Returns the
+  // final answer, so a check can assert on it directly.
+  async function until(fn, ms) {
+    var deadline = Date.now() + (ms || 4000);
+    for (;;) {
+      var ok = false;
+      try { ok = !!fn(); } catch (e) { ok = false; }
+      if (ok) return true;
+      if (Date.now() >= deadline) return false;
+      await wait(50);
+    }
+  }
+
+  // Sleeps at least `ms` of WALL CLOCK time, for the checks that have to
+  // prove something did NOT happen. Under the clamp this overshoots, which
+  // only makes such a check stricter.
+  async function elapse(ms) {
+    var target = Date.now() + (ms || 30);
+    do { await wait(50); } while (Date.now() < target);
+  }
   function texts(nodes) {
     return Array.prototype.slice.call(nodes).map(function (n) {
       return n.textContent.trim();
@@ -1185,6 +1252,13 @@
     function skip(name, why) {
       skipped++;
       lines.push("SKIP  " + name + "   [" + why + "]");
+    }
+    // check(), for a condition that arrives asynchronously: polls it into
+    // place first, then records the verdict. `detail` is a function so it
+    // reports the state the check actually settled on. ALWAYS awaited.
+    async function checkSoon(name, condFn, detailFn, ms) {
+      var ok = await until(condFn, ms);
+      check(name, ok, typeof detailFn === "function" ? detailFn() : detailFn);
     }
 
     // No real downloads from a self-check run: the export checks build the
@@ -1215,21 +1289,49 @@
     var controller = shell.controller();
     var DEBOUNCE = shell.DEBOUNCE_MS;
     // Seal settle: every seal assertion reads a COMPUTED opacity, so it has to
-    // wait out the registry's debounce AND the .18s fade behind it, with slack.
-    // The debounce is read off the surface rather than repeated here, because
-    // one seal implementation is the whole point of the mechanism.
+    // outlast the registry's debounce. The debounce is read off the surface
+    // rather than repeated here, because one seal implementation is the whole
+    // point of the mechanism. The .18s fade behind it is neutralized by the
+    // harness stylesheet, so only the debounce is left to wait out and
+    // sealSettled polls it rather than sleeping.
     var SEAL_SETTLE = sidebar.sealDebounce + 180 + 160;
 
     function hostEl() { return results.querySelector("[data-etymikon]"); }
+    // The headword currently on the card, "" when no card is up. Every wait
+    // on a search result polls this rather than sleeping (see `until`).
+    function surfaceText() {
+      var node = api.query(".surface");
+      return node ? node.textContent : "";
+    }
+    // The seal's two halves: the class the measurement produced, and the
+    // computed opacity the stylesheet derives from it.
+    function sealOpacity(view) {
+      return getComputedStyle(view, "::after").opacity;
+    }
+    function sealState(view) {
+      return view.className + " opacity=" + sealOpacity(view);
+    }
+    // Polls both halves into agreement. `roomy` is the state expected.
+    function sealSettled(view, roomy) {
+      return until(function () {
+        return view.classList.contains("view--roomy") === roomy &&
+          sealOpacity(view) === (roomy ? "1" : "0");
+      }, SEAL_SETTLE + 3000);
+    }
     function panelStyle(prop) { return api.panelStyle(prop); }
     async function search(text) {
       await controller.search(text);
-      await wait(40);
+      // The shell resolves once the worker answered and the panel re-rendered;
+      // one task boundary is enough to let the render land, and nothing here
+      // depends on a fixed delay.
+      await until(function () { return true; });
     }
 
     try {
     await sidebar.ready;
-    await wait(80);
+    // The boot search is the first thing every later check stands on, so wait
+    // for the CARD rather than for a clock.
+    await until(function () { return surfaceText() === "subterranean"; });
 
     // --- boot ----------------------------------------------------------
     check("the sidebar surface exposes its registries and view controls",
@@ -1313,7 +1415,7 @@
     fire(window, "mousedown");
     fire(window, "keydown", { key: "Escape" });
     fire(window, "resize");
-    await wait(40);
+    await elapse(40);
     check("scroll / mousedown / Escape / resize do NOT dismiss the panel",
       api.isVisible() && api.cardCount() === 1);
 
@@ -1327,22 +1429,23 @@
     fire(input, "input");
     check("rapid input events do not fire immediately",
       fake.__calls === callsBefore, "calls=" + fake.__calls);
-    await wait(DEBOUNCE + 90);
+    var collapsed = await until(function () { return surfaceText() === "terrain"; });
     check("a burst of keystrokes collapses into ONE lookup",
       fake.__calls === callsBefore + 1 && fake.__lastText === "terrain",
       "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
-    check("the collapsed search rendered its results",
-      api.query(".surface").textContent === "terrain",
-      api.query(".surface").textContent);
+    check("the collapsed search rendered its results", collapsed, surfaceText());
 
     var callsBeforeEnter = fake.__calls;
     input.value = "music";
     fire(input, "keydown", { key: "Enter" });
-    await wait(60);
+    // The handler runs search() inline, so the lookup is already out by the
+    // time this line reads the counter. That is exactly what "without waiting
+    // out the debounce" means, and asserting it here needs no clock at all.
+    var firedInline = fake.__calls === callsBeforeEnter + 1;
+    var entered = await until(function () { return surfaceText() === "music"; });
     check("plain Enter searches immediately, without waiting out the debounce",
-      fake.__calls === callsBeforeEnter + 1 &&
-      api.query(".surface").textContent === "music",
-      api.query(".surface").textContent);
+      firedInline && entered,
+      "inline=" + firedInline + " surface=" + surfaceText());
 
     // --- the shell under an IME ---------------------------------------------
     // Synthetic composition events only. Real IME timing (and the Chromium
@@ -1360,7 +1463,7 @@
     input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
     input.value = "musi";
     input.dispatchEvent(new InputEvent("input", { bubbles: true, isComposing: true }));
-    await wait(DEBOUNCE + 90);
+    await elapse(DEBOUNCE + 90);
     check("mid-composition input events never trigger a search",
       fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
 
@@ -1370,14 +1473,14 @@
     check("fixture sanity: KeyboardEvent.isComposing and keyCode are settable here",
       composingEnter.isComposing === true && composingEnter.keyCode === 229);
     input.dispatchEvent(composingEnter);
-    await wait(90);
+    await elapse(90);
     check("Enter while composing is a no-op",
       fake.__calls === callsBefore, "calls=" + (fake.__calls - callsBefore));
 
     input.value = "music";
     input.dispatchEvent(new CompositionEvent("compositionend",
       { bubbles: true, data: "music" }));
-    await wait(DEBOUNCE + 90);
+    await until(function () { return fake.__calls > callsBefore; });
     check("compositionend triggers exactly one search",
       fake.__calls === callsBefore + 1 && fake.__lastText === "music",
       "calls=" + (fake.__calls - callsBefore) + " text=" + fake.__lastText);
@@ -1425,41 +1528,43 @@
     check("a word card renders in the panel with its breakdown",
       api.queryAll(".morph").length === 3, "chips=" + api.queryAll(".morph").length);
     api.queryAll(".morph")[1].click();
-    await wait(60);
-    check("a morpheme chip drills down inside embed, with a breadcrumb",
-      api.viewDepth() === 2 &&
-      api.crumbLabels().join(" › ") === "subterranean › terra",
-      api.crumbLabels().join(" › "));
+    await checkSoon("a morpheme chip drills down inside embed, with a breadcrumb",
+      function () {
+        return api.viewDepth() === 2 &&
+          api.crumbLabels().join(" › ") === "subterranean › terra";
+      },
+      function () { return api.crumbLabels().join(" › "); });
     api.queryAll(".crumb")[0].click();
-    await wait(60);
-    check("the first crumb jumps back to the root view",
-      api.viewDepth() === 1 && !api.query(".crumbs"));
+    await checkSoon("the first crumb jumps back to the root view",
+      function () { return api.viewDepth() === 1 && !api.query(".crumbs"); },
+      function () { return "depth=" + api.viewDepth(); });
 
     // --- the breadcrumb trail at the panel's width ---------------------------
     await search("subterranean");
     api.queryAll(".morph")[1].click();          // terra
-    await wait(60);
+    await until(function () { return api.viewDepth() === 2; });
     api.queryAll(".fam-row")[0].click();        // territory
-    await wait(60);
+    await until(function () { return api.viewDepth() === 3; });
     api.query(".origin-row").click();           // terra again, forward travel
-    await wait(60);
-    check("a deep trail renders every level while it fits",
-      api.crumbLabels().length === 4,
-      api.crumbLabels().join(" › "));
+    await checkSoon("a deep trail renders every level while it fits",
+      function () { return api.crumbLabels().length === 4; },
+      function () { return api.crumbLabels().join(" › "); });
     var frame = document.querySelector(".panel-frame");
     frame.style.width = "200px";
     fire(window, "resize");
-    await wait(240);
-    check("narrowing the panel elides the middle behind a visible …",
-      api.crumbLabels().indexOf("…") >= 0 &&
-      api.crumbLabels().filter(function (l) { return l !== "…"; }).length < 4,
-      api.crumbLabels().join(" › "));
+    await checkSoon("narrowing the panel elides the middle behind a visible …",
+      function () {
+        return api.crumbLabels().indexOf("…") >= 0 &&
+          api.crumbLabels().filter(function (l) { return l !== "…"; }).length < 4;
+      },
+      function () { return api.crumbLabels().join(" › "); });
     frame.style.width = "360px";
     fire(window, "resize");
-    await wait(240);
-    check("re-widening restores the full trail",
-      api.crumbLabels().indexOf("…") < 0 && api.crumbLabels().length === 4,
-      api.crumbLabels().join(" › "));
+    await checkSoon("re-widening restores the full trail",
+      function () {
+        return api.crumbLabels().indexOf("…") < 0 && api.crumbLabels().length === 4;
+      },
+      function () { return api.crumbLabels().join(" › "); });
 
     // --- the Wiktionary link on this surface ----------------------------------
     await search("subterranean");
@@ -1468,13 +1573,42 @@
     wiki.dispatchEvent(new MouseEvent("click", {
       bubbles: true, composed: true, cancelable: true, button: 0
     }));
-    await wait(40);
-    check("a plain click opens a BACKGROUND tab through chrome.tabs directly",
-      tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
-      tabsSpy.calls[0].url === "https://en.wiktionary.org/wiki/subterranean#English",
-      JSON.stringify(tabsSpy.calls[0]));
+    await checkSoon("a plain click opens a BACKGROUND tab through chrome.tabs directly",
+      function () {
+        return tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
+          tabsSpy.calls[0].url ===
+            "https://en.wiktionary.org/wiki/subterranean#English";
+      },
+      function () { return JSON.stringify(tabsSpy.calls[0]); });
     check("the link reports the background open", wiki.textContent === "Opened ↗",
       wiki.textContent);
+
+    // A re-keyed word opens the page that holds the content, not the pointer
+    // page named by its canonical key. The background-open path is unchanged.
+    await search("favourite");
+    check("a re-keyed word keeps the canonical headword on this surface too",
+      api.query(".surface").textContent === "favorite" &&
+      api.query(".canonical").textContent === "favourite → favorite",
+      api.query(".surface").textContent);
+    check("its link targets the wik title, not the canonical key",
+      api.query(".wiki").href ===
+        "https://en.wiktionary.org/wiki/favourite#English",
+      api.query(".wiki").href);
+    tabsSpy.reset();
+    api.query(".wiki").dispatchEvent(new MouseEvent("click", {
+      bubbles: true, composed: true, cancelable: true, button: 0
+    }));
+    await checkSoon("the background open follows the wik title",
+      function () {
+        return tabsSpy.calls.length === 1 && tabsSpy.calls[0].active === false &&
+          tabsSpy.calls[0].url ===
+            "https://en.wiktionary.org/wiki/favourite#English";
+      },
+      function () { return JSON.stringify(tabsSpy.calls[0]); });
+    await search("terrain");
+    check("a word carrying no wik still links to its canonical key",
+      api.query(".wiki").href === "https://en.wiktionary.org/wiki/terrain#English",
+      api.query(".wiki").href);
 
     // --- the wordmark ----------------------------------------------------------
     var brand = document.getElementById("okp-brand");
@@ -1486,16 +1620,19 @@
       !/Batang|Myeongjo|Songti|SimSun/i.test(getComputedStyle(brand).fontFamily),
       getComputedStyle(brand).fontFamily);
     brand.click();
-    await wait(120);
-    check("clicking the wordmark looks up the word the name is built from",
-      input.value === "etymology" &&
-      api.query(".surface").textContent === "etymology",
-      input.value);
+    await checkSoon("clicking the wordmark looks up the word the name is built from",
+      function () {
+        return input.value === "etymology" && surfaceText() === "etymology";
+      },
+      function () { return input.value + " / " + surfaceText(); });
 
     // --- the save star and its bubble ------------------------------------------
     store.reset();
     await search("subterranean");
-    await wait(60);
+    await until(function () {
+      var s = api.query(".save");
+      return !!s && !s.classList.contains("save--unknown");
+    });
     var star = api.query(".save");
     check("a card in the panel carries a save star",
       !!star && !star.classList.contains("save--unknown"));
@@ -1503,26 +1640,31 @@
       JSON.stringify(store.lastCheckKeys()) === '["w:subterranean"]',
       JSON.stringify(store.lastCheckKeys()));
     star.click();
-    await wait(60);
-    check("clicking saves the lemma and opens exactly one bubble",
-      star.textContent === "★" && !!api.saveBubble() &&
-      store.state().items.length === 1,
-      JSON.stringify(store.state().items));
+    await checkSoon("clicking saves the lemma and opens exactly one bubble",
+      function () {
+        return star.textContent === "★" && !!api.saveBubble() &&
+          store.state().items.length === 1;
+      },
+      function () { return JSON.stringify(store.state().items); });
     var select = api.saveBubble().querySelector(".savebubble-folder");
     check("the bubble offers the folders, with New folder… always last",
       !!select &&
       texts(select.options).join("|") === "Saved|New folder…",
       select ? texts(select.options).join("|") : "no select");
     fire(document, "mousedown");
-    await wait(40);
-    check("a mousedown outside dismisses the bubble and leaves the save standing",
-      !api.saveBubble() && star.textContent === "★" &&
-      store.state().items.length === 1);
+    await checkSoon("a mousedown outside dismisses the bubble and leaves the save standing",
+      function () {
+        return !api.saveBubble() && star.textContent === "★" &&
+          store.state().items.length === 1;
+      },
+      function () { return "bubble=" + !!api.saveBubble() + " star=" + star.textContent; });
     store.fail("toggle", true);
     star.click();
-    await wait(60);
-    check("a refused toggle puts the star back and changes nothing",
-      star.textContent === "★" && store.state().items.length === 1);
+    await checkSoon("a refused toggle puts the star back and changes nothing",
+      function () {
+        return star.textContent === "★" && store.state().items.length === 1;
+      },
+      function () { return star.textContent + " items=" + store.state().items.length; });
     store.fail("toggle", false);
 
     // --- views -------------------------------------------------------------------
@@ -1537,18 +1679,19 @@
       sidebar.showView("saved") === true && sidebar.activeView() === "saved" &&
       searchView.classList.contains("view--hidden") &&
       !!document.getElementById("okp-saved-list"));
-    await wait(80);
+    await until(function () { return !!document.getElementById("okp-saved-list"); });
     check("the Settings tab mounts and shows the settings view",
       sidebar.showView("settings") === true &&
       !!document.getElementById("okp-settings"));
-    await wait(80);
+    await until(function () { return !!document.getElementById("okp-settings"); });
     sidebar.showView("search");
-    await wait(60);
-    check("search state survives a trip through BOTH views",
-      controller.query() === searchQueryBefore && input.value === "terrain" &&
-      api.query(".surface").textContent === "terrain" &&
-      !searchView.classList.contains("view--hidden"),
-      controller.query());
+    await checkSoon("search state survives a trip through BOTH views",
+      function () {
+        return controller.query() === searchQueryBefore &&
+          input.value === "terrain" && surfaceText() === "terrain" &&
+          !searchView.classList.contains("view--hidden");
+      },
+      function () { return controller.query() + " / " + surfaceText(); });
 
     var probeShown = 0, probeHidden = 0, probeMounts = 0;
     sidebar.registerView({
@@ -1565,7 +1708,7 @@
       document.querySelectorAll("#okp-nav .tab").length === 4 &&
       !!document.querySelector("#okp-nav .tab--probe"));
     document.querySelector("#okp-nav .tab--probe").click();
-    await wait(60);
+    await until(function () { return probeMounts === 1 && probeShown === 1; });
     check("switching mounts it once, hands it the context, and fires onShow",
       probeMounts === 1 && probeShown === 1 && probeHidden === 0 &&
       document.querySelector('[data-view="probe"]')
@@ -1580,21 +1723,16 @@
     // check the hand-copied implementations could not have passed, since a
     // fourth view got no seal at all.
     var probeBox = document.querySelector('[data-view="probe"]');
-    await wait(SEAL_SETTLE);
     check("a newly registered view is sealed by the registry, with no code of its own",
       sidebar.viewRegistry[3].seal === undefined &&
       probeBox.classList.contains("view--sealed") &&
-      probeBox.classList.contains("view--roomy") &&
-      getComputedStyle(probeBox, "::after").opacity === "1",
-      "sealed=" + probeBox.classList.contains("view--sealed") +
-        " roomy=" + probeBox.classList.contains("view--roomy") +
-        " opacity=" + getComputedStyle(probeBox, "::after").opacity);
+      await sealSettled(probeBox, true),
+      sealState(probeBox));
 
     document.querySelector("#okp-nav .tab--search").click();
-    await wait(60);
-    check("switching back fires onHide and never re-mounts",
-      probeHidden === 1 && probeMounts === 1,
-      "hide=" + probeHidden + " mounts=" + probeMounts);
+    await checkSoon("switching back fires onHide and never re-mounts",
+      function () { return probeHidden === 1 && probeMounts === 1; },
+      function () { return "hide=" + probeHidden + " mounts=" + probeMounts; });
     check("an unknown view key is refused and changes nothing",
       sidebar.showView("nosuchview") === false &&
       sidebar.activeView() === "search");
@@ -1643,15 +1781,14 @@
 
     // --- the searchbar from another view ----------------------------------------------
     sidebar.showView("settings");
-    await wait(60);
+    await until(function () { return sidebar.activeView() === "settings"; });
     input.value = "music";
     fire(input, "input");
     check("typing in the searchbar from another view lands on search at once",
       sidebar.activeView() === "search");
-    await wait(DEBOUNCE + 90);
+    var typedThrough = await until(function () { return surfaceText() === "music"; });
     check("and the typed query then searches as it always did",
-      api.query(".surface").textContent === "music",
-      api.query(".surface").textContent);
+      typedThrough, surfaceText());
 
     // --- the saved view -----------------------------------------------------------------
     var savedView = globalThis.__okpyeonSavedView;
@@ -1665,7 +1802,9 @@
     fake.sendMessage({ type: "savedToggle", kind: "word", key: "notaword" });
     sidebar.showView("saved");
     await savedView.refresh();
-    await wait(60);
+    await until(function () {
+      return document.querySelectorAll("#okp-saved-list .saved-row").length === 3;
+    });
     var rows = document.querySelectorAll("#okp-saved-list .saved-row");
     check("savedGet answers and the view renders one row per item",
       rows.length === 3, "rows=" + rows.length);
@@ -1688,9 +1827,9 @@
 
     // Export, both formats, against English fields.
     document.getElementById("okp-saved-export").click();
-    await wait(30);
+    await until(function () { return !!document.querySelector(".saved-export-anki"); });
     document.querySelector(".saved-export-anki").click();
-    await wait(80);
+    await until(function () { return !!savedView.lastDownload(); });
     var download = savedView.lastDownload();
     check("the Anki file leads with its three header directives",
       !!download && download.body.split("\n").slice(0, 3).join("|") ===
@@ -1717,10 +1856,14 @@
       /^blob:/.test(anchor.href) &&
       anchor.getAttribute("data-body") === download.body,
       anchor.getAttribute("download") + " / " + anchor.href.slice(0, 12));
+    var ankiBody = download.body;
     document.getElementById("okp-saved-export").click();
-    await wait(30);
+    await until(function () { return !!document.querySelector(".saved-export-csv"); });
     document.querySelector(".saved-export-csv").click();
-    await wait(80);
+    await until(function () {
+      var d = savedView.lastDownload();
+      return !!d && d.body !== ankiBody;
+    });
     download = savedView.lastDownload();
     check("the CSV file leads with the full-data header row",
       download.body.split("\n")[0] === "kind,key,defs,breakdown,tier,folder,added",
@@ -1733,35 +1876,44 @@
 
     // Folders: create, filter, delete back to f0.
     document.getElementById("okp-saved-new").click();
-    await wait(30);
+    await until(function () {
+      return !!document.getElementById("okp-saved-name-input");
+    });
     var nameInput = document.getElementById("okp-saved-name-input");
     nameInput.value = "Exam words";
     fire(nameInput, "keydown", { key: "Enter" });
-    await wait(80);
-    check("creating a folder makes it and closes the form",
-      savedView.folders().length === 2 &&
-      savedView.folders()[1].name === "Exam words",
-      JSON.stringify(savedView.folders()));
+    await checkSoon("creating a folder makes it and closes the form",
+      function () {
+        return savedView.folders().length === 2 &&
+          savedView.folders()[1].name === "Exam words";
+      },
+      function () { return JSON.stringify(savedView.folders()); });
     document.querySelectorAll(".saved-check")[0].click();
     document.getElementById("okp-saved-move").value = savedView.folders()[1].id;
     fire(document.getElementById("okp-saved-move"), "change");
-    await wait(80);
-    check("Move to… moves the checked rows",
-      store.state().items.filter(function (i) {
-        return i.folderId !== "f0";
-      }).length === 1, JSON.stringify(store.state().items));
+    await checkSoon("Move to… moves the checked rows",
+      function () {
+        return store.state().items.filter(function (i) {
+          return i.folderId !== "f0";
+        }).length === 1;
+      },
+      function () { return JSON.stringify(store.state().items); });
     var beforeDelete = store.state().items.length;
     document.querySelectorAll(".saved-check")[0].click();
     document.getElementById("okp-saved-remove").click();
-    await wait(30);
-    check("the first Delete click ARMS an inline confirmation and removes nothing",
-      !!document.querySelector(".saved-confirm--remove") &&
-      store.state().items.length === beforeDelete);
+    await checkSoon("the first Delete click ARMS an inline confirmation and removes nothing",
+      function () {
+        return !!document.querySelector(".saved-confirm--remove") &&
+          store.state().items.length === beforeDelete;
+      },
+      function () { return "items=" + store.state().items.length; });
     document.querySelector(".saved-confirm--remove .saved-confirm-no").click();
-    await wait(60);
-    check("cancel disarms it and still removes nothing",
-      !document.querySelector(".saved-confirm--remove") &&
-      store.state().items.length === beforeDelete);
+    await checkSoon("cancel disarms it and still removes nothing",
+      function () {
+        return !document.querySelector(".saved-confirm--remove") &&
+          store.state().items.length === beforeDelete;
+      },
+      function () { return "items=" + store.state().items.length; });
 
     // One write, one read. A mutation the panel makes refreshes explicitly AND
     // comes back again through chrome.storage.onChanged, and marking the panel's
@@ -1770,14 +1922,23 @@
     // so it has to say the marking is live. State-restoring: the folder and the
     // row this block adds are both gone again by the end of it.
     savedView.setStorageSync(true);
+    // This check counts reads inside a window, so the window has to open on a
+    // QUIET store: let anything the block above set in motion finish first.
+    await elapse(120);
     var getsBeforeOwn = store.getCalls();
     document.getElementById("okp-saved-new").click();
-    await wait(30);
+    await until(function () {
+      return !!document.getElementById("okp-saved-name-input");
+    });
     document.getElementById("okp-saved-name-input").value = "Echo";
     document.querySelector(".saved-name-ok").click();
-    await wait(80);
+    // An EXACT read count is the assertion here, so this settles on the clock
+    // rather than polling: a poll would keep sampling past the moment the
+    // count is meant to hold, and every extra sample is another chance for an
+    // unrelated refresh to land inside the window.
+    await elapse(80);
     var ownEcho = savedView.handleStorageChanged({ okpSaved: {} }, "local");
-    await wait(80);
+    await elapse(80);
     check("the panel's own write reads the store once and drops the storage echo",
       ownEcho === false && store.getCalls() === getsBeforeOwn + 1 &&
       savedView.pendingSelfWrites() === 0 && savedView.folders().length === 3,
@@ -1785,11 +1946,12 @@
         " pending=" + savedView.pendingSelfWrites());
 
     var echoId = savedView.folders()[2].id;
+    await elapse(120);
     var getsBeforeOther = store.getCalls();
     await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
     check("a write made anywhere else is still taken, so page saves keep arriving",
       savedView.handleStorageChanged({ okpSaved: {} }, "local") === true);
-    await wait(80);
+    await elapse(80);
     check("and it costs the one read it was always worth",
       store.getCalls() === getsBeforeOther + 1 &&
       !!document.querySelector('#okp-saved-list .saved-row[data-key="music"]'),
@@ -1797,39 +1959,49 @@
 
     store.fail("all", true);
     document.getElementById("okp-saved-new").click();
-    await wait(30);
+    await until(function () {
+      return !!document.getElementById("okp-saved-name-input");
+    });
     document.getElementById("okp-saved-name-input").value = "Refused";
     document.querySelector(".saved-name-ok").click();
-    await wait(80);
+    var refused = await until(function () {
+      return savedView.pendingSelfWrites() === 0 &&
+        document.querySelector(".saved-error").hidden === false;
+    });
     store.fail("all", false);
     check("a mutation the worker refuses releases its claim instead of banking it",
-      savedView.pendingSelfWrites() === 0 &&
-      document.querySelector(".saved-error").hidden === false,
-      "pending=" + savedView.pendingSelfWrites());
+      refused, "pending=" + savedView.pendingSelfWrites());
     document.querySelector(".saved-name-cancel").click();
     savedView.setStorageSync(false);
     await fake.sendMessage({ type: "folderDelete", id: echoId });
     await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
     await savedView.refresh();
-    await wait(60);
-    check("the block leaves the store exactly where it found it",
-      savedView.folders().length === 2 && savedView.items().length === 3,
-      "folders=" + savedView.folders().length +
-        " items=" + savedView.items().length);
+    await checkSoon("the block leaves the store exactly where it found it",
+      function () {
+        return savedView.folders().length === 2 && savedView.items().length === 3;
+      },
+      function () {
+        return "folders=" + savedView.folders().length +
+          " items=" + savedView.items().length;
+      });
 
     // A row click lands in the search view with the card rendered.
     var firstRow = document.querySelectorAll("#okp-saved-list .saved-row")[0];
     var rowKey = firstRow.getAttribute("data-key");
     firstRow.click();
-    await wait(120);
-    check("clicking a row lands in the search view with that card rendered",
-      sidebar.activeView() === "search" && input.value === rowKey &&
-      api.isVisible(), rowKey + " / " + input.value);
+    await checkSoon("clicking a row lands in the search view with that card rendered",
+      function () {
+        return sidebar.activeView() === "search" && input.value === rowKey &&
+          api.isVisible();
+      },
+      function () { return rowKey + " / " + input.value; });
 
     // --- the settings view -------------------------------------------------------
     sidebar.showView("settings");
     await settingsView.render();
-    await wait(60);
+    await until(function () {
+      return document.querySelectorAll("#okp-settings .settings-row").length === 5;
+    });
     var keys = settingsView.schema.map(function (e) { return e.key; });
     check("the shipped schema is the SPEC's five entries in its two groups",
       keys.join(",") ===
@@ -1871,17 +2043,17 @@
       texts(rootBack.querySelectorAll("label")).join("|"));
     wordFront.value = "defs";
     fire(wordFront, "change");
-    await wait(60);
-    check("a select writes through the moment it changes, with no save button",
-      store.state().settings.anki.wordFront === "defs",
-      store.state().settings.anki.wordFront);
+    await checkSoon("a select writes through the moment it changes, with no save button",
+      function () { return store.state().settings.anki.wordFront === "defs"; },
+      function () { return store.state().settings.anki.wordFront; });
     var tierBox = rootBack.querySelector('input[data-value="root"]');
     tierBox.checked = true;
     fire(tierBox, "change");
-    await wait(60);
-    check("a checkset writes the SCHEMA's option order, not the click order",
-      store.state().settings.anki.rootBack.join(",") === "root,gloss,family",
-      store.state().settings.anki.rootBack.join(","));
+    await checkSoon("a checkset writes the SCHEMA's option order, not the click order",
+      function () {
+        return store.state().settings.anki.rootBack.join(",") === "root,gloss,family";
+      },
+      function () { return store.state().settings.anki.rootBack.join(","); });
     var folderSelect = document.getElementById(settingsView.controlId("defaultFolderId"));
     check("the folder-select resolves its options from the worker's folders",
       texts(folderSelect.options).join("|") === "Saved|Exam words",
@@ -1938,7 +2110,9 @@
     // only produced a checkbox that would not stay checked, with no error.
     store.fields("rootBack", ["root", "source", "gloss", "family", "cognates"]);
     await settingsView.render();
-    await wait(60);
+    await until(function () {
+      return optionValues("anki.rootBack") === "root,source,gloss,family,cognates";
+    });
     check("a field the WORKER adds renders here with no edit to the view",
       optionValues("anki.rootBack") === "root,source,gloss,family,cognates" &&
       !!fieldBox("anki.rootBack", "cognates") &&
@@ -1949,25 +2123,33 @@
     var newField = fieldBox("anki.rootBack", "cognates");
     newField.checked = true;
     fire(newField, "change");
-    await wait(60);
+    await until(function () {
+      return store.state().settings.anki.rootBack.join(",") ===
+        "root,gloss,family,cognates";
+    });
     await settingsView.render();
-    await wait(60);
-    check("and it STAYS checked through a re-read, instead of being dropped",
-      store.state().settings.anki.rootBack.join(",") === "root,gloss,family,cognates" &&
-      checkedValues("anki.rootBack") === "root,gloss,family,cognates",
-      store.state().settings.anki.rootBack.join(","));
+    await checkSoon("and it STAYS checked through a re-read, instead of being dropped",
+      function () {
+        return store.state().settings.anki.rootBack.join(",") ===
+            "root,gloss,family,cognates" &&
+          checkedValues("anki.rootBack") === "root,gloss,family,cognates";
+      },
+      function () { return store.state().settings.anki.rootBack.join(","); });
     newField = fieldBox("anki.rootBack", "cognates");
     newField.checked = false;
     fire(newField, "change");
-    await wait(60);
+    await until(function () {
+      return store.state().settings.anki.rootBack.join(",") === "root,gloss,family";
+    });
     store.fields("rootBack", ["root", "source", "gloss", "family"]);
     await settingsView.render();
-    await wait(60);
-    check("withdrawing the field takes its checkbox away again",
-      optionValues("anki.rootBack") === "root,source,gloss,family" &&
-      !fieldBox("anki.rootBack", "cognates") &&
-      checkedValues("anki.rootBack") === "root,gloss,family",
-      checkedValues("anki.rootBack"));
+    await checkSoon("withdrawing the field takes its checkbox away again",
+      function () {
+        return optionValues("anki.rootBack") === "root,source,gloss,family" &&
+          !fieldBox("anki.rootBack", "cognates") &&
+          checkedValues("anki.rootBack") === "root,gloss,family";
+      },
+      function () { return checkedValues("anki.rootBack"); });
 
     // --- the corner seal --------------------------------------------------------------
     // One threshold and one debounce, measured in one place, with the only
@@ -1989,19 +2171,16 @@
       }).join(","));
     sidebar.showView("search");
     await search("");
-    await wait(SEAL_SETTLE);
     check("an empty search view shows the seal, which is the whole point of it",
       searchView.classList.contains("view--sealed") &&
-      searchView.classList.contains("view--roomy"),
-      searchView.className);
+      await sealSettled(searchView, true),
+      sealState(searchView));
     await search("la:terra");
-    await wait(SEAL_SETTLE);
     check("content that reaches the corner hides the seal",
-      !searchView.classList.contains("view--roomy"), searchView.className);
+      await sealSettled(searchView, false), sealState(searchView));
     await search("");
-    await wait(SEAL_SETTLE);
     check("clearing the search brings it back",
-      searchView.classList.contains("view--roomy"), searchView.className);
+      await sealSettled(searchView, true), sealState(searchView));
 
     // The settings view names the settings body as its content box, so the
     // measured rects are the body's CHILDREN: the body itself is a stretched
@@ -2009,24 +2188,18 @@
     // zero room forever. A view has to be SHOWING to measure anything.
     sidebar.showView("settings");
     await settingsView.render();
-    await wait(SEAL_SETTLE);
     var settingsSealView = document.getElementById("okp-view-settings");
     check("the settings groups leave no room in this frame, so the seal yields",
-      !settingsSealView.classList.contains("view--roomy") &&
-      getComputedStyle(settingsSealView, "::after").opacity === "0",
-      settingsSealView.className);
+      await sealSettled(settingsSealView, false), sealState(settingsSealView));
     var sealFrame = document.querySelector(".panel-frame");
     var sealFrameHeight = sealFrame.style.height;
     sealFrame.style.height = "900px";
     await settingsView.render();
-    await wait(SEAL_SETTLE);
     check("a taller panel has room under the settings and the seal shows",
-      settingsSealView.classList.contains("view--roomy") &&
-      getComputedStyle(settingsSealView, "::after").opacity === "1",
-      settingsSealView.className);
+      await sealSettled(settingsSealView, true), sealState(settingsSealView));
     sealFrame.style.height = sealFrameHeight;
     sidebar.showView("search");
-    await wait(SEAL_SETTLE);
+    await sealSettled(searchView, true);
 
     // --- the pending-query poke -------------------------------------------------------
     pendingSpy.reset();
@@ -2038,12 +2211,13 @@
     pendingSpy.set("terrain");
     sidebar.showView("settings");
     applied = await sidebar.handleWorkerMessage({ type: "pendingQueryChanged" });
-    await wait(80);
-    check("a poke with a query pending pulls it, searches it, and shows search",
-      applied.applied === true && input.value === "terrain" &&
-      sidebar.activeView() === "search" &&
-      api.query(".surface").textContent === "terrain",
-      JSON.stringify(applied));
+    var poked = applied;
+    await checkSoon("a poke with a query pending pulls it, searches it, and shows search",
+      function () {
+        return poked.applied === true && input.value === "terrain" &&
+          sidebar.activeView() === "search" && surfaceText() === "terrain";
+      },
+      function () { return JSON.stringify(poked) + " / " + surfaceText(); });
     check("the poked query is read-once too", pendingSpy.peek() === null);
     check("the poke leaves the focus exactly where it was",
       document.activeElement !== input);
@@ -2055,10 +2229,12 @@
     applied = await sidebar.handleWorkerMessage({
       type: "pendingQueryChanged", windowId: 42
     });
-    await wait(60);
-    check("with its own window id unknown, a poke applies whatever windowId says",
-      applied.applied === true && input.value === "music",
-      JSON.stringify(applied));
+    var pokedWindow = applied;
+    await checkSoon("with its own window id unknown, a poke applies whatever windowId says",
+      function () {
+        return pokedWindow.applied === true && input.value === "music";
+      },
+      function () { return JSON.stringify(pokedWindow); });
 
     // --- the card section convention ----------------------------------------------------
     var source = null;
