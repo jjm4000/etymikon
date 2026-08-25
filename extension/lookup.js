@@ -1,991 +1,354 @@
 /**
- * Hanja Hover — pure lookup logic.
+ * Etymikon: pure lookup logic.
  *
  * This module deliberately contains NO chrome.* API usage so that it can be
  * imported and unit-tested in plain Node (see test/lookup.test.mjs).
  * All chrome glue lives in background.js.
  *
- * Implements SPEC.md "Service worker behavior" rules 1-4 (including 3b).
+ * Implements SPEC.md "Service worker lookup behavior" rules 1-4, the tier
+ * function, the root/family builders and the omnibox suggestions.
  */
 
-import { qwertyToHangul } from "./dubeolsik.js";
-
-/** Rule 1: cap the input at 20 relevant (Han + Hangul) characters. */
-export const MAX_RELEVANT_CHARS = 20;
-/**
- * Rule 3: greedy longest-match over Han runs. FALLBACK ONLY — the real cap is
- * words.json's `maxWordLen` (the longest key actually shipped, currently 11:
- * 後天性免疫缺乏症候群). This 6 is what a bundle without the metadata gets, and
- * what the old hardcoded behavior was.
- */
-export const MAX_WORD_LEN = 6;
-/** words.json only contains hanja spellings of length >= 2. */
-export const MIN_WORD_LEN = 2;
-/** Rule 3b: hangul spans shorter than 2 syllables are skipped. */
-export const MIN_HANGUL_WORD_LEN = 2;
-/**
- * Rule 3b: hangul spans. FALLBACK ONLY, same rule as MAX_WORD_LEN — the real
- * cap is words.json's `maxHangulLen`.
- */
-export const MAX_HANGUL_WORD_LEN = 6;
+/** Rule 1: the selected text is cut to this many characters before lookup. */
+export const MAX_TOKEN_CHARS = 40;
 
 /**
- * Length metadata ADDENDUM: read a segmentation cap off words.json, falling
- * back to the documented constant when the bundle predates the field (old
- * fixtures, placeholder data).
+ * Rule 1: the first token of letters, apostrophes and hyphens. Anchored
+ * nowhere, so a selection that starts with punctuation or a space still finds
+ * its word. A trailing hyphen or apostrophe is kept: the pattern is the SPEC's
+ * verbatim, and a key that ends in one simply never matches words.json.
  */
-function lenMeta(value, fallback) {
-  return Number.isInteger(value) && value >= MIN_WORD_LEN ? value : fallback;
-}
+export const TOKEN_PATTERN = /[A-Za-z][A-Za-z'-]*/;
 
-/** Rule 3 cap for a given words.json object. */
-export function maxWordLenOf(words) {
-  return lenMeta(words && words.maxWordLen, MAX_WORD_LEN);
-}
-
-/** Rule 3b cap for a given words.json object. */
-export function maxHangulLenOf(words) {
-  return lenMeta(words && words.maxHangulLen, MAX_HANGUL_WORD_LEN);
-}
-/** Word-parts addendum: sub-word glosses are capped at 2 (first sense). */
-export const MAX_PART_GLOSSES = 2;
 /**
- * Rule 3: when the selection contains <= 4 *Han* characters, characters that
- * only appeared inside a Han word match still get their own char card.
- * Hangul and other scripts do NOT count toward this threshold, so a selection
- * like 國民이라는 (2 Han + 3 hangul) still yields the 國/民 cards.
+ * Rule 3: a suffix rule never proposes a one-letter lemma. Stripping the s of
+ * "as" would otherwise land on "a", which is a shipped word and a wrong answer.
  */
-export const CHAR_CARD_SELECTION_LIMIT = 4;
+export const MIN_LEMMA_CHARS = 2;
 
-/** lvl ADDENDUM: the four character levels, curriculum first, then usage. */
-export const LEVELS = ["m", "h", "a", "r"];
+/** Root cards render this many family rows before the pagination row. */
+export const FAMILY_PREVIEW = 8;
 
-/** True for a valid `lvl` value. */
-export function isLevel(v) {
-  return v === "m" || v === "h" || v === "a" || v === "r";
-}
+/**
+ * One `{type:"family"}` request answers with at most this many rows. Germanic
+ * affix families run to four figures (en:-ly builds about 4,000 shipped
+ * words; the exact count moves with each data build), so the list travels
+ * in chunks rather than whole.
+ */
+export const FAMILY_CHUNK = 200;
 
-const HAN_CHAR = /\p{Script=Han}/u;
-const HANGUL_CHAR = /\p{Script=Hangul}/u;
+/** Omnibox shows a handful of rows; SPEC caps us at 5. */
+export const MAX_OMNIBOX_SUGGESTIONS = 5;
+
+/**
+ * The word tiers, by frequency rank. THE ONE PLACE these cutoffs exist: the
+ * response carries the derived tier so no surface has to hold a copy of them.
+ * A rank is Everyday up to and including 3000, Common up to 15000, Advanced up
+ * to 50000, Rare beyond that and when the word is unranked.
+ */
+export const TIER_CUTOFFS = Object.freeze({
+  everyday: 3000,
+  common: 15000,
+  advanced: 50000,
+});
+
+/** Display names of the four tiers, for the exporters and the chips. */
+export const TIER_LABELS = Object.freeze({
+  everyday: "Everyday",
+  common: "Common",
+  advanced: "Advanced",
+  rare: "Rare",
+});
 
 const hasOwn = (obj, key) =>
-  obj != null && Object.prototype.hasOwnProperty.call(obj, key);
+  obj !== null && obj !== undefined &&
+  Object.prototype.hasOwnProperty.call(obj, key);
 
-/** True for a single Han code point (string of length 1 or a surrogate pair). */
-export function isHan(ch) {
-  return typeof ch === "string" && ch.length > 0 && HAN_CHAR.test(ch);
+/** words.json `words` table of a parsed bundle. */
+function wordTableOf(data) {
+  return (data && data.words && data.words.words) || {};
 }
 
-/** True for a single Hangul code point (syllable or jamo). */
-export function isHangul(ch) {
-  return typeof ch === "string" && ch.length > 0 && HANGUL_CHAR.test(ch);
+/** roots.json `roots` table of a parsed bundle. */
+function rootTableOf(data) {
+  return (data && data.roots && data.roots.roots) || {};
 }
 
-/** Rule 2: NFC normalization. Non-strings normalize to "". */
-export function normalize(text) {
-  return typeof text === "string" ? text.normalize("NFC") : "";
+/** forms.json `map` table of a parsed bundle. */
+function formMapOf(data) {
+  return (data && data.forms && data.forms.map) || {};
+}
+
+/** A string field of an entry, or "" when the field is missing or junk. */
+function str(value) {
+  return typeof value === "string" ? value : "";
 }
 
 /**
- * Rule 1: NFC-normalize, then split into runs of contiguous same-script
- * characters, preserving order. Anything that is neither Han nor Hangul breaks
- * a run, and a script change also breaks a run, so segmentation never spans a
- * boundary (e.g. "國A民" cannot match the word 國民, and "國민" yields two runs).
- * The cap applies to the total number of relevant characters across all runs.
+ * Rule 1: normalize, trim, take the first token, cap it. Anything that holds no
+ * letter at all yields "", which every caller reads as "no match".
  *
- * @returns {Array<{script:"han"|"hangul", chars:string[]}>}
+ * The NFC pass runs BEFORE the pattern so a decomposed accented letter cannot
+ * masquerade as the bare ASCII letter it starts with: composed, "é" is not a
+ * token character at all; decomposed, its "e" would have been one.
  */
-export function extractRuns(text, cap = MAX_RELEVANT_CHARS) {
-  const runs = [];
-  let current = null;
-  let taken = 0;
-  for (const ch of normalize(text)) {
-    if (taken >= cap) break;
-    const script = isHan(ch) ? "han" : isHangul(ch) ? "hangul" : null;
-    if (script === null) {
-      current = null;
-      continue;
-    }
-    if (current === null || current.script !== script) {
-      current = { script, chars: [] };
-      runs.push(current);
-    }
-    current.chars.push(ch);
-    taken += 1;
+export function extractToken(text) {
+  if (typeof text !== "string") return "";
+  const found = TOKEN_PATTERN.exec(text.normalize("NFC").trim());
+  return found === null ? "" : found[0].slice(0, MAX_TOKEN_CHARS);
+}
+
+/**
+ * Rule 2, THE fold: NFC-normalize, then lowercase. Every boundary runs it, and
+ * they all run this one function: token extraction, omnibox input, the root
+ * keys arriving in messages, and the saved-item keys in saved.js. NFC is what
+ * makes an NFD keyboard reach the 110 Greek root keys, which are stored
+ * composed like everything else the pipeline emits.
+ *
+ * The token keeps its selected casing as the match's `surface`, so the card can
+ * say "Subterranean" while the data is keyed "subterranean".
+ */
+export function fold(token) {
+  return typeof token === "string" ? token.normalize("NFC").toLowerCase() : "";
+}
+
+/**
+ * The tier for a frequency rank. Unranked words (no `fr`) and anything past
+ * the last cutoff are Rare. Reads TIER_CUTOFFS, which is the only copy.
+ */
+export function tierOf(fr) {
+  if (!Number.isInteger(fr) || fr <= 0) return "rare";
+  if (fr <= TIER_CUTOFFS.everyday) return "everyday";
+  if (fr <= TIER_CUTOFFS.common) return "common";
+  if (fr <= TIER_CUTOFFS.advanced) return "advanced";
+  return "rare";
+}
+
+/** Consonants for the doubled-consonant repair. */
+const CONSONANT = /[bcdfghjklmnpqrstvwxz]/;
+
+/**
+ * Doubled-consonant repair: "runn" from "running" becomes "run", "stopp" from
+ * "stopped" becomes "stop". Returns null when the stem does not end in a
+ * doubled consonant, so the caller can skip the candidate.
+ */
+function undouble(stem) {
+  if (stem.length < 3) return null;
+  const last = stem[stem.length - 1];
+  return last === stem[stem.length - 2] && CONSONANT.test(last)
+    ? stem.slice(0, -1)
+    : null;
+}
+
+/**
+ * Dropped-e repair: "hop" from "hoping" becomes "hope". Always proposed, and
+ * always last, so a stem that is itself a shipped word wins first.
+ */
+function restoreE(stem) {
+  return `${stem}e`;
+}
+
+/** The candidate lemmas of a verbal or comparative suffix, in trial order. */
+function stemCandidates(word, cut) {
+  const stem = word.slice(0, -cut);
+  return [stem, undouble(stem), restoreE(stem)];
+}
+
+/**
+ * Rule 3: the suffix rules, in SPEC order. The first rule whose candidates
+ * reach a shipped word wins, and within a rule the candidates are tried in
+ * order: the plain stem, then the doubled-consonant repair, then the
+ * dropped-e repair. The repairs fire only where the plain stem missed, which
+ * is what "repair" means here.
+ *
+ * These are the fallback for forms.json misses, not a lemmatizer. The map
+ * carries every harvested inflection, so a rule only ever sees what Wiktionary
+ * did not record.
+ */
+export const SUFFIX_RULES = [
+  { name: "s", apply: (w) => (w.endsWith("s") ? [w.slice(0, -1)] : []) },
+  { name: "es", apply: (w) => (w.endsWith("es") ? [w.slice(0, -2)] : []) },
+  { name: "ies", apply: (w) => (w.endsWith("ies") ? [`${w.slice(0, -3)}y`] : []) },
+  { name: "ed", apply: (w) => (w.endsWith("ed") ? stemCandidates(w, 2) : []) },
+  { name: "ing", apply: (w) => (w.endsWith("ing") ? stemCandidates(w, 3) : []) },
+  { name: "er", apply: (w) => (w.endsWith("er") ? stemCandidates(w, 2) : []) },
+  { name: "est", apply: (w) => (w.endsWith("est") ? stemCandidates(w, 3) : []) },
+];
+
+/**
+ * Rules 1 to 3, the ONE resolve function. Everything that needs to turn text
+ * into a words.json key goes through here, so the token rule, the case rule
+ * and the inflection rules can never drift apart between callers.
+ *
+ * @param {string} text raw selection or typed query
+ * @param {object} data parsed data bundle
+ * @returns {{surface:string, canonical:string, formOf?:{surface:string, lemma:string}}|null}
+ */
+export function resolve(text, data) {
+  const surface = extractToken(text);
+  if (surface === "") return null;
+  const folded = fold(surface);
+  const words = wordTableOf(data);
+
+  if (hasOwn(words, folded)) return { surface, canonical: folded };
+
+  const mapped = formMapOf(data)[folded];
+  if (typeof mapped === "string" && hasOwn(words, mapped)) {
+    return { surface, canonical: mapped, formOf: { surface: folded, lemma: mapped } };
   }
-  return runs;
-}
 
-/** Rule 2: map one character through variants.map to its canonical form. */
-export function toCanonical(ch, variantMap) {
-  const mapped = hasOwn(variantMap, ch) ? variantMap[ch] : ch;
-  return typeof mapped === "string" && mapped.length > 0 ? mapped : ch;
-}
-
-/**
- * Shared greedy longest-match segmentation core. Used three times: rule 3
- * (Han runs), rule 3b (Hangul runs) and the word-parts addendum, which differ
- * only in their key table, length bounds and — for word parts — an exclusion.
- *
- * At each position it tries the longest candidate first and accepts the first
- * one `isWord` approves; a rejected position advances by a single item.
- *
- * @param {Array<{surface:string, canonical:string}>} items
- * @param {(key:string, start:number, len:number) => boolean} isWord
- * @param {number} minLen
- * @param {number} maxLen
- * @returns {Array<{kind:"word"|"char", start:number, length:number,
- *                  surface:string, canonical:string,
- *                  items:Array<{surface:string, canonical:string}>}>}
- */
-function greedySegment(items, isWord, minLen, maxLen) {
-  const segments = [];
-  let i = 0;
-  while (i < items.length) {
-    let matchedLen = 0;
-    const limit = Math.min(maxLen, items.length - i);
-    for (let len = limit; len >= minLen; len -= 1) {
-      const key = items.slice(i, i + len).map((it) => it.canonical).join("");
-      if (isWord(key, i, len)) {
-        matchedLen = len;
-        break;
-      }
-    }
-    const length = matchedLen || 1;
-    const slice = items.slice(i, i + length);
-    segments.push({
-      kind: matchedLen ? "word" : "char",
-      start: i,
-      length,
-      surface: slice.map((it) => it.surface).join(""),
-      canonical: slice.map((it) => it.canonical).join(""),
-      items: slice,
-    });
-    i += length;
-  }
-  return segments;
-}
-
-/** Wrap a plain char array as segmentation items with surface === canonical. */
-const asItems = (chars) => chars.map((ch) => ({ surface: ch, canonical: ch }));
-
-/**
- * Rule 3: greedy longest-match segmentation of a single Han run.
- *
- * Word keys are looked up in their canonical (variant-mapped) form, while each
- * segment also carries the original surface form for display.
- *
- * @param {string[]} run single Han run (array of code points)
- * @param {object} wordTable words.json `words` object
- * @param {object} variantMap variants.json `map` object
- * @param {number} [maxLen] longest span to try (words.json `maxWordLen`)
- */
-export function segmentRun(run, wordTable, variantMap, maxLen = MAX_WORD_LEN) {
-  const items = run.map((ch) => ({ surface: ch, canonical: toCanonical(ch, variantMap) }));
-  return greedySegment(items, (key) => hasOwn(wordTable, key), MIN_WORD_LEN, maxLen);
-}
-
-/**
- * Rule 3b: greedy longest-match segmentation of a single Hangul run against
- * `byHangul`. Spans of 1 syllable are never matched; unmatched syllables
- * produce nothing at all (there are no hangul "char" cards).
- *
- * @param {string[]} run single Hangul run (array of syllables)
- * @param {object} byHangul words.json `byHangul` object
- * @param {number} [maxLen] longest span to try (words.json `maxHangulLen`)
- * @returns {Array<{start:number, length:number, surface:string}>} matched spans
- */
-export function segmentHangulRun(run, byHangul, maxLen = MAX_HANGUL_WORD_LEN) {
-  const isWord = (key) =>
-    hasOwn(byHangul, key) && Array.isArray(byHangul[key]) && byHangul[key].length > 0;
-  return greedySegment(asItems(run), isWord, MIN_HANGUL_WORD_LEN, maxLen)
-    .filter((seg) => seg.kind === "word")
-    .map((seg) => ({ start: seg.start, length: seg.length, surface: seg.surface }));
-}
-
-/** The first usable sense of a `words` entry (entries are homograph arrays). */
-function firstSense(raw) {
-  const list = Array.isArray(raw) ? raw : [raw];
-  return list.find((e) => e && typeof e === "object") || null;
-}
-
-/**
- * Compare two candidate segmentations by the word-parts priority order:
- * (1) most chars covered by gloss-bearing sub-words, (2) most chars covered by
- * any sub-word, (3) fewest segments.
- */
-function isBetterSegmentation(a, b) {
-  if (a.glossed !== b.glossed) return a.glossed > b.glossed;
-  if (a.covered !== b.covered) return a.covered > b.covered;
-  return a.segs < b.segs;
-}
-
-/**
- * Word-parts addendum: re-segment the interior of a word's canonical spelling.
- *
- * NOT greedy longest-match (unlike rules 3/3b). A small dynamic program over
- * the word picks the segmentation maximizing, in priority order: chars covered
- * by gloss-bearing sub-words, then chars covered by any sub-word, then fewest
- * segments. This prefers 資本 + 主義 over the greedy 資本主 + 義, because the
- * stub entry 資本主 carries no glosses and so explains nothing — while still
- * letting a gloss-less sub-word beat no split at all (priority 2).
- *
- * Only words of >= 3 characters get parts. The full span is excluded from the
- * candidate set so a word is never listed as its own part — the exclusion is by
- * span, not by key: for a 3-char word the length-3 candidate at offset 0 IS the
- * word and is rejected, but the same key appearing as a proper sub-span of a
- * longer word remains valid.
- *
- * Cost is O(n * maxLen) with n <= 20, i.e. negligible.
- *
- * @param {string} canonical the word's canonical hanja spelling
- * @param {object} wordTable words.json `words` object
- * @param {number} [maxLen] longest sub-word to try (words.json `maxWordLen`)
- * @returns {Array<object>|null} parts, or null when no multi-char sub-word exists
- */
-export function buildWordParts(canonical, wordTable, maxLen = MAX_WORD_LEN) {
-  const chars = [...canonical];
-  const total = chars.length;
-  if (total < 3) return null;
-
-  // dp[i] = best segmentation of the suffix starting at i, plus the first
-  // segment of that segmentation so the choice can be reconstructed.
-  const dp = new Array(total + 1);
-  dp[total] = { glossed: 0, covered: 0, segs: 0, len: 0, isWord: false };
-
-  for (let i = total - 1; i >= 0; i -= 1) {
-    let best = null;
-    const consider = (len, isWord, glossedChars) => {
-      const next = dp[i + len];
-      const candidate = {
-        glossed: glossedChars + next.glossed,
-        covered: (isWord ? len : 0) + next.covered,
-        segs: 1 + next.segs,
-        len,
-        isWord,
+  for (const rule of SUFFIX_RULES) {
+    for (const candidate of rule.apply(folded)) {
+      if (typeof candidate !== "string" || candidate.length < MIN_LEMMA_CHARS) continue;
+      if (!hasOwn(words, candidate)) continue;
+      return {
+        surface,
+        canonical: candidate,
+        formOf: { surface: folded, lemma: candidate },
       };
-      if (best === null || isBetterSegmentation(candidate, best)) best = candidate;
-    };
-
-    // Leaving the char uncovered is always an option; considered first so that
-    // exact ties resolve deterministically toward earlier candidates.
-    consider(1, false, 0);
-
-    const limit = Math.min(maxLen, total - i);
-    for (let len = MIN_WORD_LEN; len <= limit; len += 1) {
-      if (i === 0 && len === total) continue; // never a part of itself
-      const key = chars.slice(i, i + len).join("");
-      if (!hasOwn(wordTable, key)) continue;
-      const sense = firstSense(wordTable[key]);
-      if (sense === null) continue;
-      const glossBearing = Array.isArray(sense.glosses) && sense.glosses.length > 0;
-      consider(len, true, glossBearing ? len : 0);
     }
-
-    dp[i] = best;
   }
 
-  // Reconstruct, and bail out when the winning segmentation is all bare chars.
-  const parts = [];
-  let sawWord = false;
-  for (let i = 0; i < total; ) {
-    const step = dp[i];
-    const key = chars.slice(i, i + step.len).join("");
-    if (step.isWord) {
-      sawWord = true;
-      const sense = firstSense(wordTable[key]);
-      parts.push({
-        type: "word",
-        hanja: key,
-        hangul: typeof sense.hangul === "string" ? sense.hangul : "",
-        glosses: Array.isArray(sense.glosses)
-          ? sense.glosses.slice(0, MAX_PART_GLOSSES)
-          : [],
-      });
-    } else {
-      parts.push({ type: "char", char: key });
-    }
-    i += step.len;
-  }
-  return sawWord ? parts : null;
+  return null;
 }
 
-function buildWordMatch(
-  { surface, canonical, hangul, glosses, rare, hp },
-  wordTable,
-  charTable,
-  maxWordLen = MAX_WORD_LEN
-) {
+/** One POS section, copied field by field so junk data cannot reach the card. */
+function senseRow(sense) {
+  const defs = (Array.isArray(sense.defs) ? sense.defs : []).filter(
+    (def) => typeof def === "string" && def !== ""
+  );
+  return { pos: str(sense.pos), defs };
+}
+
+/** The senses of a words.json entry, as the response carries them. */
+function sensesOf(entry) {
+  return (Array.isArray(entry.senses) ? entry.senses : [])
+    .filter((sense) => sense !== null && typeof sense === "object")
+    .map(senseRow);
+}
+
+/** The first definition of a words.json entry, or "" when it has none. */
+export function firstDef(entry) {
+  for (const sense of Array.isArray(entry && entry.senses) ? entry.senses : []) {
+    if (sense === null || typeof sense !== "object") continue;
+    for (const def of Array.isArray(sense.defs) ? sense.defs : []) {
+      if (typeof def === "string" && def !== "") return def;
+    }
+  }
+  return "";
+}
+
+/**
+ * Join one morpheme against the data. The content script reads neither
+ * roots.json nor the rest of words.json, so the gloss travels with the chip:
+ * an `r` chip carries its root's gloss, a `w` chip carries that word's first
+ * definition. The link field passes through so the renderer knows which card
+ * the chip opens.
+ *
+ * A morph whose target did not ship comes back as `{f}` alone and renders
+ * inert, which is also what a morph with no link field at all gets. `r` is
+ * checked first: the data never carries both, and a bundle that does gets the
+ * root card rather than two link fields on one chip.
+ */
+function morphRow(morph, roots, wordTable) {
+  const row = { f: str(morph.f) };
+  const rootKey = str(morph.r);
+  if (rootKey !== "" && hasOwn(roots, rootKey)) {
+    row.r = rootKey;
+    const gloss = str(roots[rootKey].gloss);
+    if (gloss !== "") row.gloss = gloss;
+    return row;
+  }
+  const wordKey = str(morph.w);
+  if (wordKey !== "" && hasOwn(wordTable, wordKey)) {
+    row.w = wordKey;
+    const gloss = firstDef(wordTable[wordKey]);
+    if (gloss !== "") row.gloss = gloss;
+  }
+  return row;
+}
+
+/** The origin row of an `org` word, joined the same way a morph chip is. */
+function originRow(org, roots) {
+  const key = str(org.r);
+  if (key === "" || !hasOwn(roots, key)) return null;
+  const row = { r: key, f: str(org.f) || str(roots[key].form) };
+  const gloss = str(roots[key].gloss);
+  if (gloss !== "") row.gloss = gloss;
+  return row;
+}
+
+/**
+ * The tier fields every word row carries: the derived tier and its display
+ * label. Both are joined here because the cutoffs and the label map live in
+ * this module alone and the renderer is a classic script that cannot import
+ * them. A surface reads `tierLabel` and never holds a copy of the map.
+ */
+function tierFields(fr) {
+  const tier = tierOf(fr);
+  return { tier, tierLabel: TIER_LABELS[tier] };
+}
+
+/** The word match for a resolved key. */
+function buildWordMatch(resolved, data) {
+  const table = wordTableOf(data);
+  const entry = table[resolved.canonical];
+  const roots = rootTableOf(data);
   const match = {
     kind: "word",
-    surface,
-    canonical,
-    hangul: typeof hangul === "string" ? hangul : "",
-    glosses: Array.isArray(glosses) ? glosses.slice() : [],
-    chars: [...canonical],
+    surface: resolved.surface,
+    canonical: resolved.canonical,
+    senses: sensesOf(entry),
+    ...tierFields(entry.fr),
   };
-  // Rare flag addendum: propagated only when true, like `parts`.
-  if (rare === true) match.rare = true;
-  // Hanja-page flag addendum: the entry lives at the hanja-spelling title, so
-  // the UI's Wiktionary link should target <canonical> instead of <hangul>.
-  if (hp === true) match.hp = true;
-  // Used-in addendum: how many larger words contain this one (self excluded),
-  // so the UI can render the "Used in N larger words" disclosure without
-  // requesting the list. Omitted when 0.
-  const usedIn = usedInSpellings(canonical, charTable ?? {}, wordTable).length;
-  if (usedIn > 0) match.usedInCount = usedIn;
-  const parts = buildWordParts(canonical, wordTable, maxWordLen);
-  if (parts) match.parts = parts;
-  return match;
-}
+  if (resolved.formOf) match.formOf = resolved.formOf;
+  if (Number.isInteger(entry.fr) && entry.fr > 0) match.fr = entry.fr;
 
-function buildCharMatch(item, entry) {
-  const match = {
-    kind: "char",
-    surface: item.surface,
-    canonical: item.canonical,
-    eumhun: Array.isArray(entry.eumhun) ? entry.eumhun : [],
-    readings: Array.isArray(entry.readings) ? entry.readings : [],
-    glosses: Array.isArray(entry.glosses) ? entry.glosses : [],
-    compounds: Array.isArray(entry.compounds) ? entry.compounds : [],
-  };
-  // cw ADDENDUM: total size of the full compound index, so the UI can render
-  // "Show 5 more (N)" without requesting the list. Omitted when 0.
-  if (Array.isArray(entry.cw) && entry.cw.length > 0) {
-    match.cwCount = entry.cw.length;
+  const morphs = (Array.isArray(entry.morphs) ? entry.morphs : [])
+    .filter((morph) => morph !== null && typeof morph === "object")
+    .map((morph) => morphRow(morph, roots, table))
+    .filter((row) => row.f !== "");
+  if (morphs.length > 0) match.morphs = morphs;
+
+  // A word never carries both morphs and org (data invariant), so the guard
+  // costs nothing and keeps a bad bundle from rendering two breakdowns.
+  if (morphs.length === 0 && entry.org !== null && typeof entry.org === "object") {
+    const org = originRow(entry.org, roots);
+    if (org !== null) match.org = org;
   }
-  // lvl ADDENDUM: character level taxonomy (m/h/a/r), one value per char.
-  // Always present in real data; guarded so a placeholder bundle stays safe.
-  if (isLevel(entry.lvl)) match.lvl = entry.lvl;
+
+  // The shadow-entry row: "ran" ships as a word on a marginal noun sense and
+  // shadows "run" at lookup time, so the card hands the reader a way to the
+  // lemma. Dropped when that lemma is gone from the bundle, and when a bad
+  // bundle points a word at itself, since either would render a row leading
+  // nowhere useful.
+  const seeAlso = str(entry.fo);
+  if (seeAlso !== "" && seeAlso !== resolved.canonical && hasOwn(table, seeAlso)) {
+    match.seeAlso = seeAlso;
+  }
   return match;
 }
 
 /**
- * ADDENDUM {type:"compounds"}: join a char's complete `cw` index against
- * words.json. Pure; the chrome glue in background.js calls this. The incoming
- * char is NFC-normalized and variant-mapped like any lookup input. Returns
- * the SPEC response array (order = cw order); unknown char or missing index
- * yields [].
- */
-/** Join an ordered list of spellings against words.json into SPEC row shape. */
-function joinSpellings(spellings, wordTable) {
-  const out = [];
-  for (const spelling of spellings) {
-    if (typeof spelling !== "string" || !hasOwn(wordTable, spelling)) continue;
-    const senses = wordTable[spelling];
-    const first = Array.isArray(senses) ? senses[0] : senses;
-    if (!first || typeof first !== "object") continue;
-    const row = {
-      hanja: spelling,
-      hangul: typeof first.hangul === "string" ? first.hangul : "",
-      gloss:
-        Array.isArray(first.glosses) && typeof first.glosses[0] === "string"
-          ? first.glosses[0]
-          : "",
-    };
-    // rare propagated only when every sense of the spelling is rare, matching
-    // collapseEntries' any-attested-sense-clears-it semantics.
-    const all = Array.isArray(senses) ? senses : [senses];
-    if (all.length > 0 && all.every((s) => s && s.rare === true)) {
-      row.rare = true;
-    }
-    out.push(row);
-  }
-  return out;
-}
-
-export function buildFullCompounds(char, data) {
-  if (typeof char !== "string" || char.length === 0) return [];
-  const variantMap = data?.variants?.map ?? {};
-  const charTable = data?.hanja?.chars ?? {};
-  const wordTable = data?.words?.words ?? {};
-  const normalized = char.normalize("NFC");
-  const canonical = hasOwn(variantMap, normalized)
-    ? variantMap[normalized]
-    : normalized;
-  if (!hasOwn(charTable, canonical)) return [];
-  const cw = charTable[canonical].cw;
-  if (!Array.isArray(cw)) return [];
-  return joinSpellings(cw, wordTable);
-}
-
-/**
- * Used-in ADDENDUM: every words.json spelling that STRICTLY contains `word`
- * (self excluded), in ranked order. Derived from the first char's `cw` index,
- * which is already frequency-sorted; falls back to a wordTable scan when that
- * char has no entry (order unranked there — acceptable for the rare case).
- */
-function usedInSpellings(word, charTable, wordTable) {
-  if (typeof word !== "string" || word.length < 2) return [];
-  const first = [...word][0];
-  const cw = hasOwn(charTable, first) ? charTable[first].cw : null;
-  const pool = Array.isArray(cw) ? cw : Object.keys(wordTable ?? {});
-  return pool.filter(
-    (sp) =>
-      typeof sp === "string" &&
-      sp !== word &&
-      sp.includes(word) &&
-      hasOwn(wordTable, sp)
-  );
-}
-
-export function buildUsedIn(word, data) {
-  if (typeof word !== "string" || word.length === 0) return [];
-  const charTable = data?.hanja?.chars ?? {};
-  const wordTable = data?.words?.words ?? {};
-  const normalized = word.normalize("NFC");
-  return joinSpellings(
-    usedInSpellings(normalized, charTable, wordTable),
-    wordTable
-  );
-}
-
-/**
- * Collapse the homograph entries of one hanja spelling down to a single sense
- * set for a hangul-sourced match. Entries whose `hangul` matches the selected
- * span win; if none do, all entries are used. Glosses are merged and deduped.
- */
-function collapseEntries(entries, hangulSpan) {
-  const list = (Array.isArray(entries) ? entries : [entries]).filter(
-    (e) => e && typeof e === "object"
-  );
-  if (list.length === 0) return null;
-  const preferred = list.filter((e) => e.hangul === hangulSpan);
-  const chosen = preferred.length > 0 ? preferred : list;
-  const glosses = [];
-  for (const entry of chosen) {
-    if (!Array.isArray(entry.glosses)) continue;
-    for (const gloss of entry.glosses) {
-      if (!glosses.includes(gloss)) glosses.push(gloss);
-    }
-  }
-  return {
-    hangul: typeof chosen[0].hangul === "string" ? chosen[0].hangul : hangulSpan,
-    glosses,
-    // Rare only when every contributing sense-set is flagged rare: a single
-    // attested sense is enough to make the spelling a confident match.
-    rare: chosen.every((e) => e.rare === true),
-    // hp when ANY contributing sense came from the hanja-spelling page: the
-    // page's existence is what the link cares about, not which sense won.
-    hp: chosen.some((e) => e.hp === true),
-  };
-}
-
-/**
- * Rule 3c: derive the eum -> hanja index from hanja.json at runtime. This is
- * NOT a data file; callers should build it once and cache it (background.js
- * memoizes it module-level alongside the parsed data).
+ * Build the `matches` array for a selection. At most one word match exists,
+ * but the array shape is what every surface consumes, so it stays an array.
  *
- * Eums come from both `readings` and the `eum` of each `eumhun` entry. Each
- * candidate carries the `hun` of the eumhun entry that produced the eum (""
- * when the eum only appears in `readings`). Candidate lists are ranked by
- * compound count descending — a rough frequency proxy — with ties left in
- * hanja.json key order (Array#sort is stable).
- *
- * @param {object} hanjaData parsed hanja.json
- * @returns {Record<string, Array<{char:string, hun:string, eum:string, gloss:string}>>}
- */
-export function buildReadingIndex(hanjaData) {
-  const charTable = (hanjaData && hanjaData.chars) || {};
-  /** @type {Record<string, Array<object>>} */
-  const index = Object.create(null);
-  const ranks = new Map();
-
-  for (const char of Object.keys(charTable)) {
-    const entry = charTable[char];
-    if (!entry || typeof entry !== "object") continue;
-
-    // eum -> hun, preferring the first eumhun entry that supplies a hun.
-    const eums = new Map();
-    if (Array.isArray(entry.eumhun)) {
-      for (const pair of entry.eumhun) {
-        if (!pair || typeof pair.eum !== "string" || pair.eum === "") continue;
-        const hun = typeof pair.hun === "string" ? pair.hun : "";
-        if (!eums.has(pair.eum) || (eums.get(pair.eum) === "" && hun !== "")) {
-          eums.set(pair.eum, hun);
-        }
-      }
-    }
-    if (Array.isArray(entry.readings)) {
-      for (const eum of entry.readings) {
-        if (typeof eum !== "string" || eum === "") continue;
-        if (!eums.has(eum)) eums.set(eum, "");
-      }
-    }
-    if (eums.size === 0) continue;
-
-    const gloss =
-      Array.isArray(entry.glosses) && typeof entry.glosses[0] === "string"
-        ? entry.glosses[0]
-        : "";
-    ranks.set(char, Array.isArray(entry.compounds) ? entry.compounds.length : 0);
-
-    for (const [eum, hun] of eums) {
-      if (index[eum] === undefined) index[eum] = [];
-      const candidate = { char, hun, eum, gloss };
-      // lvl ADDENDUM: the level chip renders on browse rows too.
-      if (isLevel(entry.lvl)) candidate.lvl = entry.lvl;
-      index[eum].push(candidate);
-    }
-  }
-
-  for (const eum of Object.keys(index)) {
-    index[eum].sort((a, b) => (ranks.get(b.char) || 0) - (ranks.get(a.char) || 0));
-  }
-  return index;
-}
-
-/**
- * Resolve the reading index for a bundle, preferring a caller-supplied cache.
- * Only called on the rule 3c path, so the index is never built unnecessarily.
- */
-function resolveReadingIndex(bundle) {
-  if (typeof bundle.getReadingIndex === "function") return bundle.getReadingIndex();
-  if (bundle.readingIndex) return bundle.readingIndex;
-  return buildReadingIndex(bundle.hanja);
-}
-
-/**
- * Build the `matches` array for a selection. Words first, then char cards.
- *
- * @param {string} text raw selected text
- * @param {{hanja?:object, words?:object, variants?:object}} data parsed data files
+ * @param {string} text raw selected text or typed query
+ * @param {object} data parsed data files
  * @returns {Array<object>} matches (possibly empty)
  */
 export function buildMatches(text, data) {
-  const bundle = data || {};
-  const charTable = (bundle.hanja && bundle.hanja.chars) || {};
-  const wordTable = (bundle.words && bundle.words.words) || {};
-  const byHangul = (bundle.words && bundle.words.byHangul) || {};
-  const variantMap = (bundle.variants && bundle.variants.map) || {};
-  // Length metadata ADDENDUM: segmentation reaches as far as the data goes.
-  const maxWordLen = maxWordLenOf(bundle.words);
-  const maxHangulLen = maxHangulLenOf(bundle.words);
-
-  const runs = extractRuns(text);
-  const totalChars = runs.reduce((n, run) => n + run.chars.length, 0);
-  if (totalChars === 0) return [];
-
-  // Rule 3c: the entire extracted selection is exactly one hangul syllable →
-  // homophone browse. No word or char matches are possible in this case.
-  if (totalChars === 1 && runs[0].script === "hangul") {
-    const eum = runs[0].chars[0];
-    const candidates = resolveReadingIndex(bundle)[eum];
-    if (!Array.isArray(candidates) || candidates.length === 0) return [];
-    return [
-      {
-        kind: "reading",
-        surface: eum,
-        eum,
-        candidates: candidates.map((c) => {
-          const out = { char: c.char, hun: c.hun, eum: c.eum, gloss: c.gloss };
-          if (isLevel(c.lvl)) out.lvl = c.lvl;
-          return out;
-        }),
-      },
-    ];
-  }
-
-  // Rule 3: the threshold counts Han characters ONLY — hangul (and anything
-  // else) is excluded, so 國民이라는 still shows the 國/民 char cards.
-  const hanCharCount = runs.reduce(
-    (n, run) => (run.script === "han" ? n + run.chars.length : n),
-    0
-  );
-  const showAllChars = hanCharCount <= CHAR_CARD_SELECTION_LIMIT;
-
-  const wordMatches = [];
-  /** @type {Map<string, object>} key -> the emitted match, for rare merging */
-  const seenWords = new Map();
-  /** @type {Array<{surface:string, canonical:string}>} */
-  const charCandidates = [];
-
-  const pushWord = (match) => {
-    const key = `${match.canonical}|${match.hangul}|${match.surface}`;
-    const existing = seenWords.get(key);
-    if (existing !== undefined) {
-      // Same headword reached twice (e.g. two Han-sourced homograph senses
-      // sharing a hangul reading). Keep one card, but a single non-rare sense
-      // clears the flag — matching collapseEntries' semantics on the hangul
-      // path, so both paths agree on what "rare" means.
-      if (existing.rare === true && match.rare !== true) delete existing.rare;
-      // hp is any-wins on both paths: one sense living at the hanja page is
-      // enough to make that page the better link target.
-      if (existing.hp !== true && match.hp === true) existing.hp = true;
-      return false;
-    }
-    seenWords.set(key, match);
-    wordMatches.push(match);
-    return true;
-  };
-
-  for (const run of runs) {
-    if (run.script === "han") {
-      for (const segment of segmentRun(run.chars, wordTable, variantMap, maxWordLen)) {
-        if (segment.kind === "word") {
-          const raw = wordTable[segment.canonical];
-          const entries = (Array.isArray(raw) ? raw : [raw]).filter(
-            (e) => e && typeof e === "object"
-          );
-          for (const entry of entries) {
-            pushWord(
-              buildWordMatch(
-                {
-                  surface: segment.surface,
-                  canonical: segment.canonical,
-                  hangul: entry.hangul,
-                  glosses: entry.glosses,
-                  rare: entry.rare,
-                  hp: entry.hp,
-                },
-                wordTable,
-                charTable,
-                maxWordLen
-              )
-            );
-          }
-          // Rule 3: chars covered only by a word match still get a card when
-          // the selection is short (<= 4 Han chars).
-          if (showAllChars) charCandidates.push(...segment.items);
-        } else {
-          // Unmatched char — always a candidate for a char card.
-          charCandidates.push(...segment.items);
-        }
-      }
-    } else {
-      // Rule 3b: hangul reverse lookup.
-      for (const span of segmentHangulRun(run.chars, byHangul, maxHangulLen)) {
-        // Rule 3b: ALL spellings, no cap — the UI renders a selector.
-        const resolved = [];
-        for (const spelling of byHangul[span.surface]) {
-          if (typeof spelling !== "string" || spelling.length === 0) continue;
-          const sense = collapseEntries(wordTable[spelling], span.surface);
-          if (sense === null) continue;
-          resolved.push({ spelling, sense });
-        }
-        if (resolved.length === 0) continue;
-
-        // Rare flag addendum: non-rare spellings order FIRST, byHangul order
-        // preserved within each group. `ordered[0]` is therefore the first
-        // non-rare spelling, or the first spelling when every one is rare.
-        const ordered = [
-          ...resolved.filter((r) => !r.sense.rare),
-          ...resolved.filter((r) => r.sense.rare),
-        ];
-
-        for (const { spelling, sense } of ordered) {
-          pushWord(
-            buildWordMatch(
-              {
-                surface: span.surface,
-                canonical: spelling,
-                hangul: sense.hangul,
-                glosses: sense.glosses,
-                rare: sense.rare,
-                hp: sense.hp,
-              },
-              wordTable,
-              charTable,
-              maxWordLen
-            )
-          );
-        }
-
-        // Component hanja cards are ALWAYS emitted for hangul-sourced matches,
-        // regardless of selection length, but only for one spelling.
-        for (const ch of ordered[0].spelling) {
-          charCandidates.push({ surface: ch, canonical: ch });
-        }
-      }
-    }
-  }
-
-  const charMatches = [];
-  const seenChars = new Set();
-  for (const item of charCandidates) {
-    if (seenChars.has(item.canonical)) continue;
-    if (!hasOwn(charTable, item.canonical)) continue; // Rule 4: skip unknown chars
-    const entry = charTable[item.canonical];
-    if (!entry || typeof entry !== "object") continue;
-    seenChars.add(item.canonical);
-    charMatches.push(buildCharMatch(item, entry));
-  }
-
-  return [...wordMatches, ...charMatches];
-}
-
-/* ---------------------------------------------------------------------------
- * Romanized search ADDENDUM — the two interpreters.
- *
- * A Latin query has two plausible readings: hangul typed with the
- * keyboard in the wrong mode (`toddlf` → 생일) and romanized Korean
- * (`gukmin` → 국민). Both are tried, both may survive, and the merge orders
- * them by frequency. This supersedes the QWERTY addendum's `converted` field:
- * the response now carries `interpretations`.
- *
- * THE INPUT-CHANNEL RULE: none of this runs unless the caller asks for it.
- * Interpretation belongs to free-typed input (the search shell, the omnibox,
- * `?q=` deep links, the pending query); every internal navigation looks up
- * literally, and a literal lookup of Latin text finds nothing, as it always
- * did. Interpretation must never depend on string shape alone.
- * ------------------------------------------------------------------------- */
-
-/**
- * The interpreted-query gate (REVISED: the original letters-only gate made
- * separator stripping unreachable). After trimming, a query is interpretable
- * when it starts with a Latin letter and holds nothing but letters, hyphens,
- * apostrophes and internal spaces — the punctuation romanizations use to mark
- * syllable boundaries (`guk-min`, `han'gul`, `guk min`). The leading-letter
- * requirement is what keeps a query of separators alone (`- -`) out.
- */
-export const INTERPRETABLE_QUERY = /^[A-Za-z][A-Za-z' -]*$/;
-
-/** True when a trimmed query should be handed to the two interpreters. */
-export function isInterpretableQuery(text) {
-  return typeof text === "string" && INTERPRETABLE_QUERY.test(text);
-}
-
-/** Variant rule (b): a leading tense/aspirate spelling for a lax initial. */
-const DEVOICE_LEADING = { k: "g", t: "d", p: "b" };
-
-/** Variant expansion is deliberately bounded; v1 caps the set at 8. */
-export const MAX_RR_VARIANTS = 8;
-
-/**
- * Romanization normalization: case, and the punctuation romanizations use to
- * mark syllable boundaries (`guk-min`, `han'gul`), are all noise against an
- * index built from unpunctuated forms.
- */
-export function normalizeRomanization(text) {
-  return typeof text === "string"
-    ? text.toLowerCase().replace(/[-'’\s]/g, "")
-    : "";
-}
-
-/**
- * The bounded variant set for a romanized query: the normalized form, plus
- * the three v1 spelling rules applied in combination. Rules are applied to
- * everything produced so far, so `kooksu` reaches `guksu`, and the total is
- * capped at MAX_RR_VARIANTS (three binary rules cannot exceed it, but the cap
- * is enforced anyway so no future rule can make this unbounded).
- *
- * @param {string} text raw (or already normalized) query
- * @returns {string[]} variants, normalized form first, deduped
- */
-export function romanizationVariants(text) {
-  const base = normalizeRomanization(text);
-  if (base === "") return [];
-  const out = [base];
-  const rules = [
-    // (b) a leading k/t/p is often the lax initial the index spells g/d/b.
-    (s) => (hasOwn(DEVOICE_LEADING, s[0]) ? DEVOICE_LEADING[s[0]] + s.slice(1) : null),
-    // (c) McCune-style `oo` for RR's `u`.
-    (s) => (s.includes("oo") ? s.replace(/oo/g, "u") : null),
-    // (d) `sh` before a vowel is RR's plain `s`.
-    (s) => (/sh[aeiou]/.test(s) ? s.replace(/sh(?=[aeiou])/g, "s") : null),
-  ];
-  for (const rule of rules) {
-    for (const seed of out.slice()) {
-      if (out.length >= MAX_RR_VARIANTS) break;
-      const next = rule(seed);
-      if (typeof next === "string" && next !== "" && !out.includes(next)) out.push(next);
-    }
-  }
-  return out;
-}
-
-/**
- * Every hangul string the rr index offers for a variant set: words first, then
- * single syllables, in rr.json's own order (which is frequency-sorted for
- * words). Deduped across variants.
- */
-function rrCandidates(variants, rr) {
-  const words = (rr && rr.words) || {};
-  const syllables = (rr && rr.syllables) || {};
-  const out = [];
-  const seen = new Set();
-  const take = (list) => {
-    if (!Array.isArray(list)) return;
-    for (const hangul of list) {
-      if (typeof hangul !== "string" || hangul === "" || seen.has(hangul)) continue;
-      seen.add(hangul);
-      out.push(hangul);
-    }
-  };
-  for (const variant of variants) {
-    if (hasOwn(words, variant)) take(words[variant]);
-    if (hasOwn(syllables, variant)) take(syllables[variant]);
-  }
-  return out;
-}
-
-/** Identity of a match for dedupe purposes, per kind. */
-function matchKey(match) {
-  if (match.kind === "word") return `w|${match.canonical}|${match.hangul}|${match.surface}`;
-  if (match.kind === "reading") return `r|${match.eum}`;
-  return `c|${match.canonical}`;
-}
-
-/**
- * Interpretation 1: the Dubeolsik reading of the typed letters. It receives
- * the RAW text, separators included: they are not Dubeolsik keys, so they
- * simply break composition, and the dictionary filter absorbs the result.
- */
-function dubeolsikInterpretation(raw, data) {
-  const to = qwertyToHangul(raw);
-  if (to === "" || to === raw) return null;
-  const matches = buildMatches(to, data);
-  return matches.length === 0 ? null : { kind: "dubeolsik", from: raw, to, matches };
-}
-
-/**
- * Interpretation 2: the romanization reading. Every candidate hangul the rr
- * index offers runs the NORMAL lookup — a word candidate takes the word path,
- * a single syllable takes the reading path — and the results merge in
- * candidate order (i.e. rr.json's frequency order), deduped.
- */
-function rrInterpretation(raw, data) {
-  const candidates = rrCandidates(romanizationVariants(raw), data && data.rr);
-  const matches = [];
-  const seen = new Set();
-  let to = "";
-  for (const candidate of candidates) {
-    let contributed = false;
-    for (const match of buildMatches(candidate, data)) {
-      const key = matchKey(match);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      matches.push(match);
-      contributed = true;
-    }
-    // `to` names the mapping the UI shows ("su → 수"), so it is the first
-    // candidate that actually explained something, not merely the first key.
-    if (contributed && to === "") to = candidate;
-  }
-  return matches.length === 0 ? null : { kind: "rr", from: raw, to, matches };
-}
-
-/** True when an interpretation found real words (not just a reading list). */
-function hasWordMatches(interp) {
-  return interp.matches.some((m) => m.kind === "word");
-}
-
-/**
- * The best (lowest) frequency bucket among an interpretation's word matches.
- * `f` lives on the words.json entry, not on the match, so it is read back
- * here; unranked entries sort last.
- */
-function bestFrequency(interp, wordTable) {
-  let best = Infinity;
-  for (const match of interp.matches) {
-    if (match.kind !== "word" || !hasOwn(wordTable, match.canonical)) continue;
-    const entries = wordTable[match.canonical];
-    for (const entry of Array.isArray(entries) ? entries : [entries]) {
-      if (entry && Number.isInteger(entry.f) && entry.f < best) best = entry.f;
-    }
-  }
-  return best;
-}
-
-/**
- * The prominence of a reading-only interpretation: the best compound count
- * among its candidates. Read as the parallel of the `f` rule above — the best
- * value the side has to offer — because the reading list's own order is
- * ranked by a saturating proxy (the truncated `compounds` array) and so says
- * little about which reading a typist meant.
- */
-function bestCompoundCount(interp, charTable) {
-  let best = -1;
-  for (const match of interp.matches) {
-    if (match.kind !== "reading" || !Array.isArray(match.candidates)) continue;
-    for (const candidate of match.candidates) {
-      const entry = hasOwn(charTable, candidate.char) ? charTable[candidate.char] : null;
-      const count = entry && Array.isArray(entry.cw) ? entry.cw.length : 0;
-      if (count > best) best = count;
-    }
-  }
-  return best;
-}
-
-/**
- * Two surviving interpretations, ordered preferred-first. A word
- * interpretation beats a syllable-only one; word vs word compares the best
- * `f`; reading vs reading compares the best compound count; a remaining tie
- * goes to Dubeolsik, which is the older, more deliberate gesture.
- */
-function orderPair(dubeolsik, rr, data) {
-  const wordTable = (data && data.words && data.words.words) || {};
-  const charTable = (data && data.hanja && data.hanja.chars) || {};
-  const dw = hasWordMatches(dubeolsik);
-  const rw = hasWordMatches(rr);
-  if (dw !== rw) return dw ? [dubeolsik, rr] : [rr, dubeolsik];
-  if (dw) {
-    const df = bestFrequency(dubeolsik, wordTable);
-    const rf = bestFrequency(rr, wordTable);
-    if (df !== rf) return df < rf ? [dubeolsik, rr] : [rr, dubeolsik];
-  } else {
-    const dc = bestCompoundCount(dubeolsik, charTable);
-    const rc = bestCompoundCount(rr, charTable);
-    if (dc !== rc) return dc > rc ? [dubeolsik, rr] : [rr, dubeolsik];
-  }
-  return [dubeolsik, rr];
-}
-
-/**
- * Run both interpreters over a query, dropping the ones that found nothing.
- *
- * @param {string} text raw query (trimming/NFC handled here)
- * @param {object} data parsed data bundle, including `rr`
- * @returns {Array<{kind:string, from:string, to:string, matches:object[]}>}
- *          zero, one or two interpretations, preferred first
- */
-export function buildInterpretations(text, data) {
-  const raw = normalize(text).trim();
-  if (!isInterpretableQuery(raw)) return [];
-  const dubeolsik = dubeolsikInterpretation(raw, data);
-  const rr = rrInterpretation(raw, data);
-  if (dubeolsik === null) return rr === null ? [] : [rr];
-  if (rr === null) return [dubeolsik];
-  return orderPair(dubeolsik, rr, data);
-}
-
-/**
- * Flatten interpretations into the response's `matches` plus the
- * `interpretations` descriptor, where `start` is the index in `matches` at
- * which each group begins.
- */
-function flattenInterpretations(interps) {
-  const matches = [];
-  const descriptors = [];
-  for (const interp of interps) {
-    descriptors.push({
-      kind: interp.kind,
-      from: interp.from,
-      to: interp.to,
-      start: matches.length,
-    });
-    matches.push(...interp.matches);
-  }
-  return { matches, interpretations: descriptors };
+  const resolved = resolve(text, data);
+  if (resolved === null) return [];
+  return [buildWordMatch(resolved, data)];
 }
 
 /**
  * Full lookup, returning the SPEC "Message protocol" response envelope.
  * Never throws.
- *
- * @param {string} text raw query or selection
- * @param {object} data parsed data bundle
- * @param {{interpret?:boolean}} [options] `interpret: true` opts the call into
- *        the two interpreters above. Absent (every internal navigation) means
- *        a literal lookup, so Latin text matches nothing.
  */
-export function lookup(text, data, options) {
+export function lookup(text, data) {
   try {
-    const interpret = options !== null && typeof options === "object" && options.interpret === true;
-    if (interpret) {
-      const interps = buildInterpretations(text, data);
-      if (interps.length > 0) return { ok: true, ...flattenInterpretations(interps) };
-    }
     return { ok: true, matches: buildMatches(text, data) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
@@ -999,14 +362,237 @@ export function toErrorMessage(err) {
 }
 
 /* ---------------------------------------------------------------------------
- * Search popup ADDENDUM (1.1) — omnibox suggestions.
+ * Roots and families.
+ *
+ * The family list is DERIVED from words.json and stored nowhere. A pipeline
+ * change to a word's morphs changes the families on the next worker start with
+ * no other work, which is the binding architectural rule carried over from
+ * Okpyeon's recomposition index.
+ * ------------------------------------------------------------------------- */
+
+/** The rank a word sorts by: its `fr`, with unranked words sorting last. */
+function rankOf(entry) {
+  return entry && Number.isInteger(entry.fr) && entry.fr > 0 ? entry.fr : Infinity;
+}
+
+/**
+ * The root keys one entry credits, each at most once. Both reference kinds
+ * count: a `morphs[].r` chip and an `org.r` chain. A `morphs[].w` chip names
+ * another word rather than a root, so it credits nothing. A word credits a root
+ * once even when two of its morphs name it, which is the same rule the build's
+ * threshold applies.
+ */
+function creditedRoots(entry) {
+  const keys = new Set();
+  for (const morph of Array.isArray(entry.morphs) ? entry.morphs : []) {
+    if (morph === null || typeof morph !== "object") continue;
+    const key = str(morph.r);
+    if (key !== "") keys.add(key);
+  }
+  if (entry.org !== null && typeof entry.org === "object") {
+    const key = str(entry.org.r);
+    if (key !== "") keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * Derive the root-to-words index from words.json, ranked by `fr` ascending,
+ * unranked last, ties by key.
+ *
+ * This is the expensive one (31 ms and 65 MB of allocation over 76,496 words,
+ * measured 2026-08-24), so it builds only where a ranked LIST is rendered: a
+ * root card, a family chunk, a saved root row. Anything that needs only the
+ * sizes takes buildFamilyCounts instead.
+ *
+ * @param {object} wordsFile parsed words.json
+ * @returns {Record<string, string[]>} root key -> word keys, ranked
+ */
+export function buildFamilyIndex(wordsFile) {
+  const table = (wordsFile && wordsFile.words) || {};
+  /** @type {Record<string, string[]>} */
+  const index = Object.create(null);
+
+  for (const word of Object.keys(table)) {
+    const entry = table[word];
+    if (entry === null || typeof entry !== "object") continue;
+    for (const key of creditedRoots(entry)) {
+      if (index[key] === undefined) index[key] = [];
+      index[key].push(word);
+    }
+  }
+
+  for (const key of Object.keys(index)) {
+    index[key].sort((a, b) => {
+      const diff = rankOf(table[a]) - rankOf(table[b]);
+      if (diff !== 0) return diff;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  }
+  return index;
+}
+
+/**
+ * How many words each root builds, with no ranked lists behind it: one pass,
+ * one number per key, no per-root array and no sort. The omnibox rows rank by
+ * family SIZE, so this is all they ever needed.
+ *
+ * Counts the same way buildFamilyIndex does, so a size read here and a
+ * `familyCount` read from the index can never disagree.
+ *
+ * @param {object} wordsFile parsed words.json
+ * @returns {Record<string, number>} root key -> family size
+ */
+export function buildFamilyCounts(wordsFile) {
+  const table = (wordsFile && wordsFile.words) || {};
+  /** @type {Record<string, number>} */
+  const counts = Object.create(null);
+  for (const word of Object.keys(table)) {
+    const entry = table[word];
+    if (entry === null || typeof entry !== "object") continue;
+    for (const key of creditedRoots(entry)) {
+      counts[key] = (counts[key] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
+/** One family row: the word, its first def, its rank and its tier fields. */
+function familyRow(word, table) {
+  const found = table[word];
+  const entry = found !== null && typeof found === "object" ? found : {};
+  const row = { word, def: firstDef(entry), ...tierFields(entry.fr) };
+  if (Number.isInteger(entry.fr) && entry.fr > 0) row.fr = entry.fr;
+  return row;
+}
+
+/**
+ * The ranked family of a root key: the index entry itself, never a copy. The
+ * index derives from the same word table the rows are read from, so a filter
+ * against that table dropped 0 of 53,229 entries (measured 2026-08-24) and
+ * copied the whole family on every chunk request to do it.
+ */
+function familyOf(key, familyIndex) {
+  const list = familyIndex !== null && typeof familyIndex === "object"
+    ? familyIndex[key]
+    : undefined;
+  return Array.isArray(list) ? list : [];
+}
+
+/**
+ * Rule 2 at the root-card boundary: the key a surface sends is folded exactly
+ * like a word, so an NFD key typed at a keyboard reaches the composed key the
+ * pipeline emitted. The raw key is tried first, so a bundle whose keys are not
+ * themselves fold-stable still answers for its own keys.
+ *
+ * @returns {string} the shipped key, or "" when nothing matches
+ */
+function rootKeyOf(key, roots) {
+  if (typeof key !== "string" || key === "") return "";
+  if (hasOwn(roots, key)) return key;
+  const folded = fold(key);
+  return hasOwn(roots, folded) ? folded : "";
+}
+
+/** The language of a root card: its own field, else the key's prefix. */
+function rootLangOf(key, entry) {
+  return str(entry.lang) || String(key).split(":")[0];
+}
+
+/**
+ * The `{type:"root"}` response body: the card's own fields plus the first
+ * FAMILY_PREVIEW family rows and the full count behind them. `label` is the
+ * joined label line, so no surface holds a second copy of the label rules.
+ *
+ * @returns {object|null} null for an unknown key
+ */
+export function buildRoot(key, data, familyIndex) {
+  const roots = rootTableOf(data);
+  const rootKey = rootKeyOf(key, roots);
+  if (rootKey === "") return null;
+  const entry = roots[rootKey];
+  const table = wordTableOf(data);
+  const words = familyOf(rootKey, familyIndex);
+  const lang = rootLangOf(rootKey, entry);
+  const kind = str(entry.kind) || "root";
+
+  const root = {
+    key: rootKey,
+    form: str(entry.form),
+    lang,
+    gloss: str(entry.gloss),
+    kind,
+    label: rootLabel(lang, kind),
+    familyCount: words.length,
+    family: words.slice(0, FAMILY_PREVIEW).map((word) => familyRow(word, table)),
+  };
+  // Greek forms show their romanization beside the form.
+  const rom = str(entry.rom);
+  if (rom !== "") root.rom = rom;
+  // The source lemma of an English affix, joined like a morph chip so the row
+  // never navigates to a card that did not ship.
+  const src = str(entry.src);
+  if (src !== "" && hasOwn(roots, src)) {
+    root.src = { r: src, f: str(roots[src].form) };
+    const gloss = str(roots[src].gloss);
+    if (gloss !== "") root.src.gloss = gloss;
+  }
+  return root;
+}
+
+/**
+ * The `{type:"family"}` response body: ONE CHUNK of the ranked list, in the
+ * row shape the preview uses, plus the full `total` behind it and the offset
+ * the chunk starts at. The card pages locally inside a chunk and asks for the
+ * next one only when its local rows run out.
+ *
+ * An offset past the end is not an error: it answers with no rows and the
+ * same total, which is what a card that paged to the end sees.
+ *
+ * @returns {{rows:object[], total:number, offset:number}}
+ */
+export function buildFamily(key, data, familyIndex, offset) {
+  const start = Number.isInteger(offset) && offset > 0 ? offset : 0;
+  const rootKey = rootKeyOf(key, rootTableOf(data));
+  if (rootKey === "") return { rows: [], total: 0, offset: start };
+  const table = wordTableOf(data);
+  const words = familyOf(rootKey, familyIndex);
+  return {
+    rows: words.slice(start, start + FAMILY_CHUNK).map((word) => familyRow(word, table)),
+    total: words.length,
+    offset: start,
+  };
+}
+
+/**
+ * A root's label line in plain English, one entry per `kind` in the SPEC's
+ * enum plus the language fallback for a plain root. THE definition: the worker
+ * joins it onto the root response as `label` and into the Anki `source` field,
+ * so neither the card nor the export holds a copy of these rules.
+ */
+export function rootLabel(lang, kind) {
+  // The harvested pos is "infix"; English calls the thing an interfix, and the
+  // card says what a reader would look up.
+  const kindWord =
+    kind === "prefix" ? "prefix" :
+    kind === "suffix" ? "suffix" :
+    kind === "infix" ? "interfix" :
+    kind === "circumfix" ? "circumfix" : "root";
+  // Classical roots keep their language on the label whatever the kind: a
+  // Greek suffix card says "Greek suffix", never a bare "Suffix" that could
+  // be mistaken for an English affix.
+  if (lang === "la") return "Latin " + kindWord;
+  if (lang === "grc") return "Greek " + kindWord;
+  if (kindWord === "root") return "English root";
+  return kindWord.charAt(0).toUpperCase() + kindWord.slice(1);
+}
+
+/* ---------------------------------------------------------------------------
+ * Omnibox suggestions.
  *
  * Pure: background.js supplies the parsed data and hands the result straight to
  * chrome.omnibox's suggest(). Nothing here touches chrome.*.
  * ------------------------------------------------------------------------- */
-
-/** Omnibox shows a handful of rows; SPEC caps us at 5. */
-export const MAX_OMNIBOX_SUGGESTIONS = 5;
 
 /** Separator between the pieces of a suggestion's dimmed tail. */
 const DIM_SEPARATOR = " · ";
@@ -1020,12 +606,14 @@ const XML_ESCAPES = {
 };
 
 /**
- * Escape dynamic text for the omnibox description's XML mini-format. The only
- * unescaped angle brackets in a description are the <match>/<dim> tags this
- * module emits itself; every gloss, hun, eum and spelling goes through here.
- * `content` is NEVER escaped — it round-trips into onInputEntered as typed.
+ * Escape dynamic text for the omnibox description's XML mini-format. Chrome
+ * PARSES a description as XML, so the only unescaped angle brackets in one are
+ * the <match>/<dim> tags this module emits itself. Every word, gloss and
+ * definition goes through here, and so does the typed input that background.js
+ * echoes back in the default suggestion.
+ * `content` is NEVER escaped, since it round-trips into onInputEntered as typed.
  */
-function escapeXml(text) {
+export function escapeXml(text) {
   return typeof text === "string" ? text.replace(/[&<>"']/g, (ch) => XML_ESCAPES[ch]) : "";
 }
 
@@ -1035,118 +623,169 @@ function dimTail(pieces) {
   return kept.length === 0 ? "" : ` <dim>${escapeXml(kept.join(DIM_SEPARATOR))}</dim>`;
 }
 
-/** `<match>頭</match> plain <dim>tail</dim>` with everything dynamic escaped. */
+/** `<match>terra</match> plain <dim>tail</dim>` with everything dynamic escaped. */
 function describe(head, plain, dimPieces) {
   const mid = typeof plain === "string" && plain !== "" ? ` ${escapeXml(plain)}` : "";
   return `<match>${escapeXml(head)}</match>${mid}${dimTail(dimPieces)}`;
 }
 
 /**
- * lvl ADDENDUM: short school-level labels for the dimmed omnibox tail. Only
- * the curriculum levels say anything useful in one word here; `a` and `r`
- * contribute nothing (the popup's level chip carries the full taxonomy).
+ * The prefix an omnibox query matches on: folded as typed, then capped at the
+ * token length. A query longer than a word is a query for nothing, and without
+ * the cap every keystroke of a pasted paragraph walked the whole index.
  */
-const OMNIBOX_LEVEL_LABEL = { m: "중학", h: "고교" };
-
-/** One row for a hanja character (char match or reading-browse candidate). */
-function charSuggestion(char, hun, eum, gloss, lvl) {
-  const reading = [hun, eum].filter((s) => typeof s === "string" && s !== "").join(" ");
-  return {
-    content: char,
-    description: describe(char, reading, [gloss, OMNIBOX_LEVEL_LABEL[lvl] || ""]),
-  };
+function omniboxPrefix(text) {
+  if (typeof text !== "string") return "";
+  return fold(text.trim()).slice(0, MAX_TOKEN_CHARS);
 }
 
 /**
- * Up to 5 omnibox suggestions for a typed query, reusing buildMatches so the
- * omnibox and the popup always agree on what the input means.
+ * The omnibox index: everything a keystroke needs, built once and cached beside
+ * the family index. Rebuilding it per keystroke cost 8.5 to 13.2 ms (measured
+ * 2026-08-24), since it materialized all 76,496 word keys, filtered them and
+ * fully sorted the hits for five rows.
  *
- * Order: word matches (non-rare first, rare last), then the reading-browse
- * candidates of a single hangul syllable, then character matches. Each row's
- * `content` is the candidate's own canonical searchable string — the canonical
- * hanja spelling for a word, the canonical character for a char/reading row —
- * so re-entering it through onInputEntered lands on the same result.
+ * `keys` is every word key in ascending order with `ranks` parallel to it, so a
+ * prefix is a binary search plus a walk of that one range. `roots` is
+ * pre-ranked by family size then key, which is the order root rows come back
+ * in, so a prefix scan there stops as soon as it has enough rows; each row
+ * carries its whole suggestion, so the pass never reads roots.json again.
+ *
+ * @param {object} data parsed data bundle
+ * @returns {{keys:string[], ranks:Float64Array, roots:object[]}}
+ */
+export function buildSearchIndex(data) {
+  const table = wordTableOf(data);
+  const keys = Object.keys(table).sort();
+  const ranks = new Float64Array(keys.length);
+  for (let i = 0; i < keys.length; i += 1) ranks[i] = rankOf(table[keys[i]]);
+
+  // Sizes, not lists: the rows rank by how many words a root builds and never
+  // name one of them.
+  const counts = buildFamilyCounts(data && data.words);
+  const rootTable = rootTableOf(data);
+  const roots = [];
+  for (const key of Object.keys(rootTable)) {
+    const entry = rootTable[key];
+    if (entry === null || typeof entry !== "object") continue;
+    // `alt` forms match too, since they are the same card under another surface.
+    const forms = [entry.form, ...(Array.isArray(entry.alt) ? entry.alt : [])]
+      .filter((form) => typeof form === "string" && form !== "")
+      .map((form) => fold(form));
+    if (forms.length === 0) continue;
+    roots.push({
+      key,
+      forms,
+      size: counts[key] || 0,
+      form: str(entry.form) || key,
+      label: rootLabel(rootLangOf(key, entry), str(entry.kind)),
+      gloss: str(entry.gloss),
+    });
+  }
+  roots.sort((a, b) => {
+    const diff = b.size - a.size;
+    if (diff !== 0) return diff;
+    return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  });
+  return { keys, ranks, roots };
+}
+
+/** The cached index when the caller has one, else a fresh one for this call. */
+function searchIndexOf(data) {
+  const index = data && data.searchIndex;
+  return index !== null && typeof index === "object" &&
+    Array.isArray(index.keys) && Array.isArray(index.roots)
+    ? index
+    : buildSearchIndex(data);
+}
+
+/** The first position in `keys` at or after `prefix`. */
+function lowerBound(keys, prefix) {
+  let lo = 0;
+  let hi = keys.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (keys[mid] < prefix) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The best MAX_OMNIBOX_SUGGESTIONS word keys under the prefix, ranked by `fr`
+ * then key. The keys carrying a prefix are one contiguous run of the sorted
+ * array, and the winners are picked by bounded insertion into a five-slot list,
+ * so a keystroke sorts nothing. The run is walked in ascending key order, which
+ * is why an equal rank never displaces the row already held.
+ */
+function wordPrefixMatches(prefix, index) {
+  const { keys, ranks } = index;
+  const best = [];
+  for (let i = lowerBound(keys, prefix); i < keys.length; i += 1) {
+    const key = keys[i];
+    if (!key.startsWith(prefix)) break;
+    const rank = ranks[i];
+    if (best.length === MAX_OMNIBOX_SUGGESTIONS) {
+      if (rank >= best[best.length - 1].rank) continue;
+      best.pop();
+    }
+    let at = best.length;
+    while (at > 0 && best[at - 1].rank > rank) at -= 1;
+    best.splice(at, 0, { key, rank });
+  }
+  return best;
+}
+
+/** The first `room` pre-ranked root rows whose form or alt starts with the prefix. */
+function rootPrefixMatches(prefix, index, room) {
+  const hits = [];
+  if (room <= 0) return hits;
+  for (const root of index.roots) {
+    if (root.forms.some((form) => form.startsWith(prefix))) {
+      hits.push(root);
+      if (hits.length === room) break;
+    }
+  }
+  return hits;
+}
+
+/**
+ * Up to 5 omnibox suggestions for a typed query: word keys first, then root
+ * forms. Each row's `content` is the canonical key of the thing it names, so
+ * re-entering it through onInputEntered lands on the same card. Word rows
+ * therefore carry a word key and root rows carry a `<lang>:<form>` root key.
+ *
+ * The query is matched as a raw prefix rather than through the token rule, so
+ * an affix form such as "-an" or "sub-" still finds its card.
  *
  * Never throws: junk data yields [].
  *
  * @param {string} text raw omnibox input
- * @param {{hanja?:object, words?:object, variants?:object, rr?:object}} data parsed data files
- * @param {{interpret?:boolean}} [options] same input-channel rule as lookup();
- *        the omnibox IS a typed channel, so background.js passes it.
+ * @param {{words?:object, roots?:object, searchIndex?:object}} data parsed bundle
  * @returns {Array<{content:string, description:string}>}
  */
-export function buildOmniboxSuggestions(text, data, options) {
+export function buildOmniboxSuggestions(text, data) {
   try {
-    // Same generators and ordering as lookup(): `hj toddlf` suggests 생일's
-    // entries, `hj gukmin` suggests 국민's. Each row's `content` stays the
-    // candidate's canonical searchable string, so the suggestion the user
-    // picks re-enters as hanja, not as what they typed.
-    const interpret =
-      options !== null && typeof options === "object" && options.interpret === true;
-    const interps = interpret ? buildInterpretations(text, data) : [];
-    const groups =
-      interps.length > 0
-        ? interps.map((i) => i.matches)
-        : [buildMatches(text, data)];
+    const prefix = omniboxPrefix(text);
+    if (prefix === "") return [];
+    const index = searchIndexOf(data);
+    const table = wordTableOf(data);
 
-    // Ordering applies WITHIN a group, so the preferred interpretation's rows
-    // stay ahead of the other's.
     const rows = [];
-    for (const matches of groups) {
-      const words = matches.filter((m) => m.kind === "word");
-      rows.push(
-        // Rare-flagged spellings rank last across the whole query, not just
-        // within one hangul span (buildMatches only orders within a span).
-        ...words.filter((m) => m.rare !== true),
-        ...words.filter((m) => m.rare === true),
-        ...matches.filter((m) => m.kind === "reading"),
-        ...matches.filter((m) => m.kind === "char")
-      );
+    for (const hit of wordPrefixMatches(prefix, index)) {
+      rows.push({
+        content: hit.key,
+        description: describe(hit.key, "", [firstDef(table[hit.key])]),
+      });
     }
-
-    const suggestions = [];
-    const seen = new Set();
-    const push = (suggestion) => {
-      if (suggestion === null || seen.has(suggestion.content)) return;
-      seen.add(suggestion.content);
-      suggestions.push(suggestion);
-    };
-
-    for (const match of rows) {
-      if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break;
-      if (match.kind === "word") {
-        const gloss = Array.isArray(match.glosses) ? match.glosses[0] : "";
-        push({
-          content: match.canonical,
-          description: describe(match.canonical, match.hangul, [
-            gloss,
-            match.rare === true ? "rare" : "",
-          ]),
-        });
-      } else if (match.kind === "char") {
-        const pair = Array.isArray(match.eumhun) ? match.eumhun[0] : null;
-        const gloss = Array.isArray(match.glosses) ? match.glosses[0] : "";
-        push(
-          charSuggestion(
-            match.canonical,
-            pair && typeof pair.hun === "string" ? pair.hun : "",
-            pair && typeof pair.eum === "string" ? pair.eum : "",
-            gloss,
-            match.lvl
-          )
-        );
-      } else if (match.kind === "reading" && Array.isArray(match.candidates)) {
-        // The syllable itself is already the default suggestion ("search for
-        // %s" opens the browse), so the rows here are the individual hanja.
-        for (const c of match.candidates) {
-          if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break;
-          if (!c || typeof c.char !== "string" || c.char === "") continue;
-          push(charSuggestion(c.char, c.hun, c.eum, c.gloss, c.lvl));
-        }
-      }
+    const room = MAX_OMNIBOX_SUGGESTIONS - rows.length;
+    for (const root of rootPrefixMatches(prefix, index, room)) {
+      rows.push({
+        content: root.key,
+        description: describe(root.form, root.label, [root.gloss]),
+      });
     }
-
-    return suggestions.slice(0, MAX_OMNIBOX_SUGGESTIONS);
+    return rows;
   } catch {
     return [];
   }

@@ -1,5 +1,5 @@
 {
-  "name": "hanja-hover-extension",
+  "name": "etymikon-extension",
   "private": true,
   "type": "module",
   "description": "Marks extension/*.js as ES modules so Node (tests) can import lookup.js. Chrome ignores this file; background.js is loaded as a module via manifest.json background.type."

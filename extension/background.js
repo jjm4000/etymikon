@@ -1,17 +1,18 @@
 /**
- * Hanja Hover — MV3 service worker.
+ * Etymikon: the MV3 service worker.
  *
  * Thin chrome.* glue only: all lookup logic lives in ./lookup.js so it stays
  * unit-testable in plain Node. Registered with "type": "module" in
- * manifest.json so this import works.
+ * manifest.json so these imports work.
  */
 
 import {
-  buildFullCompounds,
+  buildFamily,
+  buildFamilyIndex,
   buildOmniboxSuggestions,
-  buildReadingIndex,
-  buildUsedIn,
-  isLevel,
+  buildRoot,
+  buildSearchIndex,
+  escapeXml,
   lookup,
   toErrorMessage,
 } from "./lookup.js";
@@ -32,227 +33,36 @@ import {
 } from "./saved.js";
 
 const DATA_FILES = {
-  hanja: "data/hanja.json",
   words: "data/words.json",
-  variants: "data/variants.json",
-  // Romanized search ADDENDUM: the forward-generated RR index.
-  rr: "data/rr.json",
-  // Decomposition ADDENDUM: display glyph + click target per character.
-  decomp: "data/decomp.json",
+  roots: "data/roots.json",
+  forms: "data/forms.json",
 };
 
 /**
- * Shape guard for rr.json. A bundle mid-update (or one built before the
- * romanization addendum) must cost the interpreter nothing worse than finding
- * no candidates, so the tables are always objects.
- */
-function guardRr(raw) {
-  const rr = raw !== null && typeof raw === "object" ? raw : {};
-  const table = (v) => (v !== null && typeof v === "object" ? v : {});
-  return { v: 1, words: table(rr.words), syllables: table(rr.syllables) };
-}
-
-const hasOwn = (obj, key) =>
-  obj !== null && obj !== undefined &&
-  Object.prototype.hasOwnProperty.call(obj, key);
-
-/**
- * Shape guard for decomp.json, in the guardRr spirit: a bundle without the
- * file (or with an older one) must leave lookups working, with the feature
- * simply absent.
- */
-export function guardDecomp(raw) {
-  const d = raw !== null && typeof raw === "object" ? raw : {};
-  const parts = d.parts !== null && typeof d.parts === "object" ? d.parts : {};
-  return { v: 1, parts: d.v === 1 ? parts : {} };
-}
-
-/**
- * The reading a joined row shows for one hanja.json entry. Some entries carry
- * an empty `eumhun` list and a non-empty `readings` array (或 reads 혹 with no
- * hun recorded); without the fallback those rows would render as a bare gloss.
- * The first eumhun pair still wins whenever there is one.
- */
-function joinReading(entry) {
-  const pair = (Array.isArray(entry.eumhun) ? entry.eumhun : [])[0];
-  if (pair && typeof pair === "object") {
-    return {
-      hun: typeof pair.hun === "string" ? pair.hun : "",
-      eum: typeof pair.eum === "string" ? pair.eum : "",
-    };
-  }
-  const eum = (Array.isArray(entry.readings) ? entry.readings : [])[0];
-  return { hun: "", eum: typeof eum === "string" ? eum : "" };
-}
-
-/**
- * Decomposition ADDENDUM: turn one emitted row into the response row the
- * renderer draws. Emitted rows are [g], [g,t], [g,null] or [g,null,name];
- * a row is clickable when its length is 1 or slot 2 is a string. The target's
- * eumhun and gloss are joined HERE because the content script has no access to
- * hanja.json, and a target with no entry degrades to an inert row rather than
- * a click that would land nowhere.
- */
-function decompRow(row, hanjaTable) {
-  if (!Array.isArray(row)) return null;
-  const g = typeof row[0] === "string" ? row[0] : "";
-  if (!g) return null;
-  const clickable = row.length === 1 || typeof row[1] === "string";
-  if (!clickable) {
-    const out = { g };
-    if (typeof row[2] === "string" && row[2] !== "") out.name = row[2];
-    return out;
-  }
-  const t = typeof row[1] === "string" ? row[1] : g;
-  const entry = hasOwn(hanjaTable, t) ? hanjaTable[t] : null;
-  if (!entry || typeof entry !== "object") return { g };
-  const reading = joinReading(entry);
-  return {
-    g,
-    t,
-    hun: reading.hun,
-    eum: reading.eum,
-    gloss: (Array.isArray(entry.glosses) ? entry.glosses : [])[0] ?? "",
-  };
-}
-
-/** Hang `parts` on every char match the decomposition table knows about. */
-export function attachDecomp(result, data) {
-  if (!result || result.ok !== true || !Array.isArray(result.matches)) return result;
-  const table = data.decomp.parts;
-  // hanja.json is {chars, version}; the join reads the chars table, the same
-  // reach-through lookup.js does. Passing the whole file would miss every
-  // target and silently degrade every part to an inert glyph.
-  const charTable = (data.hanja && data.hanja.chars) || {};
-  for (const match of result.matches) {
-    if (!match || match.kind !== "char") continue;
-    const char = typeof match.canonical === "string" ? match.canonical : "";
-    if (!char || !hasOwn(table, char)) continue;
-    const rows = table[char];
-    if (!Array.isArray(rows)) continue;
-    const parts = rows.map((row) => decompRow(row, charTable)).filter(Boolean);
-    if (parts.length) match.parts = parts;
-  }
-  return result;
-}
-
-/**
- * Recomposition ADDENDUM: the reverse of decomp.json, DERIVED at runtime and
- * stored nowhere. Scan the table once and credit each row's TARGET (the aliased
- * character: an 亻 row credits 人) with the character the row belongs to. Only
- * clickable rows count, since an inert row names no character.
- *
- * Pure in the decomp table alone: no hanja.json, no ranking. Any change to a
- * decomposition changes the lists on the next worker start, and nothing else
- * has to be rebuilt. The eumhun join and the ranking happen per query.
- *
- * @param {Record<string, Array>} decompTable decomp.parts
- * @returns {Record<string, string[]>} target -> containing characters
- */
-export function buildFoundInIndex(decompTable) {
-  const table = decompTable !== null && typeof decompTable === "object" ? decompTable : {};
-  /** @type {Record<string, string[]>} */
-  const index = Object.create(null);
-  for (const char of Object.keys(table)) {
-    const rows = table[char];
-    if (!Array.isArray(rows)) continue;
-    // Per containing character, so 雙 (隹 twice) appears once in 隹's list.
-    const credited = new Set();
-    for (const row of rows) {
-      if (!Array.isArray(row)) continue;
-      const g = typeof row[0] === "string" ? row[0] : "";
-      if (!g) continue;
-      const clickable = row.length === 1 || typeof row[1] === "string";
-      if (!clickable) continue;
-      const target = typeof row[1] === "string" ? row[1] : g;
-      // A character is never found in itself.
-      if (target === char || credited.has(target)) continue;
-      credited.add(target);
-      if (index[target] === undefined) index[target] = [];
-      index[target].push(char);
-    }
-  }
-  return index;
-}
-
-/**
- * Recomposition ADDENDUM: one target's list, joined against hanja.json into the
- * fields the reading-list rows draw, ranked by cwCount descending with ties by
- * codepoint so the order is stable across runs. A containing character with no
- * hanja.json entry is dropped rather than rendered as a row that would navigate
- * nowhere (the emit is restricted to hanja.json characters, so this is a guard,
- * not a case).
- */
-export function buildFoundIn(char, index, hanjaData) {
-  if (typeof char !== "string" || char === "") return [];
-  const charTable = (hanjaData && hanjaData.chars) || {};
-  const list = hasOwn(index, char) ? index[char] : null;
-  if (!Array.isArray(list)) return [];
-  const ranks = new Map();
-  const rows = [];
-  for (const containing of list) {
-    const entry = hasOwn(charTable, containing) ? charTable[containing] : null;
-    if (!entry || typeof entry !== "object") continue;
-    const reading = joinReading(entry);
-    const row = {
-      char: containing,
-      hun: reading.hun,
-      eum: reading.eum,
-      gloss: (Array.isArray(entry.glosses) ? entry.glosses : [])[0] ?? "",
-    };
-    if (isLevel(entry.lvl)) row.lvl = entry.lvl;
-    ranks.set(containing, Array.isArray(entry.cw) ? entry.cw.length : 0);
-    rows.push(row);
-  }
-  rows.sort(
-    (a, b) =>
-      (ranks.get(b.char) || 0) - (ranks.get(a.char) || 0) ||
-      a.char.codePointAt(0) - b.char.codePointAt(0)
-  );
-  return rows;
-}
-
-/**
- * Hang `foundInCount` on every char match the index knows about, usedInCount
- * style (omitted when 0). `getIndex` is a thunk so a lookup with no char match
- * never pays for building the index.
- */
-export function attachFoundIn(result, getIndex) {
-  if (!result || result.ok !== true || !Array.isArray(result.matches)) return result;
-  let index = null;
-  for (const match of result.matches) {
-    if (!match || match.kind !== "char") continue;
-    const char = typeof match.canonical === "string" ? match.canonical : "";
-    if (!char) continue;
-    if (index === null) index = getIndex();
-    const list = hasOwn(index, char) ? index[char] : null;
-    if (Array.isArray(list) && list.length > 0) match.foundInCount = list.length;
-  }
-  return result;
-}
-
-/**
- * Rule 5: module-level cache. The service worker may be torn down and
+ * Rule 4: module-level cache. The service worker may be torn down and
  * restarted at any time; the data is simply re-fetched on the next lookup.
- * @type {Promise<{hanja:object, words:object, variants:object}>|null}
+ * @type {Promise<{words:object, roots:object, forms:object}>|null}
  */
 let dataPromise = null;
 
 /**
- * Rule 3c: eum -> hanja index, derived from hanja.json at runtime (not a data
- * file). Cached module-level alongside the data and built lazily on the first
- * single-syllable lookup, since most lookups never need it.
- * @type {Record<string, object[]>|null}
- */
-let readingIndex = null;
-
-/**
- * Recomposition ADDENDUM: target -> containing characters, derived from
- * decomp.json at runtime (not a data file). Cached and cleared exactly like the
- * reading index, so an updated bundle rebuilds it with no other work.
+ * Rule 4: the root-to-words index, DERIVED from words.json at runtime and
+ * stored in no data file. It costs 31 ms and 65 MB of allocation, so it builds
+ * only where a ranked family LIST is rendered: a root card, a family chunk, a
+ * saved root row. The omnibox and a word-only saved join never touch it.
+ * Cleared with the data cache so an updated bundle rebuilds it with no other
+ * work.
  * @type {Record<string, string[]>|null}
  */
-let foundInIndex = null;
+let familyIndex = null;
+
+/**
+ * Rule 4: the omnibox index, derived the same way and cached the same way. It
+ * carries family SIZES rather than lists, so a keystroke never pays for the
+ * ranked index above.
+ * @type {object|null}
+ */
+let searchIndex = null;
 
 async function fetchJson(path) {
   const url = chrome.runtime.getURL(path);
@@ -263,117 +73,84 @@ async function fetchJson(path) {
   return response.json();
 }
 
-/** Lazily load + cache the five data files. Failures clear the cache so a later lookup can retry. */
+/** Lazily load and cache the three data files. A failure clears the cache so a later lookup can retry. */
 function getData() {
   if (dataPromise === null) {
     dataPromise = (async () => {
-      const [hanja, words, variants, rr, decomp] = await Promise.all([
-        fetchJson(DATA_FILES.hanja),
+      const [words, roots, forms] = await Promise.all([
         fetchJson(DATA_FILES.words),
-        fetchJson(DATA_FILES.variants),
-        fetchJson(DATA_FILES.rr),
-        // Absent or malformed: guardDecomp yields an empty table and no card
-        // shows a Made of row.
-        fetchJson(DATA_FILES.decomp).catch(() => null),
+        fetchJson(DATA_FILES.roots),
+        fetchJson(DATA_FILES.forms),
       ]);
-      return { hanja, words, variants, rr: guardRr(rr), decomp: guardDecomp(decomp) };
+      return { words, roots, forms };
     })();
     dataPromise.catch(() => {
       dataPromise = null;
-      readingIndex = null;
-      foundInIndex = null;
+      familyIndex = null;
+      searchIndex = null;
     });
   }
   return dataPromise;
 }
 
-/** The found-in index for the loaded bundle, built on first use. */
-function getFoundInIndex(data) {
-  if (foundInIndex === null) foundInIndex = buildFoundInIndex(data.decomp.parts);
-  return foundInIndex;
+/** The family index for the loaded bundle, built on first use. */
+function getFamilyIndex(data) {
+  if (familyIndex === null) familyIndex = buildFamilyIndex(data.words);
+  return familyIndex;
+}
+
+/** The omnibox index for the loaded bundle, built on the first keystroke. */
+function getSearchIndex(data) {
+  if (searchIndex === null) searchIndex = buildSearchIndex(data);
+  return searchIndex;
 }
 
 /**
- * Handle a {type:"lookup", text, interpret} message.
- *
- * Romanized search ADDENDUM (input-channel rule): `interpret` is set only by
- * free-typed entry points (the search shell, the omnibox, `?q=` deep links,
- * the pending query). Everything else — every internal navigation — arrives
- * without it and gets a literal lookup.
+ * Handle a {type:"lookup", text} message.
  * @returns {Promise<{ok:true, matches:object[]}|{ok:false, error:string}>}
  */
-export async function handleLookup(text, interpret) {
+export async function handleLookup(text) {
   try {
-    const data = await getData();
-    const result = lookup(
-      text,
-      {
-        ...data,
-        getReadingIndex: () => {
-          if (readingIndex === null) readingIndex = buildReadingIndex(data.hanja);
-          return readingIndex;
-        },
-      },
-      { interpret: interpret === true }
-    );
-    return attachFoundIn(attachDecomp(result, data), () => getFoundInIndex(data));
+    return lookup(text, await getData());
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
 }
 
 /**
- * Handle a {type:"compounds", char} message (cw ADDENDUM): the char's complete
- * compound index joined against words.json, in ranked order.
- * @returns {Promise<{ok:true, compounds:object[]}|{ok:false, error:string}>}
+ * Handle a {type:"root", key} message: the root card body, with the first
+ * page of its derived family. An unknown key answers with a null root, not an
+ * error, since a stale bundle is not a failure.
+ * @returns {Promise<{ok:true, root:object|null}|{ok:false, error:string}>}
  */
-export async function handleCompounds(char) {
+export async function handleRoot(key) {
   try {
     const data = await getData();
-    return { ok: true, compounds: buildFullCompounds(char, data) };
+    return { ok: true, root: buildRoot(key, data, getFamilyIndex(data)) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
 }
 
 /**
- * Handle a {type:"usedIn", word} message (used-in ADDENDUM): every larger
- * word containing this one, ranked, joined against words.json.
- * @returns {Promise<{ok:true, words:object[]}|{ok:false, error:string}>}
+ * Handle a {type:"family", key, offset} message: one chunk of the ranked
+ * family, with the full total behind it. `offset` defaults to 0.
+ * @returns {Promise<{ok:true, rows:object[], total:number, offset:number}|{ok:false, error:string}>}
  */
-export async function handleUsedIn(word) {
+export async function handleFamily(key, offset) {
   try {
     const data = await getData();
-    return { ok: true, words: buildUsedIn(word, data) };
+    return { ok: true, ...buildFamily(key, data, getFamilyIndex(data), offset) };
   } catch (err) {
     return { ok: false, error: toErrorMessage(err) };
   }
 }
 
 /**
- * Handle a {type:"foundIn", char} message (recomposition ADDENDUM): every
- * character this one is a part of, ranked, joined against hanja.json. The
- * incoming char is NFC-normalized and variant-mapped like any lookup input.
- * @returns {Promise<{ok:true, chars:object[]}|{ok:false, error:string}>}
- */
-export async function handleFoundIn(char) {
-  try {
-    const data = await getData();
-    if (typeof char !== "string" || char === "") return { ok: true, chars: [] };
-    const variantMap = data.variants?.map ?? {};
-    const normalized = char.normalize("NFC");
-    const canonical = hasOwn(variantMap, normalized) ? variantMap[normalized] : normalized;
-    return { ok: true, chars: buildFoundIn(canonical, getFoundInIndex(data), data.hanja) };
-  } catch (err) {
-    return { ok: false, error: toErrorMessage(err) };
-  }
-}
-
-/**
- * Wiktionary links ADDENDUM (background-open on every surface): the only URL
- * prefix a content script may ask the worker to open. Anything else is
- * refused — a content script runs in a page the extension does not trust, so
- * "open this url" is never taken at face value.
+ * Wiktionary links (background-open on every surface): the only URL prefix a
+ * content script may ask the worker to open. Anything else is refused, since a
+ * content script runs in a page the extension does not trust, so "open this
+ * url" is never taken at face value.
  */
 export const WIKI_URL_PREFIX = "https://en.wiktionary.org/wiki/";
 
@@ -405,10 +182,10 @@ export async function handleOpenTab(url) {
 }
 
 /**
- * Sidebar ADDENDUM (pending-query handshake): the omnibox sets a query here,
- * then opens the panel; the panel pulls the query once at boot. A pull model,
- * so the panel never has to be listening at the moment the query is set, and
- * no storage permission is needed. Module-level like the data cache: if the
+ * Sidebar (pending-query handshake): the omnibox sets a query here, then opens
+ * the panel; the panel pulls the query once at boot. A pull model, so the
+ * panel never has to be listening at the moment the query is set, and no
+ * storage permission is needed. Module-level like the data cache: if the
  * worker is torn down between the two halves the query is simply lost, which
  * cannot happen in practice (the panel opens in the same gesture).
  * @type {string|null}
@@ -433,7 +210,7 @@ export async function handleGetPendingQuery() {
 }
 
 // ---------------------------------------------------------------------------
-// Saved words + settings (ADDENDUM): the worker is the single writer.
+// Saved items + settings: the worker is the single writer.
 // ---------------------------------------------------------------------------
 
 /** chrome.storage.local keys. Schema v1 for both; see saved.js. */
@@ -457,10 +234,10 @@ function storageArea() {
 }
 
 /**
- * The serialization chain. Every saved/settings handler — reads included —
- * runs as one link, so a read-modify-write can never interleave with another
- * one no matter how many surfaces message the worker at once. A rejected link
- * never breaks the chain: the tail is always a settled, ignored promise.
+ * The serialization chain. Every saved/settings handler, reads included, runs
+ * as one link, so a read-modify-write can never interleave with another one no
+ * matter how many surfaces message the worker at once. A rejected link never
+ * breaks the chain: the tail is always a settled, ignored promise.
  * @type {Promise<*>}
  */
 let storageChain = Promise.resolve();
@@ -475,7 +252,7 @@ function serialize(task) {
 }
 
 /**
- * Storage guard + serialization + error envelope, shared by all eleven
+ * Storage guard, serialization and error envelope, shared by all eleven
  * handlers below.
  * @param {(area:object) => Promise<object>} task
  */
@@ -496,12 +273,12 @@ async function readKey(area, key) {
   return got !== null && typeof got === "object" ? got[key] : undefined;
 }
 
-/** Read + normalize the saved state. Storage is only rewritten on a change. */
+/** Read and normalize the saved state. Storage is only rewritten on a change. */
 async function readSaved(area) {
   return normalizeSavedState(await readKey(area, SAVED_KEY));
 }
 
-/** Read + normalize settings, resetting a default folder that no longer exists. */
+/** Read and normalize settings, resetting a default folder that no longer exists. */
 async function readSettings(area, savedState) {
   return normalizeSettings(await readKey(area, SETTINGS_KEY), savedState);
 }
@@ -515,8 +292,24 @@ function writeSettings(area, settings) {
 }
 
 /**
+ * Join saved items against the live cache. An empty list is answered without
+ * touching the cache at all: the settings view asks for the folder list through
+ * savedGet, and on a cold worker that used to cost an 18.9 MB parse and a full
+ * index build to fill one select. The ranked family index is built only when a
+ * ROOT row is in the list, since that is the only row that reads it.
+ */
+async function joinSaved(items) {
+  if (items.length === 0) return [];
+  const data = await getData();
+  const needsFamily = items.some(
+    (item) => item !== null && typeof item === "object" && item.kind === "root"
+  );
+  return joinItems(items, needsFamily ? { ...data, familyIndex: getFamilyIndex(data) } : data);
+}
+
+/**
  * Shallow patch merge, one level deep through `anki` so a settings control can
- * send `{anki:{wordFront:"hangul"}}` without resetting its sibling fields.
+ * send `{anki:{wordFront:"defs"}}` without resetting its sibling fields.
  */
 function mergeSettings(settings, patch) {
   const src = patch !== null && typeof patch === "object" ? patch : {};
@@ -525,13 +318,13 @@ function mergeSettings(settings, patch) {
 }
 
 /**
- * Export filename, dated by the worker: okpyeon-anki-YYYYMMDD.txt for the Anki
- * file, okpyeon-saved-YYYYMMDD.csv for the spreadsheet.
+ * Export filename, dated by the worker: etymikon-anki-YYYYMMDD.txt for the
+ * Anki file, etymikon-saved-YYYYMMDD.csv for the spreadsheet.
  */
 function exportFilename(format, date = new Date()) {
   const pad = (n) => String(n).padStart(2, "0");
   const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
-  return format === "csv" ? `okpyeon-saved-${stamp}.csv` : `okpyeon-anki-${stamp}.txt`;
+  return format === "csv" ? `etymikon-saved-${stamp}.csv` : `etymikon-anki-${stamp}.txt`;
 }
 
 /**
@@ -542,8 +335,7 @@ function exportFilename(format, date = new Date()) {
 export async function handleSavedGet() {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    const data = await getData();
-    return { ok: true, folders: state.folders, items: joinItems(state.items, data) };
+    return { ok: true, folders: state.folders, items: await joinSaved(state.items) };
   });
 }
 
@@ -573,7 +365,7 @@ export async function handleSavedToggle(kind, key) {
 
 /**
  * {type:"savedCheck", keys:[{kind,key}]} → the one batched answer a render pass
- * needs, keyed "c:<key>" / "w:<key>".
+ * needs, keyed "r:<key>" / "w:<key>".
  * @returns {Promise<{ok:true, saved:Record<string,boolean>}|{ok:false, error:string}>}
  */
 export async function handleSavedCheck(keys) {
@@ -691,8 +483,7 @@ export async function handleSettingsSet(patch) {
 export async function handleSavedExport(selection, format) {
   return withStorage(async (area) => {
     const state = await readSaved(area);
-    const data = await getData();
-    const rows = joinItems(resolveExportSelection(state, selection), data);
+    const rows = await joinSaved(resolveExportSelection(state, selection));
     const skipped = rows.filter((row) => row.missing === true).length;
     const csv = format === "csv";
     // The Anki file is shaped by the field settings; the CSV is not, so it
@@ -717,10 +508,9 @@ export async function handleSavedExport(selection, format) {
  * set against the SPEC without a chrome.runtime.
  */
 export const MESSAGE_HANDLERS = {
-  lookup: (m) => handleLookup(m.text, m.interpret === true),
-  compounds: (m) => handleCompounds(m.char),
-  usedIn: (m) => handleUsedIn(m.word),
-  foundIn: (m) => handleFoundIn(m.char),
+  lookup: (m) => handleLookup(m.text),
+  root: (m) => handleRoot(m.key),
+  family: (m) => handleFamily(m.key, m.offset),
   openTab: (m) => handleOpenTab(m.url),
   getPendingQuery: () => handleGetPendingQuery(),
   savedGet: () => handleSavedGet(),
@@ -757,14 +547,14 @@ if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage)
   });
 }
 
-// Sidebar ADDENDUM: clicking the toolbar icon toggles the panel. The call is
-// idempotent and Chrome persists the setting, so it runs both at top level
-// (covers a plain worker restart) and on install/update. Guarded like the
-// listener above so this module still imports cleanly in Node.
+// Sidebar: clicking the toolbar icon toggles the panel. The call is idempotent
+// and Chrome persists the setting, so it runs both at top level (covers a
+// plain worker restart) and on install/update. Guarded like the listener above
+// so this module still imports cleanly in Node.
 if (typeof chrome !== "undefined" && chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
   const enableActionToggle = () => {
-    // A rejection here costs the icon-click toggle, nothing else — the panel
-    // is still reachable from Chrome's own side-panel menu.
+    // A rejection here costs the icon-click toggle and nothing else, since the
+    // panel is still reachable from Chrome's own side-panel menu.
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
   };
   enableActionToggle();
@@ -773,9 +563,9 @@ if (typeof chrome !== "undefined" && chrome.sidePanel && chrome.sidePanel.setPan
   }
 }
 
-// Sidebar ADDENDUM (gesture fix, verified on real Chrome 2026-08-17): the
-// omnibox Enter gesture does NOT survive an awaited chrome.windows.getCurrent()
-// — sidePanel.open() must be the FIRST async call in the handler or it rejects
+// Sidebar (gesture fix, verified on real Chrome 2026-08-17): the omnibox Enter
+// gesture does NOT survive an awaited chrome.windows.getCurrent(), so
+// sidePanel.open() must be the FIRST async call in the handler or it rejects
 // and the tab fallback fires. So the worker tracks the focused window itself:
 // seeded here (this module re-evaluates on every worker wake, and omnibox
 // keystrokes wake the worker well before Enter lands) and kept fresh by
@@ -797,14 +587,14 @@ if (typeof chrome !== "undefined" && chrome.windows && chrome.windows.getLastFoc
 }
 
 /**
- * Sidebar ADDENDUM (repeat omnibox searches): the push half of the handshake.
- * The boot pull only covers a COLD panel — an already-open panel never re-asks,
- * so a second `hj` query would sit unread until the next panel open. After the
+ * Sidebar (repeat omnibox searches): the push half of the handshake. The boot
+ * pull only covers a COLD panel, since an already-open panel never re-asks, so
+ * a second `et` query would sit unread until the next panel open. After the
  * panel is open, poke every live extension page so an open one pulls again.
  *
  * Everything is swallowed on purpose: a rejection here is the normal cold-open
  * case (no page was listening yet), and that page's boot pull collects the
- * query anyway. Read-once semantics are untouched — only getPendingQuery
+ * query anyway. Read-once semantics are untouched, since only getPendingQuery
  * clears the query, so exactly one panel consumes it.
  */
 function pokePanelPages() {
@@ -823,7 +613,7 @@ function pokePanelPages() {
   }
 }
 
-/** Sidebar ADDENDUM: the panel page as a TAB, deep-linked with the typed query. */
+/** Sidebar: the panel page as a TAB, deep-linked with the typed query. */
 function searchUrl(text) {
   return `${chrome.runtime.getURL("sidepanel/sidepanel.html")}?q=${encodeURIComponent(text)}`;
 }
@@ -843,20 +633,29 @@ function openSearchTab(text, disposition) {
   }
 }
 
-// Search popup ADDENDUM (omnibox keyword "hj"). Guarded like the listener
-// above so this module still imports cleanly in Node.
+// Omnibox keyword "et". Guarded like the listener above so this module still
+// imports cleanly in Node.
 if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputChanged) {
-  // Set once at wiring time, not per keystroke. %s is the user's input; the
-  // surrounding text is the only markup, so nothing needs escaping here.
-  chrome.omnibox.setDefaultSuggestion({
-    description: "Search Okpyeon for <match>%s</match>",
-  });
+  // Chrome PARSES a suggestion description as XML, and the %s substitution is
+  // Chrome's own: a description set here can never escape the text that lands
+  // in it, whatever markup surrounds the placeholder. So the wiring-time
+  // default carries neither markup nor placeholder, and the row that echoes
+  // the query is set per keystroke below, where the typed text goes through
+  // the same escapeXml every suggestion row uses.
+  chrome.omnibox.setDefaultSuggestion({ description: "Search Etymikon" });
 
   chrome.omnibox.onInputChanged.addListener((text, suggest) => {
+    const typed = typeof text === "string" ? text : "";
+    chrome.omnibox.setDefaultSuggestion({
+      description: typed === ""
+        ? "Search Etymikon"
+        : `Search Etymikon for <match>${escapeXml(typed)}</match>`,
+    });
     (async () => {
       try {
-        // The omnibox is a typed channel, so it always interprets.
-        suggest(buildOmniboxSuggestions(text, await getData(), { interpret: true }));
+        const data = await getData();
+        // Sizes, not ranked lists: the omnibox index is the cheap one.
+        suggest(buildOmniboxSuggestions(text, { ...data, searchIndex: getSearchIndex(data) }));
       } catch {
         // Data unavailable (offline install, mid-update): no rows, no noise.
         suggest([]);
@@ -864,11 +663,11 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
     })();
   });
 
-  // Sidebar ADDENDUM: Enter on an omnibox row opens the PANEL and leaves the
-  // query for it to pull at boot. Only if the panel refuses to open does the
-  // old tab behavior stand in — and then the pending query is dropped, since
-  // the tab path carries the query in its URL and a leftover would re-run this
-  // search the next time the panel opens for any other reason.
+  // Sidebar: Enter on an omnibox row opens the PANEL and leaves the query for
+  // it to pull at boot. Only if the panel refuses to open does the old tab
+  // behavior stand in, and then the pending query is dropped, since the tab
+  // path carries the query in its URL and a leftover would re-run this search
+  // the next time the panel opens for any other reason.
   chrome.omnibox.onInputEntered.addListener((text, disposition) => {
     // No panel API, or the worker somehow has no window id yet: straight to
     // the tab path (which needs no gesture and carries the query in its URL).
@@ -878,7 +677,7 @@ if (typeof chrome !== "undefined" && chrome.omnibox && chrome.omnibox.onInputCha
     }
     setPendingQuery(text);
     try {
-      // Called SYNCHRONOUSLY in the gesture — see the focusedWindowId note.
+      // Called SYNCHRONOUSLY in the gesture, see the focusedWindowId note.
       // The poke goes in the RESOLVE half, never before open(): an awaited
       // call here would cost the gesture. Two-argument then(), not
       // .then().catch(), so the fallback stays tied to open() failing.

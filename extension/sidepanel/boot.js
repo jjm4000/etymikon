@@ -1,5 +1,5 @@
 /*
- * Okpyeon — embed boot flag.
+ * Etymikon, embed boot flag.
  *
  * This file exists to do exactly one thing, and it has to happen before
  * content.js evaluates: content.js reads globalThis.__okpyeonEmbed once, at

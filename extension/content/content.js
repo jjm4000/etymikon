@@ -1,10 +1,9 @@
 ﻿/*
- * Hanja Hover — content script (Agent C)
+ * Etymikon, content script (Agent C)
  *
  * Selection-triggered popup. Listens for mouseup/keyup, checks the current
- * selection for Han characters or Hangul syllables, asks the service worker
- * for a lookup, and renders the result in a closed shadow root anchored to the
- * selection rect.
+ * selection for an English word, asks the service worker for a lookup, and
+ * renders the result in a closed shadow root anchored to the selection rect.
  *
  * All page data and dictionary data is treated as untrusted text: the DOM is
  * built exclusively with createElement/textContent. innerHTML is never used
@@ -31,52 +30,38 @@
   function makeFallbackRuntime() {
     // Minimal canned fixture so the script is still demoable with no test page
     // harness installed. The test page normally overrides this.
-    var CHARS = {
-      "國": {
-        kind: "char", surface: "國", canonical: "國",
-        eumhun: [{ hun: "나라", eum: "국" }], readings: ["국"],
-        glosses: ["country; state; nation"],
-        compounds: [{ hangul: "국민", hanja: "國民", gloss: "the people of a nation" }]
-      },
-      "民": {
-        kind: "char", surface: "民", canonical: "民",
-        eumhun: [{ hun: "백성", eum: "민" }], readings: ["민"],
-        glosses: ["people; populace"],
-        compounds: [{ hangul: "국민", hanja: "國民", gloss: "the people of a nation" }]
-      }
-    };
     var WORD = {
-      kind: "word", canonical: "國民", hangul: "국민",
-      glosses: ["the people; citizens of a nation"], chars: ["國", "民"]
+      kind: "word", surface: "subterranean", canonical: "subterranean",
+      senses: [{ pos: "adj", defs: ["Below the ground; underground."] }],
+      fr: 61254, tier: "rare",
+      morphs: [
+        { f: "sub-", r: "en:sub-", gloss: "under, beneath" },
+        { f: "terra", r: "la:terra", gloss: "earth, land" },
+        { f: "-an", r: "en:-an", gloss: "forming adjectives" }
+      ]
+    };
+    var FAMILY = [
+      { word: "terrain", def: "An area of land.", fr: 4712, tier: "common" },
+      { word: "subterranean", def: "Below the ground; underground.",
+        fr: 61254, tier: "rare" }
+    ];
+    var ROOT = {
+      key: "la:terra", form: "terra", lang: "la", gloss: "earth, land",
+      kind: "root", familyCount: FAMILY.length, family: FAMILY
     };
     function respond(msg) {
-      if (msg && msg.type === "compounds") return { ok: true, compounds: [] };
-      if (msg && msg.type === "usedIn") return { ok: true, words: [] };
-      var text = (msg && msg.text) || "";
-      var out = [];
-      var seen = Object.create(null);
-      // A lone hangul syllable browses homophones.
-      if (text === "국") {
-        return { ok: true, matches: [{
-          kind: "reading", surface: "국", eum: "국",
-          candidates: [{ char: "國", hun: "나라", eum: "국", gloss: "country; state; nation" }]
-        }] };
+      if (msg && msg.type === "root") {
+        return { ok: true, root: msg.key === ROOT.key ? ROOT : null };
       }
-      var hangulHit = text.indexOf("국민") >= 0;
-      var hanjaHit = text.indexOf("國民") >= 0;
-      if (hangulHit || hanjaHit) {
-        var w = {};
-        for (var k in WORD) { if (Object.prototype.hasOwnProperty.call(WORD, k)) w[k] = WORD[k]; }
-        w.surface = hanjaHit ? "國民" : "국민";
-        out.push(w);
-        out.push(CHARS["國"], CHARS["民"]);
-        seen["國"] = seen["民"] = true;
+      if (msg && msg.type === "family") {
+        var rows = msg.key === ROOT.key ? FAMILY : [];
+        return { ok: true, rows: rows, total: rows.length, offset: 0 };
       }
-      for (var i = 0; i < text.length; i++) {
-        var ch = text.charAt(i);
-        if (CHARS[ch] && !seen[ch]) { seen[ch] = true; out.push(CHARS[ch]); }
+      var text = String((msg && msg.text) || "").toLowerCase();
+      if (text.indexOf("subterranean") >= 0) {
+        return { ok: true, matches: [WORD] };
       }
-      return { ok: true, matches: out };
+      return { ok: true, matches: [] };
     }
     return {
       __isStub: true,
@@ -113,15 +98,16 @@
    * Constants
    * ------------------------------------------------------------------ */
 
-  var HAN_RE = /\p{Script=Han}/u;
-  // A single syllable is enough: it triggers the homophone-browse reading match.
-  var HANGUL_RE = /[가-힣]/;
-  var MAX_SELECTION_CHARS = 30;
-  var MAX_COMPOUNDS = 5;
-  var COMPOUND_PAGE = 5; // compounds revealed per press of "Show 5 more"
-  // Homophone rows a reading group shows when it SHARES a view with another
-  // interpretation. Alone, a reading list is never capped.
-  var READING_PREVIEW = 5;
+  // A selection is worth a lookup once it holds a letter. The worker extracts
+  // the first token itself, so anything past that is its business: a drag that
+  // starts on a word and runs into the next clause still asks about the word.
+  // The cap below is a sanity bound on a runaway selection, not a word-length
+  // rule (review finding 2026-08-24: a 40-char cap rejected whole selections
+  // that began with a perfectly ordinary word).
+  var WORD_RE = /[A-Za-z]/;
+  var MAX_SELECTION_CHARS = 200;
+  var MAX_FAMILY = 8;   // family rows a root card shows inline
+  var FAMILY_PAGE = 5;  // family rows revealed per press of "Show 5 more"
   // (The trail once capped at a fixed depth of 3. It elides by WIDTH now —
   //  see fitCrumbs — so there is no depth constant left to tune.)
   var GAP = 8;          // gap between selection rect and popup
@@ -134,30 +120,33 @@
   var MAX_PANEL_VH = 0.85;
   var RESIZE_ZONE = 18;      // hit area of the native handle, bottom-right
   var RESIZE_DEBOUNCE = 120; // a drag has no end event; settle after a pause
-  var FLASH_MS = 600;        // eumhun chip → component card orientation flash
-  // Character level taxonomy: every char entry carries exactly one `lvl`, and
-  // every char card head / reading row shows exactly one chip for it. Plain
-  // English on the chip; the Korean and the provenance live in the tooltip.
-  // The a/r titles name Okpyeon as the classifier on purpose — that boundary
-  // is our editorial judgment, not a ministry's, and the tooltip should say so.
-  var LVL_ORDER = ["m", "h", "a", "r"];
-  var LVL_LABEL = {
-    m: "Middle school",
-    h: "High school",
-    a: "Advanced",
-    r: "Rare"
+  var FLASH_MS = 600;        // orientation flash when a click lands on this view
+  // Word tiers. The data ships a frequency RANK and never a tier; the worker
+  // derives one and joins it onto every word match and family row, so the
+  // cutoffs live in exactly one place and this file never sees a rank. Roots
+  // carry no tier, so a root card renders no chip by construction.
+  var TIER_ORDER = ["everyday", "common", "advanced", "rare"];
+  var TIER_LABEL = {
+    everyday: "Everyday",
+    common: "Common",
+    advanced: "Advanced",
+    rare: "Rare"
   };
-  var LVL_TITLE = {
-    m: "MOE curriculum, middle school (중학교용)",
-    h: "MOE curriculum, high school (고등학교용)",
-    // "attested", not "common": the build-time predicate admits a character
-    // on a single attested compound, so "common" would overclaim what was
-    // actually measured.
-    a: "Beyond the school curriculum; attested in real vocabulary " +
-       "(Okpyeon's classification)",
-    r: "Archaic, specialist, or reading-only (Okpyeon's classification)"
+  // The Rare title names Etymikon as the classifier on purpose: the boundary
+  // is our own cutoff over one corpus, and the tooltip should say so.
+  var TIER_TITLE = {
+    everyday: "Rank in the 3,000 most frequent English words " +
+      "(OpenSubtitles corpus)",
+    common: "Rank 3,001 to 15,000 by frequency",
+    advanced: "Rank 15,001 to 50,000 by frequency",
+    rare: "Beyond the 50,000 most frequent words, or unranked " +
+      "(Etymikon's classification)"
   };
-  var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see revealCharCard)
+  // Language names, for the root label line and the quiet origin rows.
+  var LANG_NAME = { la: "Latin", grc: "Greek", en: "English" };
+  // The Wiktionary section a root's own language lives under.
+  var LANG_ANCHOR = { la: "Latin", grc: "Ancient_Greek", en: "English" };
+  var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see scrollPanelTo)
 
   var CSS = [
     ":host { all: initial; }",
@@ -175,23 +164,25 @@
     "  --chip-bg: #f1f3f8;",
     "  --chip-fg: #3a3a42;",
     "  --chip-edge: rgba(0, 0, 0, 0.06);",
-    "  --rail: #c3d0ee;",
-    "  --hedge-bg: #f6f6f9;",
-    "  --hedge-fg: #7b7b85;",
+    "  --quiet: #f6f6f9;",
     "  --hover: #eef1f8;",
     "  --shadow: 0 8px 28px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.12);",
     "  --scroll: rgba(0, 0, 0, 0.22);",
     "  --grip: rgba(0, 0, 0, 0.3);",
     "  --flash: rgba(47, 87, 201, 0.16);",
-    /* Level-chip tints. Quiet enough to sit at the end of an eumhun line
-       without competing with the glyph, but the two SCHOOL zones carry more
-       saturation and a stronger edge than advanced/rare — those are the ones
-       a learner is scanning for. Rare is deliberately the flattest: it is
-       information, not a warning. */
-    "  --lvl-m-bg: #e2f1e9; --lvl-m-fg: #1f6b4d; --lvl-m-edge: rgba(31, 107, 77, 0.26);",
-    "  --lvl-h-bg: #e5ecfb; --lvl-h-fg: #2a4ea6; --lvl-h-edge: rgba(42, 78, 166, 0.26);",
-    "  --lvl-a-bg: #fbf1de; --lvl-a-fg: #8a5810; --lvl-a-edge: rgba(138, 88, 16, 0.20);",
-    "  --lvl-r-bg: #f0f0f3; --lvl-r-fg: #74747e; --lvl-r-edge: rgba(0, 0, 0, 0.10);",
+    /* Tier-chip tints. Quiet enough to sit beside a headword without
+       competing with it. The two frequent zones carry more saturation and a
+       stronger edge than advanced and rare, since those are the ones a reader
+       scans for. Rare is deliberately the flattest: it is information, not a
+       warning. */
+    "  --tier-everyday-bg: #e2f1e9; --tier-everyday-fg: #1f6b4d;",
+    "  --tier-everyday-edge: rgba(31, 107, 77, 0.26);",
+    "  --tier-common-bg: #e5ecfb; --tier-common-fg: #2a4ea6;",
+    "  --tier-common-edge: rgba(42, 78, 166, 0.26);",
+    "  --tier-advanced-bg: #fbf1de; --tier-advanced-fg: #8a5810;",
+    "  --tier-advanced-edge: rgba(138, 88, 16, 0.20);",
+    "  --tier-rare-bg: #f0f0f3; --tier-rare-fg: #74747e;",
+    "  --tier-rare-edge: rgba(0, 0, 0, 0.10);",
     "  width: 340px;",
     "  max-height: 360px;",
     "  overflow-y: auto;",
@@ -208,8 +199,7 @@
     "  direction: ltr;",
     "  color-scheme: light dark;",
     "  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,",
-    "    'Helvetica Neue', Arial, 'Malgun Gothic', 'Apple SD Gothic Neo',",
-    "    'Noto Sans KR', 'Noto Sans CJK KR', sans-serif;",
+    "    'Helvetica Neue', Arial, sans-serif;",
     "  font-size: 13px;",
     "  line-height: 1.45;",
     "  font-weight: 400;",
@@ -233,9 +223,7 @@
     "    --chip-bg: #32323b;",
     "    --chip-fg: #cfcfd7;",
     "    --chip-edge: rgba(255, 255, 255, 0.08);",
-    "    --rail: rgba(150, 180, 255, 0.38);",
-    "    --hedge-bg: rgba(255, 255, 255, 0.035);",
-    "    --hedge-fg: #93939e;",
+    "    --quiet: rgba(255, 255, 255, 0.035);",
     "    --hover: #2e2e38;",
     "    --shadow: 0 8px 28px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);",
     "    --scroll: rgba(255, 255, 255, 0.24);",
@@ -243,14 +231,14 @@
     "    --flash: rgba(150, 180, 255, 0.2);",
     /* Dark: the light tints go muddy on #23232a, so the fills become low-alpha
        washes of the same hue and the text carries the colour instead. */
-    "    --lvl-m-bg: rgba(88, 190, 148, 0.15); --lvl-m-fg: #7fd2ab;",
-    "    --lvl-m-edge: rgba(127, 210, 171, 0.30);",
-    "    --lvl-h-bg: rgba(120, 160, 255, 0.15); --lvl-h-fg: #9fbcff;",
-    "    --lvl-h-edge: rgba(159, 188, 255, 0.30);",
-    "    --lvl-a-bg: rgba(230, 170, 70, 0.13); --lvl-a-fg: #e0b271;",
-    "    --lvl-a-edge: rgba(224, 178, 113, 0.24);",
-    "    --lvl-r-bg: rgba(255, 255, 255, 0.06); --lvl-r-fg: #9a9aa4;",
-    "    --lvl-r-edge: rgba(255, 255, 255, 0.13);",
+    "    --tier-everyday-bg: rgba(88, 190, 148, 0.15);",
+    "    --tier-everyday-fg: #7fd2ab; --tier-everyday-edge: rgba(127, 210, 171, 0.30);",
+    "    --tier-common-bg: rgba(120, 160, 255, 0.15);",
+    "    --tier-common-fg: #9fbcff; --tier-common-edge: rgba(159, 188, 255, 0.30);",
+    "    --tier-advanced-bg: rgba(230, 170, 70, 0.13);",
+    "    --tier-advanced-fg: #e0b271; --tier-advanced-edge: rgba(224, 178, 113, 0.24);",
+    "    --tier-rare-bg: rgba(255, 255, 255, 0.06);",
+    "    --tier-rare-fg: #9a9aa4; --tier-rare-edge: rgba(255, 255, 255, 0.13);",
     "  }",
     "}",
     /* ---- embed mode: in-flow, flat, and NOT a scroll container ----
@@ -274,10 +262,9 @@
     "@keyframes hh-view-in { from { opacity: 0; } to { opacity: 1; } }",
     ".view { animation: hh-view-in 120ms ease-out; }",
     "@media (prefers-reduced-motion: reduce) { .view { animation: none; } }",
-    /* ---- top-level cards: word cards and the independent-char list ---- */
-    ".view > .card, .top-chars > .card { padding: 10px 12px 11px; }",
-    ".view > .card + .card, .top-chars > .card + .card,",
-    ".view > .card ~ .top-chars { border-top: 1px solid var(--rule); }",
+    /* ---- cards: one per match, word cards and root cards alike ---- */
+    ".view > .card { padding: 10px 12px 11px; }",
+    ".view > .card + .card { border-top: 1px solid var(--rule); }",
     // `position: relative` exists for one reason: the save bubble anchors to
     // the star, and the star lives here.
     ".head { display: flex; align-items: baseline; gap: 9px; position: relative; }",
@@ -291,17 +278,12 @@
     "  overflow-wrap: anywhere;",
     "}",
     ".headmeta { min-width: 0; flex: 1 1 auto; }",
-    ".hangul, .eumhun { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }",
-    ".readings { font-size: 14px; font-weight: 600; }",
-    /* ---- navigating readings: eum syllables, and a word head's hangul ---- */
-    // ONE colour rule on a head: what is clickable carries the link colour and
-    // nothing else does. So the eum chip keeps the accent these lines always
-    // had, and the hun beside it (구슬 in 구슬 옥) is ordinary foreground text —
-    // it names the character, it does not go anywhere.
-    ".hun { color: var(--fg); }",
-    ".rnav { color: var(--accent); cursor: pointer; border-radius: 3px; }",
-    ".rnav:hover { text-decoration: underline; }",
-    ".rnav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    /* ---- root heads: the romanization beside the form, and the label line ---- */
+    // The Greek form is the headword; the romanization is a reading aid, so it
+    // sits beside it in the muted colour and at body size.
+    ".rom { font-size: 14px; font-weight: 500; color: var(--muted); }",
+    ".rootlabel { font-size: 12px; font-weight: 600; color: var(--muted); }",
+    // The inflection note: "territories → territory", in the head meta box.
     ".canonical { font-size: 11px; color: var(--muted); margin-top: 1px; }",
     /* ---- sense lists: numbered, hanging indent, clamped ---- */
     ".glosses { margin: 7px 0 0; }",
@@ -330,10 +312,10 @@
     "}",
     ".more:hover { background: var(--hover); }",
     ".more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
-    /* ---- Wiktionary link: top-right corner of every word / char card ---- */
-    // Lives as the last child of .head so it can never collide with the hedge
-    // label or a homograph chip row above it, nor with the hangul beside the
-    // glyph: the head is a flex row and the link is its trailing item.
+    /* ---- Wiktionary link: top-right corner of every word / root card ---- */
+    // Lives as the last child of .head so it can never collide with the tier
+    // chip or the label line beside the headword: the head is a flex row and
+    // the link is its trailing item.
     ".wiki {",
     "  flex: 0 0 auto; align-self: flex-start; margin-left: auto;",
     "  padding-left: 8px; font-size: 11px; line-height: 1.6; font-weight: 500;",
@@ -344,8 +326,6 @@
     "  color: var(--accent); text-decoration: underline;",
     "  outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px;",
     "}",
-    // A step smaller inside a nested component card, matching its 22px glyph.
-    ".card.component .wiki { font-size: 10px; }",
     /* ---- save star: the card action that sits beside the Wiktionary link ---- */
     // Both trailing items carry `margin-left: auto`; the star absorbs the free
     // space, so the pair ends up flush right with the head's own gap between
@@ -368,7 +348,6 @@
     // offset (crumb-back into a scrolled parent) Chrome's scroll anchoring
     // then slides the reader to a position they never scrolled to.
     ".save--unknown { visibility: hidden; }",
-    ".card.component .save { font-size: 13px; }",
     /* ---- save bubble: the confirmation anchored to a star that just saved ---- */
     ".savebubble {",
     "  position: absolute; top: 100%; right: 0; z-index: 3;",
@@ -407,20 +386,41 @@
     "  color: var(--accent); text-decoration: underline; cursor: pointer;",
     "}",
     ".savebubble-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
-    ".chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }",
-    ".chip {",
-    "  display: inline-flex; align-items: baseline; gap: 4px;",
-    "  padding: 2px 7px; border-radius: 999px;",
+    /* ---- the breakdown: morpheme chips joined by plus signs ---- */
+    // A chip is two lines: the form the reader sees in the word, and the root
+    // gloss under it. Baseline alignment is wrong for a two-line chip, so the
+    // row aligns on the top edge and the plus signs are centred by hand.
+    ".morphs { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px;",
+    "  margin-top: 3px; }",
+    // The chip is BOUNDED. Root glosses run to 160 characters and thousands of
+    // word cards carry one over 80, so an unbounded chip would swallow the card
+    // it belongs to. Width caps at a third of the default panel and the gloss
+    // clamps to two lines: the chip names the part, the root card tells the
+    // whole story (SPEC, appendBreakdown).
+    ".morph {",
+    "  display: inline-flex; flex-direction: column; gap: 1px;",
+    "  padding: 3px 8px 4px; border-radius: 8px; max-width: 120px;",
     "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
-    "  font-size: 11px; color: var(--chip-fg); white-space: nowrap;",
     "}",
-    ".chip-glyph { font-size: 13px; font-weight: 600; color: var(--fg); }",
-    // Clickable eumhun chips keep the pill look; hover and cursor carry the
-    // affordance, since a chevron would crowd a row of five or six of them.
-    ".chip.nav { cursor: pointer; }",
-    ".chip.nav:hover { background: var(--hover); border-color: var(--accent); }",
-    ".chip.nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
-    // Orientation flash on the card a chip points at: the card is already on
+    ".morph-form { font-size: 13px; font-weight: 600; color: var(--fg);",
+    "  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+    // No "more" control here: syncClamps only reaches .clampwrap, and a chip is
+    // too small to carry an expander without crowding the row beside it.
+    ".morph-gloss {",
+    "  font-size: 10px; line-height: 1.3; color: var(--muted);",
+    "  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;",
+    "  overflow: hidden; overflow-wrap: anywhere;",
+    "}",
+    // Chips that open a root card carry hover and a pointer. A chevron would
+    // crowd a row of three or four chips, so the pill itself is the affordance.
+    ".morph.nav { cursor: pointer; }",
+    ".morph.nav:hover { background: var(--hover); border-color: var(--accent); }",
+    ".morph.nav:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    // A morpheme with no card of its own is inert: no pointer, no hover, no
+    // focus ring. Nothing about it may suggest it goes somewhere.
+    ".morph.inert { background: transparent; border-color: var(--rule); }",
+    ".morph-plus { align-self: center; color: var(--faint); font-size: 12px; }",
+    // Orientation flash on the card a click points at: the card is already on
     // screen, so this beats pushing a duplicate view.
     "@keyframes hh-flash { from { background-color: var(--flash); }",
     "  to { background-color: transparent; } }",
@@ -430,156 +430,46 @@
     "  margin-top: 9px; font-size: 10px; font-weight: 700;",
     "  letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint);",
     "}",
-    /* ---- interpretation divider: which reading the group below came from ---- */
-    // Same voice as the section labels above (small, faint, weighted), but it
-    // spans the panel because it introduces a whole group rather than a region
-    // inside a card. NOT uppercased: it quotes what the reader typed, and
-    // "SU → 수" would misquote it.
-    // Deliberately NOT a flex row: the spacing here is real text (" → "), and
-    // a flex container would collapse it away as inter-item whitespace, so the
-    // reader would see "su→수" while the markup said otherwise. As a block of
-    // inline spans the two agree, and the mixed type sizes sit on the baseline
-    // by themselves.
-    ".interp {",
-    "  padding: 6px 12px 5px; font-size: 11px; font-weight: 600;",
-    "  color: var(--faint); background: var(--hedge-bg);",
-    "  border-bottom: 1px solid var(--rule);",
-    "}",
-    // Every group after the first closes off the one above it.
-    ".view > * + .interp { border-top: 1px solid var(--rule); }",
-    ".interp-from { color: var(--muted); }",
-    ".interp-to { font-size: 13px; font-weight: 600; color: var(--fg-soft); }",
-    /* ---- compounds: nav rows + "show more" pagination ---- */
+    // The part-of-speech label heads its own sense list, so it sits closer to
+    // the senses under it than a section label does to its section.
+    ".label.pos { margin-top: 8px; }",
+    ".label.pos + .glosses { margin-top: 2px; }",
+    /* ---- rows: the family list and the quiet origin lines ---- */
     // The negative side margins let a row's hover background bleed into the
-    // card padding, so the compound text still lines up with the label above.
-    ".compounds { margin-top: 2px; margin-left: -6px; margin-right: -6px; }",
-    // .entry-row is shared by compound rows and the used-in list rows.
+    // card padding, so the row text still lines up with the label above.
+    ".family { margin-top: 2px; margin-left: -6px; margin-right: -6px; }",
+    // .entry-row is shared by family rows and the quiet origin/source rows.
     ".entry-row {",
     "  display: flex; align-items: baseline; gap: 6px;",
     "  padding: 2px 6px; border-radius: 6px;",
     "}",
     ".entry-row > .clampwrap { flex: 1 1 auto; min-width: 0; }",
-    // Hangul-only compounds have nothing to look up: no pointer, no chevron.
     ".entry-row.nav { cursor: pointer; }",
-    ".compound { overflow-wrap: anywhere; }",
-    ".cpd-hangul { font-weight: 600; color: var(--fg); }",
-    ".cpd-hanja { color: var(--muted); }",
-    ".cpd-gloss { color: var(--fg-soft); }",
-    // Same muted treatment a rare homograph chip gets.
-    ".entry-row.rare .cpd-hangul,",
-    ".entry-row.rare .cpd-hanja,",
-    ".entry-row.rare .cpd-gloss { color: var(--hedge-fg); }",
-    ".cpd-rare {",
-    "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
-    "  text-transform: uppercase; margin-left: 4px; vertical-align: super;",
-    "  color: var(--hedge-fg);",
-    "}",
-    ".cpd-more {",
+    ".fam-text { overflow-wrap: anywhere; }",
+    ".fam-word { font-weight: 600; color: var(--fg); }",
+    ".fam-def { color: var(--fg-soft); }",
+    ".fam-more {",
     "  display: inline-block; font: inherit; font-size: 12px; font-weight: 600;",
     "  line-height: 1.3; margin: 5px 0 0; padding: 3px 9px; border-radius: 6px;",
     "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
     "  color: var(--accent); cursor: pointer; white-space: nowrap;",
     "}",
-    ".cpd-more:hover { background: var(--hover); }",
-    ".cpd-more:disabled { opacity: 0.55; cursor: default; }",
-    ".cpd-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
-    // A step smaller inside a nested component card, like its Wiktionary link.
-    ".card.component .cpd-more { font-size: 11px; padding: 2px 8px; }",
-    /* ---- used-in: one collapsed disclosure row, then a dedicated view ---- */
-    // Design option C: word cards stay lean, so the count is a single line at
-    // the end of the word body rather than an inline list.
-    ".usedin-row {",
+    ".fam-more:hover { background: var(--hover); }",
+    ".fam-more:disabled { opacity: 0.55; cursor: default; }",
+    ".fam-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
+    /* ---- origin and source: one quiet nav row naming where a word came from ---- */
+    // Deliberately understated: it is a pointer to the root card, not a
+    // section of its own, so it reads as one line at the end of the card.
+    ".origin-row {",
     "  margin: 9px -6px 0; padding: 4px 6px;",
     "  color: var(--muted); font-size: 12px;",
     "}",
-    ".usedin-row b { font-weight: 600; color: var(--fg-soft); }",
-    ".card.component .usedin-row { font-size: 11px; }",
-    ".view > .card.usedin { padding: 0; }",
-    ".usedin-list { padding: 3px 0 5px; }",
-    ".usedin-item { padding: 4px 12px; border-radius: 0; }",
-    /* ---- decomposition: the collapsed "Made of" row and its part rows ---- */
-    // Quiet like the used-in row, except the glyphs themselves, which carry
-    // full text colour because they are the content.
-    ".madeof { margin: 9px -6px 0; }",
-    // user-select none: a quick second tap on this row is a double-click, and
-    // the word-selection it would create trips makeNavRow's selection guard,
-    // eating the collapse. The row toggles in place, so unlike navigating
-    // rows it gets clicked twice in normal use.
-    ".madeof-row { padding: 4px 6px; color: var(--muted); font-size: 12px; user-select: none; }",
-    ".madeof-glyph { font-weight: 600; font-size: 14px; color: var(--fg); }",
-    // Open state: the same chevron slot, turned down.
-    // Three classes: must outweigh the generic .entry-row.nav::after chevron
-    // rule, which is declared later in this sheet and would win a tie.
-    ".entry-row.madeof-row.open::after { content: '\\2304'; }",
-    ".madeof-list { padding: 2px 0 1px; }",
-    ".madeof-part { padding: 3px 6px; }",
-    // An inert part has no reading to show, so the whole row recedes.
-    ".madeof-part.inert, .madeof-part.inert .r-glyph { color: var(--faint); }",
-    ".card.component .madeof-row { font-size: 11px; }",
-    /* ---- recomposition: "Part of N characters" and its list view ---- */
-    // Quiet like the used-in row it copies; the list view reuses the reading
-    // browser's rows, so there is nothing else to style.
-    ".foundin-row {",
-    "  margin: 9px -6px 0; padding: 4px 6px;",
-    "  color: var(--muted); font-size: 12px;",
-    "}",
-    ".foundin-row b { font-weight: 600; color: var(--fg-soft); }",
-    ".card.component .foundin-row { font-size: 11px; }",
-    ".view > .card.foundin { padding: 0; }",
-    /* ---- nested sections: component words + component hanja ---- */
-    // Sections are built only when populated; an empty one must take no space.
-    ".parts:empty, .components:empty, .hedge:empty, .top-chars:empty { display: none; }",
-    ".parts, .components { margin-top: 11px; }",
-    ".part-list, .component-list {",
-    "  margin-top: 4px; padding-left: 11px;",
-    "  border-left: 2px solid var(--rail); border-radius: 1px;",
-    "}",
-    ".card.component { padding: 7px 0; }",
-    ".card.component:first-child { padding-top: 1px; }",
-    ".card.component:last-child { padding-bottom: 0; }",
-    ".card.component + .card.component { border-top: 1px solid var(--rule); }",
-    // Slightly smaller glyph than a top-level card: same content, lower rank.
-    ".card.component .surface { font-size: 22px; }",
-    ".card.component .hangul, .card.component .eumhun { font-size: 14px; }",
-    ".part-row {",
-    "  display: flex; align-items: baseline; gap: 8px;",
-    "  padding: 5px 6px 5px 7px; margin: 1px 0;",
-    "  border-radius: 6px; cursor: pointer;",
-    "}",
-    ".p-hanja { flex: 0 0 auto; font-size: 16px; font-weight: 600; color: var(--fg); }",
-    ".part-row > .clampwrap { flex: 1 1 auto; min-width: 0; }",
-    ".p-text { overflow-wrap: anywhere; }",
-    ".p-hangul { font-weight: 600; color: var(--accent); }",
-    ".p-gloss { color: var(--muted); }",
-    /* ---- hedged card: a hangul span that only matches a rare spelling ---- */
-    ".card.hedged { background: var(--hedge-bg); }",
-    // Only the word's own content is muted; nested component cards are normal.
-    ".card.hedged > .word-body .surface,",
-    ".card.hedged > .word-body .hangul,",
-    ".card.hedged > .word-body .gloss { color: var(--hedge-fg); }",
-    ".hedge { margin-bottom: 8px; }",
-    ".hedge .label { margin-top: 0; }",
-    ".hedge-note { font-size: 11px; line-height: 1.4; color: var(--muted); }",
-    /* ---- homograph spelling selector ---- */
-    ".spellings { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }",
-    ".spell-chip {",
-    "  font: inherit; font-size: 14px; font-weight: 600; line-height: 1.3;",
-    "  margin: 0; padding: 3px 9px; border-radius: 7px; cursor: pointer;",
-    "  background: var(--chip-bg); border: 1px solid var(--chip-edge);",
-    "  color: var(--muted); white-space: nowrap;",
-    "}",
-    ".spell-chip:hover { background: var(--hover); color: var(--fg); }",
-    ".spell-chip.sel {",
-    "  background: var(--accent); border-color: var(--accent); color: #ffffff;",
-    "}",
-    "@media (prefers-color-scheme: dark) { .spell-chip.sel { color: #16161b; } }",
-    ".spell-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }",
-    ".spell-chip.rare { color: var(--hedge-fg); opacity: 0.75; }",
-    ".spell-chip.rare.sel { opacity: 1; }",
-    // Curriculum badge: same quiet register as the rare marker. It rides at
-    // the end of the eumhun line, so it can never crowd the Wiktionary link
-    // (a separate flex item) or the variant note (the line below).
-    ".edu-badge {",
+    ".origin-row b { font-weight: 600; color: var(--fg-soft); }",
+    /* ---- tier chips ---- */
+    // Same quiet register everywhere it appears: beside a headword, and at the
+    // end of a family row. The base look is the neutral default for any FUTURE
+    // non-tier badge; the four tier rules below only re-tint it.
+    ".tier-chip {",
     "  display: inline-block; margin-left: 6px; padding: 0 4px;",
     "  border-radius: 4px; vertical-align: 2px;",
     "  font-size: 9px; font-weight: 700; letter-spacing: 0.04em;",
@@ -587,68 +477,26 @@
     "  color: var(--faint); background: var(--chip-bg);",
     "  border: 1px solid var(--chip-edge);",
     "}",
-    ".card.component .edu-badge { font-size: 8px; margin-left: 5px; }",
     // Registry badges sit side by side when more than one applies.
-    ".edu-badge + .edu-badge { margin-left: 4px; }",
-    /* Level chips. The base .edu-badge look above stays the neutral default
-       for any FUTURE non-level badge; these four only re-tint. */
-    ".edu-badge--lvlM { color: var(--lvl-m-fg); background: var(--lvl-m-bg);",
-    "  border-color: var(--lvl-m-edge); }",
-    ".edu-badge--lvlH { color: var(--lvl-h-fg); background: var(--lvl-h-bg);",
-    "  border-color: var(--lvl-h-edge); }",
-    ".edu-badge--lvlA { color: var(--lvl-a-fg); background: var(--lvl-a-bg);",
-    "  border-color: var(--lvl-a-edge); }",
-    /* The char-level "Rare" chip must never be mistaken for the WORD-level
-       rare-homograph marker (.chip-rare / .cpd-rare: a superscript, uppercase,
-       borderless, no fill). Different style family entirely — a bordered,
-       filled, sentence-case pill — so the two read as different kinds of
-       statement even when they appear in the same popup. */
-    ".edu-badge--lvlR { color: var(--lvl-r-fg); background: var(--lvl-r-bg);",
-    "  border-color: var(--lvl-r-edge); }",
-    ".chip-rare {",
-    "  font-size: 8px; font-weight: 700; letter-spacing: 0.06em;",
-    "  text-transform: uppercase; margin-left: 3px; vertical-align: super;",
-    "}",
-    /* ---- reading (homophone browse) list ---- */
-    ".view > .card.reading { padding: 0; }",
-    ".reading-title {",
-    "  position: sticky; top: 0; z-index: 1;",
-    "  padding: 9px 12px 7px; background: var(--bg);",
-    "  border-bottom: 1px solid var(--rule);",
-    "  font-size: 12px; font-weight: 600; color: var(--muted);",
-    "}",
-    ".reading-title b { font-size: 17px; font-weight: 600; color: var(--fg); }",
-    ".reading-list { padding: 3px 0 5px; }",
-    ".reading-row {",
-    "  display: flex; align-items: baseline; gap: 9px;",
-    "  padding: 5px 12px; cursor: pointer;",
-    "}",
-    ".r-glyph { flex: 0 0 auto; min-width: 1.3em; font-size: 19px; font-weight: 600; color: var(--fg); }",
-    ".r-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }",
-    ".r-eumhun { font-weight: 600; color: var(--accent); }",
-    ".r-gloss { color: var(--muted); }",
-    // The preview's escape hatch. An .entry-row.nav, so the hover, the focus
-    // ring and the chevron are the same ones every other navigable row has;
-    // only the insets change, to line up with the reading rows above it.
-    ".reading-more {",
-    "  padding: 6px 12px; border-radius: 0;",
-    "  font-size: 12px; font-weight: 600; color: var(--accent);",
-    "}",
-    ".reading-more b { font-weight: 700; }",
+    ".tier-chip + .tier-chip { margin-left: 4px; }",
+    ".tier-chip--everyday { color: var(--tier-everyday-fg);",
+    "  background: var(--tier-everyday-bg); border-color: var(--tier-everyday-edge); }",
+    ".tier-chip--common { color: var(--tier-common-fg);",
+    "  background: var(--tier-common-bg); border-color: var(--tier-common-edge); }",
+    ".tier-chip--advanced { color: var(--tier-advanced-fg);",
+    "  background: var(--tier-advanced-bg); border-color: var(--tier-advanced-edge); }",
+    ".tier-chip--rare { color: var(--tier-rare-fg);",
+    "  background: var(--tier-rare-bg); border-color: var(--tier-rare-edge); }",
     /* ---- shared affordance for navigable rows ---- */
-    ".reading-row:hover, .part-row:hover, .entry-row.nav:hover {",
-    "  background: var(--hover);",
-    "}",
-    ".reading-row:focus-visible, .part-row:focus-visible,",
+    ".entry-row.nav:hover { background: var(--hover); }",
     ".entry-row.nav:focus-visible {",
     "  outline: 2px solid var(--accent); outline-offset: -2px;",
     "}",
-    ".reading-row::after, .part-row::after, .entry-row.nav::after {",
+    ".entry-row.nav::after {",
     "  content: '\\203A'; margin-left: auto; padding-left: 8px;",
     "  align-self: center; color: var(--faint); font-size: 15px; line-height: 1;",
     "  flex: 0 0 auto;",
     "}",
-    ".reading-row:hover::after, .part-row:hover::after,",
     ".entry-row.nav:hover::after { color: var(--accent); }",
     /* ---- breadcrumb trail (one nav bar for every drill-down) ---- */
     ".crumbs {",
@@ -790,28 +638,20 @@
 
   // --- per-popup session state (reset on every new selection) ---------
   var lookupCache = null;     // lookup text -> response, so nav never re-queries
-  var compoundsCache = null;  // char -> full joined compound list (one request)
-  var compoundsPending = null;// char -> in-flight promise, so two cards share it
-  var usedInCache = null;     // word -> larger words containing it
-  var usedInPending = null;   // word -> in-flight promise
-  var foundInCache = null;    // char -> characters it is a part of
-  var foundInPending = null;  // char -> in-flight promise
+  var rootCache = null;       // root key -> root object (one request each)
+  var rootPending = null;     // root key -> in-flight promise, so two chips share it
+  var familyCache = null;     // root key -> the full ranked family list
+  var familyPending = null;   // root key -> in-flight promise
   var crumbsExpanded = false; // a pressed "…" shows the whole trail until nav
-  var charDataIndex = null;   // char -> char match data (accumulates)
-  var charCardIndex = null;   // char -> the card element showing it, this view
   var viewStack = [];         // the descent; last entry is the current view
   var currentSrcText = "";    // source text of the view being rendered (see noteApplies)
-  var wordStates = [];        // one per word surface in the current view
-  // One entry per interpretation group in the current view (exactly one for
-  // an ordinary view): the chars that are nobody's component, the cards built
-  // for them, and the box they live in.
-  var charGroups = [];
+  var pendingFamilyReveal = 0; // family rows the view being rendered owes back
 
   function ensureHost() {
     if (host && host.isConnected) return;
     if (!host) {
       host = document.createElement("div");
-      host.setAttribute("data-hanja-hover", "");
+      host.setAttribute("data-etymikon", "");
       var hostStyle = IS_EMBED ? EMBED_HOST_STYLE : HOST_STYLE;
       for (var prop in hostStyle) {
         if (Object.prototype.hasOwnProperty.call(hostStyle, prop)) {
@@ -1026,17 +866,12 @@
   // scroll offsets are all discarded.
   function resetSession() {
     lookupCache = Object.create(null);
-    compoundsCache = Object.create(null);
-    compoundsPending = Object.create(null);
-    usedInCache = Object.create(null);
-    usedInPending = Object.create(null);
-    foundInCache = Object.create(null);
-    foundInPending = Object.create(null);
+    rootCache = Object.create(null);
+    rootPending = Object.create(null);
+    familyCache = Object.create(null);
+    familyPending = Object.create(null);
     crumbsExpanded = false;
-    charDataIndex = Object.create(null);
-    charCardIndex = Object.create(null);
     viewStack = [];
-    wordStates = [];
     pendingScrollTop = null;
   }
 
@@ -1076,42 +911,37 @@
     while (node && node.firstChild) node.removeChild(node.firstChild);
   }
 
-  function uniqStrings(values) {
-    var seen = Object.create(null);
-    var out = [];
-    for (var i = 0; i < values.length; i++) {
-      var v = nonEmptyString(values[i]);
-      if (!v || seen[v]) continue;
-      seen[v] = true;
-      out.push(v);
-    }
-    return out;
-  }
-
   function usableMatches(matches) {
     return asArray(matches).filter(function (m) {
       return m && typeof m === "object";
     });
   }
 
-  function spellingKey(m) {
+  // What a match is ABOUT: the lemma for a word, the root key for a root.
+  function matchKey(m) {
+    if (!m || typeof m !== "object") return "";
+    if (m.kind === "root") return nonEmptyString(m.key);
     return nonEmptyString(m.canonical) || nonEmptyString(m.surface);
   }
 
-  // "나라 국" / "나라 국 · 서울 방" ; falls back to readings when no eumhun.
-  function formatEumhun(eumhun) {
-    var parts = [];
-    var list = asArray(eumhun);
-    for (var i = 0; i < list.length; i++) {
-      var entry = list[i];
-      if (!entry || typeof entry !== "object") continue;
-      var hun = nonEmptyString(entry.hun);
-      var eum = nonEmptyString(entry.eum);
-      if (hun && eum) parts.push(hun + " " + eum);
-      else if (eum) parts.push(eum);
-      else if (hun) parts.push(hun);
-    }
-    return parts.join(" · ");
+  // The root object a root match carries. Kept in its own slot because the
+  // root's own `kind` ("prefix" / "suffix" / "root") is not the match kind.
+  function rootOf(m) {
+    return m && typeof m.root === "object" && m.root ? m.root : {};
+  }
+
+  // A plain-English language name from a root key or a lang code.
+  function langName(lang) {
+    return LANG_NAME[nonEmptyString(lang)] || "";
+  }
+
+  // "la:terra" -> {lang: "la", form: "terra"}. Root keys are the only place
+  // this shape appears, and `src` gives us one with no card attached.
+  function splitRootKey(key) {
+    var text = nonEmptyString(key);
+    var cut = text.indexOf(":");
+    if (cut < 0) return { lang: "", form: text };
+    return { lang: text.slice(0, cut), form: text.slice(cut + 1) };
   }
 
   // Display-time capitalization: uppercase the first letter character we meet,
@@ -1123,7 +953,7 @@
       var ch = s.charAt(i);
       if (!/\p{L}/u.test(ch)) continue;
       var upper = ch.toUpperCase();
-      // Caseless scripts (hanja, hangul) uppercase to themselves — leave alone.
+      // A caseless script uppercases to itself, so leave it alone.
       if (upper === ch) return s;
       return s.slice(0, i) + upper + s.slice(i + 1);
     }
@@ -1150,15 +980,11 @@
     return null;
   }
 
-  function glossesEnabled(settings) {
-    return true;
-  }
-
-  // Numbered sense list with hanging indent; a lone sense needs no number.
-  function appendGlosses(parent, glosses) {
-    if (!glossesEnabled(sectionSettings())) return;
-    var list = asArray(glosses).map(nonEmptyString).filter(Boolean);
-    if (!list.length) return;
+  // One numbered sense list with hanging indent; a lone sense needs no number.
+  // Shared by the word card's POS sections and the root card's single gloss.
+  function appendSenseList(parent, defs) {
+    var list = asArray(defs).map(nonEmptyString).filter(Boolean);
+    if (!list.length) return 0;
     var box = el("div", "glosses");
     if (list.length > 1) box.classList.add("numbered");
     list.forEach(function (text, i) {
@@ -1168,6 +994,23 @@
       box.appendChild(row);
     });
     parent.appendChild(box);
+    return list.length;
+  }
+
+  // Part-of-speech tags come from the source as harvested. The four the reader
+  // meets constantly get their full English name; anything else is shown as it
+  // was harvested, uppercased.
+  var POS_LABEL = {
+    noun: "NOUN",
+    verb: "VERB",
+    adj: "ADJECTIVE",
+    adv: "ADVERB"
+  };
+
+  function posLabel(pos) {
+    var tag = nonEmptyString(pos);
+    if (!tag) return "";
+    return POS_LABEL[tag.toLowerCase()] || tag.toUpperCase();
   }
 
   // Does this text still need clamping? The question is always asked of the
@@ -1237,9 +1080,25 @@
   // the browser would otherwise restore the previous offset.
   var pendingScrollTop = null;
 
+  // A section that pages content in asynchronously holds the restore until its
+  // rows are back, so the offset is never applied against a card that is still
+  // short (see appendFamily's restore path).
+  var scrollHolds = 0;
+
+  function holdPendingScroll() { scrollHolds++; }
+
+  function releasePendingScroll() {
+    if (scrollHolds > 0) scrollHolds--;
+    applyPendingScroll();
+  }
+
   function applyPendingScroll() {
-    if (pendingScrollTop === null) return;
-    panel.scrollTop = pendingScrollTop;
+    if (pendingScrollTop === null || scrollHolds > 0) return;
+    // Clamp explicitly rather than leaving it to the browser: an offset with
+    // nowhere to go should read as "as far as this card goes", and saying so
+    // here keeps the intent legible.
+    var limit = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    panel.scrollTop = Math.max(0, Math.min(limit, pendingScrollTop));
     pendingScrollTop = null;
   }
 
@@ -1251,29 +1110,59 @@
     reposition();
   }
 
-  // True when the user has an active text selection inside the popup, so a
-  // click that merely ended a copy-drag doesn't navigate.
-  function hasShadowSelection() {
-    try {
-      if (shadow && typeof shadow.getSelection === "function") {
-        var sel = shadow.getSelection();
-        return !!sel && !sel.isCollapsed;
-      }
-    } catch (e) { /* not supported — fall through */ }
+  // True when a node sits inside the popup's shadow root. Crossing the closed
+  // boundary by hand covers engines whose ShadowRoot has no contains().
+  function nodeInShadow(node) {
+    if (!node || !shadow) return false;
+    if (typeof shadow.contains === "function" && shadow.contains(node)) return true;
+    var at = node;
+    while (at) {
+      if (at === shadow) return true;
+      at = at.parentNode || at.host || null;
+    }
     return false;
+  }
+
+  // True when the user has an active text selection INSIDE the popup, so a
+  // click that merely ended a copy-drag does not navigate.
+  //
+  // The question is CONTAINMENT, and it has to be asked that way. Chrome's
+  // ShadowRoot.getSelection() on a closed root reports the PAGE selection when
+  // there is nothing selected inside the shadow, so "is it collapsed?" answered
+  // yes to the selection that opened the popup in the first place and every nav
+  // row went dead in the primary flow (review finding 2026-08-24). Both
+  // endpoints must land in our own shadow before a click is read as a
+  // copy-drag. getComposedRanges is the standards-track way to ask the same
+  // question; anchorNode/focusNode work on every Chrome that ships this
+  // extension, so that is what this uses.
+  function hasShadowSelection() {
+    if (!shadow) return false;
+    var sel = null;
+    try {
+      if (typeof shadow.getSelection === "function") sel = shadow.getSelection();
+    } catch (e) { sel = null; }
+    if (!sel) {
+      try { sel = window.getSelection(); } catch (e2) { return false; }
+    }
+    if (!sel || sel.isCollapsed) return false;
+    return nodeInShadow(sel.anchorNode) && nodeInShadow(sel.focusNode);
   }
 
   /* ---- Wiktionary links ------------------------------------------------ *
    * Derived at runtime from the match itself; no data change is involved.
-   * Char cards point at the canonical hanja; word cards at the HANGUL
-   * headword, because that is where Korean word entries live.
+   * Word cards point at the lemma's English section. Root cards point at the
+   * section of their own language: English affixes, Latin lemmas, Ancient
+   * Greek lemmas.
    * -------------------------------------------------------------------- */
 
   var WIKI_BASE = "https://en.wiktionary.org/wiki/";
+  var WIKI_DEFAULT_ANCHOR = "English";
 
-  function wiktionaryUrl(title) {
+  function wiktionaryUrl(title, anchor) {
     var t = nonEmptyString(title);
-    return t ? WIKI_BASE + encodeURIComponent(t) + "#Korean" : "";
+    if (!t) return "";
+    return WIKI_BASE + encodeURIComponent(t) + "#" +
+      (nonEmptyString(anchor) || WIKI_DEFAULT_ANCHOR);
   }
 
   var WIKI_IDLE_LABEL = "Wiktionary ↗";
@@ -1299,8 +1188,8 @@
 
   // Appends the small top-right link to a card head. Clicks are isolated from
   // the popup's own click handling the same way the "more" expander does it.
-  function appendWikiLink(head, title) {
-    var url = wiktionaryUrl(title);
+  function appendWikiLink(head, title, anchor) {
+    var url = wiktionaryUrl(title, anchor);
     if (!url) return null;
     var link = el("a", "wiki", WIKI_IDLE_LABEL);
     // The href/target/rel stay real: a MODIFIED click is still handled by the
@@ -1376,21 +1265,21 @@
   var STAR_OFF = "☆";
   var STAR_ON = "★";
 
-  // The saved identity of a match: the canonical glyph for a char, the
-  // canonical spelling for a word. Anything else is not a saveable thing.
+  // The saved identity of a match: the lemma for a word, the root key for a
+  // root. Anything else is not a saveable thing.
   function savedIdentity(m) {
     if (!m || typeof m !== "object") return null;
-    if (m.kind !== "char" && m.kind !== "word") return null;
-    var key = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
+    if (m.kind !== "root" && m.kind !== "word") return null;
+    var key = matchKey(m);
     return key ? { kind: m.kind, key: key } : null;
   }
 
-  // The savedCheck map key, "c:<glyph>" / "w:<spelling>". saved.js exports the
+  // The savedCheck map key, "r:<root key>" / "w:<lemma>". saved.js exports the
   // same function, but this file is a classic-script IIFE and cannot import it,
   // so the convention is pinned here too (it is SPEC, not an implementation
   // detail either side is free to change alone).
   function savedMapKey(kind, key) {
-    return (kind === "char" ? "c" : "w") + ":" + key;
+    return (kind === "root" ? "r" : "w") + ":" + key;
   }
 
   var CARD_ACTIONS = [
@@ -1808,163 +1697,548 @@
     });
   }
 
-  /* ---- Navigating readings --------------------------------------------- *
-   * The accent-coloured text on a card head names another view: an eum
-   * syllable names its homophone list, a word's hangul names its own lookup.
-   * Both are ordinary drill-downs — the cache, the breadcrumb, the cycle
-   * handling and the scroll restore all come along unchanged, and no new
-   * worker traffic exists.
-   *
-   * makeNavRow already IS the "this element navigates" primitive (role,
-   * tabindex, the text-selection guard, Enter/Space); an inline chip is the
-   * same wiring on a <span>.
-   * -------------------------------------------------------------------- */
-
-  function navChip(text, hint, target) {
-    var chip = el("span", "rnav", text);
-    if (hint) {
-      chip.title = hint;
-      chip.setAttribute("aria-label", hint);
-    }
-    makeNavRow(chip, target === undefined ? text : target);
-    return chip;
-  }
-
-  function syllableChip(syllable) {
-    return navChip(syllable, "Characters read " + syllable);
-  }
-
-  // The eumhun line as ELEMENTS instead of one string: the eum of each entry
-  // navigates and the hun does not, and each half is named so the one colour
-  // rule on a head ("clickable carries the link colour") can reach it. The
-  // visible text is character-for-character what formatEumhun produces for the
-  // same data — that function still serves every other site, and is the
-  // emptiness test here.
-  function appendEumhunLine(line, eumhun) {
-    var list = asArray(eumhun);
-    var written = 0;
-    for (var i = 0; i < list.length; i++) {
-      var entry = list[i];
-      if (!entry || typeof entry !== "object") continue;
-      var hun = nonEmptyString(entry.hun);
-      var eum = nonEmptyString(entry.eum);
-      if (!hun && !eum) continue;
-      if (written) line.appendChild(document.createTextNode(" · "));
-      if (hun && eum) {
-        line.appendChild(el("span", "hun", hun + " "));
-        line.appendChild(syllableChip(eum));
-      } else if (eum) {
-        line.appendChild(syllableChip(eum));
-      } else {
-        line.appendChild(el("span", "hun", hun));
-      }
-      written++;
-    }
-    return written;
-  }
-
-  // The fallback line for a char with no eumhun: every syllable navigates,
-  // since there is no hun to separate them from.
-  function appendReadingsLine(line, readings) {
-    readings.forEach(function (reading, i) {
-      if (i) line.appendChild(document.createTextNode(", "));
-      line.appendChild(syllableChip(reading));
-    });
-    return readings.length;
-  }
-
   /* ------------------------------------------------------------------ *
    * Card builders
+   *
+   * Every card is a stack of SECTIONS. A section is one appendX(card, m)
+   * with a single call site in a card build, reading only its slice of the
+   * match, and its first act is its enabled-predicate. Moving a section is
+   * moving its call, removing it is deleting the call, and disabling it is
+   * one predicate.
    * ------------------------------------------------------------------ */
+
+  // Classification badges are DECLARATIVE: this array is the whole definition.
+  // Each entry answers, for one match or family row, "do I apply, and with
+  // what wording?". `when` returns false or { label, title }. Adding a badge
+  // is one more entry here and nothing else: the renderer below is the only
+  // badge-drawing code and every site calls it.
+  //
+  // One entry per tier. Exclusivity lives HERE, in the when() conditions: each
+  // tests one exact derived tier, so at most one can ever match. It is NOT a
+  // global cap on how many badges may render, so a future non-tier badge
+  // co-renders beside whichever tier chip applies with no change to this code.
+  function tierEntry(tier) {
+    return {
+      key: tier,
+      when: function (m) {
+        // An absent or unrecognised tier renders NO chip. Guessing a zone
+        // would be worse than silence, and it is what keeps root cards clean:
+        // how many words a root builds is its weight signal, not a tier.
+        //
+        // The WORKER is the authority on the wording: it joins a display label
+        // onto every word match and family row, and TIER_LABEL below is only
+        // the fallback for a response that predates it.
+        return m.tier === tier &&
+          {
+            label: nonEmptyString(m.tierLabel) || TIER_LABEL[tier],
+            title: TIER_TITLE[tier]
+          };
+      }
+    };
+  }
+
+  var BADGES = TIER_ORDER.map(tierEntry);
+
+  // The one badge renderer, in registry order. `m` is a word match or a family
+  // row: anything the worker joined a tier onto.
+  function appendBadges(container, m) {
+    if (!container || !m || typeof m !== "object") return 0;
+    var count = 0;
+    BADGES.forEach(function (spec) {
+      var info;
+      try {
+        info = spec.when(m);
+      } catch (e) {
+        info = false;
+      }
+      if (!info || !nonEmptyString(info.label)) return;
+      // Shared styling, plus a per-key modifier so one badge can be tuned
+      // later without touching this code.
+      var badge = el("span", "tier-chip tier-chip--" + spec.key, info.label);
+      var title = nonEmptyString(info.title) || info.label;
+      badge.title = title;
+      badge.setAttribute("aria-label", title);
+      container.appendChild(badge);
+      count++;
+    });
+    return count;
+  }
+
+  /* ---- Word card ------------------------------------------------------- */
 
   function wordHeadEnabled(settings) {
     return true;
   }
 
-  // The head of a word card: big spelling, hangul chip, variant note, actions,
-  // link. Rebuilt with the body, so a spelling swap re-points all of it.
-  function appendWordHead(body, m) {
+  // The head of a word card: the lemma as the big text, the tier chip, the
+  // inflection note, the card actions and the Wiktionary link.
+  function appendWordHead(card, m) {
     if (!wordHeadEnabled(sectionSettings())) return;
     var head = el("div", "head");
-    // The hanja spelling is always the big text; `surface` may be either script
-    // depending on what the user highlighted.
+    // The lemma is always the big text; `surface` is whatever was selected,
+    // which may differ in case or be an inflected form.
     var surface = nonEmptyString(m.surface);
     var canonical = nonEmptyString(m.canonical);
-    var hangul = nonEmptyString(m.hangul);
     var big = canonical || surface;
     head.appendChild(el("div", "surface", big));
 
     var meta = el("div", "headmeta");
-    // The hangul names this word's own lookup — the spelling selector when
-    // homographs exist. Rebuilt with the rest of the body, so a spelling swap
-    // re-points the chip at the swapped-in spelling's hangul.
-    if (hangul) {
-      var hangulLine = el("div", "hangul");
-      hangulLine.appendChild(navChip(hangul, "Look up " + hangul, function () {
-        navigateToHangul(hangul);
-      }));
-      meta.appendChild(hangulLine);
-    }
-    // Note the highlighted form only when it is neither the big text nor the
-    // hangul already shown (e.g. a simplified/variant spelling was selected),
-    // and only in a view whose own source text actually contains it.
-    if (surface && surface !== big && surface !== hangul && noteApplies(surface)) {
+    appendBadges(meta, m);
+    // The inflection note. Case alone is not a difference worth a line, and
+    // the note belongs only to a view actually looked up from that surface:
+    // arriving at "territory" from a family row must not caption it with a
+    // selection made three views ago (see noteApplies).
+    if (surface && big && surface.toLowerCase() !== big.toLowerCase() &&
+        noteApplies(surface)) {
       meta.appendChild(el("div", "canonical", surface + " → " + big));
     }
     head.appendChild(meta);
     // Card actions come first so the star lands beside the link rather than
-    // after it. The identity saved is the ACTIVE spelling's, which is exactly
-    // the `m` this body was filled from.
+    // after it.
     appendCardActions(head, m);
-    // Korean word entries usually live at the hangul title; hp-flagged
-    // matches were harvested from the hanja-spelling page (大韓民國), which
-    // also hosts the Chinese/Japanese entries, so link there instead.
-    // Rebuilt with the rest of the body, so a chip swap re-points it too.
-    appendWikiLink(head, m.hp === true ? (big || hangul) : (hangul || big));
-    body.appendChild(head);
+    appendWikiLink(head, big, "English");
+    card.appendChild(head);
   }
 
-  function charChipsEnabled(settings) {
+  function glossesEnabled(settings) {
     return true;
   }
 
-  // Per-character eumhun chips — only for chars whose data we actually have.
-  function appendCharChips(body, m) {
-    if (!charChipsEnabled(sectionSettings())) return;
-    var chars = uniqStrings(asArray(m.chars));
-    var chips = el("div", "chips");
-    var chipCount = 0;
-    for (var i = 0; i < chars.length; i++) {
-      var info = charDataIndex[chars[i]];
-      if (!info) continue;
-      var line = formatEumhun(info.eumhun) ||
-        asArray(info.readings).map(nonEmptyString).filter(Boolean).join(", ");
-      if (!line) continue;
-      var chip = el("span", "chip nav");
-      chip.appendChild(el("span", "chip-glyph", chars[i]));
-      chip.appendChild(el("span", "chip-text", line));
-      chip.setAttribute("aria-label", chars[i] + " " + line);
-      makeNavRow(chip, (function (ch) {
-        return function () { revealCharCard(ch); };
-      })(chars[i]));
-      chips.appendChild(chip);
-      chipCount++;
+  // One section per part of speech: a small uppercase label over that POS's
+  // own numbered sense list. A POS whose defs are all empty renders nothing,
+  // label included.
+  function appendGlosses(card, m) {
+    if (!glossesEnabled(sectionSettings())) return;
+    asArray(m.senses).forEach(function (sense) {
+      if (!sense || typeof sense !== "object") return;
+      var defs = asArray(sense.defs).map(nonEmptyString).filter(Boolean);
+      if (!defs.length) return;
+      var label = posLabel(sense.pos);
+      if (label) card.appendChild(el("div", "label pos", label));
+      appendSenseList(card, defs);
+    });
+  }
+
+  function breakdownEnabled(settings) {
+    return true;
+  }
+
+  // MADE OF: the morphemes as chips joined by plus signs, each showing the
+  // form the reader sees in the word over the gloss the worker joined for it.
+  // A chip links in one of two directions, and looks the same either way:
+  // `r` opens a root card, `w` opens the card of a word that happens to be a
+  // part (muse in music). A chip with neither is inert and carries no hover
+  // affordance at all, because there is nowhere for it to go.
+  function appendBreakdown(card, m) {
+    if (!breakdownEnabled(sectionSettings())) return;
+    var morphs = asArray(m.morphs).filter(function (p) {
+      return p && typeof p === "object" && nonEmptyString(p.f);
+    });
+    if (!morphs.length) return;
+
+    card.appendChild(el("div", "label", "MADE OF"));
+    var row = el("div", "morphs");
+    morphs.forEach(function (p, i) {
+      if (i) row.appendChild(el("span", "morph-plus", "+"));
+      var chip = el("span", "morph");
+      chip.appendChild(el("span", "morph-form", nonEmptyString(p.f)));
+      var gloss = nonEmptyString(p.gloss);
+      if (gloss) chip.appendChild(el("span", "morph-gloss", gloss));
+      var rootKey = nonEmptyString(p.r);
+      var wordKey = nonEmptyString(p.w);
+      if (rootKey) {
+        chip.classList.add("nav");
+        makeNavRow(chip, (function (key) {
+          return function () { navigateToRoot(key); };
+        })(rootKey));
+      } else if (wordKey) {
+        // An ordinary lookup drill-down, exactly like a family row.
+        chip.classList.add("nav");
+        makeNavRow(chip, wordKey);
+      } else {
+        chip.classList.add("inert");
+      }
+      row.appendChild(chip);
+    });
+    card.appendChild(row);
+  }
+
+  function originEnabled(settings) {
+    return true;
+  }
+
+  // One quiet nav row for a word whose story is a chain rather than a split:
+  // "From Latin terra (earth, land)". A word card never carries both this and
+  // the breakdown; the data guarantees it.
+  function appendOrigin(card, m) {
+    if (!originEnabled(sectionSettings())) return;
+    var org = m.org && typeof m.org === "object" ? m.org : null;
+    if (!org) return;
+    var key = nonEmptyString(org.r);
+    var parts = splitRootKey(key);
+    var form = nonEmptyString(org.f) || parts.form;
+    if (!key || !form) return;
+
+    var row = el("div", "entry-row origin-row nav");
+    row.appendChild(buildOriginText(parts.lang, form, org.gloss));
+    makeNavRow(row, function () { navigateToRoot(key); });
+    card.appendChild(row);
+  }
+
+  // "From Latin terra (earth, land)" as elements. Shared by the word card's
+  // origin row and the affix card's source row, which say the same thing
+  // about two different kinds of card.
+  function buildOriginText(lang, form, gloss) {
+    var name = langName(lang);
+    var text = el("span", "origin-text");
+    text.appendChild(document.createTextNode("From " + (name ? name + " " : "")));
+    text.appendChild(el("b", null, form));
+    var short = nonEmptyString(gloss);
+    if (short) text.appendChild(document.createTextNode(" (" + short + ")"));
+    return text;
+  }
+
+  function seeAlsoEnabled(settings) {
+    return true;
+  }
+
+  // A word that shadows an inflection of another word ("ran" is a word in its
+  // own right and also the past of "run") points at the lemma with one quiet
+  // row, so the reader is never stranded on the shadowing entry.
+  function appendSeeAlso(card, m) {
+    if (!seeAlsoEnabled(sectionSettings())) return;
+    var lemma = nonEmptyString(m.seeAlso);
+    if (!lemma) return;
+
+    var row = el("div", "entry-row origin-row nav");
+    var text = el("span", "origin-text");
+    text.appendChild(document.createTextNode("Also a form of "));
+    text.appendChild(el("b", null, lemma));
+    row.appendChild(text);
+    makeNavRow(row, lemma);
+    card.appendChild(row);
+  }
+
+  function buildWordCard(m) {
+    var card = el("div", "card word");
+
+    appendWordHead(card, m);
+
+    appendGlosses(card, m);
+
+    appendBreakdown(card, m);
+
+    appendOrigin(card, m);
+
+    appendSeeAlso(card, m);
+
+    return card;
+  }
+
+  /* ---- Root card ------------------------------------------------------- */
+
+  function rootHeadEnabled(settings) {
+    return true;
+  }
+
+  // The head of a root card: the form as the big text, the romanization
+  // beside it where the script needs one, the label line, the card actions
+  // and the Wiktionary link into this root's own language section.
+  function appendRootHead(card, m) {
+    if (!rootHeadEnabled(sectionSettings())) return;
+    var r = rootOf(m);
+    var form = nonEmptyString(r.form) || splitRootKey(m.key).form;
+    var head = el("div", "head");
+    head.appendChild(el("div", "surface", form));
+
+    var meta = el("div", "headmeta");
+    // Greek is written in Greek, so the romanization rides beside the form
+    // rather than replacing it.
+    var rom = nonEmptyString(r.rom);
+    if (rom) meta.appendChild(el("div", "rom", rom));
+    var label = rootLabelOf(r);
+    if (label) meta.appendChild(el("div", "rootlabel", label));
+    head.appendChild(meta);
+    appendCardActions(head, m);
+    appendWikiLink(head, form,
+      LANG_ANCHOR[nonEmptyString(r.lang)] || WIKI_DEFAULT_ANCHOR);
+    card.appendChild(head);
+  }
+
+  // "Latin root", "Greek root", "Prefix", "Suffix". The WORKER owns this
+  // wording: lookup.js joins the label onto the root response so the card and
+  // the Anki export cannot disagree, and the kind vocabulary (infix,
+  // circumfix) grows there, not here. What follows is the fallback for a
+  // response that predates the joined field, and nothing else reads it.
+  function rootLabelOf(r) {
+    var joined = nonEmptyString(r.label);
+    if (joined) return joined;
+    var kind = nonEmptyString(r.kind);
+    if (kind === "prefix") return "Prefix";
+    if (kind === "suffix") return "Suffix";
+    var name = langName(r.lang);
+    return name ? name + " root" : "Root";
+  }
+
+  function rootGlossEnabled(settings) {
+    return true;
+  }
+
+  // The gloss as a single sense line, clamped like any other sense.
+  function appendRootGloss(card, m) {
+    if (!rootGlossEnabled(sectionSettings())) return;
+    var gloss = nonEmptyString(rootOf(m).gloss);
+    if (!gloss) return;
+    appendSenseList(card, [gloss]);
+  }
+
+  function rootSourceEnabled(settings) {
+    return true;
+  }
+
+  // "From Latin sub (under, beneath)" on an English affix whose own entry
+  // descends from a shipped Latin or Greek lemma. Absent otherwise.
+  //
+  // The worker joins `src` exactly the way it joins a word's `org`, as
+  // {r, f, gloss?}, so this reads it the way appendOrigin reads that (review
+  // finding 2026-08-24: reading it as a bare key meant the row never rendered
+  // on any of the 79 roots that carry one).
+  function appendRootSource(card, m) {
+    if (!rootSourceEnabled(sectionSettings())) return;
+    var r = rootOf(m);
+    var src = r.src && typeof r.src === "object" ? r.src : null;
+    if (!src) return;
+    var key = nonEmptyString(src.r);
+    var parts = splitRootKey(key);
+    var form = nonEmptyString(src.f) || parts.form;
+    if (!key || !form) return;
+
+    var row = el("div", "entry-row origin-row nav");
+    row.appendChild(buildOriginText(parts.lang, form, src.gloss));
+    makeNavRow(row, function () { navigateToRoot(key); });
+    card.appendChild(row);
+  }
+
+  // One family row: the word, its first definition, and its tier chip. The
+  // whole row navigates into that word's card.
+  function buildFamilyRow(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    var word = nonEmptyString(entry.word);
+    if (!word) return null;
+
+    var row = el("div", "entry-row fam-row nav");
+    var text = el("span", "fam-text");
+    text.appendChild(el("span", "fam-word", word));
+    var def = nonEmptyString(entry.def);
+    if (def) text.appendChild(el("span", "fam-def", ": " + capitalizeSense(def)));
+    appendBadges(text, entry);
+    row.appendChild(clampWrap(text, 1));
+
+    makeNavRow(row, word);
+    return row;
+  }
+
+  function familyEnabled(settings) {
+    return true;
+  }
+
+  // BUILDS N WORDS: the inline rows the response carried, plus a
+  // "Show 5 more (N)" control when the root builds more than that.
+  //
+  // The list is CHUNKED, because a common affix builds thousands of words:
+  // each press reveals five more from rows already in hand, and only when
+  // those run out does it ask the worker for the next chunk. When the whole
+  // family fits in what a card normally shows inline it is fetched up front
+  // and rendered whole: a button whose one press would reveal all it ever
+  // could is only a delay.
+  function appendFamily(card, m) {
+    if (!familyEnabled(sectionSettings())) return;
+    var r = rootOf(m);
+    var key = nonEmptyString(m.key) || nonEmptyString(r.key);
+    var box = el("div", "family");
+    var shown = Object.create(null);   // words already on screen
+    var rowCount = 0;
+
+    asArray(r.family).slice(0, MAX_FAMILY).forEach(function (entry) {
+      var word = entry && typeof entry === "object" ? nonEmptyString(entry.word) : "";
+      if (!word || shown[word]) return;
+      var node = buildFamilyRow(entry);
+      if (!node) return;
+      shown[word] = true;
+      box.appendChild(node);
+      rowCount++;
+    });
+
+    var count = (typeof r.familyCount === "number" && isFinite(r.familyCount) &&
+      r.familyCount > 0) ? Math.floor(r.familyCount) : rowCount;
+    var total = Math.max(count, rowCount);
+    var remaining = key ? Math.max(0, total - rowCount) : 0;
+
+    if (!rowCount && !remaining) return;
+    card.appendChild(el("div", "label", "BUILDS " + total + " WORDS"));
+    card.appendChild(box);
+    if (!remaining) return;
+
+    var pending = [];         // fetched rows not yet on screen
+    var nextOffset = 0;       // where the next chunk request starts
+    var exhausted = false;    // the worker has no more rows to give
+    // Rows this rebuild owes the reader (see the restore path below); 0 when
+    // the card is being built fresh.
+    var restoreTo = Math.min(pendingFamilyReveal, total);
+    var button = el("button", "fam-more");
+    button.type = "button";
+
+    function syncButton() {
+      if (remaining <= 0) {
+        if (button.parentNode) button.parentNode.removeChild(button);
+        return;
+      }
+      button.textContent =
+        "Show " + Math.min(FAMILY_PAGE, remaining) + " more (" + remaining + ")";
+      // If a chunk turned out to hold more than the estimate, the auto-reveal
+      // path must surface the control again.
+      button.hidden = false;
     }
-    if (chipCount) body.appendChild(chips);
+
+    // Reveals up to one page from what is already in hand. Returns how many
+    // rows it managed to add, so the caller knows whether to fetch. A restore
+    // in progress asks for everything it is still owed in one go, because the
+    // reader is not pressing anything: they are coming back to a card they had
+    // already paged in.
+    function revealPending() {
+      var cap = restoreTo > rowCount ? restoreTo - rowCount : FAMILY_PAGE;
+      var added = 0;
+      while (added < cap && pending.length) {
+        var next = pending.shift();
+        var name = nonEmptyString(next.word);
+        if (name && shown[name]) continue;
+        var node = buildFamilyRow(next);
+        if (!node) continue;
+        if (name) shown[name] = true;
+        box.appendChild(node);
+        added++;
+        rowCount++;
+      }
+      if (added) {
+        // Rows in hand are the authority on what is left once the worker has
+        // said it has nothing more.
+        remaining = exhausted
+          ? pending.length
+          : Math.max(pending.length, total - rowCount);
+        syncButton();
+        // The control follows the rows down; re-measure clamps, re-anchor the
+        // popup for its new height, then make sure it is still reachable.
+        var anchorEl = button.isConnected ? button : box.lastChild;
+        refreshLayout();
+        keepInView(anchorEl);
+      }
+      return added;
+    }
+
+    // Asks for the next chunk, then reveals from it. `onFail` is the
+    // whole-card path's way of putting the control back.
+    function loadChunk(onFail) {
+      if (exhausted) return;
+      var seq = requestSeq;     // dismissal or a new selection cancels this
+      button.disabled = true;
+      fetchFamily(key, nextOffset).then(function (chunk) {
+        if (seq !== requestSeq) return;
+        button.disabled = false;
+        // Failure: leave the rows alone and stay pressable for a retry.
+        if (!chunk) { if (onFail) onFail(); return; }
+        if (typeof chunk.total === "number" && chunk.total > 0) {
+          total = Math.floor(chunk.total);
+        }
+        nextOffset += chunk.rows.length;
+        if (!chunk.rows.length || nextOffset >= total) exhausted = true;
+        chunk.rows.forEach(function (entry) {
+          var word = nonEmptyString(entry.word);
+          if (!word || shown[word]) return;
+          pending.push(entry);
+        });
+        if (!revealPending()) {
+          // The chunk held nothing new. Whatever is left is unreachable, so
+          // the control has nothing left to promise.
+          remaining = pending.length;
+          syncButton();
+        }
+        if (restoreTo) pumpRestore();
+      });
+    }
+
+    /* ---- coming back to a card the reader had paged in ------------------
+     * A crumb jump rebuilds this section from the preview rows the response
+     * carried, while the scroll offset it restores was measured against every
+     * row the reader had revealed. Rebuilding short and then restoring that
+     * offset landed them clamped at the bottom of a card they never saw
+     * (review finding 2026-08-24), so put the rows back FIRST and let the
+     * offset mean what it meant. The chunk is cached for the popup session,
+     * so the way back costs no request.
+     * ------------------------------------------------------------------ */
+    function finishRestore() {
+      restoreTo = 0;
+      releasePendingScroll();
+    }
+
+    function pumpRestore() {
+      if (rowCount >= restoreTo) { finishRestore(); return; }
+      // Rows in hand first, exactly as a press would take them.
+      if (pending.length) {
+        revealPending();
+        pumpRestore();
+        return;
+      }
+      if (exhausted) { finishRestore(); return; }
+      loadChunk(finishRestore);   // a failed fetch stops owing rows
+    }
+
+    button.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();     // never read as a click on a family row
+      if (button.disabled) return;
+      // Rows in hand first; the worker is asked only when they run out.
+      if (revealPending()) return;
+      loadChunk();
+    });
+
+    syncButton();
+    card.appendChild(button);
+
+    if (total <= MAX_FAMILY) {
+      // The whole family fits in what a card normally displays inline: render
+      // it whole. MAX_FAMILY deliberately, not FAMILY_PAGE. The rule is "no
+      // smaller than a normal card", and it must follow the inline cap if
+      // that cap ever changes. The button stays in the DOM but hidden, so a
+      // failed fetch can fall back to the press-to-retry path.
+      button.hidden = true;
+      restoreTo = 0;            // rendering it whole restores it by itself
+      loadChunk(function () { button.hidden = false; });
+      return;
+    }
+
+    if (restoreTo > rowCount) {
+      holdPendingScroll();
+      pumpRestore();
+    } else {
+      restoreTo = 0;
+    }
   }
 
-  // Fills (or refills) the swappable body of a word card for one spelling.
-  function fillWordBody(body, m) {
-    clearNode(body);
+  function buildRootCard(m) {
+    var card = el("div", "card root");
 
-    appendWordHead(body, m);
+    appendRootHead(card, m);
 
-    appendGlosses(body, m.glosses);
+    appendRootGloss(card, m);
 
-    appendCharChips(body, m);
+    appendRootSource(card, m);
 
-    appendUsedInRow(body, m);
+    appendFamily(card, m);
+
+    return card;
   }
+
+  /* ---- Shared card helpers --------------------------------------------- */
 
   function prefersReducedMotion() {
     try {
@@ -1975,7 +2249,7 @@
     }
   }
 
-  // Re-triggerable tint fade, so clicking the same chip twice flashes twice.
+  // Re-triggerable tint fade, so clicking the same target twice flashes twice.
   function flashCard(card) {
     card.classList.remove("flash");
     void card.offsetWidth;              // force a reflow to restart the animation
@@ -1985,23 +2259,6 @@
       card.classList.remove("flash");
       card.hhFlashTimer = null;
     }, FLASH_MS);
-  }
-
-  // Clicking an eumhun chip. The character's full card is already on screen in
-  // COMPONENT HANJA, so pushing a view would just duplicate it: scroll to the
-  // card and flash it instead. Only when that card is genuinely absent do we
-  // fall back to an ordinary drill-down lookup.
-  function revealCharCard(ch) {
-    var card = charCardIndex && charCardIndex[ch];
-    if (!card || !card.isConnected) {
-      navigateTo(ch);
-      return false;
-    }
-    var panelBox = panel.getBoundingClientRect();
-    var cardBox = card.getBoundingClientRect();
-    scrollPanelTo(panel.scrollTop + (cardBox.top - panelBox.top) - 8);
-    if (!prefersReducedMotion()) flashCard(card);
-    return true;
   }
 
   // Smooth where it is wanted, instant under reduced motion.
@@ -2019,7 +2276,7 @@
     // request silently does nothing, which would strand the user. If the
     // offset has not budged at all by the time a normal animation would have
     // finished, land on the target outright. Any movement means the animation
-    // ran — or the user took over — so leave it alone.
+    // ran, or that the user took over. Either way, leave it alone.
     if (scrollSettleTimer) clearTimeout(scrollSettleTimer);
     scrollSettleTimer = setTimeout(function () {
       scrollSettleTimer = null;
@@ -2027,605 +2284,6 @@
         panel.scrollTop = target;
       }
     }, SCROLL_SETTLE_MS);
-  }
-
-  function usedInEnabled(settings) {
-    return true;
-  }
-
-  // Used-in disclosure (design option C): ONE collapsed line at the end of the
-  // word body, never an inline list — the card stays about this word and its
-  // components. Rebuilt with the body, so a homograph chip swap re-points it at
-  // the newly selected spelling (and drops it when that spelling has no count).
-  function appendUsedInRow(body, m) {
-    if (!usedInEnabled(sectionSettings())) return;
-    var count = (typeof m.usedInCount === "number" && isFinite(m.usedInCount) &&
-      m.usedInCount > 0) ? Math.floor(m.usedInCount) : 0;
-    var word = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
-    if (!count || !word) return;
-
-    var row = el("div", "entry-row usedin-row nav");
-    var text = el("span", "usedin-text");
-    text.appendChild(document.createTextNode("Used in "));
-    text.appendChild(el("b", null, String(count)));
-    text.appendChild(document.createTextNode(
-      count === 1 ? " larger word" : " larger words"));
-    row.appendChild(text);
-
-    var busy = false;
-    makeNavRow(row, function () {
-      if (busy) return;
-      busy = true;
-      row.setAttribute("aria-busy", "true");
-      var seq = requestSeq;
-      fetchUsedIn(word).then(function (words) {
-        if (seq !== requestSeq) return;
-        busy = false;
-        row.removeAttribute("aria-busy");
-        // Failure (or an empty list): stay on the card, keep the row pressable.
-        if (!words || !words.length) return;
-        pushView({
-          key: "usedin:" + word,
-          label: "Used in",
-          matches: [{ kind: "usedin", word: word, rows: words }]
-        });
-      });
-    });
-    body.appendChild(row);
-  }
-
-  // The used-in list: same shape as the homophone browser, one nav row per
-  // larger word.
-  function buildUsedInCard(m) {
-    var rows = asArray(m.rows).filter(function (w) {
-      return w && typeof w === "object" && (nonEmptyString(w.hanja) || nonEmptyString(w.hangul));
-    });
-    if (!rows.length) return null;
-
-    var card = el("div", "card usedin");
-    var title = el("div", "reading-title");
-    title.appendChild(document.createTextNode(
-      rows.length + (rows.length === 1 ? " word contains " : " words contain ")));
-    title.appendChild(el("b", null, nonEmptyString(m.word)));
-    card.appendChild(title);
-
-    var list = el("div", "usedin-list");
-    rows.forEach(function (w) {
-      var row = buildEntryRow(w, "usedin-item");
-      if (row) list.appendChild(row);
-    });
-    card.appendChild(list);
-    return card;
-  }
-
-  // COMPONENT WORDS: the word's interior re-segmented into sub-words. Each row
-  // navigates into that sub-word's own card (which may itself have parts).
-  // The section is built only when it has rows, so an inapplicable card
-  // carries no phantom label text.
-  function renderParts(state) {
-    clearNode(state.partsBox);
-    state.partsList = el("div", "part-list");
-    asArray(state.items[state.index].parts).forEach(function (p) {
-      if (!p || typeof p !== "object") return;
-      if (p.type !== "word") return;         // char parts live in COMPONENT HANJA
-      var hanja = nonEmptyString(p.hanja);
-      if (!hanja) return;
-      var row = el("div", "part-row");
-      row.appendChild(el("span", "p-hanja", hanja));
-      var text = el("span", "p-text");
-      var hangul = nonEmptyString(p.hangul);
-      if (hangul) text.appendChild(el("span", "p-hangul", hangul));
-      var gloss = asArray(p.glosses).map(nonEmptyString).filter(Boolean)[0] || "";
-      if (gloss) text.appendChild(el("span", "p-gloss", (hangul ? "  " : "") + gloss));
-      row.appendChild(clampWrap(text, 1));
-      makeNavRow(row, hanja);
-      state.partsList.appendChild(row);
-    });
-    if (state.partsList.firstChild) {
-      state.partsBox.appendChild(el("div", "label", "Component words"));
-      state.partsBox.appendChild(state.partsList);
-    }
-  }
-
-  function syncChips(state) {
-    state.chips.forEach(function (chip, i) {
-      var on = i === state.index;
-      chip.classList.toggle("sel", on);
-      chip.setAttribute("aria-pressed", on ? "true" : "false");
-    });
-  }
-
-  // Hedging is a GROUP verdict, not a spelling verdict: the banner claims the
-  // word is likely native Korean, which is only defensible when EVERY hanja
-  // spelling of the group is rare. In a mixed group (가장: 家長 + rare 假裝)
-  // the word is demonstrably Sino-Korean, so selecting a rare chip must not
-  // hedge; the chip's own RARE marker carries the rarity. And only when the
-  // user highlighted HANGUL: if they highlighted the hanja itself, the flag
-  // is ignored.
-  function isHedged(items) {
-    if (!items || !items.length) return false;
-    for (var i = 0; i < items.length; i++) {
-      if (!items[i] || items[i].rare !== true) return false;
-    }
-    var surface = nonEmptyString(items[0].surface);
-    return !!surface && !HAN_RE.test(surface);
-  }
-
-  // Everything on a word card that depends on the selected spelling.
-  function syncWordCard(state) {
-    closeSaveBubble();   // the body carrying it is about to be refilled
-    syncChips(state);
-    var m = state.items[state.index];
-    var hedged = isHedged(state.items);
-    state.card.classList.toggle("hedged", hedged);
-    clearNode(state.hedgeBox);
-    if (hedged) {
-      state.hedgeBox.appendChild(el("div", "label", "Rare hanja homograph"));
-      state.hedgeBox.appendChild(el("div", "hedge-note",
-        "Likely native Korean. This hanja spelling is obscure."));
-    }
-    fillWordBody(state.body, m);
-    renderParts(state);
-  }
-
-  function spellingsEnabled(settings) {
-    return true;
-  }
-
-  // The homograph selector. Its slice of the match is the whole group, since
-  // the row exists only to choose between them; the chips are handed to the
-  // state so a swap can restyle them without rebuilding the card.
-  function appendSpellings(card, state) {
-    if (!spellingsEnabled(sectionSettings())) return;
-    if (state.items.length < 2) return;
-    var selector = el("div", "spellings");
-    state.items.forEach(function (m, i) {
-      var chip = el("button", "spell-chip", spellingKey(m));
-      chip.type = "button";
-      chip.setAttribute("aria-pressed", i === 0 ? "true" : "false");
-      if (i === 0) chip.classList.add("sel");
-      if (m.rare === true) {
-        chip.classList.add("rare");
-        chip.appendChild(el("sup", "chip-rare", "rare"));
-      }
-      chip.addEventListener("click", function (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        selectSpelling(state, i);
-      });
-      state.chips.push(chip);
-      selector.appendChild(chip);
-    });
-    card.appendChild(selector);
-  }
-
-  // One card per word surface. Homographs (사기 → 詐欺 / 士氣 / 沙器) get a
-  // spelling selector; every word card gets nested regions for its component
-  // words and component hanja, so the hierarchy is legible at a glance.
-  function buildWordGroupCard(state) {
-    var card = el("div", "card");
-    var body = el("div", "word-body");
-
-    state.card = card;
-    state.body = body;
-    state.chips = [];
-
-    // Hedge banner: filled only when the selected spelling is a rare hangul match.
-    var hedgeBox = el("div", "hedge");
-    card.appendChild(hedgeBox);
-    state.hedgeBox = hedgeBox;
-
-    appendSpellings(card, state);
-
-    card.appendChild(body);
-
-    var partsBox = el("div", "parts");
-    card.appendChild(partsBox);
-    state.partsBox = partsBox;
-
-    var componentsBox = el("div", "components");
-    card.appendChild(componentsBox);
-    state.componentsBox = componentsBox;
-    state.componentList = el("div", "component-list");
-
-    syncWordCard(state);
-    return card;
-  }
-
-  // Homophone browse: "국 — 12 hanja" over a scrollable list of candidates.
-  /**
-   * The homophone list for one syllable.
-   *
-   * `preview` is set only when this card is one of SEVERAL interpretation
-   * groups sharing a view: 수 has 102 readings, and at full length it buries
-   * whatever group follows it. Capped, the group shows its first few and
-   * offers the rest as an ordinary drill-down. A view showing ONE list — a
-   * selection, an eum chip, the Show-all push itself — is never capped: the
-   * homophone browser's contract is that it shows you every character.
-   */
-  function buildReadingCard(m, preview) {
-    var candidates = asArray(m.candidates).filter(function (c) {
-      return c && typeof c === "object" && nonEmptyString(c.char);
-    });
-    if (!candidates.length) return null;
-
-    var card = el("div", "card reading");
-    var syllable = nonEmptyString(m.surface) || nonEmptyString(m.eum);
-    // The heading counts the SYLLABLE's characters, not the rows below it, so
-    // a capped group still says how many there are.
-    var title = el("div", "reading-title");
-    title.appendChild(document.createTextNode(candidates.length + " hanja read "));
-    title.appendChild(el("b", null, syllable));
-    card.appendChild(title);
-
-    var shown = (preview === true && candidates.length > READING_PREVIEW)
-      ? candidates.slice(0, READING_PREVIEW)
-      : candidates;
-
-    var list = el("div", "reading-list");
-    shown.forEach(function (c) {
-      var glyph = nonEmptyString(c.char);
-      var row = el("div", "reading-row");
-      row.appendChild(el("span", "r-glyph", glyph));
-
-      var text = el("span", "r-text");
-      var hun = nonEmptyString(c.hun);
-      var eum = nonEmptyString(c.eum) || syllable;
-      var label = hun && eum ? hun + " " + eum : (eum || hun);
-      if (label) text.appendChild(el("span", "r-eumhun", label));
-      appendBadges(text, c);
-      var gloss = nonEmptyString(c.gloss);
-      if (gloss) text.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
-      row.appendChild(text);
-
-      makeNavRow(row, glyph);
-      list.appendChild(row);
-    });
-    card.appendChild(list);
-
-    if (shown.length < candidates.length) {
-      // Plain navigateTo: a single syllable resolves to its reading view by
-      // rule 3c, which means the cache, the crumb label and the cycle guard
-      // are the ordinary ones, and the view it lands on is uncapped.
-      var more = el("div", "entry-row reading-more nav");
-      var text = el("span", "reading-more-text");
-      text.appendChild(document.createTextNode("Show all "));
-      text.appendChild(el("b", null, String(candidates.length)));
-      more.appendChild(text);
-      more.setAttribute("aria-label",
-        "Show all " + candidates.length + " hanja read " + syllable);
-      makeNavRow(more, syllable);
-      card.appendChild(more);
-    }
-    return card;
-  }
-
-  // Classification badges are DECLARATIVE: this array is the whole definition.
-  // Each entry answers, for one match or reading candidate, "do I apply, and
-  // with what wording?" — `when` returns false or { label, title }. Adding a
-  // badge is one more entry here and nothing else: the renderer below is the
-  // only badge-drawing code and every site calls it. (Inline semantic markers
-  // like RARE are a different animal and stay where they are.)
-  // One entry per level zone. Exclusivity lives HERE, in the when() conditions
-  // — each tests one exact `lvl` value, so at most one can ever match — and
-  // NOT as a global cap on how many badges may render. The registry stays
-  // multi-badge by design: a future non-level badge co-renders beside
-  // whichever level chip applies, with no change to this code.
-  function levelEntry(zone) {
-    return {
-      key: "lvl" + zone.toUpperCase(),
-      when: function (m) {
-        // An absent or unrecognised lvl renders NO chip. Guessing a zone would
-        // be worse than silence, and it keeps the UI honest against an
-        // old corpus during the edu/eduT → lvl migration: pre-migration data
-        // simply shows no chips rather than wrong ones.
-        return m.lvl === zone &&
-          { label: LVL_LABEL[zone], title: LVL_TITLE[zone] };
-      }
-    };
-  }
-
-  var BADGES = LVL_ORDER.map(levelEntry);
-
-  // The one badge renderer, in registry order. `m` is a char match or a
-  // reading-list candidate — anything carrying the classification flags.
-  function appendBadges(container, m) {
-    if (!container || !m || typeof m !== "object") return 0;
-    var count = 0;
-    BADGES.forEach(function (spec) {
-      var info;
-      try {
-        info = spec.when(m);
-      } catch (e) {
-        info = false;
-      }
-      if (!info || !nonEmptyString(info.label)) return;
-      // Shared styling, plus a per-key modifier so one badge can be tuned
-      // later without touching this code.
-      var badge = el("span", "edu-badge edu-badge--" + spec.key, info.label);
-      var title = nonEmptyString(info.title) || info.label;
-      badge.title = title;
-      badge.setAttribute("aria-label", title);
-      container.appendChild(badge);
-      count++;
-    });
-    return count;
-  }
-
-  function charHeadEnabled(settings) {
-    return true;
-  }
-
-  // The head of a char card: big glyph, reading line, badges, actions, link.
-  // Returns the meta box, because the variant note below renders inside it.
-  function appendCharHead(card, m) {
-    if (!charHeadEnabled(sectionSettings())) return null;
-    var head = el("div", "head");
-    // The canonical hanja is always the big glyph, mirroring word cards: the
-    // entry IS the canonical character, and a simplified/shinjitai surface
-    // (highlighting 国) belongs in the variant note, not the headline.
-    var surface = nonEmptyString(m.surface);
-    var canonical = nonEmptyString(m.canonical);
-    var big = canonical || surface;
-    head.appendChild(el("div", "surface", big));
-
-    var meta = el("div", "headmeta");
-    var readingLine = null;
-    if (formatEumhun(m.eumhun)) {
-      readingLine = el("div", "eumhun");
-      appendEumhunLine(readingLine, m.eumhun);
-      meta.appendChild(readingLine);
-    } else {
-      var readings = asArray(m.readings).map(nonEmptyString).filter(Boolean);
-      if (readings.length) {
-        readingLine = el("div", "readings");
-        appendReadingsLine(readingLine, readings);
-        meta.appendChild(readingLine);
-      }
-    }
-    // Classification badges, tucked onto the end of the reading line.
-    appendBadges(readingLine || meta, m);
-    head.appendChild(meta);
-    appendCardActions(head, m);
-    // The entry IS the canonical character, so that is the page we link to.
-    appendWikiLink(head, big);
-    card.appendChild(head);
-    return meta;
-  }
-
-  function variantNoteEnabled(settings) {
-    return true;
-  }
-
-  // The variant note belongs to the view, not to the cached match: it says
-  // "you highlighted 学, this entry is 學", which is only true where 学 was
-  // actually in the looked-up text (see noteApplies).
-  function appendVariantNote(meta, m) {
-    if (!variantNoteEnabled(sectionSettings())) return;
-    if (!meta) return;
-    var surface = nonEmptyString(m.surface);
-    var big = nonEmptyString(m.canonical) || surface;
-    if (surface && surface !== big && noteApplies(surface)) {
-      meta.appendChild(el("div", "canonical", surface + " → " + big));
-    }
-  }
-
-  function buildCharCard(m) {
-    var card = el("div", "card");
-
-    var meta = appendCharHead(card, m);
-    appendVariantNote(meta, m);
-
-    appendGlosses(card, m.glosses);
-
-    appendMadeOf(card, m);
-
-    appendFoundIn(card, m);
-
-    appendCompounds(card, m);
-
-    return card;
-  }
-
-  /* ---- Decomposition ---------------------------------------------------- *
-   * One self-contained section: this predicate, this function, and the single
-   * call above. Nothing else in the renderer knows the feature exists, so
-   * moving the section is moving that call and removing it is deleting it.
-   * -------------------------------------------------------------------- */
-
-  // The section's one enabled-predicate. The renderer has no settings channel
-  // in this release, so it is a constant; a later toggle is one SETTINGS_SCHEMA
-  // entry read here, and no other change.
-  function decompEnabled(settings) {
-    return true;
-  }
-
-  // "Made of 亻 + 衣 ›", expanding in place into one row per part. Reads only
-  // `m.parts`, whose rows the worker has already joined: `g` is the display
-  // glyph, `t` the character the row opens (absent on reading-less parts),
-  // `hun`/`eum`/`gloss` the target's, `name` the English name of a
-  // reading-less shape when Unihan has one.
-  function appendMadeOf(card, m) {
-    if (!decompEnabled(sectionSettings())) return;
-    var parts = asArray(m.parts).filter(function (p) {
-      return p && typeof p === "object" && nonEmptyString(p.g);
-    });
-    if (!parts.length) return;
-
-    var box = el("div", "madeof");
-    var row = el("div", "entry-row madeof-row nav");
-    var text = el("span", "madeof-text");
-    text.appendChild(document.createTextNode("Made of "));
-    parts.forEach(function (p, i) {
-      if (i) text.appendChild(document.createTextNode(" + "));
-      text.appendChild(el("span", "madeof-glyph", nonEmptyString(p.g)));
-    });
-    row.appendChild(clampWrap(text, 1));
-    row.setAttribute("aria-expanded", "false");
-    box.appendChild(row);
-
-    var list = el("div", "madeof-list");
-    list.hidden = true;
-    parts.forEach(function (p) {
-      var part = el("div", "entry-row madeof-part");
-      part.appendChild(el("span", "r-glyph", nonEmptyString(p.g)));
-      var body = el("span", "r-text");
-      var target = nonEmptyString(p.t);
-      if (target) {
-        var hun = nonEmptyString(p.hun);
-        var eum = nonEmptyString(p.eum);
-        var label = hun && eum ? hun + " " + eum : (eum || hun);
-        if (label) body.appendChild(el("span", "r-eumhun", label));
-        var gloss = nonEmptyString(p.gloss);
-        if (gloss) body.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
-      } else {
-        part.classList.add("inert");
-        var name = nonEmptyString(p.name);
-        if (name) body.appendChild(el("span", "madeof-name", name));
-      }
-      part.appendChild(clampWrap(body, 1));
-      // Literal navigation, like every other row: a part is a character, never
-      // something to interpret.
-      if (target) {
-        part.classList.add("nav");
-        makeNavRow(part, target);
-      }
-      list.appendChild(part);
-    });
-    box.appendChild(list);
-
-    // Collapsed on every build, by construction: nothing here is persisted.
-    makeNavRow(row, function () {
-      var open = list.hidden;
-      list.hidden = !open;
-      row.classList.toggle("open", open);
-      row.setAttribute("aria-expanded", open ? "true" : "false");
-      if (open) keepInView(list);
-    });
-    card.appendChild(box);
-  }
-
-  /* ---- Recomposition ---------------------------------------------------- *
-   * The upward mirror of the section above, and self-contained in the same
-   * way: this predicate, this function, and the single call in the char-card
-   * build. The list itself is a view, not an in-place expansion, because a
-   * common radical is found in hundreds of characters.
-   * -------------------------------------------------------------------- */
-
-  function recompEnabled(settings) {
-    return true;
-  }
-
-  // "Part of N characters ›", opening the list as its own view. Reads only
-  // `m.foundInCount`; the list is fetched on tap, like the used-in row.
-  function appendFoundIn(card, m) {
-    if (!recompEnabled(sectionSettings())) return;
-    var count = (typeof m.foundInCount === "number" && isFinite(m.foundInCount) &&
-      m.foundInCount > 0) ? Math.floor(m.foundInCount) : 0;
-    var char = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
-    if (!count || !char) return;
-
-    var row = el("div", "entry-row foundin-row nav");
-    var text = el("span", "foundin-text");
-    text.appendChild(document.createTextNode("Part of "));
-    text.appendChild(el("b", null, String(count)));
-    text.appendChild(document.createTextNode(
-      count === 1 ? " character" : " characters"));
-    row.appendChild(text);
-
-    var busy = false;
-    makeNavRow(row, function () {
-      if (busy) return;
-      busy = true;
-      row.setAttribute("aria-busy", "true");
-      var seq = requestSeq;
-      fetchFoundIn(char).then(function (chars) {
-        if (seq !== requestSeq) return;
-        busy = false;
-        row.removeAttribute("aria-busy");
-        // Failure (or an empty list): stay on the card, keep the row pressable.
-        if (!chars || !chars.length) return;
-        pushView({
-          key: "foundin:" + char,
-          label: "Part of",
-          matches: [{ kind: "foundin", char: char, rows: chars }]
-        });
-      });
-    });
-    card.appendChild(row);
-  }
-
-  // The found-in list: the homophone browser's rows, one per character this
-  // one is a part of. Never capped: a view showing ONE list shows all of it,
-  // which is the reading card's own contract.
-  function buildFoundInCard(m) {
-    var rows = asArray(m.rows).filter(function (c) {
-      return c && typeof c === "object" && nonEmptyString(c.char);
-    });
-    if (!rows.length) return null;
-
-    var card = el("div", "card foundin");
-    var title = el("div", "reading-title");
-    title.appendChild(document.createTextNode(
-      rows.length + (rows.length === 1 ? " character contains " : " characters contain ")));
-    title.appendChild(el("b", null, nonEmptyString(m.char)));
-    card.appendChild(title);
-
-    var list = el("div", "reading-list");
-    rows.forEach(function (c) {
-      var glyph = nonEmptyString(c.char);
-      var row = el("div", "reading-row foundin-item");
-      row.appendChild(el("span", "r-glyph", glyph));
-
-      var text = el("span", "r-text");
-      var hun = nonEmptyString(c.hun);
-      var eum = nonEmptyString(c.eum);
-      var label = hun && eum ? hun + " " + eum : (eum || hun);
-      if (label) text.appendChild(el("span", "r-eumhun", label));
-      appendBadges(text, c);
-      var gloss = nonEmptyString(c.gloss);
-      if (gloss) text.appendChild(el("span", "r-gloss", (label ? "  " : "") + gloss));
-      row.appendChild(text);
-
-      makeNavRow(row, glyph);
-      list.appendChild(row);
-    });
-    card.appendChild(list);
-    return card;
-  }
-
-  // One dictionary line: "국민 (國民): the people of a nation". Shared by the
-  // compound rows on char cards and the used-in list view. A row with a hanja
-  // spelling is a nav row exactly like a component-word row; entries with no
-  // spelling to look up (hangul-only compounds exist in the data) get no
-  // chevron and no click target.
-  function buildEntryRow(c, className) {
-    if (!c || typeof c !== "object") return null;
-    var hangul = nonEmptyString(c.hangul);
-    var hanja = nonEmptyString(c.hanja);
-    if (!hangul && !hanja) return null;
-
-    var row = el("div", "entry-row " + className);
-    var text = el("span", "compound");
-    text.appendChild(el("span", "cpd-hangul", hangul || hanja));
-    if (hanja && hangul) text.appendChild(el("span", "cpd-hanja", " (" + hanja + ")"));
-    var gloss = nonEmptyString(c.gloss);
-    if (gloss) text.appendChild(el("span", "cpd-gloss", ": " + gloss));
-    if (c.rare === true) {
-      row.classList.add("rare");
-      text.appendChild(el("sup", "cpd-rare", "rare"));
-    }
-    row.appendChild(clampWrap(text, 1));
-
-    if (hanja) {
-      row.classList.add("nav");
-      makeNavRow(row, hanja);
-    }
-    return row;
-  }
-
-  function buildCompoundRow(c) {
-    return buildEntryRow(c, "compound-row");
   }
 
   // Scrolls `node` back into the panel's visible band after the card grew,
@@ -2641,141 +2299,15 @@
     }
   }
 
-  function compoundsEnabled(settings) {
-    return true;
-  }
-
-  // COMPOUNDS: the inline five, plus a "Show 5 more (N)" control when the
-  // char's full index (cwCount) holds more. The first press fetches that index
-  // once; later presses reveal five more from the cached list. When everything
-  // fits in a single page the index is fetched up front and rendered whole:
-  // a button whose one press would reveal all it ever could is only a delay,
-  // and a card whose curated inline list is empty would otherwise show a
-  // Compounds header with nothing under it.
-  function appendCompounds(card, m) {
-    if (!compoundsEnabled(sectionSettings())) return;
-    var box = el("div", "compounds");
-    var shown = Object.create(null);   // hanja spellings already on screen
-    var shownCount = 0;
-    var rowCount = 0;
-
-    asArray(m.compounds).slice(0, MAX_COMPOUNDS).forEach(function (c) {
-      var hanja = c && typeof c === "object" ? nonEmptyString(c.hanja) : "";
-      if (hanja && shown[hanja]) return;
-      var row = buildCompoundRow(c);
-      if (!row) return;
-      if (hanja) {
-        shown[hanja] = true;
-        shownCount++;
-      }
-      box.appendChild(row);
-      rowCount++;
-    });
-
-    var char = nonEmptyString(m.canonical) || nonEmptyString(m.surface);
-    var total = (typeof m.cwCount === "number" && isFinite(m.cwCount) && m.cwCount > 0)
-      ? Math.floor(m.cwCount) : 0;
-    // Before the index is fetched the remaining count comes from cwCount minus
-    // the spellings already displayed (hangul-only rows are not in the index).
-    // Afterwards `pending` is authoritative.
-    var remaining = char ? Math.max(0, total - shownCount) : 0;
-
-    if (!rowCount && !remaining) return;
-    card.appendChild(el("div", "label", "Compounds"));
-    card.appendChild(box);
-    if (!remaining) return;
-
-    var pending = null;   // full index minus everything already displayed
-    var button = el("button", "cpd-more");
-    button.type = "button";
-
-    function syncButton() {
-      if (remaining <= 0) {
-        if (button.parentNode) button.parentNode.removeChild(button);
-        return;
-      }
-      button.textContent =
-        "Show " + Math.min(COMPOUND_PAGE, remaining) + " more (" + remaining + ")";
-      // If the index turned out to hold more than the single-page estimate,
-      // the auto-reveal path must surface the control again.
-      button.hidden = false;
-    }
-
-    function revealNext() {
-      while (pending.length) {
-        var c = pending[0];
-        var hanja = nonEmptyString(c.hanja);
-        if (!hanja || shown[hanja]) { pending.shift(); continue; }
-        break;
-      }
-      var added = 0;
-      while (added < COMPOUND_PAGE && pending.length) {
-        var next = pending.shift();
-        var spelling = nonEmptyString(next.hanja);
-        if (spelling && shown[spelling]) continue;
-        var row = buildCompoundRow(next);
-        if (!row) continue;
-        if (spelling) shown[spelling] = true;
-        box.appendChild(row);
-        added++;
-      }
-      remaining = pending.length;
-      syncButton();
-      // The control follows the rows down; re-measure clamps, re-anchor the
-      // popup for its new height, then make sure it is still reachable.
-      var anchorEl = button.isConnected ? button : box.lastChild;
-      refreshLayout();
-      keepInView(anchorEl);
-    }
-
-    function loadIndex(onFail) {
-      var seq = requestSeq;     // dismissal or a new selection cancels this
-      button.disabled = true;
-      fetchCompounds(char).then(function (list) {
-        if (seq !== requestSeq) return;
-        button.disabled = false;
-        // Failure: leave the rows alone and stay pressable for a retry.
-        if (!list) { if (onFail) onFail(); return; }
-        pending = list.filter(function (c) {
-          var hanja = nonEmptyString(c.hanja);
-          return !!hanja && !shown[hanja];
-        });
-        remaining = pending.length;
-        revealNext();
-      });
-    }
-
-    button.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();     // never read as a click on a compound row
-      if (button.disabled) return;
-      if (pending) { revealNext(); return; }
-      loadIndex();
-    });
-
-    syncButton();
-    card.appendChild(button);
-
-    if (rowCount + remaining <= MAX_COMPOUNDS) {
-      // The whole index fits in what a card normally displays inline: render
-      // it whole. MAX_COMPOUNDS deliberately, not COMPOUND_PAGE — the rule is
-      // "no smaller than a normal card", and it must follow the inline cap if
-      // that cap ever changes. The button stays in the DOM but hidden, so a
-      // failed fetch can fall back to the press-to-retry path.
-      button.hidden = true;
-      loadIndex(function () { button.hidden = false; });
-    }
-  }
-
   /* ------------------------------------------------------------------ *
    * View rendering
    * ------------------------------------------------------------------ */
 
   // The text a view was looked up FROM. Every view has one: the root view's is
-  // the selection, a drill-down's is the row's target spelling. When no text is
-  // threaded (test hooks, synthetic views) the view's own matches supply it —
-  // a fresh response's surfaces are by definition parts of the text it answered,
-  // and unlike charDataIndex entries they are never borrowed from another view.
+  // the selection, a drill-down's is the row's target word. When no text is
+  // threaded (test hooks, synthetic views) the view's own matches supply it:
+  // a fresh response's surfaces are by definition parts of the text it
+  // answered, and are never borrowed from another view.
   function viewSourceText(matches, text) {
     var parts = [];
     var explicit = nonEmptyString(text);
@@ -2788,282 +2320,29 @@
     return parts.join("\n");
   }
 
-  /* ---- Interpreted queries --------------------------------------------- *
-   * A typed Latin query is read by two interpreters, the Dubeolsik keyboard
-   * mapping and RR romanization. The response describes what survived:
-   * `interpretations: [{kind, from, to, start}]`, preferred first, `start`
-   * indexing into `matches` where that group begins.
-   *
-   * ONE interpretation reads as an ordinary search FOR THE HANGUL: the view
-   * is about 생일, not about "toddlf". TWO means the query was genuinely
-   * ambiguous, and no view may assert one reading over the other — the view
-   * is about what was TYPED, and each group says for itself what it mapped to.
-   * -------------------------------------------------------------------- */
-
-  function interpretationsOf(response) {
-    return asArray(response && response.interpretations).filter(function (entry) {
-      return entry && typeof entry === "object" && nonEmptyString(entry.to);
-    });
-  }
-
-  // The search context (srcText) the renderer works in. What the user typed is
-  // NEVER rewritten; this is what everything downstream of srcText — the
-  // variant notes, a label falling back to the query — reads instead.
-  function searchContext(response, typed) {
-    var interpretations = interpretationsOf(response);
-    // Exactly one: the search really is about the hangul it converted to.
-    if (interpretations.length === 1) {
-      return nonEmptyString(interpretations[0].to) || typed;
-    }
-    // None (an ordinary lookup) or two (ambiguous): the typed text stands.
-    return typed;
-  }
-
-  /**
-   * Split a response's matches into its interpretation groups.
-   *
-   * Indices come from the RAW matches array, so the slicing happens before
-   * anything filters it. Fewer than two interpretations is one anonymous
-   * group, which is every ordinary view.
-   */
-  function interpretationGroups(matches, interpretations) {
-    var all = asArray(matches);
-    var entries = asArray(interpretations).filter(function (entry) {
-      return entry && typeof entry === "object";
-    });
-    if (entries.length < 2) {
-      return [{ interpretation: null, matches: usableMatches(all) }];
-    }
-    var groups = [];
-    entries.forEach(function (entry, i) {
-      var start = Math.max(0, Math.min(all.length, Math.floor(entry.start) || 0));
-      var next = entries[i + 1];
-      var end = next
-        ? Math.max(start, Math.min(all.length, Math.floor(next.start) || 0))
-        : all.length;
-      var slice = usableMatches(all.slice(start, end));
-      if (slice.length) groups.push({ interpretation: entry, matches: slice });
-    });
-    // A group that turned up nothing renderable stops being a group, and one
-    // survivor stops being ambiguous — so its divider goes too.
-    if (groups.length < 2) {
-      return [{ interpretation: null, matches: usableMatches(all) }];
-    }
-    return groups;
-  }
-
-  // The slim header that introduces a group, naming the mapping it came from.
-  // Only ever rendered in the ambiguous case, which is why "(keyboard)" can
-  // live here rather than being conditional on anything else.
-  function buildGroupDivider(interpretation) {
-    var from = nonEmptyString(interpretation.from);
-    var to = nonEmptyString(interpretation.to);
-    if (!from || !to) return null;
-    // The separators are real text, so the row READS as the SPEC writes it
-    // ("su → 수") rather than depending on flex gaps to look spaced.
-    var row = el("div", "interp");
-    row.appendChild(el("span", "interp-from", from));
-    row.appendChild(document.createTextNode(" → "));
-    row.appendChild(el("span", "interp-to", to));
-    if (interpretation.kind === "dubeolsik") {
-      row.appendChild(document.createTextNode(" (keyboard)"));
-    }
-    return row;
-  }
-
-  // "surface → canonical" is a statement about the CURRENT view: it explains a
-  // glyph the reader actually highlighted here. char matches are cached per
-  // popup session and reused in later views (charDataIndex), so the surface on
-  // a cached match may belong to some earlier lookup — selecting 学生 and then
-  // drilling into 文學 must not caption that view's 學 card with "学 → 學".
-  // Rendering-time check, so nothing is mutated and going back restores the note.
+  // "territories → territory" is a statement about the CURRENT view: it
+  // explains the form the reader actually selected here. Responses are cached
+  // per popup session and reused in later views, so the surface on a cached
+  // match may belong to some earlier lookup. Selecting "territories" and then
+  // drilling into "terrain" must not caption that view with an inflection
+  // nobody typed. Rendering-time check, so nothing is mutated and going back
+  // restores the note.
   function noteApplies(surface) {
     if (!surface) return false;
     if (!currentSrcText) return true;   // unknown provenance: keep the note
-    return currentSrcText.indexOf(surface) !== -1;
+    return currentSrcText.toLowerCase().indexOf(surface.toLowerCase()) !== -1;
   }
 
-  function adoptCharData(matches) {
-    asArray(matches).forEach(function (m) {
-      if (!m || m.kind !== "char") return;
-      var surface = nonEmptyString(m.surface);
-      var canonical = nonEmptyString(m.canonical);
-      if (canonical && !charDataIndex[canonical]) charDataIndex[canonical] = m;
-      if (surface && !charDataIndex[surface]) charDataIndex[surface] = m;
-    });
-  }
-
-  // Single source of truth for where every char card lives. Each char match is
-  // rendered exactly once: nested under the first word card whose SELECTED
-  // spelling contains it, otherwise top-level. Re-running this after a chip
-  // swap moves cards in and out of the group automatically — including giving
-  // an independently-selected char its top-level card back.
-  function renderCharRegions() {
-    closeSaveBubble();   // char cards move between regions here and get rebuilt
-    var claim = Object.create(null);
-    wordStates.forEach(function (state) {
-      uniqStrings(asArray(state.items[state.index].chars)).forEach(function (ch) {
-        if (!claim[ch]) claim[ch] = state;
-      });
-    });
-
-    wordStates.forEach(function (state) {
-      clearNode(state.componentsBox);
-      state.componentList = el("div", "component-list");
-      state.owned = [];
-    });
-    charGroups.forEach(function (group) {
-      if (group.box) clearNode(group.box);
-    });
-
-    var rendered = Object.create(null);
+  // One card per match, in response order. Words and roots are the only two
+  // kinds there are, and each owns its own build.
+  function appendMatchCards(list) {
     var count = 0;
-    // Rebuilt from scratch every time cards move (including chip swaps), so an
-    // eumhun chip always points at the card currently on screen.
-    charCardIndex = Object.create(null);
-
-    wordStates.forEach(function (state) {
-      uniqStrings(asArray(state.items[state.index].chars)).forEach(function (ch) {
-        if (claim[ch] !== state || rendered[ch]) return;
-        var m = charDataIndex[ch];
-        if (!m) return; // not fetched (yet) — simply no card for it
-        var cardEl = buildCharCard(m);
-        cardEl.classList.add("component");
-        state.componentList.appendChild(cardEl);
-        state.owned.push(ch);
-        rendered[ch] = true;
-        charCardIndex[ch] = cardEl;
-        count++;
-      });
-      if (state.componentList.firstChild) {
-        state.componentsBox.appendChild(el("div", "label", "Component hanja"));
-        state.componentsBox.appendChild(state.componentList);
-      }
-    });
-
-    // Independent characters keep their top-level card, in the box belonging
-    // to their own interpretation group. The element is reused across swaps,
-    // so an unrelated card is genuinely untouched (same node, same text
-    // selection) rather than rebuilt. `rendered` is view-global on purpose: a
-    // glyph both groups turned up is one card, under whichever claimed it.
-    charGroups.forEach(function (group) {
-      if (!group.box) return;
-      group.chars.forEach(function (ch) {
-        if (rendered[ch] || claim[ch]) return;
-        var m = charDataIndex[ch];
-        if (!m) return;
-        var cardEl = group.cardEls[ch];
-        if (!cardEl) {
-          cardEl = buildCharCard(m);
-          group.cardEls[ch] = cardEl;
-        }
-        group.box.appendChild(cardEl);
-        rendered[ch] = true;
-        charCardIndex[ch] = cardEl;
-        count++;
-      });
-    });
-
-    return count;
-  }
-
-  // Order WITHIN one interpretation group: reading list, then word cards
-  // (same-surface homographs collapsed), then the independent chars. Returns
-  // the number of cards rendered.
-  //
-  // Called once per group, so it ACCUMULATES: wordStates and charGroups are
-  // reset by renderCurrentView, not here, and the char regions are laid out
-  // once at the end over every group. Each group gets its own top-chars box,
-  // which is what keeps a dual view's cards from interleaving.
-  // `preview` says this group is sharing the view with another, which is the
-  // only thing that caps a reading list. Passed in rather than read back off
-  // global state, so the rule stays a property of the CALL.
-  function appendMatchCards(list, preview) {
-    adoptCharData(list);
-
-    var readings = [];
-    var usedIns = [];
-    var foundIns = [];
-    var words = [];
-    var responseChars = [];
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].kind === "reading") readings.push(list[i]);
-      else if (list[i].kind === "usedin") usedIns.push(list[i]);
-      else if (list[i].kind === "foundin") foundIns.push(list[i]);
-      else if (list[i].kind === "word") words.push(list[i]);
-      else if (list[i].kind === "char") {
-        var ck = spellingKey(list[i]);
-        if (ck) responseChars.push(ck);
-      }
-    }
-    responseChars = uniqStrings(responseChars);
-
-    // Group word matches by surface, preserving first-appearance order.
-    var groups = [];
-    var bySurface = Object.create(null);
-    for (var w = 0; w < words.length; w++) {
-      var key = nonEmptyString(words[w].surface) || nonEmptyString(words[w].canonical);
-      if (!bySurface[key]) {
-        bySurface[key] = [];
-        groups.push(bySurface[key]);
-      }
-      bySurface[key].push(words[w]);
-    }
-
-    var count = 0;
-    for (var u = 0; u < usedIns.length; u++) {
-      var usedInCard = buildUsedInCard(usedIns[u]);
-      if (usedInCard) {
-        viewRoot.appendChild(usedInCard);
-        count++;
-      }
-    }
-    for (var f = 0; f < foundIns.length; f++) {
-      var foundInCard = buildFoundInCard(foundIns[f]);
-      if (foundInCard) {
-        viewRoot.appendChild(foundInCard);
-        count++;
-      }
-    }
-    for (var r = 0; r < readings.length; r++) {
-      var readingCard = buildReadingCard(readings[r], preview);
-      if (readingCard) {
-        viewRoot.appendChild(readingCard);
-        count++;
-      }
-    }
-
-    groups.forEach(function (group) {
-      var state = {
-        items: group, index: 0, card: null, body: null, chips: [],
-        partsBox: null, partsList: null,
-        componentsBox: null, componentList: null, owned: []
-      };
-      wordStates.push(state);
-      viewRoot.appendChild(buildWordGroupCard(state));
+    list.forEach(function (m) {
+      var card = m.kind === "root" ? buildRootCard(m) : buildWordCard(m);
+      if (!card) return;
+      viewRoot.appendChild(card);
       count++;
     });
-
-    // Char matches the response returned for a reason OTHER than being a
-    // component of some word's first spelling (rules 3/3b) — i.e. unmatched
-    // characters. Only these keep a top-level card when a spelling is swapped
-    // away. A char that is both a component and independently selected is
-    // deduped by the service worker; the component group wins (see notes).
-    var isComponent = Object.create(null);
-    wordStates.forEach(function (state) {
-      uniqStrings(asArray(state.items[0].chars)).forEach(function (ch) {
-        isComponent[ch] = true;
-      });
-    });
-
-    var box = el("div", "top-chars");
-    viewRoot.appendChild(box);
-    charGroups.push({
-      chars: responseChars.filter(function (ch) { return !isComponent[ch]; }),
-      cardEls: Object.create(null),
-      box: box
-    });
-
     return count;
   }
 
@@ -3072,72 +2351,29 @@
    * ------------------------------------------------------------------ */
 
   /* ---- view identity -------------------------------------------------- *
-   * A view's key is what it is ABOUT: one word, one character, one syllable
-   * list, one used-in list. Navigation compares keys so that arriving at a
-   * level already in the trail re-enters it instead of stacking a duplicate
-   * (the 學生 › 學生 › 學生 report). A view showing several independent things
-   * — a mixed sentence, a word plus unrelated characters — has no identity at
-   * all: pushing a genuinely new view is much cheaper than wrongly collapsing
-   * two different ones, so anything ambiguous returns null.
+   * A view's key is what it is ABOUT: one word, or one root. Navigation
+   * compares keys so that arriving at a level already in the trail re-enters
+   * it instead of stacking a duplicate. A view showing several independent
+   * things has no identity at all: pushing a genuinely new view is much
+   * cheaper than wrongly collapsing two different ones, so anything ambiguous
+   * returns null.
    * --------------------------------------------------------------------- */
   function viewKey(matches) {
     var list = usableMatches(matches);
-    if (!list.length) return null;
-
-    var usedIns = [], foundIns = [], readings = [], words = [], chars = [];
-    list.forEach(function (m) {
-      if (m.kind === "usedin") usedIns.push(m);
-      else if (m.kind === "foundin") foundIns.push(m);
-      else if (m.kind === "reading") readings.push(m);
-      else if (m.kind === "word") words.push(m);
-      else if (m.kind === "char") chars.push(m);
-    });
-
-    if (list.length === 1 && usedIns.length === 1) {
-      var listWord = nonEmptyString(usedIns[0].word);
-      return listWord ? "usedin:" + listWord : null;
-    }
-    if (list.length === 1 && readings.length === 1) {
-      var syllable = nonEmptyString(readings[0].surface) ||
-        nonEmptyString(readings[0].eum);
-      return syllable ? "reading:" + syllable : null;
-    }
-    if (usedIns.length || readings.length) return null;   // mixed: no identity
-
-    if (words.length) {
-      // Homographs share one surface and render as ONE card, so they are still
-      // a single target; two different surfaces are two cards and are not.
-      var surfaces = uniqStrings(words.map(function (m) {
-        return nonEmptyString(m.surface) || nonEmptyString(m.canonical);
-      }));
-      if (surfaces.length !== 1) return null;
-      // Only the first spelling contributes component char cards (rule 3b);
-      // any char card beyond those is an independent card on screen.
-      var isComponent = Object.create(null);
-      uniqStrings(asArray(words[0].chars)).forEach(function (ch) {
-        isComponent[ch] = true;
-      });
-      var independent = chars.filter(function (m) {
-        return !isComponent[spellingKey(m)];
-      });
-      if (independent.length) return null;
-      // The canonical, never the surface: a hangul-sourced 학생 view and a
-      // hanja 學生 navigation are the same view.
-      var canonical = nonEmptyString(words[0].canonical) || surfaces[0];
-      return canonical ? "word:" + canonical : null;
-    }
-
-    if (chars.length === 1) {
-      var glyph = spellingKey(chars[0]);
-      return glyph ? "char:" + glyph : null;
-    }
-    return null;
+    if (list.length !== 1) return null;
+    var m = list[0];
+    var key = matchKey(m);
+    if (!key) return null;
+    if (m.kind === "root") return "root:" + key;
+    // The lemma, never the surface: a view reached from "territories" and one
+    // reached from "Territory" are the same view.
+    return "word:" + key;
   }
 
   // Only the CURRENT view is protected from duplication. Arriving at a place
-  // that is further back in the trail is still forward travel — 學生 › 學校 ›
-  // 學生 is a legitimate descent, the same way browser history records a
-  // revisit — so an ancestor match pushes normally rather than collapsing.
+  // further back in the trail is still forward travel: terra › terrain › terra
+  // is a legitimate descent, the way browser history records a revisit, so an
+  // ancestor match pushes normally rather than collapsing.
   function isCurrentView(key) {
     if (!key) return false;
     var top = viewStack[viewStack.length - 1];
@@ -3145,15 +2381,14 @@
   }
 
   // Already-on-screen target: no push. Scroll back to the top and flash the
-  // card head, the same orientation cue the eumhun chips use.
+  // card head, a quiet orientation cue instead of a duplicate view.
   function orientCurrentView() {
     if (!viewRoot) return;
     scrollPanelTo(0);
     if (prefersReducedMotion()) return;
     var card = viewRoot.querySelector(".card");
     if (!card) return;
-    flashCard(card.querySelector(".head") ||
-      card.querySelector(".reading-title") || card);
+    flashCard(card.querySelector(".head") || card);
   }
 
   // Already here: orient instead of stacking a copy of this very view.
@@ -3164,29 +2399,27 @@
   }
 
   // A crumb names what the view IS, not the gesture that opened it: selecting
-  // 学生 roots the trail as 學生 (the card's "学生 → 學生" note already records
-  // what was highlighted). That is exactly the view's identity, so the label
-  // falls straight out of the key. Reading lists keep their syllable — the 국
-  // view is the homophone list, not a variant spelling of 國. Only a view with
-  // no single canonical (a mixed selection) falls back to its surface text.
+  // "territories" roots the trail as territory (the card's inflection note
+  // already records what was selected). That is exactly the view's identity,
+  // so the label falls straight out of the key. Only a view with no single
+  // identity falls back to its surface text.
   function viewLabel(matches, fallback) {
     var key = viewKey(matches);
     if (key) {
       var cut = key.indexOf(":");
       var kind = key.slice(0, cut);
-      if (kind === "word" || kind === "char" || kind === "reading") {
-        return key.slice(cut + 1);
+      if (kind === "word") return key.slice(cut + 1);
+      // A root crumb reads as the form, not as the la:terra key.
+      if (kind === "root") {
+        var m = usableMatches(matches)[0];
+        return nonEmptyString(rootOf(m).form) ||
+          splitRootKey(key.slice(cut + 1)).form;
       }
     }
-    var order = ["reading", "word", "char"];
-    for (var k = 0; k < order.length; k++) {
-      for (var i = 0; i < matches.length; i++) {
-        var m = matches[i];
-        if (m.kind !== order[k]) continue;
-        var label = nonEmptyString(m.surface) || nonEmptyString(m.canonical) ||
-          nonEmptyString(m.eum);
-        if (label) return label;
-      }
+    for (var i = 0; i < matches.length; i++) {
+      var label = nonEmptyString(matches[i].canonical) ||
+        nonEmptyString(matches[i].surface);
+      if (label) return label;
     }
     return nonEmptyString(fallback);
   }
@@ -3195,7 +2428,12 @@
     var view = viewStack[viewStack.length - 1];
     if (!view) return;
     view.scrollTop = panel.scrollTop;
-    view.selection = wordStates.map(function (state) { return state.index; });
+    // How far the reader had paged the family in. The offset above was
+    // measured against those rows, so the rebuild has to put them back before
+    // it means anything (see appendFamily's restore path).
+    view.familyShown = viewRoot
+      ? viewRoot.querySelectorAll(".fam-row").length
+      : 0;
   }
 
   /* ---- Breadcrumbs ------------------------------------------------------ *
@@ -3367,7 +2605,7 @@
   }
 
   // Swaps just the nav bar, so expanding the trail keeps the cards below
-  // (and their revealed compounds) exactly as they are.
+  // (and their revealed family rows) exactly as they are.
   function refreshCrumbs() {
     if (!viewRoot) return;
     var current = viewRoot.querySelector(".crumbs");
@@ -3386,50 +2624,22 @@
 
     // Any navigation re-collapses an expanded trail.
     crumbsExpanded = false;
-    // Scope for the variant notes drawn while this view renders.
+    // Scope for the inflection notes drawn while this view renders.
     currentSrcText = view.srcText || "";
     clearNode(panel);
     panel.scrollTop = 0;
+    // A render abandons whatever the previous one was still waiting on.
+    scrollHolds = 0;
     viewRoot = el("div", "view");
     panel.appendChild(viewRoot);
 
     if (viewStack.length > 1) viewRoot.appendChild(buildCrumbs());
 
-    // One group for an ordinary view, two when the query was ambiguous. The
-    // per-group state the card builders accumulate into is reset here, once,
-    // so appendMatchCards can simply be called per group.
-    wordStates = [];
-    charGroups = [];
-    var groups = (view.groups && view.groups.length)
-      ? view.groups
-      : [{ interpretation: null, matches: view.matches }];
-    var count = 0;
-    groups.forEach(function (group) {
-      if (groups.length > 1 && group.interpretation) {
-        var divider = buildGroupDivider(group.interpretation);
-        if (divider) viewRoot.appendChild(divider);
-      }
-      count += appendMatchCards(group.matches, groups.length > 1);
-    });
-    // Char regions are laid out ONCE across every group, so a glyph both
-    // interpretations turned up renders a single card.
-    count += renderCharRegions();
-
-    // Restore the spelling that was selected when we left this view.
-    if (view.selection && view.selection.length) {
-      var changed = false;
-      wordStates.forEach(function (state, i) {
-        var idx = view.selection[i];
-        if (typeof idx === "number" && idx > 0 && idx < state.items.length) {
-          state.index = idx;
-          changed = true;
-        }
-      });
-      if (changed) {
-        wordStates.forEach(syncWordCard);
-        renderCharRegions();
-      }
-    }
+    // Read by appendFamily as it builds, so a rebuilt view comes back with the
+    // rows it had, not just its preview rows.
+    pendingFamilyReveal = view.familyShown || 0;
+    var count = appendMatchCards(usableMatches(view.matches));
+    pendingFamilyReveal = 0;
 
     // Deferred: the panel may not have layout yet (see applyPendingScroll).
     pendingScrollTop = view.scrollTop || 0;
@@ -3465,22 +2675,21 @@
     viewStack.push({
       key: view.key || null, label: view.label, matches: view.matches,
       srcText: viewSourceText(view.matches, view.srcText),
-      scrollTop: 0, selection: null
+      scrollTop: 0
     });
     renderCurrentView();
     refreshLayout();
   }
 
-  // Every nav row — compounds, component words, used-in entries, reading rows,
-  // chip fallbacks — lands here, so the cycle guard covers all of them at once.
+  // Every word-bound nav row lands here: family rows today, anything added
+  // later by the same idiom. The cycle guard covers all of them at once.
   function navigateTo(text) {
     var target = nonEmptyString(text);
     if (!target) return;
 
-    // Rows navigate by canonical spelling, so "am I already here?" is usually
-    // answerable before asking the worker anything.
-    if (reenterCurrentView("word:" + target) ||
-        reenterCurrentView("char:" + target)) return;
+    // Rows navigate by lemma, so "am I already here?" is usually answerable
+    // before asking the worker anything.
+    if (reenterCurrentView("word:" + target)) return;
 
     var seq = requestSeq;
     fetchLookup(target).then(function (response) {
@@ -3488,8 +2697,8 @@
       if (!response || response.ok !== true) return;  // keep the current view
       var list = usableMatches(response.matches);
       if (!list.length) return;
-      // Authoritative check: a variant surface (学生) only resolves to its
-      // canonical key once the worker has answered.
+      // Authoritative check: an inflected surface only resolves to its lemma
+      // once the worker has answered.
       var key = viewKey(list);
       if (reenterCurrentView(key)) return;
       pushView({
@@ -3499,93 +2708,29 @@
     });
   }
 
-  /* ---- The word head's hangul ------------------------------------------ *
-   * A hangul with more than one hanja spelling is its OWN view: the selector
-   * IS the point of the click, so it gets an identity of its own —
-   * "hangul:사과" — instead of collapsing onto whichever spelling happens to
-   * sort first. Two things would otherwise swallow it: viewKey resolves a
-   * multi-spelling lookup to the first spelling's word view, and the
-   * orient-in-place rule then recognises the card you are already standing on.
-   * Between them, the other spellings were unreachable from a drill-down.
+  /* ---- Root drill-downs ------------------------------------------------- *
+   * A morpheme chip and an origin row both name a ROOT rather than a word, so
+   * they cannot go through the lookup path. They ask for the root card by key
+   * instead, and push it as an ordinary view: crumbs, cache, cycle handling
+   * and scroll restore all come along unchanged.
    * -------------------------------------------------------------------- */
 
-  // The distinct hanja spellings a lookup turned up for exactly this hangul.
-  function hangulSpellings(matches, hangul) {
-    return uniqStrings(usableMatches(matches).filter(function (m) {
-      return m.kind === "word" && nonEmptyString(m.surface) === hangul;
-    }).map(spellingKey));
-  }
-
-  // Asked of what the current view SHOWS, not of what it is called: a root
-  // hangul search renders this very selector but is keyed by its first
-  // spelling, so comparing keys alone would miss it and push a copy.
-  function showingSpellingsOf(hangul) {
-    var top = viewStack[viewStack.length - 1];
-    if (!top) return false;
-    if (top.key === "hangul:" + hangul) return true;
-    return hangulSpellings(top.matches, hangul).length > 1;
-  }
-
-  function navigateToHangul(text) {
-    var target = nonEmptyString(text);
+  function navigateToRoot(key) {
+    var target = nonEmptyString(key);
     if (!target) return;
-    // Re-clicking the selector orients, exactly as any other re-click does.
-    if (showingSpellingsOf(target)) {
-      orientCurrentView();
-      return;
-    }
+    if (reenterCurrentView("root:" + target)) return;
 
     var seq = requestSeq;
-    fetchLookup(target).then(function (response) {
+    fetchRoot(target).then(function (root) {
       if (seq !== requestSeq) return;
-      if (!response || response.ok !== true) return;
-      var list = usableMatches(response.matches);
-      if (!list.length) return;
-      if (hangulSpellings(list, target).length > 1) {
-        // The hangul itself is the identity, and the crumb names it.
-        pushView({
-          key: "hangul:" + target, label: target, matches: list, srcText: target
-        });
-        return;
-      }
-      // One spelling: an ordinary word view, under the ordinary orient rule.
-      var key = viewKey(list);
-      if (reenterCurrentView(key)) return;
+      if (!root) return;                // unknown key or a failed request
+      var match = { kind: "root", key: target, root: root };
       pushView({
-        key: key, label: viewLabel(list, target), matches: list, srcText: target
+        key: "root:" + target,
+        label: nonEmptyString(root.form) || splitRootKey(target).form,
+        matches: [match],
+        srcText: target
       });
-    });
-  }
-
-  // Swap the visible spelling. The body and parts update instantly; char cards
-  // follow as soon as their data is known (usually already cached).
-  function selectSpelling(state, index) {
-    if (index === state.index || index < 0 || index >= state.items.length) return;
-    state.index = index;
-    syncWordCard(state);
-    renderCharRegions();
-    refreshLayout();
-
-    var needed = uniqStrings(asArray(state.items[index].chars)).filter(function (ch) {
-      return !charDataIndex[ch];
-    });
-    if (!needed.length) return;
-
-    // Snapshot the view token: dismissing the popup or making a new selection
-    // bumps it and cancels this swap.
-    var seq = requestSeq;
-    Promise.all(needed.map(fetchLookup)).then(function (responses) {
-      if (seq !== requestSeq) return;
-      var before = Object.keys(charDataIndex).length;
-      responses.forEach(function (response) {
-        if (!response || response.ok !== true) return;
-        adoptCharData(response.matches);
-      });
-      if (Object.keys(charDataIndex).length === before) return; // nothing new
-      if (state.index !== index) return;                        // another chip won
-      syncWordCard(state);
-      renderCharRegions();
-      refreshLayout();
     });
   }
 
@@ -3624,38 +2769,30 @@
     host.style.setProperty("top", Math.round(top) + "px", "important");
   }
 
-  // Re-anchor after the content (and therefore the height) changed in place —
-  // spelling swap, drill-down, crumb jump. Keeps the popup glued to the
-  // original selection throughout the whole descent.
+  // Re-anchor after the content (and therefore the height) changed in place:
+  // a drill-down, a crumb jump, a revealed page of family rows. Keeps the
+  // popup glued to the original selection throughout the whole descent.
   function reposition() {
-    // Single choke point for every in-place re-anchor (spelling swap,
-    // drill-down, crumb jump, resize settle): in embed there is nothing to
-    // anchor to, so they all become no-ops here rather than at each call site.
+    // Single choke point for every in-place re-anchor (drill-down, crumb
+    // jump, resize settle): in embed there is nothing to anchor to, so they
+    // all become no-ops here rather than at each call site.
     if (IS_EMBED) return;
     if (!visible || !anchorRect) return;
     positionAt(anchorRect);
   }
 
-  function showAt(rect, matches, srcText, interpretations) {
+  function showAt(rect, matches, srcText) {
     ensureHost();
     var list = usableMatches(matches);
-    // Split before anything filters the array: `start` indexes the raw one.
-    var groups = interpretationGroups(matches, interpretations);
-    var ambiguous = groups.length > 1;
-    // An ambiguous query has no single canonical to name itself by, so the
-    // view IS the typed text — the trail reads "su › 女" whichever group the
-    // reader descended from, and neither reading is asserted over the other.
-    var typed = nonEmptyString(srcText);
     resetSession();
     viewStack = [{
-      key: (ambiguous && typed) ? "typed:" + typed : viewKey(list),
-      label: (ambiguous && typed) ? typed : viewLabel(list, ""),
+      key: viewKey(list),
+      label: viewLabel(list, ""),
       matches: list,
-      groups: groups,
-      // The selection itself: the root view is the one place a highlighted
-      // variant glyph is guaranteed to belong.
+      // The selection itself: the root view is the one place a selected
+      // inflected form is guaranteed to belong.
       srcText: viewSourceText(list, srcText),
-      scrollTop: 0, selection: null
+      scrollTop: 0
     }];
     var count = renderCurrentView();
     if (!count) {
@@ -3715,7 +2852,7 @@
     var text = String(sel.toString()).trim();
     if (!text) return null;
     if (text.length > MAX_SELECTION_CHARS) return null;
-    if (!HAN_RE.test(text) && !HANGUL_RE.test(text)) return null;
+    if (!WORD_RE.test(text)) return null;
     var range;
     try {
       range = sel.getRangeAt(0);
@@ -3759,76 +2896,60 @@
     });
   }
 
-  // `interpret` rides along ONLY when a typed entry point asked for it. Every
-  // other caller here — navigateTo, fetchLookup, the spelling swap, the
-  // compound and used-in fetches — leaves it off, which is the input-channel
-  // rule: internal navigation is always a literal lookup.
-  function sendLookup(text, interpret) {
-    var message = { type: "lookup", text: text };
-    if (interpret === true) message.interpret = true;
-    return sendToWorker(message);
+  function sendLookup(text) {
+    return sendToWorker({ type: "lookup", text: text });
   }
 
-  // The char's COMPLETE compound index, joined by the service worker. Fetched
-  // at most once per character per popup session; a failure resolves to null
-  // and is NOT cached, so the control can simply be pressed again.
-  function fetchCompounds(char) {
-    if (compoundsCache && Object.prototype.hasOwnProperty.call(compoundsCache, char)) {
-      return Promise.resolve(compoundsCache[char]);
+  // One root card, by key. Fetched at most once per key per popup session; a
+  // failure resolves to null and is NOT cached, so the chip can simply be
+  // pressed again.
+  function fetchRoot(key) {
+    if (rootCache && Object.prototype.hasOwnProperty.call(rootCache, key)) {
+      return Promise.resolve(rootCache[key]);
     }
-    if (compoundsPending && compoundsPending[char]) return compoundsPending[char];
-    var promise = sendToWorker({ type: "compounds", char: char }).then(function (response) {
-      if (compoundsPending) delete compoundsPending[char];
-      if (!response || response.ok !== true || !Array.isArray(response.compounds)) return null;
-      var list = response.compounds.filter(function (c) {
-        return c && typeof c === "object";
-      });
-      if (compoundsCache) compoundsCache[char] = list;
-      return list;
+    if (rootPending && rootPending[key]) return rootPending[key];
+    var promise = sendToWorker({ type: "root", key: key }).then(function (response) {
+      if (rootPending) delete rootPending[key];
+      if (!response || response.ok !== true) return null;
+      // A known-unknown key answers {root: null}. That is an answer, so it
+      // caches: asking again would get the same nothing.
+      var root = response.root && typeof response.root === "object"
+        ? response.root : null;
+      if (rootCache) rootCache[key] = root;
+      return root;
     });
-    if (compoundsPending) compoundsPending[char] = promise;
+    if (rootPending) rootPending[key] = promise;
     return promise;
   }
 
-  // The larger words containing this one. Same caching contract as the
-  // compound index: one request per word per popup session, failures resolve
-  // to null and are not cached so the disclosure row can simply be re-pressed.
-  function fetchUsedIn(word) {
-    if (usedInCache && Object.prototype.hasOwnProperty.call(usedInCache, word)) {
-      return Promise.resolve(usedInCache[word]);
+  // One CHUNK of a root's ranked family, starting at `offset`. Same caching
+  // contract as the root itself, per key and offset: one request each per
+  // popup session, failures resolve to null and are not cached, so the
+  // control can simply be pressed again. Resolves {rows, total, offset}.
+  function fetchFamily(key, offset) {
+    var at = typeof offset === "number" && offset > 0 ? Math.floor(offset) : 0;
+    var cacheKey = key + "@" + at;
+    if (familyCache && Object.prototype.hasOwnProperty.call(familyCache, cacheKey)) {
+      return Promise.resolve(familyCache[cacheKey]);
     }
-    if (usedInPending && usedInPending[word]) return usedInPending[word];
-    var promise = sendToWorker({ type: "usedIn", word: word }).then(function (response) {
-      if (usedInPending) delete usedInPending[word];
-      if (!response || response.ok !== true || !Array.isArray(response.words)) return null;
-      var list = response.words.filter(function (w) {
-        return w && typeof w === "object";
+    if (familyPending && familyPending[cacheKey]) return familyPending[cacheKey];
+    var promise = sendToWorker({ type: "family", key: key, offset: at })
+      .then(function (response) {
+        if (familyPending) delete familyPending[cacheKey];
+        if (!response || response.ok !== true || !Array.isArray(response.rows)) {
+          return null;
+        }
+        var chunk = {
+          rows: response.rows.filter(function (entry) {
+            return entry && typeof entry === "object";
+          }),
+          total: typeof response.total === "number" ? response.total : 0,
+          offset: typeof response.offset === "number" ? response.offset : at
+        };
+        if (familyCache) familyCache[cacheKey] = chunk;
+        return chunk;
       });
-      if (usedInCache) usedInCache[word] = list;
-      return list;
-    });
-    if (usedInPending) usedInPending[word] = promise;
-    return promise;
-  }
-
-  // The characters this one is a part of. Same caching contract as the used-in
-  // list: one request per char per popup session, failures resolve to null and
-  // are not cached, so the row can simply be pressed again.
-  function fetchFoundIn(char) {
-    if (foundInCache && Object.prototype.hasOwnProperty.call(foundInCache, char)) {
-      return Promise.resolve(foundInCache[char]);
-    }
-    if (foundInPending && foundInPending[char]) return foundInPending[char];
-    var promise = sendToWorker({ type: "foundIn", char: char }).then(function (response) {
-      if (foundInPending) delete foundInPending[char];
-      if (!response || response.ok !== true || !Array.isArray(response.chars)) return null;
-      var list = response.chars.filter(function (c) {
-        return c && typeof c === "object";
-      });
-      if (foundInCache) foundInCache[char] = list;
-      return list;
-    });
-    if (foundInPending) foundInPending[char] = promise;
+    if (familyPending) familyPending[cacheKey] = promise;
     return promise;
   }
 
@@ -3847,13 +2968,8 @@
       }
       // Re-read the rect: layout may have shifted while awaiting the response.
       var fresh = readSelection();
-      // A selection is never interpreted (readSelection requires Han or
-      // Hangul, and this path sets no interpret flag), so there is nothing to
-      // describe here in practice. Passing it through costs one argument and
-      // beats depending on that.
       showAt(fresh && fresh.text === sel.text ? fresh.rect : sel.rect,
-        response.matches, searchContext(response, sel.text),
-        response.interpretations);
+        response.matches, sel.text);
       // Seed the cache so drilling back into the original text is free.
       if (lookupCache) lookupCache[sel.text] = response;
     });
@@ -3954,6 +3070,36 @@
       left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0
     };
 
+    // A typed query in root-key shape: "la:terra", "en:-ful", "grc:logos".
+    // Nothing else can look like this, since a lookup token holds letters,
+    // apostrophes and hyphens and never a colon.
+    var ROOT_KEY_RE = /^(en|la|grc):.+$/;
+
+    // The root half of searchFor: one {type:"root"} request, then the same
+    // root view a morpheme chip would have pushed.
+    function searchForRoot(key) {
+      var seq = ++requestSeq;
+      return sendToWorker({ type: "root", key: key }).then(function (response) {
+        if (seq !== requestSeq) return { ok: true, count: 0, stale: true };
+        if (!response || response.ok !== true) {
+          hide();
+          return { ok: false, count: 0 };
+        }
+        var root = response.root && typeof response.root === "object"
+          ? response.root : null;
+        // An unknown key is not an error: it is a search with no answer, and
+        // the shell says so in the same words it uses for a missing word.
+        if (!root || !showAt(EMBED_RECT, [{
+          kind: "root", key: key, root: root
+        }], key)) {
+          hide();
+          return { ok: true, count: 0 };
+        }
+        if (rootCache) rootCache[key] = root;
+        return { ok: true, count: 1 };
+      });
+    }
+
     // The one window listener embed installs. In the in-page popup a resize
     // dismisses the popup outright, so there is nothing to re-measure; here
     // the panel simply gets narrower or wider under a sidebar edge drag, and
@@ -3988,21 +3134,21 @@
       // ask the worker, drop stale answers, render. Deliberately NOT built on
       // fetchLookup — that is the per-session drill-down cache, which is reset
       // by the very render this path performs.
-      // `options.interpret` opts this search into the two interpreters. It is
-      // the CALLER's to set, per the input-channel rule: only free-typed input
-      // (the shell's typed path, the omnibox, ?q=, the pending query) may
-      // interpret. Absent means literal, so every programmatic search — a
-      // saved row, the wordmark, anything internal — stays literal by default.
-      searchFor: function (text, options) {
+      //
+      // A query that IS a root key opens the root card instead. The omnibox
+      // hands the panel keys like "la:terra" for its root suggestions, and
+      // they reach here through every typed channel there is: the input, a
+      // ?q= deep link, and the worker's pending query.
+      searchFor: function (text) {
         var query = typeof text === "string" ? text.trim() : "";
-        var interpret = !!(options && options.interpret);
         ensureHost();
         if (!query) {
           hide();
           return Promise.resolve({ ok: true, count: 0 });
         }
+        if (ROOT_KEY_RE.test(query)) return searchForRoot(query);
         var seq = ++requestSeq;
-        return sendLookup(query, interpret).then(function (response) {
+        return sendLookup(query).then(function (response) {
           // A newer search (or clear()) won; leave the DOM to the winner.
           if (seq !== requestSeq) return { ok: true, count: 0, stale: true };
           if (!response || response.ok !== true) {
@@ -4011,8 +3157,7 @@
           }
           var list = usableMatches(response.matches);
           if (!list.length ||
-              !showAt(EMBED_RECT, response.matches,
-                searchContext(response, query), response.interpretations)) {
+              !showAt(EMBED_RECT, response.matches, query)) {
             // showAt already hid the panel when it rendered nothing.
             if (!list.length) hide();
             return { ok: true, count: 0 };
@@ -4034,9 +3179,17 @@
   if (IS_STUB) {
     var testDragOrigin = { x: 0, y: 0 };
     globalThis.__hanjaHover = {
-      showAt: function (rect, matches, srcText, interpretations) {
+      showAt: function (rect, matches, srcText) {
         ensureHost();
-        return showAt(rect, matches, srcText, interpretations);
+        return showAt(rect, matches, srcText);
+      },
+      // A root card without a worker round trip: the harness hands over the
+      // root object the {type:"root"} response would have carried.
+      showRoot: function (rect, root, srcText) {
+        ensureHost();
+        return showAt(rect, [{
+          kind: "root", key: (root && root.key) || "", root: root || {}
+        }], srcText);
       },
       // The badge registry itself, so a check can prove a NEW badge needs
       // nothing but an entry (the harness registers a dummy and removes it).
@@ -4056,7 +3209,22 @@
       hide: hide,
       handleSelection: handleSelection,
       readSelection: readSelection,
-      formatEumhun: formatEumhun,
+      // The navigation selection guard, asked directly. A check can then prove
+      // what the predicate answers for a PAGE selection and for one inside the
+      // popup without inferring it from a navigation that did or did not run.
+      selectionSuppressesNav: hasShadowSelection,
+      // A node inside the shadow, so a check can build a selection there.
+      selectInShadow: function (sel) {
+        ensureHost();
+        var node = panel.querySelector(sel);
+        if (!node) return false;
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var pageSel = window.getSelection();
+        pageSel.removeAllRanges();
+        pageSel.addRange(range);
+        return true;
+      },
       isVisible: function () { return visible; },
       hostRect: function () { ensureHost(); return host.getBoundingClientRect(); },
       panelText: function () { ensureHost(); return panel.textContent; },
@@ -4075,9 +3243,9 @@
       viewKeys: function () {
         return viewStack.map(function (v) { return v.key; });
       },
-      // The current view's search context (see viewSourceText). A
-      // QWERTY-converted query must leave the HANGUL here and never the Latin
-      // the user typed, which is the whole of what `converted` is for.
+      // The current view's search context (see viewSourceText). The
+      // inflection note is scoped by it, so a check can prove a stale surface
+      // never follows a match into a later view.
       viewSrcText: function () {
         var view = viewStack[viewStack.length - 1];
         return view ? view.srcText : "";

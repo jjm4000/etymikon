@@ -18,6 +18,14 @@ Outputs
     * cache/spike-misses.txt     top-10k words with no dictionary entry
 
 Spike code only. Not part of the product pipeline.
+
+The template tables and the parsing helpers below are a frozen copy of an
+early revision of what is now build.py, kept so the published numbers stay
+reproducible. build.py is the authority for how the extracts are read and
+has since moved on: it filters splits by language argument, prefers the
+surface analysis, restores affix hyphens on more template shapes, and reads
+the frequency list with the full word-key charset. Nothing here is imported
+by the build, and these numbers are pinned to the superseded parser.
 """
 
 from __future__ import annotations

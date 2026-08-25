@@ -1,5 +1,5 @@
 /*
- * Hanja Hover — content script stylesheet (intentionally empty).
+ * Etymikon, content script stylesheet (intentionally empty).
  *
  * The popup lives inside a CLOSED shadow root created by content/content.js,
  * so page-level CSS cannot reach it and rules written here would have no

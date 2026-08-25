@@ -1,5 +1,5 @@
 /*
- * Okpyeon — the side panel's SETTINGS view.
+ * Etymikon, the side panel's SETTINGS view.
  *
  * A classic script loaded after sidepanel.js, self-registering the same way
  * saved-view.js does.
@@ -57,10 +57,10 @@
       type: "select",
       label: "Word cards: front",
       options: [
-        { value: "hanja", label: "Hanja" },
-        { value: "hangul", label: "Hangul" }
+        { value: "word", label: "Word" },
+        { value: "defs", label: "Definitions" }
       ],
-      default: "hanja"
+      default: "word"
     },
     {
       key: "anki.wordBack",
@@ -68,36 +68,36 @@
       type: "checkset",
       label: "Word cards: back",
       options: [
-        { value: "hanja", label: "Hanja" },
-        { value: "hangul", label: "Hangul" },
-        { value: "defs", label: "Definitions" }
+        { value: "word", label: "Word" },
+        { value: "defs", label: "Definitions" },
+        { value: "breakdown", label: "Breakdown" },
+        { value: "tier", label: "Tier" }
       ],
-      default: ["hangul", "defs"]
+      default: ["defs", "breakdown"]
     },
     {
-      key: "anki.charFront",
+      key: "anki.rootFront",
       group: "Anki export",
       type: "select",
-      label: "Character cards: front",
+      label: "Root cards: front",
       options: [
-        { value: "char", label: "Character" },
-        { value: "eumhun", label: "Eum-hun" }
+        { value: "root", label: "Root" },
+        { value: "gloss", label: "Gloss" }
       ],
-      default: "char"
+      default: "root"
     },
     {
-      key: "anki.charBack",
+      key: "anki.rootBack",
       group: "Anki export",
       type: "checkset",
-      label: "Character cards: back",
+      label: "Root cards: back",
       options: [
-        { value: "char", label: "Character" },
-        { value: "eumhun", label: "Eum-hun" },
-        { value: "readings", label: "Readings" },
-        { value: "defs", label: "Definitions" },
-        { value: "lvl", label: "Level" }
+        { value: "root", label: "Root" },
+        { value: "source", label: "Source" },
+        { value: "gloss", label: "Gloss" },
+        { value: "family", label: "Family" }
       ],
-      default: ["eumhun", "defs"]
+      default: ["gloss", "family"]
     }
   ];
 
@@ -405,7 +405,7 @@
     title: "Saving and export settings",
     mount: function (container) {
       root = container;
-      // The jade seal is a permanent fixture of this view (user-directed),
+      // The corner seal is a permanent fixture of this view (user-directed),
       // not an empty-state mark — see sidepanel.css .view--sealed.
       container.classList.add("view--sealed");
       body = document.createElement("div");

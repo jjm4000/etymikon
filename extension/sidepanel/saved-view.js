@@ -1,5 +1,5 @@
 /*
- * Okpyeon — the side panel's SAVED view.
+ * Etymikon, the side panel's SAVED view.
  *
  * A classic script loaded after sidepanel.js, which self-registers through
  * __okpyeonSidebar.registerView. Registering is the whole wiring: the nav row
@@ -7,9 +7,9 @@
  * knows this file is here.
  *
  * This is PAGE chrome, not the shadow renderer: rows are plain elements styled
- * by sidepanel.css, so there are no level chips and no card markup here. The
- * secondary line carries the hangul (words) or the eumhun (characters), and a
- * row whose entry has left the dictionary says so instead of vanishing.
+ * by sidepanel.css, so there are no tier chips and no card markup here. The
+ * secondary line carries the first definition (words) or the gloss (roots),
+ * and a row whose entry has left the dictionary says so instead of vanishing.
  *
  * Everything the view knows comes from the worker (`savedGet`), and everything
  * it changes goes back through the worker — the panel never touches storage.
@@ -210,21 +210,19 @@
   }
 
   // Dictionary text only ever reaches the DOM as text, never as markup.
-  function firstGloss(item) {
-    var glosses = item && item.glosses;
-    return (glosses && glosses.length) ? String(glosses[0]) : "";
-  }
-
-  // Words carry their hangul; characters carry their eumhun, rendered the way
-  // the cards say it ("하늘 천"), and both land in the same secondary slot.
+  //
+  // A word row's secondary line is its first definition, a root row's is its
+  // gloss. The worker joins both against live data, and both land in the same
+  // slot: one line under the key, saying what the saved thing means.
   function secondaryText(item) {
-    if (item.kind === "char") {
-      return (item.eumhun || []).map(function (entry) {
-        return ((entry && entry.hun ? entry.hun : "") + " " +
-                (entry && entry.eum ? entry.eum : "")).trim();
-      }).filter(Boolean).join(", ");
-    }
-    return item.hangul ? String(item.hangul) : "";
+    if (item.kind === "root") return item.gloss ? String(item.gloss) : "";
+    var defs = item && item.defs;
+    if (defs && defs.length) return String(defs[0]);
+    // A join that hands back whole senses rather than a flat def list.
+    var senses = item && item.senses;
+    var first = senses && senses.length ? senses[0] : null;
+    if (first && first.defs && first.defs.length) return String(first.defs[0]);
+    return "";
   }
 
   /* ------------------------------------------------------------------ *
@@ -470,13 +468,11 @@
 
     var text = el("div", "saved-text");
     text.appendChild(el("span", "saved-primary", item.key));
-    var secondary = secondaryText(item);
-    if (secondary) text.appendChild(el("span", "saved-secondary", secondary));
     if (item.missing === true) {
       text.appendChild(el("span", "saved-missing", "no longer in the dictionary"));
     } else {
-      var gloss = firstGloss(item);
-      if (gloss) text.appendChild(el("span", "saved-gloss", gloss));
+      var secondary = secondaryText(item);
+      if (secondary) text.appendChild(el("span", "saved-secondary", secondary));
     }
     row.appendChild(text);
 
@@ -739,7 +735,7 @@
         return;
       }
       var filename = res.filename ||
-        (format === "csv" ? "okpyeon-saved.csv" : "okpyeon-anki.txt");
+        (format === "csv" ? "etymikon-saved.csv" : "etymikon-anki.txt");
       var type = format === "csv" ? "text/csv" : "text/plain";
       var url = URL.createObjectURL(new Blob([res.tsv], { type: type + ";charset=utf-8" }));
       var anchor = els.anchor;
@@ -756,7 +752,12 @@
         filename: filename, format: format, body: res.tsv,
         count: res.count, skipped: res.skipped
       };
-      anchor.click();
+      // The anchor is fully built either way; only the gesture that hands the
+      // file to the browser is skipped when a harness asks for it. A page
+      // driving these checks in a real browser would otherwise open a Save As
+      // dialog per run, and everything worth asserting (href, download name,
+      // format, counts, body) is already on the element and in lastDownload.
+      if (globalThis.__okpyeonSuppressDownload !== true) anchor.click();
       setTimeout(function () { URL.revokeObjectURL(url); }, 0);
       closeActionsInline();
     });
@@ -883,11 +884,11 @@
   sidebar.registerView({
     key: "saved",
     label: "Saved",
-    title: "Saved words and characters",
+    title: "Saved words and roots",
     mount: function (container, viewCtx) {
       ctx = viewCtx;
       root = container;
-      // The jade seal is a permanent fixture of this view (user-directed),
+      // The corner seal is a permanent fixture of this view (user-directed),
       // not an empty-state mark — see sidepanel.css .view--sealed.
       container.classList.add("view--sealed");
       container.appendChild(buildBar());
