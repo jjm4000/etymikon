@@ -832,7 +832,7 @@
     "level", "folder", "added"
   ];
 
-  var saved, settings, savedCheckCalls, savedLastCheckKeys, savedFail;
+  var saved, settings, savedCheckCalls, savedGetCalls, savedLastCheckKeys, savedFail;
 
   function resetSaved() {
     saved = {
@@ -847,6 +847,7 @@
       }
     };
     savedCheckCalls = 0;
+    savedGetCalls = 0;
     savedLastCheckKeys = null;
     savedFail = { all: false, check: false, toggle: false };
   }
@@ -1013,6 +1014,7 @@
     }
 
     if (msg.type === "savedGet") {
+      savedGetCalls++;
       return { ok: true, folders: foldersCopy(), items: joinSaved(saved.items) };
     }
 
@@ -1154,6 +1156,9 @@
     // savedCheck is batched one-per-render-pass, so its call count is a
     // meaningful assertion and not just bookkeeping.
     checkCalls: function () { return savedCheckCalls; },
+    // The panel re-reads the whole store to redraw the SAVED view, so this is
+    // how a check proves one write costs one read and not two.
+    getCalls: function () { return savedGetCalls; },
     lastCheckKeys: function () {
       return savedLastCheckKeys ? savedLastCheckKeys.slice() : null;
     },
@@ -3011,6 +3016,57 @@
     check("a change in another area, or to another key, is left alone",
       savedView.handleStorageChanged({ okpSaved: {} }, "sync") === false &&
       savedView.handleStorageChanged({ okpOther: {} }, "local") === false);
+
+    /* One write, one read. A mutation the panel makes refreshes explicitly AND
+     * comes back through chrome.storage.onChanged, and marking self-originated
+     * writes is what keeps that pair from costing two savedGet round-trips and
+     * two wholesale list rebuilds. The harness has no real storage listener, so
+     * it has to say the marking is live. State-restoring: the folder and the
+     * row this block adds are gone again by the end of it. */
+    savedView.setStorageSync(true);
+    var getsBeforeOwn = store.getCalls();
+    byId("okp-saved-new").click();
+    byId("okp-saved-name-input").value = "Echo";
+    barInline.querySelector(".saved-name-ok").click();
+    await wait(TAIL);
+    var ownEcho = savedView.handleStorageChanged({ okpSaved: { newValue: 1 } }, "local");
+    await wait(TAIL);
+    check("the panel's own write reads the store once and drops the storage echo",
+      ownEcho === false && store.getCalls() === getsBeforeOwn + 1 &&
+      savedView.pendingSelfWrites() === 0 && savedView.folders().length === 3,
+      "gets=" + (store.getCalls() - getsBeforeOwn) + " echo=" + ownEcho +
+      " pending=" + savedView.pendingSelfWrites());
+
+    var echoId = store.state().folders[2].id;
+    var getsBeforeOther = store.getCalls();
+    await send({ type: "savedToggle", kind: "char", key: "校" });
+    check("a write made anywhere else is still taken, so page saves keep arriving",
+      savedView.handleStorageChanged({ okpSaved: { newValue: 2 } }, "local") === true);
+    await wait(TAIL);
+    check("and it costs the one read it was always worth",
+      store.getCalls() === getsBeforeOther + 1 && !!rowFor("校"),
+      "gets=" + (store.getCalls() - getsBeforeOther));
+
+    setFilter(echoId);
+    store.fail("all", true);
+    byId("okp-saved-rename").click();
+    byId("okp-saved-name-input").value = "Refused";
+    barInline.querySelector(".saved-name-ok").click();
+    await wait(TAIL);
+    store.fail("all", false);
+    check("a mutation the worker refuses releases its claim instead of banking it",
+      savedView.pendingSelfWrites() === 0 &&
+      barInline.querySelector(".saved-error").hidden === false,
+      "pending=" + savedView.pendingSelfWrites());
+    barInline.querySelector(".saved-name-cancel").click();
+    savedView.setStorageSync(false);
+    setFilter("");
+    await send({ type: "folderDelete", id: echoId });
+    await send({ type: "savedToggle", kind: "char", key: "校" });
+    await savedView.refresh();
+    check("the block leaves the store exactly where it found it",
+      savedView.folders().length === 2 && savedRows().length === rowsBeforeChange + 1,
+      "folders=" + savedView.folders().length + " rows=" + savedRows().length);
 
     // The seal marks empty paper only (.view--roomy from a room measurement
     // after each render). This block is state-restoring: it grows the list

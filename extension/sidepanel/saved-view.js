@@ -29,6 +29,8 @@
  *   lastDownload()            {filename, format, body, count, skipped} or null
  *   handleStorageChanged(c,a) the storage-change handler, driveable without a
  *                             real chrome.storage
+ *   setStorageSync(on)        pretend a real storage listener is (not) attached
+ *   pendingSelfWrites()       unspent self-write claims, for the check above
  */
 (function () {
   "use strict";
@@ -113,6 +115,47 @@
   // A transient note in the actions bar's count slot ("Moved 2 to Exam
   // words"): holds off the normal count text until it expires, then the
   // next renderActions restores it.
+  /* ------------------------------------------------------------------ *
+   * Self-originated writes
+   *
+   * Every mutation the panel sends is followed by an explicit refresh(), and
+   * the same write comes back a second time through chrome.storage.onChanged —
+   * so one click cost two savedGet round-trips and two wholesale list rebuilds.
+   * A mutation leaves a claim here BEFORE it is sent, so the claim is always in
+   * place by the time the write lands; the storage event that follows spends it
+   * and stops there. Writes made anywhere else — a page popup's ☆ — find no
+   * claim and refresh as they always did.
+   *
+   * Claims are fungible: a refused mutation releases one, and every claim
+   * expires, so a write that never happened cannot go on swallowing real
+   * events. Nothing is claimed unless a storage listener is actually attached,
+   * because without one there is no second refresh to suppress.
+   * ------------------------------------------------------------------ */
+
+  var storageSyncLive = false;
+  var SELF_WRITE_TTL = 3000;
+  var selfWrites = [];
+
+  function releaseSelfWrite() { selfWrites.pop(); }
+
+  function spendSelfWrite() {
+    var now = Date.now();
+    while (selfWrites.length && selfWrites[0] <= now) selfWrites.shift();
+    if (!selfWrites.length) return false;
+    selfWrites.shift();
+    return true;
+  }
+
+  // Writing messages go through here rather than sendToWorker, so none of them
+  // can forget to mark itself.
+  function mutate(payload) {
+    if (storageSyncLive) selfWrites.push(Date.now() + SELF_WRITE_TTL);
+    return sendToWorker(payload).then(function (res) {
+      if (storageSyncLive && (!res || res.ok !== true)) releaseSelfWrite();
+      return res;
+    });
+  }
+
   var flashUntil = 0;
   function flashCount(text) {
     flashUntil = Date.now() + 2500;
@@ -351,7 +394,7 @@
       var message = mode === "new"
         ? { type: "folderCreate", name: name }
         : { type: "folderRename", id: filterId, name: name };
-      sendToWorker(message).then(function (res) {
+      mutate(message).then(function (res) {
         if (!res || res.ok !== true) {
           error.textContent = (res && res.error) ? String(res.error) : "That did not work.";
           error.hidden = false;
@@ -395,7 +438,7 @@
     var no = button("saved-confirm-no", "Cancel");
     yes.addEventListener("click", function () {
       var target = filterId;
-      sendToWorker({ type: "folderDelete", id: target }).then(function () {
+      mutate({ type: "folderDelete", id: target }).then(function () {
         if (filterId === target) filterId = "";
         closeBarInline();
         refresh();
@@ -612,7 +655,7 @@
       if (!target) return;
       var ids = effectiveIds();
       if (!ids.length) return;
-      sendToWorker({ type: "savedMove", ids: ids, folderId: target }).then(function (res) {
+      mutate({ type: "savedMove", ids: ids, folderId: target }).then(function (res) {
         // Moves are reversible, so no confirmation — but not silent either:
         // under a folder filter the moved rows vanish from view, which reads
         // as deletion without this note (user-raised).
@@ -694,7 +737,7 @@
     var yes = button("saved-confirm-yes", "Delete");
     var no = button("saved-confirm-no", "Cancel");
     yes.addEventListener("click", function () {
-      sendToWorker({ type: "savedRemove", ids: ids }).then(function () {
+      mutate({ type: "savedRemove", ids: ids }).then(function () {
         for (var i = 0; i < ids.length; i++) delete selected[ids[i]];
         closeActionsInline();
         refresh();
@@ -871,6 +914,9 @@
   function handleStorageChanged(changes, area) {
     if (area && area !== "local") return false;
     if (changes && !changes.okpSaved && !changes.okpSettings) return false;
+    // Spent before the visibility test, so a claim cannot outlive its write by
+    // being left behind while the view is hidden.
+    if (spendSelfWrite()) return false;
     if (!visible) return false;
     refresh();
     return true;
@@ -907,6 +953,7 @@
         storage.onChanged.addListener(function (changes, area) {
           handleStorageChanged(changes, area);
         });
+        storageSyncLive = true;
       }
       refresh();
     },
@@ -931,6 +978,14 @@
     collapsed: function () { return Object.keys(collapsed); },
     effectiveIds: effectiveIds,
     lastDownload: function () { return lastDownload; },
-    handleStorageChanged: handleStorageChanged
+    handleStorageChanged: handleStorageChanged,
+    // The harness has no chrome.storage, so mount() never sets the flag that
+    // turns self-write marking on. These put the view in the state a real
+    // panel is in, and read back what the marking has left pending.
+    setStorageSync: function (on) {
+      storageSyncLive = on !== false;
+      if (!storageSyncLive) selfWrites.length = 0;
+    },
+    pendingSelfWrites: function () { return selfWrites.length; }
   };
 })();
