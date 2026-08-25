@@ -3,7 +3,6 @@ pipeline/cache/
 
 # Store upload packages (rebuilt by pipeline/make_zip.ps1)
 etymikon-*.zip
-okpyeon-*.zip
 
 # Local verification scratch files
 test-page/_*.local.html

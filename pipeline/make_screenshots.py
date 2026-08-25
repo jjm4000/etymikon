@@ -18,7 +18,7 @@ Chrome 151 headless ignores --load-extension, so there is no way to capture the
 real extension running on a real page. Instead two staging pages in
 pipeline/screenshots/ load the REAL extension code (lookup.js, saved.js,
 content.js, the sidepanel scripts, the shipped CSS, the shipped data files)
-behind the __hanjaHoverTestRuntime stub those scripts already accept in place of
+behind the __etymikonTestRuntime stub those scripts already accept in place of
 chrome.runtime. Everything in the resulting pixels is the product's own
 rendering; only the message transport is local. Each staging page documents its
 own query parameters in the comment at the top of the file.
@@ -100,20 +100,20 @@ SEPARATOR_DARK = (60, 64, 67)
 # is the SPEC's own wording: MADE OF, BUILDS N WORDS, FROM LATIN,
 # "Used in N words", "Show 5 more (N)". A shot that no longer says what the
 # SPEC says is not a shot worth shipping.
-POPUP_UP = ("popup is visible", "globalThis.__hanjaHover.isVisible()")
+POPUP_UP = ("popup is visible", "globalThis.__etymikon.isVisible()")
 
 
 def head_is(text):
     return (
         f"card headline is {text}",
-        f'globalThis.__hanjaHover.query(".card .surface").textContent === "{text}"',
+        f'globalThis.__etymikon.query(".card .surface").textContent === "{text}"',
     )
 
 
 def has_text(label, selector, text):
     return (
         label,
-        f'[...globalThis.__hanjaHover.queryAll("{selector}")]'
+        f'[...globalThis.__etymikon.queryAll("{selector}")]'
         f'.some((n) => n.textContent.includes("{text}"))',
     )
 
@@ -124,7 +124,7 @@ def label_is(text):
     not pass on a label that merely contains it."""
     return (
         f"section label {text!r}",
-        f'[...globalThis.__hanjaHover.queryAll(".label")]'
+        f'[...globalThis.__etymikon.queryAll(".label")]'
         f'.some((n) => n.textContent === "{text}")',
     )
 
@@ -134,7 +134,7 @@ def label_matches(label, pattern):
     in it, so a rebuilt bundle changes the number without breaking the shot."""
     return (
         label,
-        f'[...globalThis.__hanjaHover.queryAll(".label")]'
+        f'[...globalThis.__etymikon.queryAll(".label")]'
         f'.some((n) => /{pattern}/.test(n.textContent))',
     )
 
@@ -149,7 +149,7 @@ def chip_forms(*forms):
     wanted = json.dumps(list(forms), separators=(",", ":"), ensure_ascii=False)
     return (
         "chips read " + " + ".join(forms),
-        'JSON.stringify([...globalThis.__hanjaHover.queryAll(".morph-form")]'
+        'JSON.stringify([...globalThis.__etymikon.queryAll(".morph-form")]'
         f'.map((n) => n.textContent)) === {json.dumps(wanted)}',
     )
 
@@ -157,42 +157,52 @@ def chip_forms(*forms):
 def rows_are(count):
     return (
         f"{count} ranked rows",
-        f'globalThis.__hanjaHover.queryAll(".fam-row").length === {count}',
+        f'globalThis.__etymikon.queryAll(".fam-row").length === {count}',
     )
 
 
 # Word cards and family rows render exactly one tier chip (SPEC, "Tier chips").
 TIERS_EXCLUSIVE = (
     "every ranked row carries exactly one tier chip",
-    '[...globalThis.__hanjaHover.queryAll(".fam-row")]'
+    '[...globalThis.__etymikon.queryAll(".fam-row")]'
     '.every((r) => r.querySelectorAll(".tier-chip").length === 1)',
 )
 
-# A ranked row clamps to one line and the tier chip rides at the END of that
-# line, so a narrow popup loses the chip on every row with a long definition.
-# A shot that advertises the tier signal has to prove the chips reached the
-# pixels, not merely the DOM. The clamp pushes an overflowing chip onto a
-# hidden SECOND line rather than off the right edge, so the box is tested on
-# both axes: a chip below the row is as invisible as one past its right edge.
+# A ranked row clamps its DEFINITION to one line. The tier chip is a sibling of
+# that clamped text rather than part of it, so it holds its own width at any
+# panel size (renderer fix 2026-08-25: inside the clamp, a long definition
+# pushed the chip onto the hidden second line and the row silently lost it,
+# which is what this check first caught). A shot that advertises the tier
+# signal proves the chips reached the PIXELS, not merely the DOM, and on both
+# axes: a chip below its row is as invisible as one past its right edge.
 CHIPS_IN_VIEW = (
-    "at least 3 tier chips survive the one-line row clamp",
-    '[...globalThis.__hanjaHover.queryAll(".fam-row")].filter((r) => {'
+    "every ranked row's tier chip is inside its row box",
+    '(() => { const rows = [...globalThis.__etymikon.queryAll(".fam-row")];'
+    ' return rows.length > 0 && rows.every((r) => {'
     ' const c = r.querySelector(".tier-chip"); if (!c) return false;'
     ' const b = c.getBoundingClientRect(), rr = r.getBoundingClientRect();'
     ' return b.width > 0 && b.right <= rr.right + 1 && b.bottom <= rr.bottom + 1;'
-    '}).length >= 3',
+    ' }); })()',
 )
 
 # The whole-card rule: a list that fits the inline cap is fetched up front and
 # rendered whole, so no "Show 5 more (N)" control is built at all.
 NO_PAGER = (
     'the list fits inline, so no "Show 5 more (N)" control renders',
-    'globalThis.__hanjaHover.queryAll(".fam-more").length === 0',
+    'globalThis.__etymikon.queryAll(".fam-more").length === 0',
+)
+
+# The other half of that rule: a list too long to render whole offers the
+# pager, worded as the SPEC words it, with the remaining count in it.
+PAGER = (
+    'the list pages: a "Show 5 more (N)" control carrying its count',
+    '(() => { const b = globalThis.__etymikon.query(".fam-more");'
+    r' return !!b && /^Show 5 more \(\d+\)$/.test(b.textContent); })()',
 )
 
 IN_FRAME = (
     "the whole popup is in frame",
-    f"globalThis.__hanjaHover.hostRect().bottom < {SHOT_H}",
+    f"globalThis.__etymikon.hostRect().bottom < {SHOT_H}",
 )
 
 
@@ -203,7 +213,7 @@ def crumbs_include(*labels):
     return (
         "breadcrumb trail carries " + " and ".join(labels),
         "((c) => " + " && ".join(f"c.indexOf({json.dumps(x)}) >= 0" for x in labels)
-        + ")(globalThis.__hanjaHover.crumbLabels())",
+        + ")(globalThis.__etymikon.crumbLabels())",
     )
 
 
@@ -251,27 +261,31 @@ SHOTS = [
         "n": 2,
         "name": "2-root-family.png",
         "kind": "page",
-        # The terra chip from shot 1, opened. A root card is where the product
-        # pays the reader back: the gloss, and the shipped words built on it,
-        # ranked by frequency with their tiers.
+        # The -ful chip from beautiful, opened. A root card is where the
+        # product pays the reader back: the gloss, and the shipped words built
+        # on it, ranked by frequency with their tiers.
         #
-        # Wider than the other popup shots on purpose, and the panel is
-        # user-resizable, so this is a size a reader can have. At 420 the
-        # one-line clamp eats the tier chip on every row with a long
-        # definition; 640 is where the count stops improving.
+        # A COMMON English suffix on purpose. 360 words is far past what a card
+        # renders inline, so this is the one shot in the set with a live
+        # "Show 5 more (N)" pager, and it shows the Germanic half of the
+        # dictionary beside all the Latin elsewhere in the set.
+        #
+        # Wider than the other popup shots, and the panel is user-resizable, so
+        # this is a size a reader can have: a ranked list reads better with room
+        # for the definitions beside the words.
         "page": {"scene": "root", "w": 640, "bottom": 40},
         "checks": [
             POPUP_UP,
-            head_is("terra"),
-            has_text("label line reads Latin root", ".rootlabel", "Latin root"),
+            head_is("-ful"),
+            has_text("label line reads Suffix", ".rootlabel", "Suffix"),
             label_matches("family label reads BUILDS N WORDS",
                           r"^BUILDS \d+ WORDS$"),
             rows_are(8),
             TIERS_EXCLUSIVE,
             CHIPS_IN_VIEW,
-            has_text("territory among the family", ".fam-word", "territory"),
-            NO_PAGER,
-            crumbs_include("subterranean", "terra"),
+            has_text("beautiful among the family", ".fam-word", "beautiful"),
+            PAGER,
+            crumbs_include("beautiful", "-ful"),
             IN_FRAME,
         ],
     },
@@ -372,7 +386,7 @@ SHOTS = [
             label_is("MADE OF"),
             chip_forms("sub-", "terra", "-an"),
             ("the card took its dark ground",
-             'globalThis.__hanjaHover.panelStyle("--bg").trim() === "#23232a"'),
+             'globalThis.__etymikon.panelStyle("--bg").trim() === "#23232a"'),
             IN_FRAME,
         ],
     },

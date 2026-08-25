@@ -18,7 +18,7 @@
    * In the real extension `chrome.runtime` always exists, so the stub is
    * never reached. It only kicks in when the script is loaded into a plain
    * page (test-page/index.html) for visual testing. A page may install its
-   * own fake at globalThis.__hanjaHoverTestRuntime before this script runs.
+   * own fake at globalThis.__etymikonTestRuntime before this script runs.
    * ------------------------------------------------------------------ */
 
   var HAS_CHROME_RUNTIME =
@@ -75,24 +75,24 @@
 
   var RUNTIME = HAS_CHROME_RUNTIME
     ? globalThis.chrome.runtime
-    : (globalThis.__hanjaHoverTestRuntime || makeFallbackRuntime());
+    : (globalThis.__etymikonTestRuntime || makeFallbackRuntime());
   var IS_STUB = !HAS_CHROME_RUNTIME;
 
   /* ------------------------------------------------------------------ *
    * Embed mode
    *
    * A host page (the search popup page, or its test harness) sets
-   * `globalThis.__okpyeonEmbed = true` BEFORE this script runs. The popup is
+   * `globalThis.__etymikonEmbed = true` BEFORE this script runs. The popup is
    * then a component of that page rather than an overlay on someone else's:
    * no selection/dismissal listeners, no floating anchor, no resize handle —
-   * the host supplies a container through globalThis.__okpyeonEmbedApi.
+   * the host supplies a container through globalThis.__etymikonEmbedApi.
    *
    * This gate is ORTHOGONAL to IS_STUB: an extension popup page has a real
    * chrome.runtime (IS_STUB false, IS_EMBED true), and the embed test harness
    * has neither (both true).
    * ------------------------------------------------------------------ */
 
-  var IS_EMBED = globalThis.__okpyeonEmbed === true;
+  var IS_EMBED = globalThis.__etymikonEmbed === true;
 
   /* ------------------------------------------------------------------ *
    * Constants
@@ -3283,7 +3283,7 @@
     chrome.storage.onChanged.addListener(function (changes, area) {
       // Only the saved record, only the area we write to. Settings changes
       // and anything else are none of a star's business.
-      if (area !== "local" || !changes || !changes.okpSaved) return;
+      if (area !== "local" || !changes || !changes.etySaved) return;
       applySavedChange();
     });
   }
@@ -3347,15 +3347,15 @@
       }, RESIZE_DEBOUNCE);
     });
 
-    globalThis.__okpyeonEmbedApi = {
+    globalThis.__etymikonEmbedApi = {
       // The container must already be in the document: ensureHost appends into
       // it immediately and the first render measures inside it.
       mount: function (container) {
         if (!container || container.nodeType !== 1) {
-          throw new TypeError("okpyeon embed: mount() needs an element");
+          throw new TypeError("etymikon embed: mount() needs an element");
         }
         if (!container.isConnected) {
-          throw new Error("okpyeon embed: mount() container is not in the document");
+          throw new Error("etymikon embed: mount() container is not in the document");
         }
         if (embedContainer) return false; // single mount; later calls are no-ops
         embedContainer = container;
@@ -3411,7 +3411,7 @@
 
   if (IS_STUB) {
     var testDragOrigin = { x: 0, y: 0 };
-    globalThis.__hanjaHover = {
+    globalThis.__etymikon = {
       showAt: function (rect, matches, srcText) {
         ensureHost();
         return showAt(rect, matches, srcText);

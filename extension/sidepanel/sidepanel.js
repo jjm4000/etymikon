@@ -23,7 +23,7 @@
  *   HEADER_ACTIONS  {key, label, title, enabled, onClick} — the buttons at
  *                   the right of the header row. Ships empty.
  *
- * Exposed for the test harness as globalThis.__okpyeonSidebar:
+ * Exposed for the test harness as globalThis.__etymikonSidebar:
  *
  *   viewRegistry            the live SIDEBAR_VIEWS array
  *   actionRegistry          the live HEADER_ACTIONS array
@@ -157,9 +157,9 @@
 
   var SIDEBAR_VIEWS = [];
 
-  var navBox = document.getElementById("okp-nav");
-  var actionsBox = document.getElementById("okp-actions");
-  var viewsBox = document.getElementById("okp-views");
+  var navBox = document.getElementById("ety-nav");
+  var actionsBox = document.getElementById("ety-actions");
+  var viewsBox = document.getElementById("ety-views");
 
   // key -> container element, so mount() runs exactly once per view.
   var mountedViews = Object.create(null);
@@ -177,8 +177,8 @@
 
   function viewContext() {
     return {
-      embedApi: globalThis.__okpyeonEmbedApi,
-      shell: globalThis.__okpyeonSearchShell,
+      embedApi: globalThis.__etymikonEmbedApi,
+      shell: globalThis.__etymikonSearchShell,
       refreshSeal: refreshSeals
     };
   }
@@ -202,7 +202,7 @@
    *                                  //   content (default: the container)
    *
    * The box's CHILDREN are measured, never the box: a stretched flex scroller
-   * (#okp-results, .settings-body) always reaches the view's bottom edge and
+   * (#ety-results, .settings-body) always reaches the view's bottom edge and
    * would report zero room forever. A box with no laid-out children falls back
    * to the box's own top, so the whole space below it counts as room.
    *
@@ -308,7 +308,7 @@
       : null;
     if (!container) {
       container = document.createElement("div");
-      container.id = "okp-view-" + view.key;
+      container.id = "ety-view-" + view.key;
       container.className = "view view--" + view.key;
       container.setAttribute("data-view", view.key);
       container.classList.add("view--hidden");
@@ -420,15 +420,15 @@
     key: "search",
     label: "Search",
     title: "Search words and roots",
-    // The content is the renderer's shadow host inside #okp-results, not the
+    // The content is the renderer's shadow host inside #ety-results, not the
     // whole view: the searchbar and the status line are chrome, and measuring
     // them would call a one-card result as crowded as a full page.
-    seal: function (container) { return container.querySelector("#okp-results"); },
+    seal: function (container) { return container.querySelector("#ety-results"); },
     mount: function (container, ctx) {
       ctx.shell.init({
-        input: document.getElementById("okp-input"),
-        results: container.querySelector("#okp-results"),
-        status: container.querySelector("#okp-status"),
+        input: document.getElementById("ety-input"),
+        results: container.querySelector("#ety-results"),
+        status: container.querySelector("#ety-status"),
         onState: function () { ctx.refreshSeal(); },
         // Focus rules: the input is focused ONLY on an empty boot — the
         // icon-click open, where typing into the panel is the next thing the
@@ -449,7 +449,7 @@
    * ------------------------------------------------------------------ */
 
   (function () {
-    var inputEl = document.getElementById("okp-input");
+    var inputEl = document.getElementById("ety-input");
     if (!inputEl) return;
     inputEl.addEventListener("input", function () {
       if (activeKey && activeKey !== "search") showView("search");
@@ -473,14 +473,14 @@
    * ------------------------------------------------------------------ */
 
   (function () {
-    var brand = document.getElementById("okp-brand");
+    var brand = document.getElementById("ety-brand");
     if (!brand) return;
     brand.addEventListener("click", function () {
       ready.then(function () {
-        var shell = globalThis.__okpyeonSearchShell;
+        var shell = globalThis.__etymikonSearchShell;
         var controller = shell && shell.controller && shell.controller();
         if (!controller) return;
-        var inputEl = document.getElementById("okp-input");
+        var inputEl = document.getElementById("ety-input");
         if (inputEl) inputEl.value = "";
         showView("search");
         controller.search("");
@@ -517,7 +517,7 @@
     if (runtime && runtime.id && typeof runtime.sendMessage === "function") {
       return runtime;
     }
-    var fake = globalThis.__hanjaHoverTestRuntime;
+    var fake = globalThis.__etymikonTestRuntime;
     if (fake && typeof fake.sendMessage === "function") return fake;
     return null;
   }
@@ -658,12 +658,12 @@
     // The search has to be VISIBLE: an omnibox query that landed behind the
     // saved or settings view would look like nothing happened.
     showView("search");
-    var shellModule = globalThis.__okpyeonSearchShell;
+    var shellModule = globalThis.__etymikonSearchShell;
     var controller = shellModule && typeof shellModule.controller === "function"
       ? shellModule.controller()
       : null;
     if (!controller) return Promise.resolve({ applied: false, reason: "no-shell" });
-    var inputEl = document.getElementById("okp-input");
+    var inputEl = document.getElementById("ety-input");
     if (inputEl) inputEl.value = query;
     return Promise.resolve(controller.search(query)).then(function () {
       return { applied: true, query: query };
@@ -673,7 +673,7 @@
     });
   }
 
-  // Exposed on __okpyeonSidebar so the harness can drive it with no runtime.
+  // Exposed on __etymikonSidebar so the harness can drive it with no runtime.
   function handleWorkerMessage(message) {
     if (!message || message.type !== "pendingQueryChanged") {
       return Promise.resolve({ applied: false, reason: "ignored" });
@@ -712,7 +712,7 @@
   // The registries themselves, so a check can prove that a NEW view or a new
   // action needs nothing but an entry — the same hook content.js exposes for
   // its badge registry.
-  globalThis.__okpyeonSidebar = {
+  globalThis.__etymikonSidebar = {
     viewRegistry: SIDEBAR_VIEWS,
     actionRegistry: HEADER_ACTIONS,
     registerView: registerView,

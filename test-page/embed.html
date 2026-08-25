@@ -69,7 +69,7 @@
 
 <h1>Etymikon sidebar and embed harness</h1>
 <p class="note">
-  This page sets <code>__hanjaHoverTestRuntime</code> (the same fake service
+  This page sets <code>__etymikonTestRuntime</code> (the same fake service
   worker the selection test page uses, extended to answer
   <code>getPendingQuery</code>) <em>and</em> loads the real
   <code>boot.js → content.js → search-shell.js → sidepanel.js →
@@ -87,22 +87,22 @@
 <!-- ------------------------------------------------------------------ -->
 <div class="app">
   <header class="header">
-    <button type="button" id="okp-brand" class="brand"
+    <button type="button" id="ety-brand" class="brand"
             aria-label="Etymikon: back to search"
             title="Back to search">Etymikon</button>
-    <nav id="okp-nav" class="nav" aria-label="Views"></nav>
-    <div id="okp-actions" class="actions"></div>
+    <nav id="ety-nav" class="nav" aria-label="Views"></nav>
+    <div id="ety-actions" class="actions"></div>
   </header>
   <div class="searchbar">
-    <input id="okp-input" type="text" class="query"
+    <input id="ety-input" type="text" class="query"
            placeholder="Search a word or a root"
            aria-label="Search an English word or a root"
            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
   </div>
-  <div id="okp-views" class="views">
-    <div id="okp-view-search" class="view view--search" data-view="search">
-      <div id="okp-results" class="results">
-        <p id="okp-status" class="status"></p>
+  <div id="ety-views" class="views">
+    <div id="ety-view-search" class="view view--search" data-view="search">
+      <div id="ety-results" class="results">
+        <p id="ety-status" class="status"></p>
       </div>
     </div>
   </div>
@@ -743,7 +743,7 @@
    * export bodies are real content rather than placeholders. Folder f0
    * always exists and cannot be deleted; deleting any other folder rehomes
    * its items to f0. Reachable from the checks as
-   * __hanjaHoverTestRuntime.__savedStore.
+   * __etymikonTestRuntime.__savedStore.
    * ------------------------------------------------------------------ */
 
   // Fixed stamp, so an export body is byte-stable across runs.
@@ -1144,7 +1144,7 @@
   // stub mode and silently disable every test hook on it.
   var MANIFEST = { name: "Etymikon", version: "1.2.0" };
 
-  globalThis.__hanjaHoverTestRuntime = {
+  globalThis.__etymikonTestRuntime = {
     __isStub: true,
     getManifest: function () { return { name: MANIFEST.name, version: MANIFEST.version }; },
     __calls: 0,          // dictionary sendMessage: proves "back" does not re-query
@@ -1245,7 +1245,7 @@
   // the panel is allowed to take focus.
   var BOOT_QUERY = /[?&]nopending=1/.test(location.search) ? null : "subterranean";
 
-  var fake = globalThis.__hanjaHoverTestRuntime;
+  var fake = globalThis.__etymikonTestRuntime;
   var inner = fake.sendMessage;
   var pending = BOOT_QUERY;
   var calls = 0;
@@ -1277,7 +1277,7 @@
 <!-- ONLY chrome.tabs, deliberately NOT chrome.runtime. content.js probes -->
 <!-- chrome.runtime SPECIFICALLY for HAS_CHROME_RUNTIME, so a chrome      -->
 <!-- object without it leaves IS_STUB true: the fake runtime above stays  -->
-<!-- selected and the __hanjaHover test hooks stay exposed. sidepanel.js  -->
+<!-- selected and the __etymikon test hooks stay exposed. sidepanel.js  -->
 <!-- probes the same object for a runtime with an `id`, so its pending-   -->
 <!-- query pull also lands on the fake worker. Adding chrome.runtime here -->
 <!-- would silently flip both and disable the whole suite, so the checks   -->
@@ -1397,20 +1397,20 @@
     // No real downloads from a self-check run: the export checks build the
     // anchor and read the file off it, but the click that would hand it to
     // the browser (and open a Save As dialog) is suppressed.
-    globalThis.__okpyeonSuppressDownload = true;
+    globalThis.__etymikonSuppressDownload = true;
 
-    var api = globalThis.__hanjaHover;
-    var embedApi = globalThis.__okpyeonEmbedApi;
-    var shell = globalThis.__okpyeonSearchShell;
-    var sidebar = globalThis.__okpyeonSidebar;
-    var fake = globalThis.__hanjaHoverTestRuntime;
+    var api = globalThis.__etymikon;
+    var embedApi = globalThis.__etymikonEmbedApi;
+    var shell = globalThis.__etymikonSearchShell;
+    var sidebar = globalThis.__etymikonSidebar;
+    var fake = globalThis.__etymikonTestRuntime;
     var pendingSpy = globalThis.__pendingQuerySpy;
     var tabsSpy = globalThis.__tabsSpy;
     var store = fake.__savedStore;
-    var input = document.getElementById("okp-input");
-    var results = document.getElementById("okp-results");
-    var status = document.getElementById("okp-status");
-    var searchView = document.getElementById("okp-view-search");
+    var input = document.getElementById("ety-input");
+    var results = document.getElementById("ety-results");
+    var status = document.getElementById("ety-status");
+    var searchView = document.getElementById("ety-view-search");
 
     if (!api || !embedApi || !shell || !sidebar) {
       out.textContent = "FAIL: the boot chain did not expose its surfaces " +
@@ -1494,7 +1494,7 @@
     check("the shipped registry is search, Saved and Settings, one tab each",
       sidebar.viewRegistry.map(function (v) { return v.key; }).join(",") ===
         "search,saved,settings" &&
-      document.querySelectorAll("#okp-nav .tab").length === 3,
+      document.querySelectorAll("#ety-nav .tab").length === 3,
       sidebar.viewRegistry.map(function (v) { return v.key; }).join(","));
 
     // --- the embed contract ---------------------------------------------
@@ -1539,7 +1539,7 @@
       var style = getComputedStyle(node);
       return (style.overflowY === "auto" || style.overflowY === "scroll");
     });
-    check("exactly ONE element in the panel column scrolls, and it is #okp-results",
+    check("exactly ONE element in the panel column scrolls, and it is #ety-results",
       scrollers.length === 1 && scrollers[0] === results,
       scrollers.map(function (n) { return n.id || n.className; }).join(","));
 
@@ -1785,7 +1785,7 @@
       api.query(".wiki").href);
 
     // --- the wordmark ----------------------------------------------------------
-    var brand = document.getElementById("okp-brand");
+    var brand = document.getElementById("ety-brand");
     check("the wordmark is a plain-text button that says where it goes",
       brand.tagName === "BUTTON" && brand.textContent === "Etymikon" &&
       brand.getAttribute("aria-label") === "Etymikon: back to search",
@@ -1916,12 +1916,12 @@
     check("the Saved tab mounts and shows the saved view",
       sidebar.showView("saved") === true && sidebar.activeView() === "saved" &&
       searchView.classList.contains("view--hidden") &&
-      !!document.getElementById("okp-saved-list"));
-    await until(function () { return !!document.getElementById("okp-saved-list"); });
+      !!document.getElementById("ety-saved-list"));
+    await until(function () { return !!document.getElementById("ety-saved-list"); });
     check("the Settings tab mounts and shows the settings view",
       sidebar.showView("settings") === true &&
-      !!document.getElementById("okp-settings"));
-    await until(function () { return !!document.getElementById("okp-settings"); });
+      !!document.getElementById("ety-settings"));
+    await until(function () { return !!document.getElementById("ety-settings"); });
     sidebar.showView("search");
     await checkSoon("search state survives a trip through BOTH views",
       function () {
@@ -1943,9 +1943,9 @@
       onHide: function () { probeHidden++; }
     });
     check("a new view is all it takes for its own tab to appear",
-      document.querySelectorAll("#okp-nav .tab").length === 4 &&
-      !!document.querySelector("#okp-nav .tab--probe"));
-    document.querySelector("#okp-nav .tab--probe").click();
+      document.querySelectorAll("#ety-nav .tab").length === 4 &&
+      !!document.querySelector("#ety-nav .tab--probe"));
+    document.querySelector("#ety-nav .tab--probe").click();
     await until(function () { return probeMounts === 1 && probeShown === 1; });
     check("switching mounts it once, hands it the context, and fires onShow",
       probeMounts === 1 && probeShown === 1 && probeHidden === 0 &&
@@ -1953,7 +1953,7 @@
         .getAttribute("data-probe-ctx") === "true",
       "mounts=" + probeMounts + " show=" + probeShown);
     check("the nav marks the newly active tab",
-      document.querySelector("#okp-nav .tab--probe").classList.contains("tab--active"));
+      document.querySelector("#ety-nav .tab--probe").classList.contains("tab--active"));
 
     // The corner seal is part of the registry's mechanics, not something a
     // view brings: this probe says nothing about seals and gets one anyway, on
@@ -1967,7 +1967,7 @@
       await sealSettled(probeBox, true),
       sealState(probeBox));
 
-    document.querySelector("#okp-nav .tab--search").click();
+    document.querySelector("#ety-nav .tab--search").click();
     await checkSoon("switching back fires onHide and never re-mounts",
       function () { return probeHidden === 1 && probeMounts === 1; },
       function () { return "hide=" + probeHidden + " mounts=" + probeMounts; });
@@ -1987,19 +1987,19 @@
     sidebar.viewRegistry.pop();
     sidebar.renderNav();
     check("dropping the probe leaves the shipped registry as it was",
-      document.querySelectorAll("#okp-nav .tab").length === 3);
+      document.querySelectorAll("#ety-nav .tab").length === 3);
 
     // --- header actions -------------------------------------------------------------
     check("the actions registry ships EMPTY, with no dead placeholder icons",
       sidebar.actionRegistry.length === 0 &&
-      document.getElementById("okp-actions").childElementCount === 0);
+      document.getElementById("ety-actions").childElementCount === 0);
     var fired = 0;
     sidebar.actionRegistry.push({
       key: "probe", label: "★", title: "A registry probe",
       onClick: function () { fired++; }
     });
     sidebar.renderActions();
-    var action = document.querySelector("#okp-actions .action--probe");
+    var action = document.querySelector("#ety-actions .action--probe");
     check("a new header action needs nothing but a registry entry", !!action);
     check("it gets its per-key class, title and accessible name",
       !!action && action.title === "A registry probe" &&
@@ -2009,13 +2009,13 @@
     sidebar.actionRegistry[0].enabled = false;
     sidebar.renderActions();
     check("a disabled entry renders dimmed, inert and still titled",
-      document.querySelector("#okp-actions .action--probe").disabled === true &&
-      document.querySelector("#okp-actions .action--probe")
+      document.querySelector("#ety-actions .action--probe").disabled === true &&
+      document.querySelector("#ety-actions .action--probe")
         .classList.contains("action--disabled"));
     sidebar.actionRegistry.pop();
     sidebar.renderActions();
     check("removing the entry empties the header again",
-      document.getElementById("okp-actions").childElementCount === 0);
+      document.getElementById("ety-actions").childElementCount === 0);
 
     // --- the searchbar from another view ----------------------------------------------
     sidebar.showView("settings");
@@ -2029,8 +2029,8 @@
       typedThrough, surfaceText());
 
     // --- the saved view -----------------------------------------------------------------
-    var savedView = globalThis.__okpyeonSavedView;
-    var settingsView = globalThis.__okpyeonSettingsView;
+    var savedView = globalThis.__etymikonSavedView;
+    var settingsView = globalThis.__etymikonSettingsView;
     check("the saved and settings view scripts self-registered their surfaces",
       !!savedView && !!settingsView);
 
@@ -2041,9 +2041,9 @@
     sidebar.showView("saved");
     await savedView.refresh();
     await until(function () {
-      return document.querySelectorAll("#okp-saved-list .saved-row").length === 3;
+      return document.querySelectorAll("#ety-saved-list .saved-row").length === 3;
     });
-    var rows = document.querySelectorAll("#okp-saved-list .saved-row");
+    var rows = document.querySelectorAll("#ety-saved-list .saved-row");
     check("savedGet answers and the view renders one row per item",
       rows.length === 3, "rows=" + rows.length);
     check("a word row's secondary line is its first definition",
@@ -2069,11 +2069,11 @@
       !!rows[2].querySelector(".saved-missing"),
       rows[2].textContent);
     check("the All list groups its rows under a header per folder",
-      document.querySelectorAll("#okp-saved-list .saved-folder").length === 1 &&
+      document.querySelectorAll("#ety-saved-list .saved-folder").length === 1 &&
       document.querySelector(".saved-folder-count").textContent === "3");
 
     // Export, both formats, against English fields.
-    document.getElementById("okp-saved-export").click();
+    document.getElementById("ety-saved-export").click();
     await until(function () { return !!document.querySelector(".saved-export-anki"); });
     document.querySelector(".saved-export-anki").click();
     await until(function () { return !!savedView.lastDownload(); });
@@ -2095,7 +2095,7 @@
     check("the missing row is skipped and counted, never exported",
       download.count === 2 && download.skipped === 1,
       "count=" + download.count + " skipped=" + download.skipped);
-    var anchor = document.getElementById("okp-saved-download");
+    var anchor = document.getElementById("ety-saved-download");
     check("the download anchor is built and named, without being navigated",
       download.filename === "etymikon-anki-20260824.txt" &&
       download.format === "anki" &&
@@ -2104,7 +2104,7 @@
       anchor.getAttribute("data-body") === download.body,
       anchor.getAttribute("download") + " / " + anchor.href.slice(0, 12));
     var ankiBody = download.body;
-    document.getElementById("okp-saved-export").click();
+    document.getElementById("ety-saved-export").click();
     await until(function () { return !!document.querySelector(".saved-export-csv"); });
     document.querySelector(".saved-export-csv").click();
     await until(function () {
@@ -2122,11 +2122,11 @@
       JSON.stringify(download.body.split("\n")[1]));
 
     // Folders: create, filter, delete back to f0.
-    document.getElementById("okp-saved-new").click();
+    document.getElementById("ety-saved-new").click();
     await until(function () {
-      return !!document.getElementById("okp-saved-name-input");
+      return !!document.getElementById("ety-saved-name-input");
     });
-    var nameInput = document.getElementById("okp-saved-name-input");
+    var nameInput = document.getElementById("ety-saved-name-input");
     nameInput.value = "Exam words";
     fire(nameInput, "keydown", { key: "Enter" });
     await checkSoon("creating a folder makes it and closes the form",
@@ -2136,8 +2136,8 @@
       },
       function () { return JSON.stringify(savedView.folders()); });
     document.querySelectorAll(".saved-check")[0].click();
-    document.getElementById("okp-saved-move").value = savedView.folders()[1].id;
-    fire(document.getElementById("okp-saved-move"), "change");
+    document.getElementById("ety-saved-move").value = savedView.folders()[1].id;
+    fire(document.getElementById("ety-saved-move"), "change");
     await checkSoon("Move to… moves the checked rows",
       function () {
         return store.state().items.filter(function (i) {
@@ -2147,7 +2147,7 @@
       function () { return JSON.stringify(store.state().items); });
     var beforeDelete = store.state().items.length;
     document.querySelectorAll(".saved-check")[0].click();
-    document.getElementById("okp-saved-remove").click();
+    document.getElementById("ety-saved-remove").click();
     await checkSoon("the first Delete click ARMS an inline confirmation and removes nothing",
       function () {
         return !!document.querySelector(".saved-confirm--remove") &&
@@ -2173,18 +2173,18 @@
     // QUIET store: let anything the block above set in motion finish first.
     await elapse(120);
     var getsBeforeOwn = store.getCalls();
-    document.getElementById("okp-saved-new").click();
+    document.getElementById("ety-saved-new").click();
     await until(function () {
-      return !!document.getElementById("okp-saved-name-input");
+      return !!document.getElementById("ety-saved-name-input");
     });
-    document.getElementById("okp-saved-name-input").value = "Echo";
+    document.getElementById("ety-saved-name-input").value = "Echo";
     document.querySelector(".saved-name-ok").click();
     // An EXACT read count is the assertion here, so this settles on the clock
     // rather than polling: a poll would keep sampling past the moment the
     // count is meant to hold, and every extra sample is another chance for an
     // unrelated refresh to land inside the window.
     await elapse(80);
-    var ownEcho = savedView.handleStorageChanged({ okpSaved: {} }, "local");
+    var ownEcho = savedView.handleStorageChanged({ etySaved: {} }, "local");
     await elapse(80);
     check("the panel's own write reads the store once and drops the storage echo",
       ownEcho === false && store.getCalls() === getsBeforeOwn + 1 &&
@@ -2197,19 +2197,19 @@
     var getsBeforeOther = store.getCalls();
     await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
     check("a write made anywhere else is still taken, so page saves keep arriving",
-      savedView.handleStorageChanged({ okpSaved: {} }, "local") === true);
+      savedView.handleStorageChanged({ etySaved: {} }, "local") === true);
     await elapse(80);
     check("and it costs the one read it was always worth",
       store.getCalls() === getsBeforeOther + 1 &&
-      !!document.querySelector('#okp-saved-list .saved-row[data-key="music"]'),
+      !!document.querySelector('#ety-saved-list .saved-row[data-key="music"]'),
       "gets=" + (store.getCalls() - getsBeforeOther));
 
     store.fail("all", true);
-    document.getElementById("okp-saved-new").click();
+    document.getElementById("ety-saved-new").click();
     await until(function () {
-      return !!document.getElementById("okp-saved-name-input");
+      return !!document.getElementById("ety-saved-name-input");
     });
-    document.getElementById("okp-saved-name-input").value = "Refused";
+    document.getElementById("ety-saved-name-input").value = "Refused";
     document.querySelector(".saved-name-ok").click();
     var refused = await until(function () {
       return savedView.pendingSelfWrites() === 0 &&
@@ -2233,7 +2233,7 @@
       });
 
     // A row click lands in the search view with the card rendered.
-    var firstRow = document.querySelectorAll("#okp-saved-list .saved-row")[0];
+    var firstRow = document.querySelectorAll("#ety-saved-list .saved-row")[0];
     var rowKey = firstRow.getAttribute("data-key");
     firstRow.click();
     await checkSoon("clicking a row lands in the search view with that card rendered",
@@ -2247,10 +2247,10 @@
     // an ordinary word lookup with no answer.
     sidebar.showView("saved");
     await until(function () {
-      return document.querySelectorAll("#okp-saved-list .saved-row").length > 0;
+      return document.querySelectorAll("#ety-saved-list .saved-row").length > 0;
     });
     var rootRow = document.querySelector(
-      '#okp-saved-list .saved-row[data-kind="root"]');
+      '#ety-saved-list .saved-row[data-kind="root"]');
     rootRow.click();
     await checkSoon("clicking a root row opens its card, keyed not titled",
       function () {
@@ -2263,7 +2263,7 @@
     sidebar.showView("settings");
     await settingsView.render();
     await until(function () {
-      return document.querySelectorAll("#okp-settings .settings-row").length === 5;
+      return document.querySelectorAll("#ety-settings .settings-row").length === 5;
     });
     var keys = settingsView.schema.map(function (e) { return e.key; });
     check("the shipped schema is the SPEC's five entries in its two groups",
@@ -2271,11 +2271,11 @@
         "defaultFolderId,anki.wordFront,anki.wordBack,anki.rootFront,anki.rootBack",
       keys.join(","));
     check("the renderer emits one heading per group, in schema order",
-      texts(document.querySelectorAll("#okp-settings .settings-heading"))
+      texts(document.querySelectorAll("#ety-settings .settings-heading"))
         .join("|") === "Saving|Anki export",
-      texts(document.querySelectorAll("#okp-settings .settings-heading")).join("|"));
+      texts(document.querySelectorAll("#ety-settings .settings-heading")).join("|"));
     check("every entry renders one row, its label bound to its control",
-      document.querySelectorAll("#okp-settings .settings-row").length === 5 &&
+      document.querySelectorAll("#ety-settings .settings-row").length === 5 &&
       document.querySelector('[data-key="anki.wordBack"] .settings-label')
         .getAttribute("for") === settingsView.controlId("anki.wordBack"));
     var wordFront = document.getElementById(settingsView.controlId("anki.wordFront"));
@@ -2417,9 +2417,9 @@
     // --- the attribution footer -------------------------------------------------------
     // Not a setting, so not in the schema: a static block under the controls,
     // which is also what makes the seal count it as content.
-    var footer = document.querySelector("#okp-settings .settings-footer");
+    var footer = document.querySelector("#ety-settings .settings-footer");
     check("the settings body ends with the attribution block, outside the schema",
-      !!footer && document.querySelector("#okp-settings").lastElementChild === footer &&
+      !!footer && document.querySelector("#ety-settings").lastElementChild === footer &&
       settingsView.schema.every(function (e) { return e.key !== "footer"; }),
       footer ? footer.className : "no footer");
     check("it names the app at the shipped version and credits Wiktionary",
@@ -2456,7 +2456,7 @@
     // is measured against its container, which is why saved declares nothing.
     check("every mounted view carries the seal, and only the content box varies",
       ["search", "saved", "settings"].every(function (key) {
-        var box = document.getElementById("okp-view-" + key);
+        var box = document.getElementById("ety-view-" + key);
         return !!box && box.classList.contains("view--sealed");
       }) &&
       sidebar.viewRegistry.every(function (view) {
@@ -2487,7 +2487,7 @@
     // zero room forever. A view has to be SHOWING to measure anything.
     sidebar.showView("settings");
     await settingsView.render();
-    var settingsSealView = document.getElementById("okp-view-settings");
+    var settingsSealView = document.getElementById("ety-view-settings");
     check("the settings groups leave no room in this frame, so the seal yields",
       await sealSettled(settingsSealView, false), sealState(settingsSealView));
     var sealFrame = document.querySelector(".panel-frame");

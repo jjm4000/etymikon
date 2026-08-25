@@ -2,7 +2,7 @@
  * Etymikon, the side panel's SAVED view.
  *
  * A classic script loaded after sidepanel.js, which self-registers through
- * __okpyeonSidebar.registerView. Registering is the whole wiring: the nav row
+ * __etymikonSidebar.registerView. Registering is the whole wiring: the nav row
  * appears by itself once a second view exists, and nothing in sidepanel.js
  * knows this file is here.
  *
@@ -17,7 +17,7 @@
  * messages, and that reads as "the feature is absent": one quiet line, never
  * an error.
  *
- * Exposed for the test harness as globalThis.__okpyeonSavedView:
+ * Exposed for the test harness as globalThis.__etymikonSavedView:
  *
  *   refresh()                 re-read savedGet and re-render; -> Promise
  *   selection()               the checked item ids, as an array
@@ -35,7 +35,7 @@
 (function () {
   "use strict";
 
-  var sidebar = globalThis.__okpyeonSidebar;
+  var sidebar = globalThis.__etymikonSidebar;
   if (!sidebar || typeof sidebar.registerView !== "function") return;
 
   /* ------------------------------------------------------------------ *
@@ -48,7 +48,7 @@
     if (runtime && runtime.id && typeof runtime.sendMessage === "function") {
       return runtime;
     }
-    var fake = globalThis.__hanjaHoverTestRuntime;
+    var fake = globalThis.__etymikonTestRuntime;
     if (fake && typeof fake.sendMessage === "function") return fake;
     return null;
   }
@@ -265,12 +265,12 @@
 
   function buildBar() {
     var bar = el("div", "saved-bar");
-    bar.id = "okp-saved-bar";
+    bar.id = "ety-saved-bar";
 
     var main = el("div", "saved-bar-main");
 
     var filter = document.createElement("select");
-    filter.id = "okp-saved-filter";
+    filter.id = "ety-saved-filter";
     filter.className = "saved-filter";
     filter.setAttribute("aria-label", "Filter by folder");
     filter.addEventListener("change", function () {
@@ -282,24 +282,24 @@
     main.appendChild(filter);
 
     var newBtn = button("saved-new", "New folder", "Create a folder");
-    newBtn.id = "okp-saved-new";
+    newBtn.id = "ety-saved-new";
     newBtn.addEventListener("click", function () { openNameForm("new"); });
     main.appendChild(newBtn);
 
     var renameBtn = button("saved-rename", "Rename", "Rename this folder");
-    renameBtn.id = "okp-saved-rename";
+    renameBtn.id = "ety-saved-rename";
     renameBtn.addEventListener("click", function () { openNameForm("rename"); });
     main.appendChild(renameBtn);
 
     var deleteBtn = button("saved-delete", "Delete", "Delete this folder");
-    deleteBtn.id = "okp-saved-delete";
+    deleteBtn.id = "ety-saved-delete";
     deleteBtn.addEventListener("click", function () { openDeleteConfirm(); });
     main.appendChild(deleteBtn);
 
     var selectAllLabel = el("label", "saved-selectall");
     var selectAll = document.createElement("input");
     selectAll.type = "checkbox";
-    selectAll.id = "okp-saved-selectall";
+    selectAll.id = "ety-saved-selectall";
     selectAll.className = "saved-selectall-check";
     selectAll.addEventListener("change", function () {
       var rows = filteredItems();
@@ -319,7 +319,7 @@
     // One slot for whichever inline form is open — new folder, rename, or the
     // delete confirmation. Only one at a time, so one slot is enough.
     var inline = el("div", "saved-bar-inline");
-    inline.id = "okp-saved-bar-inline";
+    inline.id = "ety-saved-bar-inline";
     inline.hidden = true;
     bar.appendChild(inline);
 
@@ -357,7 +357,7 @@
     var input = document.createElement("input");
     input.type = "text";
     input.className = "saved-name-input";
-    input.id = "okp-saved-name-input";
+    input.id = "ety-saved-name-input";
     input.placeholder = mode === "new" ? "Folder name" : "Folder name";
     input.value = mode === "rename" ? folderName(filterId) : "";
     input.setAttribute("aria-label", mode === "new" ? "New folder name" : "Folder name");
@@ -638,12 +638,12 @@
 
   function buildActions() {
     var bar = el("div", "saved-actions");
-    bar.id = "okp-saved-actions";
+    bar.id = "ety-saved-actions";
 
     var main = el("div", "saved-actions-main");
 
     var move = document.createElement("select");
-    move.id = "okp-saved-move";
+    move.id = "ety-saved-move";
     move.className = "saved-move";
     move.setAttribute("aria-label", "Move the selection to a folder");
     move.addEventListener("change", function () {
@@ -666,12 +666,12 @@
     main.appendChild(move);
 
     var removeBtn = button("saved-remove", "Delete", "Delete the selection");
-    removeBtn.id = "okp-saved-remove";
+    removeBtn.id = "ety-saved-remove";
     removeBtn.addEventListener("click", openRemoveConfirm);
     main.appendChild(removeBtn);
 
     var exportBtn = button("saved-export", "Export", "Export the selection");
-    exportBtn.id = "okp-saved-export";
+    exportBtn.id = "ety-saved-export";
     exportBtn.addEventListener("click", openExportChoice);
     main.appendChild(exportBtn);
 
@@ -680,7 +680,7 @@
     bar.appendChild(main);
 
     var inline = el("div", "saved-actions-inline");
-    inline.id = "okp-saved-actions-inline";
+    inline.id = "ety-saved-actions-inline";
     inline.hidden = true;
     bar.appendChild(inline);
 
@@ -688,7 +688,7 @@
     // keeping it means the filename the worker chose is inspectable after the
     // download has been handed to the browser.
     var anchor = document.createElement("a");
-    anchor.id = "okp-saved-download";
+    anchor.id = "ety-saved-download";
     anchor.className = "saved-download";
     anchor.hidden = true;
     bar.appendChild(anchor);
@@ -801,7 +801,7 @@
       // driving these checks in a real browser would otherwise open a Save As
       // dialog per run, and everything worth asserting (href, download name,
       // format, counts, body) is already on the element and in lastDownload.
-      if (globalThis.__okpyeonSuppressDownload !== true) anchor.click();
+      if (globalThis.__etymikonSuppressDownload !== true) anchor.click();
       setTimeout(function () { URL.revokeObjectURL(url); }, 0);
       closeActionsInline();
     });
@@ -861,9 +861,9 @@
    * ------------------------------------------------------------------ */
 
   function openInSearch(key) {
-    var input = document.getElementById("okp-input");
+    var input = document.getElementById("ety-input");
     if (input) input.value = key;
-    var shellModule = (ctx && ctx.shell) || globalThis.__okpyeonSearchShell;
+    var shellModule = (ctx && ctx.shell) || globalThis.__etymikonSearchShell;
     var controller = shellModule && typeof shellModule.controller === "function"
       ? shellModule.controller()
       : null;
@@ -915,7 +915,7 @@
   // chrome.storage, exactly as sidepanel.js exposes handleWorkerMessage.
   function handleStorageChanged(changes, area) {
     if (area && area !== "local") return false;
-    if (changes && !changes.okpSaved && !changes.okpSettings) return false;
+    if (changes && !changes.etySaved && !changes.etySettings) return false;
     // Spent before the visibility test, so a claim cannot outlive its write by
     // being left behind while the view is hidden.
     if (spendSelfWrite()) return false;
@@ -936,7 +936,7 @@
       ctx = viewCtx;
       container.appendChild(buildBar());
       var list = el("div", "saved-list");
-      list.id = "okp-saved-list";
+      list.id = "ety-saved-list";
       els.list = list;
       container.appendChild(list);
       container.appendChild(buildActions());
@@ -967,7 +967,7 @@
     }
   });
 
-  globalThis.__okpyeonSavedView = {
+  globalThis.__etymikonSavedView = {
     refresh: refresh,
     selection: selectedIds,
     folders: function () { return folders.slice(); },

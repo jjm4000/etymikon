@@ -1726,6 +1726,90 @@ await testAsync("data-backed handlers answer with an error, never a throw", asyn
   assert.equal((await worker.handleFamily("la:terra")).ok, false);
 });
 
+// --- the one-time storage rename migration --------------------------------
+// The keys moved from okpSaved/okpSettings to etySaved/etySettings (SPEC
+// "Naming"). An extension update keeps its storage, so a reader who saved
+// words on an earlier build must find them again on the first read.
+
+/** A chrome.storage.local stand-in that records what was written and removed. */
+function fakeArea(initial) {
+  const store = { ...initial };
+  const writes = [];
+  const removed = [];
+  return {
+    store,
+    writes,
+    removed,
+    async get(key) {
+      return Object.prototype.hasOwnProperty.call(store, key)
+        ? { [key]: store[key] }
+        : {};
+    },
+    async set(patch) {
+      writes.push(patch);
+      Object.assign(store, patch);
+    },
+    async remove(key) {
+      removed.push(key);
+      delete store[key];
+    },
+  };
+}
+
+await testAsync("storage migration: the old key alone is adopted and cleared", async () => {
+  const area = fakeArea({ okpSaved: { v: 1, items: [{ id: "i0" }] } });
+  const value = await worker.readKey(area, "etySaved");
+
+  assert.deepEqual(value, { v: 1, items: [{ id: "i0" }] }, "the old value is returned");
+  assert.deepEqual(area.store.etySaved, { v: 1, items: [{ id: "i0" }] });
+  assert.equal("okpSaved" in area.store, false, "the old key is removed");
+  assert.deepEqual(area.removed, ["okpSaved"]);
+
+  // Second read is an ordinary read: no further writes, no second migration.
+  const again = await worker.readKey(area, "etySaved");
+  assert.deepEqual(again, { v: 1, items: [{ id: "i0" }] });
+  assert.equal(area.writes.length, 1, "the adopting write happens once");
+});
+
+await testAsync("storage migration: both keys present prefers the new one", async () => {
+  const area = fakeArea({
+    okpSaved: { v: 1, items: [{ id: "old" }] },
+    etySaved: { v: 1, items: [{ id: "new" }] },
+  });
+  const value = await worker.readKey(area, "etySaved");
+
+  assert.deepEqual(value, { v: 1, items: [{ id: "new" }] });
+  assert.equal(area.writes.length, 0, "nothing is written when the new key holds data");
+  assert.deepEqual(area.removed, [], "the old key is left alone, never revived");
+});
+
+await testAsync("storage migration: neither key present reads as absent", async () => {
+  const area = fakeArea({});
+  assert.equal(await worker.readKey(area, "etySaved"), undefined);
+  assert.equal(await worker.readKey(area, "etySettings"), undefined);
+  assert.deepEqual(area.writes, [], "an empty store is not written to");
+  assert.deepEqual(area.removed, []);
+});
+
+await testAsync("storage migration: settings migrate on their own key", async () => {
+  const area = fakeArea({ okpSettings: { v: 1, defaultFolderId: "f2" } });
+  const value = await worker.readKey(area, "etySettings");
+
+  assert.deepEqual(value, { v: 1, defaultFolderId: "f2" });
+  assert.deepEqual(area.removed, ["okpSettings"]);
+  assert.deepEqual(worker.LEGACY_STORAGE_KEYS, {
+    etySaved: "okpSaved",
+    etySettings: "okpSettings",
+  });
+});
+
+await testAsync("storage migration: a key with no legacy name never looks for one", async () => {
+  const area = fakeArea({ okpSaved: { v: 1 } });
+  assert.equal(await worker.readKey(area, "somethingElse"), undefined);
+  assert.deepEqual(area.writes, []);
+  assert.deepEqual(area.removed, []);
+});
+
 await testAsync("openTab refuses anything that is not a Wiktionary article", async () => {
   assert.equal(worker.isAllowedTabUrl("https://en.wiktionary.org/wiki/terrain"), true);
   assert.equal(worker.isAllowedTabUrl("https://evil.example/wiki/terrain"), false);

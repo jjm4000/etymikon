@@ -15,7 +15,7 @@
  * Every control writes through `settingsSet` the moment it changes: there is no
  * save button, and no local copy of the settings that could drift.
  *
- * Exposed for the test harness as globalThis.__okpyeonSettingsView:
+ * Exposed for the test harness as globalThis.__etymikonSettingsView:
  *
  *   schema        the live SETTINGS_SCHEMA array
  *   render()      re-read settings + folders and rebuild the controls
@@ -27,7 +27,7 @@
 (function () {
   "use strict";
 
-  var sidebar = globalThis.__okpyeonSidebar;
+  var sidebar = globalThis.__etymikonSidebar;
   if (!sidebar || typeof sidebar.registerView !== "function") return;
 
   /* ------------------------------------------------------------------ *
@@ -122,7 +122,7 @@
     if (runtime && runtime.id && typeof runtime.sendMessage === "function") {
       return runtime;
     }
-    var fake = globalThis.__hanjaHoverTestRuntime;
+    var fake = globalThis.__etymikonTestRuntime;
     if (fake && typeof fake.sendMessage === "function") return fake;
     return null;
   }
@@ -196,7 +196,7 @@
   }
 
   function controlId(key) {
-    return "okp-set-" + String(key).split(".").join("-");
+    return "ety-set-" + String(key).split(".").join("-");
   }
 
   /* ------------------------------------------------------------------ *
@@ -499,11 +499,11 @@
     // The content is the body's children, not the body: .settings-body is a
     // stretched flex scroller whose own box always reaches the view bottom, so
     // measuring IT would report zero room forever.
-    seal: function (container) { return container.querySelector("#okp-settings"); },
+    seal: function (container) { return container.querySelector("#ety-settings"); },
     mount: function (container, viewCtx) {
       ctx = viewCtx;
       body = document.createElement("div");
-      body.id = "okp-settings";
+      body.id = "ety-settings";
       body.className = "settings-body";
       container.appendChild(body);
       render();
@@ -515,7 +515,7 @@
     }
   });
 
-  globalThis.__okpyeonSettingsView = {
+  globalThis.__etymikonSettingsView = {
     schema: SETTINGS_SCHEMA,
     render: render,
     settings: function () { return settings; },

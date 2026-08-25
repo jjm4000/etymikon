@@ -734,7 +734,7 @@
    * export bodies are real content rather than placeholders. Folder f0
    * always exists and cannot be deleted; deleting any other folder rehomes
    * its items to f0. Reachable from the checks as
-   * __hanjaHoverTestRuntime.__savedStore.
+   * __etymikonTestRuntime.__savedStore.
    * ------------------------------------------------------------------ */
 
   // Fixed stamp, so an export body is byte-stable across runs.
@@ -1135,7 +1135,7 @@
   // stub mode and silently disable every test hook on it.
   var MANIFEST = { name: "Etymikon", version: "1.2.0" };
 
-  globalThis.__hanjaHoverTestRuntime = {
+  globalThis.__etymikonTestRuntime = {
     __isStub: true,
     getManifest: function () { return { name: MANIFEST.name, version: MANIFEST.version }; },
     __calls: 0,          // dictionary sendMessage: proves "back" does not re-query
@@ -1270,8 +1270,8 @@
   }
 
   document.getElementById("run").addEventListener("click", async function () {
-    var api = globalThis.__hanjaHover;
-    if (!api) { out.textContent = "FAIL: __hanjaHover test hooks missing (is chrome.runtime present?)"; return; }
+    var api = globalThis.__etymikon;
+    if (!api) { out.textContent = "FAIL: __etymikon test hooks missing (is chrome.runtime present?)"; return; }
     var lines = [], pass = 0, fail = 0, skipped = 0;
     function check(name, cond, detail) {
       (cond ? pass++ : fail++);
@@ -1291,7 +1291,7 @@
 
     var vw = document.documentElement.clientWidth;
     var vh = document.documentElement.clientHeight;
-    var fake = globalThis.__hanjaHoverTestRuntime;
+    var fake = globalThis.__etymikonTestRuntime;
     var anchor = rect(40, 100, 60, 20);
     // A user-chosen panel size deliberately survives for the whole page visit,
     // so a second run of the suite would inherit it. Start from the default.

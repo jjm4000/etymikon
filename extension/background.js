@@ -252,8 +252,18 @@ export async function handleGetPendingQuery() {
 // ---------------------------------------------------------------------------
 
 /** chrome.storage.local keys. Schema v1 for both; see saved.js. */
-const SAVED_KEY = "okpSaved";
-const SETTINGS_KEY = "okpSettings";
+const SAVED_KEY = "etySaved";
+const SETTINGS_KEY = "etySettings";
+
+/**
+ * The key each record lived under before the rename (SPEC "Naming"). A reader
+ * who saved words on an earlier build still has them there, and an extension
+ * update keeps its storage, so the first read of a key has to go looking.
+ */
+export const LEGACY_STORAGE_KEYS = {
+  [SAVED_KEY]: "okpSaved",
+  [SETTINGS_KEY]: "okpSettings",
+};
 
 /**
  * The one answer every saved/settings message gets when there is no
@@ -306,9 +316,37 @@ async function withStorage(task) {
   });
 }
 
-async function readKey(area, key) {
+/**
+ * Read one key, adopting its pre-rename value the first time it is touched.
+ *
+ * ONE-TIME and self-erasing: the value moves to the new key and the old key is
+ * removed, so the second read is an ordinary read and the old name is never
+ * consulted again. The NEW key wins whenever it holds anything at all, even
+ * something the reader could have written after the rename while the old key
+ * still remembered an earlier state: the newer name is the newer data, and
+ * silently reviving the older record would lose real work.
+ *
+ * Every caller runs inside withStorage's serialized chain, so the read, the
+ * adopting write and the removal cannot interleave with another handler.
+ *
+ * Exported for the Node suite, which drives it with a fake storage area.
+ */
+export async function readKey(area, key) {
   const got = await area.get(key);
-  return got !== null && typeof got === "object" ? got[key] : undefined;
+  const value = got !== null && typeof got === "object" ? got[key] : undefined;
+  if (value !== undefined) return value;
+
+  const legacy = LEGACY_STORAGE_KEYS[key];
+  if (legacy === undefined) return undefined;
+  const old = await area.get(legacy);
+  const carried = old !== null && typeof old === "object" ? old[legacy] : undefined;
+  if (carried === undefined) return undefined;
+
+  await area.set({ [key]: carried });
+  // Guarded like every other chrome.* touch: an area without remove() still
+  // migrates, it just leaves the old key behind rather than failing the read.
+  if (typeof area.remove === "function") await area.remove(legacy);
+  return carried;
 }
 
 /** Read and normalize the saved state. Storage is only rewritten on a change. */

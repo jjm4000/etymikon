@@ -749,6 +749,21 @@ silently diverged from):
 - A 10 plus 10 random sample per zone (ranked/unranked, split/no-split)
   in the build report for eyeball review.
 
+## Naming (Jesse decision 2026-08-25)
+
+The Korean-era internal names are renamed wholesale: globals
+`__hanjaHover` to `__etymikon`, `__hanjaHoverTestRuntime` to
+`__etymikonTestRuntime`, `__okpyeonSidebar` to `__etymikonSidebar`,
+`__okpyeonEmbed` to `__etymikonEmbed`, `__okpyeonEmbedApi` to
+`__etymikonEmbedApi`, `__okpyeonSearchShell` to
+`__etymikonSearchShell`, `__okpyeonSuppressDownload` to
+`__etymikonSuppressDownload`; element id prefix `okp-` to `ety-`;
+storage keys `okpSaved` and `okpSettings` to `etySaved` and
+`etySettings` WITH one-time migration: on first read, when the new
+key is absent and the old key holds data, the old value is adopted
+under the new key and the old key removed. Wherever the carried-over
+Okpyeon spec sections name the old identifiers, read the new ones.
+
 ## Carried-over shell (binding by reference to Okpyeon SPEC @ v1.1.0)
 
 These mechanisms carry over with only naming and content changes, and

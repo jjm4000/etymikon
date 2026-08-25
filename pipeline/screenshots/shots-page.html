@@ -5,7 +5,7 @@
 
   It is a plausible English magazine article that loads the REAL extension
   code: extension/lookup.js and extension/saved.js answer queries against the
-  REAL extension/data/*.json, behind the __hanjaHoverTestRuntime stub that
+  REAL extension/data/*.json, behind the __etymikonTestRuntime stub that
   content.js already supports in place of chrome.runtime, and then the REAL
   extension/content/content.js runs unmodified on top. Nothing about the
   popup's markup, styling or layout is reproduced here. Only the message
@@ -132,6 +132,11 @@
       to set loose. That is why an absolute ruler answers to nobody. The family
       around the word is easier to hold once its base is clear.</p>
 
+    <p id="p4">Suffixes do the same work at the other end of the word. A
+      <span id="s-beautiful">beautiful</span> morning is one full of beauty,
+      and the same ending turns hundreds of other nouns into adjectives the
+      moment a reader learns to see it.</p>
+
     <figure>
       <div class="photo"><span>sub-</span><span>terra</span><span>-an</span></div>
       <figcaption>A first-year seminar on word formation. File photo.</figcaption>
@@ -209,7 +214,7 @@ function handle(msg) {
   }
 }
 
-globalThis.__hanjaHoverTestRuntime = {
+globalThis.__etymikonTestRuntime = {
   __isStub: true,
   sendMessage(msg, cb) {
     let resp;
@@ -226,7 +231,7 @@ await new Promise((res, rej) => {
   document.head.appendChild(s);
 });
 
-const api = globalThis.__hanjaHover;
+const api = globalThis.__etymikon;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* Scroll so the word about to be selected sits in the upper part of the
@@ -308,8 +313,8 @@ if (scene === "plain") {
 if (scene === "breakdown") await show("s-subterranean");
 if (scene === "origin") await show("s-territory");
 if (scene === "root") {
-  await show("s-subterranean");
-  await openChip("terra");
+  await show("s-beautiful");
+  await openChip("-ful");
 }
 if (scene === "usedin") {
   await show("s-absolute");

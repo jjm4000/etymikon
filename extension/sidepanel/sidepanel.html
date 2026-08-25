@@ -10,19 +10,19 @@
 <div class="app">
   <!--
     One slim header row. Both containers ship EMPTY and are filled
-    declaratively from sidepanel.js: #okp-actions from HEADER_ACTIONS,
-    #okp-nav from SIDEBAR_VIEWS (which renders tabs only once a second view
+    declaratively from sidepanel.js: #ety-actions from HEADER_ACTIONS,
+    #ety-nav from SIDEBAR_VIEWS (which renders tabs only once a second view
     exists).
   -->
   <header class="header">
-    <button type="button" id="okp-brand" class="brand"
+    <button type="button" id="ety-brand" class="brand"
             aria-label="Etymikon: back to search"
             title="Back to search">Etymikon</button>
-    <nav id="okp-nav" class="nav" aria-label="Views"></nav>
-    <div id="okp-actions" class="actions"></div>
+    <nav id="ety-nav" class="nav" aria-label="Views"></nav>
+    <div id="ety-actions" class="actions"></div>
   </header>
   <div class="searchbar">
-    <input id="okp-input" type="text" class="query"
+    <input id="ety-input" type="text" class="query"
            placeholder="Search a word or a root"
            aria-label="Search an English word or a root"
            autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -35,15 +35,15 @@
     in the document and laid out. Views added to the registry later get their
     container created for them.
   -->
-  <div id="okp-views" class="views">
-    <div id="okp-view-search" class="view view--search" data-view="search">
+  <div id="ety-views" class="views">
+    <div id="ety-view-search" class="view view--search" data-view="search">
       <!--
         THE scroll container. content.js mounts its shadow host in here, and
         the panel gives up its own overflow in embed mode, so there is exactly
         one scrollbar on this page.
       -->
-      <div id="okp-results" class="results">
-        <p id="okp-status" class="status"></p>
+      <div id="ety-results" class="results">
+        <p id="ety-status" class="status"></p>
       </div>
     </div>
   </div>

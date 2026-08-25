@@ -9,7 +9,7 @@
  * its own markup and hands the elements in.
  *
  * Contract:
- *   globalThis.__okpyeonSearchShell.init({
+ *   globalThis.__etymikonSearchShell.init({
  *     input,          // required: the <input> to wire
  *     results,        // required: the document-connected scroll container
  *     status,         // optional: element to receive state text
@@ -20,7 +20,7 @@
  *   }) -> controller { search, searchSoon, state, query, destroy }
  *
  * Loaded as a CLASSIC script, after boot.js and content.js: it needs
- * globalThis.__okpyeonEmbedApi, which content.js only exposes when the boot
+ * globalThis.__etymikonEmbedApi, which content.js only exposes when the boot
  * flag was set before it evaluated.
  */
 (function () {
@@ -68,10 +68,10 @@
       throw new Error("search shell: already initialized on this page");
     }
 
-    var api = globalThis.__okpyeonEmbedApi;
+    var api = globalThis.__etymikonEmbedApi;
     if (!api) {
       throw new Error(
-        "search shell: __okpyeonEmbedApi missing — is __okpyeonEmbed set " +
+        "search shell: __etymikonEmbedApi missing — is __etymikonEmbed set " +
         "before content.js loads?"
       );
     }
@@ -222,7 +222,7 @@
     return controller;
   }
 
-  globalThis.__okpyeonSearchShell = {
+  globalThis.__etymikonSearchShell = {
     init: init,
     DEBOUNCE_MS: DEBOUNCE_MS,
     // Exposed so a surface can query the live shell without threading the

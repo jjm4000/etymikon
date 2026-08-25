@@ -16,9 +16,9 @@
 
 import { fold, rootLabel, tierOf, TIER_LABELS } from "./lookup.js";
 
-/** Schema version of the `okpSaved` record. */
+/** Schema version of the `etySaved` record. */
 export const SAVED_VERSION = 1;
-/** Schema version of the `okpSettings` record. */
+/** Schema version of the `etySettings` record. */
 export const SETTINGS_VERSION = 1;
 
 /** The folder that always exists: it cannot be deleted or renamed to empty. */
@@ -58,7 +58,7 @@ export const ANKI_FIELDS = Object.freeze({
 /** The Anki family field lists this many words. */
 export const FAMILY_FIELD_WORDS = 5;
 
-/** SPEC defaults for `okpSettings`. */
+/** SPEC defaults for `etySettings`. */
 export const DEFAULT_SETTINGS = Object.freeze({
   v: SETTINGS_VERSION,
   defaultFolderId: DEFAULT_FOLDER_ID,
@@ -135,7 +135,7 @@ function counterFrom(stored, used) {
  * identities collapse to the first one (identity is (kind, key) by SPEC, so
  * duplicates are structurally impossible downstream).
  *
- * @param {*} raw whatever was in chrome.storage.local under "okpSaved"
+ * @param {*} raw whatever was in chrome.storage.local under "etySaved"
  * @returns {{v:number, folders:object[], items:object[], nextFolder:number, nextItem:number}}
  */
 export function normalizeSavedState(raw) {
@@ -228,7 +228,7 @@ function manyOf(value, allowed, fallback) {
 /**
  * Coerce anything into valid v1 settings (defaults + version fill).
  *
- * @param {*} raw whatever was in chrome.storage.local under "okpSettings"
+ * @param {*} raw whatever was in chrome.storage.local under "etySettings"
  * @param {*} [savedState] when given, a defaultFolderId naming a folder that no
  *   longer exists resets to f0 (SPEC: deleting the default folder resets it)
  */
