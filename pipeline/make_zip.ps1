@@ -15,7 +15,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $src  = Join-Path $root 'extension'
 
 $version = (Get-Content (Join-Path $src 'manifest.json') -Raw | ConvertFrom-Json).version
-$zip = Join-Path $root "okpyeon-$version.zip"
+$zip = Join-Path $root "etymikon-$version.zip"
 
 if (Test-Path $zip) { Remove-Item $zip -Force }
 

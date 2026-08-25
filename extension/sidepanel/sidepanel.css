@@ -26,10 +26,13 @@
   --field-bg: #f6f6f9;
   --field-edge: rgba(0, 0, 0, 0.14);
   --scroll-thumb: rgba(0, 0, 0, 0.22);
-  --brand: #2e6b57;
+  /* The icon's primary terracotta, so the wordmark and the seal belong to the
+     same object the reader clicked to get here. (It replaced a jade carried
+     over from the fork, which fought the icon.) */
+  --brand: #C0552B;
   --action-fg: #6b6b73;
   --action-hover: rgba(0, 0, 0, 0.06);
-  --seal: rgba(46, 107, 87, 0.3);
+  --seal: rgba(192, 85, 43, 0.3);
   --danger: #b3261e;
   --danger-fg: #ffffff;
 }
@@ -46,12 +49,13 @@
     --field-bg: rgba(255, 255, 255, 0.06);
     --field-edge: rgba(255, 255, 255, 0.18);
     --scroll-thumb: rgba(255, 255, 255, 0.24);
-    /* The light jade is far too dark on #23232a; this one holds the same hue
-       while clearing contrast against the dark ground. */
-    --brand: #7cc3a3;
+    /* The icon terracotta is far too dark on #23232a; this one holds the same
+       hue while clearing contrast against the dark ground (5.25:1 for the 13px
+       bold wordmark, against the 4.5 that size needs). */
+    --brand: #E07A4F;
     --action-fg: #9a9aa4;
     --action-hover: rgba(255, 255, 255, 0.09);
-    --seal: rgba(124, 195, 163, 0.32);
+    --seal: rgba(224, 122, 79, 0.32);
     --danger: #e06a60;
     --danger-fg: #1c1013;
   }
@@ -435,8 +439,8 @@ body {
 }
 .saved-list::-webkit-scrollbar-track { background: transparent; }
 
-/* Folder bands read as structure, not content: a jade left edge and the
-   field tint set them off from the item rows, which indent underneath
+/* Folder bands read as structure, not content: a brand-colored left edge and
+   the field tint set them off from the item rows, which indent underneath
    (grouped mode only — see .saved-list--grouped). */
 .saved-folder {
   display: flex;

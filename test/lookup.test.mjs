@@ -157,6 +157,19 @@ const words = {
       },
       fr: 1120,
     },
+    // A shadow word with no split and no chain of its own: it inherits its
+    // lemma's decomposed origin on the wire.
+    remembered: {
+      senses: [{ pos: "adj", defs: ["Held in memory."] }],
+      fo: "remember",
+      fr: 6300,
+    },
+    // The same, over a lemma whose origin is the single shape.
+    dialogues: {
+      senses: [{ pos: "verb", defs: ["Third-person singular of to dialogue."] }],
+      fo: "dialogue",
+      fr: 30000,
+    },
     run: {
       senses: [
         { pos: "verb", defs: ["To move at a fast pace on foot.", "To manage a thing."] },
@@ -680,6 +693,74 @@ test("org parts credit root families exactly as morphs do", () => {
     },
   });
   assert.deepEqual(twice["la:memor"], ["rememorate"]);
+});
+
+// --- inherited origin -----------------------------------------------------
+
+test("a shadow word inherits its lemma's decomposed origin", () => {
+  const match = one("remembered");
+  assert.equal(match.seeAlso, "remember");
+  assert.deepEqual(match.org, one("remember").org, "the lemma's row, joined identically");
+  // The glosses are joined on the inherited parts, not just the forms.
+  assert.deepEqual(match.org.parts, [
+    { f: "re-", r: "la:re-", gloss: "back, again" },
+    { f: "memor", r: "la:memor", gloss: "mindful" },
+    { f: "-ārī" },
+  ]);
+  assert.equal("morphs" in match, false, "morphs are never inherited");
+});
+
+test("a shadow word inherits a single origin the same way", () => {
+  const match = one("dialogues");
+  assert.equal(match.seeAlso, "dialogue");
+  assert.deepEqual(match.org, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason" });
+  assert.deepEqual(match.org, one("dialogue").org);
+});
+
+test("a shadow word whose lemma has no origin inherits nothing", () => {
+  const match = one("ran");
+  assert.equal(match.seeAlso, "run", "the row to the lemma still renders");
+  assert.equal("org" in match, false);
+});
+
+test("inheritance stops at a lemma the bundle no longer ships", () => {
+  const match = one("sprang");
+  assert.equal("seeAlso" in match, false);
+  assert.equal("org" in match, false);
+});
+
+test("a word with its own morphs or origin never inherits", () => {
+  const sense = [{ pos: "noun", defs: ["A word."] }];
+  const bundle = {
+    words: {
+      v: 1,
+      words: {
+        // Its own split: the MADE OF claim stands, and no chain is layered on.
+        split: { senses: sense, morphs: [{ f: "muse", w: "muse" }], fo: "chained" },
+        // Its own chain: the lemma's does not replace it.
+        owned: { senses: sense, org: { r: "la:sub", f: "sub" }, fo: "chained" },
+        chained: { senses: sense, org: { r: "la:terra", f: "terra" } },
+        muse: { senses: sense },
+      },
+    },
+    roots,
+  };
+  const split = buildMatches("split", bundle)[0];
+  assert.equal("org" in split, false, "a split word inherits no chain");
+  assert.equal(split.seeAlso, "chained", "the row to the lemma is unaffected");
+  assert.deepEqual(buildMatches("owned", bundle)[0].org, {
+    r: "la:sub",
+    f: "sub",
+    gloss: "under",
+  });
+});
+
+test("an inherited origin is joined on the wire and stored nowhere", () => {
+  // The word table is untouched, and the family index credits only what the
+  // data itself carries: an inheriting word is in no family.
+  assert.equal("org" in words.words.remembered, false);
+  assert.equal(familyIndex["la:memor"].includes("remembered"), false);
+  assert.deepEqual(familyIndex["la:memor"], ["memory", "remember"]);
 });
 
 // --- used in --------------------------------------------------------------
@@ -1941,6 +2022,52 @@ await testAsync("smoke: decomposed org rows join their parts", async () => {
     }
   }
   console.log(`      (${decomposed.length} words carry a decomposed org)`);
+});
+
+await testAsync("smoke: an inflection inherits its lemma's origin", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const table = bundle.words.words;
+  const has = (key) => Object.prototype.hasOwnProperty.call(table, key);
+  const inheritable = (key) => {
+    const entry = table[key];
+    if (typeof entry.fo !== "string" || !has(entry.fo)) return false;
+    if (Array.isArray(entry.morphs) && entry.morphs.length > 0) return false;
+    if (entry.org) return false;
+    return Boolean(table[entry.fo].org);
+  };
+  const shadows = Object.keys(table).filter(inheritable);
+  if (shadows.length === 0) {
+    console.log("      (no inheritable shadow rows in this build yet, inheritance unverified)");
+    return;
+  }
+
+  const sample = shadows[0];
+  const match = lookup(sample, bundle).matches[0];
+  assert.ok(match, `${sample} must resolve to itself`);
+  assert.ok(match.org, `${sample} must inherit ${table[sample].fo}'s origin`);
+  assert.equal(match.seeAlso, table[sample].fo, "the row to the lemma renders beside it");
+  assert.equal("morphs" in match, false, "morphs are never inherited");
+  // The inherited row is the lemma's own row, joined the same way.
+  assert.deepEqual(match.org, lookup(table[sample].fo, bundle).matches[0].org);
+
+  // The motivating card: appreciated shows FROM LATIN appretiō.
+  if (has("appreciated") && inheritable("appreciated")) {
+    const appreciated = lookup("appreciated", bundle).matches[0];
+    assert.ok(appreciated.org, "appreciated must carry appreciate's origin");
+    assert.equal(appreciated.seeAlso, "appreciate");
+    const lemma = typeof appreciated.org.l === "string" ? appreciated.org.l : "";
+    assert.ok(
+      lemma.toLowerCase().includes("appreti"),
+      `appreciated's origin lemma reads ${JSON.stringify(lemma)}`
+    );
+  }
+  console.log(`      (${shadows.length} inflections inherit an origin)`);
 });
 
 await testAsync("smoke: used-in derives from the shipped w chips", async () => {

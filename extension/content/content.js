@@ -1969,6 +1969,12 @@
     return text;
   }
 
+  // What the trail calls a used-in view. Not the word: the list is reached
+  // FROM that word's card, so labeling the crumb with it stuttered the trail
+  // (appreciated › appreciated). The view still TITLES itself by the word;
+  // the crumb says what the step was (Jesse decision 2026-08-25).
+  var USEDIN_CRUMB = "Used in";
+
   function usedInEnabled(settings) {
     return true;
   }
@@ -2576,8 +2582,9 @@
     if (key) {
       var cut = key.indexOf(":");
       var kind = key.slice(0, cut);
-      // A used-in crumb is labeled by the word it lists (SPEC).
-      if (kind === "word" || kind === "usedin") return key.slice(cut + 1);
+      if (kind === "word") return key.slice(cut + 1);
+      // A used-in crumb names the STEP, not the word it lists (SPEC).
+      if (kind === "usedin") return USEDIN_CRUMB;
       // A root crumb reads as the form, not as the la:terra key.
       if (kind === "root") {
         var m = usableMatches(matches)[0];
@@ -2921,7 +2928,7 @@
       if (!chunk || !chunk.rows.length) return;   // nothing to show, no view
       pushView({
         key: "usedin:" + target,
-        label: target,
+        label: USEDIN_CRUMB,
         matches: [{
           kind: "usedin", key: target, rows: chunk.rows,
           total: chunk.total || total || chunk.rows.length
@@ -3529,8 +3536,15 @@
         var box = panel.getBoundingClientRect();
         return { width: box.width, height: box.height };
       },
+      // Released ON THE PANEL, which is where a real drag ends: the pointer is
+      // over the corner it grabbed. Dispatching on the window instead made the
+      // synthetic gesture look like a release on the PAGE, which schedules a
+      // selection re-read and dismisses a popup that has no selection behind
+      // it. The resize listener sees it either way; the dismissal listener
+      // correctly ignores it only this way.
       endDragResize: function () {
-        window.dispatchEvent(new MouseEvent("mouseup", {
+        ensureHost();
+        panel.dispatchEvent(new MouseEvent("mouseup", {
           bubbles: true, composed: true, cancelable: true
         }));
       },

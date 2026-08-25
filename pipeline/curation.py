@@ -8,7 +8,7 @@ only, loaded because sys.path[0] is pipeline/ whenever build.py runs as a
 script.
 
 Wiktionary is right about etymology and wrong about what a reader wants to
-see. These four tables are where that gap is recorded, one entry at a
+see. These five tables are where that gap is recorded, one entry at a
 time, each with the reason it exists. They are reviewed in PR diffs.
 
     BLOCKED_SPLITS   harvested split is true but semantically dead
@@ -17,8 +17,14 @@ time, each with the reason it exists. They are reviewed in PR diffs.
     ROOT_SKIPS       keys never emitted as roots
     ROOT_GLOSSES     hand gloss overriding the harvested one
 
+An ROOT_ALIASES key is a bare surface form (terra, terr-) when it should
+bind wherever that form appears, English morphemes included, and a
+language-qualified page key (la:com-) when it must bind only inside its own
+language. English words are analysed with English affixes: com- on
+compassion belongs on the English prefix card, not on la:con-.
+
 Nothing here is generated. The build adds its own automatic aliases from
-the root-unification hop at run time and never writes back to this file.
+the inflection step at run time and never writes back to this file.
 """
 
 from __future__ import annotations
@@ -90,6 +96,30 @@ ROOT_ALIASES = {
     "memoror": "la:memor",
     "rememoror": "la:memor",
     "memorandum": "la:memor",
+    # Classical affix pages whose own gloss is a relation note pointing at
+    # another page. Wiktionary writes the note instead of a meaning, so the
+    # card would ship reading "allomorph of con-" and split a family that
+    # belongs on one card. Each line quotes the note that justifies it
+    # (owner field audit 2026-08-25).
+    # "allomorph of con-"
+    "la:com-": "la:con-",
+    # "Primarily ante-vocalic or poetic variant of re-"
+    "la:red-": "la:re-",
+    # "alternative form of -ulus"
+    "la:-culus": "la:-ulus",
+    # "Enlargement of -ō (suffix forming regular first-conjugation verbs)"
+    "la:-igo": "la:-o",
+    # "syncopic form of calidus"; calidus glosses "warm, hot" and ships once
+    # caldera, cauldron and chowder land on it.
+    "la:caldus": "la:calidus",
+    # "oxytone form of -ης (-ēs, adjective-forming suffix)"
+    "grc:-ής": "grc:-ης",
+    # Judgment call, not a quoted note: neither page calls itself a form of
+    # the other, but -ικός glosses "of or pertaining to, in the manner of"
+    # and -κός glosses "of or pertaining to, in the manner of". They are the
+    # same suffix with and without its connecting vowel, and two identical
+    # cards 14 words apart is the fragmentation this table exists to fix.
+    "grc:-κός": "grc:-ικός",
 }
 
 # ----------------------------------------------------------------- root skips
@@ -102,6 +132,18 @@ ROOT_SKIPS = frozenset({
     # abso-fucking-lutely. It is a real affix page and it would put a second
     # card on a word that already has one.
     "en:fucking",
+    # Latin case and stem markers. These are real suffix pages, and source
+    # splits do name them, but a card reading "suffix marking the nominative
+    # singular" teaches a reader nothing about the word they selected
+    # (owner field audit 2026-08-25). Each line names the family that
+    # exposed it.
+    # dux = dūcō + -s, index = in + dīcō + -s: the nominative marker.
+    "la:-s",
+    # ēnōrmis = ex- + nōrma + -is: the third-declension adjective ending,
+    # and the page that wins the gloss is a Greek-borrowing noun suffix.
+    "la:-is",
+    # asserō = ad- + serō + -a + -ō: a stem vowel between two real parts.
+    "la:-a",
 })
 
 # ---------------------------------------------------------------- root glosses
@@ -124,4 +166,33 @@ ROOT_GLOSSES = {
     # diminutive entry (doggy). The adjectival entry (rainy, sticky) builds
     # most of the family, so the gloss leads with it.
     "en:-y": "forming adjectives (having the quality of) and diminutive nouns",
+    # ---- classical affixes, audited against their families 2026-08-25 ----
+    # Every gloss below is written from a sense on the page itself; the
+    # build picked a different sense, and the family shows which one is
+    # right. The families are derived the runtime way, from words.json.
+    # Harvested: "Used to form country names". Family: memory, grace,
+    # evidence, distance, arrogance. Sense 1 of the same page reads "Used to
+    # form an abstract noun, usually from an adjective ending in -us".
+    "la:-ia": "forming abstract nouns, usually from an adjective",
+    # Harvested: "Used to form masculine nouns with various meanings".
+    # Family: change (cambium + -ō), condense (densus + -ō), incorporate
+    # (corpus + -ō): denominative verbs, every one. A separate -ō page reads
+    # "suffixed to nouns or adjectives ... Forms regular first-conjugation
+    # verbs", which is the family's sense.
+    "la:-o": "suffixed to nouns or adjectives, forming regular "
+             "first-conjugation verbs",
+    # Harvested: "forms animate nouns of various meanings, often colloquial
+    # or pejorative". Family: punish (poena + -iō), unite (ūnus + -iō),
+    # depart. A separate -iō page reads "Used to form fourth conjugation
+    # verbs".
+    "la:-io": "used to form fourth-conjugation verbs",
+    # Harvested: "used as a derivational suffix to form compound agent
+    # nouns". Family: conscious, magnanimous, elegant, envious, all
+    # adjectives. A separate -us page reads "used to derive adjectives from
+    # other parts of speech".
+    "la:-us": "used to derive adjectives from other parts of speech",
+    # Harvested: "from materials", which reads like a cut string. The
+    # fullest sense on the page reads as below.
+    "la:-eus": "derives relational adjectives from nouns, used chiefly to "
+               "indicate material composition",
 }

@@ -1863,9 +1863,13 @@
       fake.__usedInCalls === usedInCallsBefore + 1 &&
       fake.__lastUsedInKey === "absolute" && !fake.__lastUsedInOffset,
       "calls=" + fake.__usedInCalls + " key=" + fake.__lastUsedInKey);
-    check("the crumb is labeled by the word the list is about",
-      api.crumbLabels().join(" › ") === "absolute › absolute",
+    // The crumb names the STEP; the view still titles itself by the word.
+    check("the crumb reads Used in, so the trail does not stutter the word",
+      api.crumbLabels().join(" › ") === "absolute › Used in",
       api.crumbLabels().join(" › "));
+    check("the list view is still titled by the word it is about",
+      api.query(".card.usedin .surface").textContent === "absolute",
+      api.query(".card.usedin .surface").textContent);
     check("the list rows are family rows: word, first def and tier chip",
       /^absolutely: Completely/.test(api.queryAll(".fam-row")[0].textContent) &&
       api.queryAll(".fam-row")[0].querySelector(".tier-chip").textContent ===
@@ -1881,7 +1885,7 @@
       function () { return "depth=" + api.viewDepth(); });
     check("the drill-down costs one lookup and grows the trail",
       fake.__calls === callsBeforeUsedRow + 1 &&
-      api.crumbLabels().join(" › ") === "absolute › absolute › absolutely",
+      api.crumbLabels().join(" › ") === "absolute › Used in › absolutely",
       api.crumbLabels().join(" › "));
 
     // A used-in list past one chunk pages exactly like a family does.
@@ -1924,13 +1928,15 @@
 
     // --- the see-also row ---------------------------------------------------
     show("ran");
+    // The LAST quiet row, never the first: a shadow word can inherit its
+    // lemma's origin, and that row would sit above this one.
+    var seeAlsoRow = api.queryAll(".origin-row").pop();
     check("a word that shadows an inflection points at the lemma, last in the card",
-      !!api.query(".origin-row") &&
-      api.query(".origin-row").textContent === "Also a form of run" &&
+      !!seeAlsoRow && seeAlsoRow.textContent === "Also a form of run" &&
       sectionOrder().pop() === "entry-row origin-row nav",
       sectionOrder().join(" | "));
     var callsBeforeSeeAlso = fake.__calls;
-    api.query(".origin-row").click();
+    seeAlsoRow.click();
     await until(function () { return api.viewDepth() === 2; });
     check("the see-also row is an ordinary lookup drill-down",
       api.viewDepth() === 2 && api.query(".surface").textContent === "run" &&
@@ -2137,7 +2143,9 @@
       selfScroll > 20, "scrollTop=" + Math.round(selfScroll));
     var selfDepth = api.viewDepth();
     var selfCalls = fake.__calls;
-    api.query(".origin-row").click();
+    // The see-also row is the LAST quiet row: a shadow word can inherit its
+    // lemma's origin, and that row would sit above this one.
+    api.queryAll(".origin-row").pop().click();
     await until(function () { return api.queryAll(".flash").length === 1; });
     check("a row pointing at its own view pushes nothing and queries nothing",
       api.viewDepth() === selfDepth && fake.__calls === selfCalls,
@@ -2166,7 +2174,7 @@
     show("terrace");
     await until(function () { return !!api.query(".origin-row"); });
     api.scrollTop(60);
-    api.query(".origin-row").click();
+    api.queryAll(".origin-row").pop().click();
     check("under reduced motion it jumps to the top with no flash at all",
       api.scrollTop() === 0 && api.queryAll(".flash").length === 0,
       "scrollTop=" + Math.round(api.scrollTop()) +

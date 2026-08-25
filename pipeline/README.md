@@ -372,6 +372,13 @@ re- + `corcord->` + -ō, whose middle piece is a wiktextract artifact with no
 page behind it. `ROOT_SKIPS` and `ROOT_ALIASES` apply at every level, and a
 curated alias stops the recursion where it lands.
 
+**Affixes are terminal.** Recursion never decomposes a part that is itself an
+affix, by hyphen shape or by entry pos. Wiktionary records splits for affixes
+too, and following them is how `-ārium` became -ārius + -um and put library,
+calendar and rosary in a la:-um card glossed "genitive plural ending" (owner
+field finding 2026-08-25). A reader drilling a suffix wants the suffix, not
+the case ending inside it.
+
 **Latin and Greek affix pages are root nodes** now, reached through org
 parts, with `kind` from their entry pos. 131 of them ship: la:re-, la:-tōrium,
 grc:-ισμός. The 2-distinct-word threshold applies unchanged, and org parts
@@ -443,6 +450,31 @@ exists:
 | `ROOT_ALIASES`   | surface form or chain lemma -> root key                           |
 | `ROOT_SKIPS`     | keys that must never become root cards                            |
 | `ROOT_GLOSSES`   | hand glosses overriding the harvested one                         |
+
+An alias key is a bare surface form (`terra`, `terr-`) when it should bind
+wherever that form appears, English morphemes included, and a
+language-qualified page key (`la:com-`) when it must bind only inside its own
+language. That distinction is load-bearing: English words are analysed with
+English affixes, so `com-` on compassion belongs on the English prefix card
+and only the Latin page belongs on la:con-.
+
+Three kinds of classical card were audited out of the root set on
+2026-08-25, after the owner reviewed them in the live extension:
+
+* **Relation notes.** A page whose own gloss points at another page ("allomorph
+  of con-", "alternative form of -ulus", "oxytone form of -ης") becomes an
+  alias onto the page it names, so the two families share one card. Seven
+  entries, each quoting the note that justifies it.
+* **Case and stem markers.** la:-s, la:-is and la:-a are real suffix pages
+  that source splits do name (`dux` = dūcō + -s), but a card reading "suffix
+  marking the nominative singular" teaches nothing. They are skipped.
+* **Wrong-sense glosses.** Where the picked sense plainly does not describe
+  the family, `ROOT_GLOSSES` carries a sense from the same page that does.
+  la:-ia was glossed "Used to form country names" over a family of memory,
+  grace and evidence; la:-o was glossed "masculine nouns" over a family of
+  denominative verbs. The test is the family, derived the runtime way, not
+  the wording: grc:-ώ keeps "suffix forming female given names" because its
+  family really is echo and clio.
 
 `understand` is the shape of a blocked split: under- + stand is correct and
 tells a reader nothing. `subterranean` is the shape of a forced split: the

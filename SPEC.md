@@ -140,8 +140,13 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   resulting piece still has an entry in that language's extract (the
   all-or-nothing spirit of Okpyeon's dead-end rule: a split that
   introduces an inert fragment teaches less than the whole part).
-  ROOT_SKIPS and ROOT_ALIASES apply at every level. Root families
-  anchor at the deepest bases this reaches. Where the source has no
+  ROOT_SKIPS and ROOT_ALIASES apply at every level. Affixes are
+  TERMINAL: recursion never decomposes a part that is itself an affix
+  (hyphen-bearing form or affix pos), because the affix is the
+  teachable unit (field finding 2026-08-25: splitting -ārium into
+  -ārius + -um scattered library and calendar onto a card glossed
+  "genitive plural ending"). Root families anchor at the deepest
+  bases this reaches. Where the source has no
   decomposition templates at all (Latin rememoror and memorō carry
   only prose etymologies, verified 2026-08-25), recursion cannot
   reach the base and ROOT_ALIASES is the stated tool: the memor
@@ -238,6 +243,15 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   Rationale: a reader selecting "ran" wants run; the shadow entry must
   hand them a way there. The worker passes it through as `seeAlso` on
   the word match and the renderer shows a quiet nav row (below).
+- Inherited origin (Jesse decision 2026-08-25): a word carrying `fo`
+  but neither `morphs` nor `org` INHERITS its lemma's `org` on the
+  wire: the worker attaches the fo target's org (either shape, glosses
+  joined as usual) to the match at lookup time. The row is as true of
+  the inflection as of the lemma (appreciated shows FROM LATIN
+  appretiō beside its Also-a-form-of row; the English inflection
+  suffix is never mixed into the Latin assembly). Morphs are never
+  inherited: a MADE OF claim describes the lemma's own English
+  assembly. Worker-side only; nothing is stored.
 
 ### roots.json
 
@@ -477,8 +491,10 @@ Sections in order:
   a list view, not in-place expansion) to a `usedin:<key>` view
   titled by the word, rows in the family-row format (word, first def,
   tier chip), each an ordinary lookup drill-down, chunk-fetched by
-  offset like family lists, cached per view, crumb labeled with the
-  word. Absent when no `usedInCount`.
+  offset like family lists, cached per view. The crumb is labeled
+  "Used in" (Jesse decision 2026-08-25, mirroring Okpyeon's "Part
+  of" crumb; labeling it with the word stuttered the trail:
+  appreciated then appreciated). Absent when no `usedInCount`.
 
 ### Root card
 
@@ -559,6 +575,12 @@ tier chip; the family count line is the root's weight signal.
   mechanism (fit-gated, z-index rules) with new artwork: the Greek word
   "ἐτυμικόν", the app's name in its native Greek shape, in the seal
   frame (Jesse decision 2026-08-25, replacing the earlier ἔτυμον).
+  Brand color (Jesse decision 2026-08-25, mirroring Okpyeon's jade
+  wordmark and seal): the sidebar wordmark and the seal render in the
+  icon's primary terracotta (#C0552B) in light mode, with a lightened
+  warm variant in dark mode chosen to clear contrast against the dark
+  ground, the same treatment the jade had. The Aegean ring blue stays
+  the icon's secondary and is not used for page chrome.
   Fonts: system stack everywhere; the
   Batang/serif rules are deleted.
 - Icon (chosen 2026-08-25, rendered by pipeline/make_icons.py): a bare
@@ -652,6 +674,19 @@ Parsing rules, English extract:
   no origin filter on `r`. en: affix roots get `src` when their own
   etymology chain reaches a Latin/Greek lemma by the chain rule; a
   Germanic affix simply has no src row.
+- Alignment routing (Jesse decision 2026-08-25, rule ratified ahead of
+  the measurement): when a word carries BOTH an en surface split and a
+  Latin/Greek chain whose recursive flattening aligns with it
+  part-for-part, the base part takes `r` to the classical root instead
+  of `w` to its English homograph. Rationale: subscribe's surface
+  split paired the scribe chip with the English noun (a
+  draughtsperson) when the operative unit is la:scrībō, which also
+  assembles describe, inscribe, and prescribe; same class:
+  export/portō, subtract/trahō, reverse/vertō. A curated keep-list
+  (FREE_BASES in curation.py) preserves the `w` chip where the base's
+  meaning flows into the compound and the English word card is the
+  right destination (muse in music, form in reform, cede in concede);
+  its members come from the measurement report and owner review.
 - Root emission: collect every referenced root key; keep those with 2
   or more referencing words; gloss la:/grc: keys from the Latin/Greek
   extracts (first gloss of the lemma entry, macrons preserved for

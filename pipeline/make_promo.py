@@ -9,98 +9,126 @@ Produces both sizes the store accepts:
 Both are written as 24-bit RGB with NO alpha channel, which the store requires
 of promotional images (unlike the extension icons, which keep their alpha).
 
-Reuses the icon's identity: jade ground, cinnabar rule, Batang myeongjo. The
-tiles show 國 resolving to its Korean reading, the concept that was too detailed
-for a 16px icon but is the clearest one-glance statement of what the extension
-does at this size.
+The tile is the icon's own seal beside the wordmark: the terracotta clay body,
+the Aegean ring, the cream Georgia-bold epsilon at em 1.20. Every colour and
+every fraction is imported from make_icons.py rather than restated, so the tile
+and the toolbar asset cannot drift apart. The ground is a quiet warm white, so
+the seal is the only saturated thing in the frame.
 
-Strokes are thickened by square-kernel dilation, never PIL's stroke_width,
-which round-caps the myeongjo serifs into sausages. The dilation here is far
-lighter than the icons' because 國 has eleven strokes to 玉's five, so the same
-ratio would close its counters.
+The seal is drawn supersampled and downsampled with Lanczos, the icons' method,
+because a single smooth bowl suits resampling better than hinting. The text is
+drawn at final size instead: at these sizes Segoe UI hints better than it
+resamples, and the tile is read at 100%.
+
+Output is deterministic: the same fonts and the same spec give the same bytes.
 """
 
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+from PIL import Image, ImageDraw, ImageFont
+
+# The icon IS the brand. Its palette, its font, its glyph and its 128px
+# geometry are imported, never copied.
+from make_icons import AEGEAN, CLAY, CREAM, FONT as SEAL_FONT, GLYPH, TUNING
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "screenshots"
 
-BATANG = r"C:\Windows\Fonts\batang.ttc"
-MALGUN = r"C:\Windows\Fonts\malgun.ttf"
-MALGUN_BD = r"C:\Windows\Fonts\malgunbd.ttf"
+UI = r"C:\Windows\Fonts\segoeui.ttf"
+UI_SEMIBOLD = r"C:\Windows\Fonts\seguisb.ttf"
 
-SS = 4
+SS = 4                      # seal supersampling, as in make_icons.py
 
-JADE = (46, 107, 87)
-CINNABAR = (184, 64, 47)
-WHITE = (255, 255, 255)
-MIST = (198, 224, 213)
-MIST_DIM = (150, 190, 172)
+# The 128px seal's fractions: glyph em, body margin, body corner, and the ring
+# as (outer inset, corner, band). 128 is the sharpest tuning and the one the
+# store listing shows beside these tiles.
+SEAL_GLYPH, SEAL_MARGIN, SEAL_CORNER, SEAL_RING = TUNING[128][1:]
 
-GLYPH = "\u570b"          # 國
-EUMHUN = "\ub098\ub77c \uad6d"   # 나라 국
+# A quiet ground: warm enough to belong to the clay, pale enough that the seal
+# is the only thing with colour in it.
+GROUND = (251, 247, 244)
+MUTED = (74, 65, 59)
+FAINT = (150, 136, 126)
+
+WORDMARK = "Etymikon"
+TAGLINE = "Word Roots Popup Dictionary"
+# The worked example from the manifest description: a real shipped breakdown,
+# not a slogan.
+EXAMPLE = "subterranean  =  sub-  +  terra  +  -an"
 
 
-def paste_glyph(img, xy, text, font, k, colour):
-    """Draw text through a dilated single-channel mask, so the square kernel
-    thickens strokes without round-capping the serifs."""
-    mask = Image.new("L", img.size, 0)
-    ImageDraw.Draw(mask).text(xy, text, font=font, fill=255)
-    if k > 0:
-        mask = mask.filter(ImageFilter.MaxFilter(2 * k + 1))
-    img.paste(Image.new("RGB", img.size, colour), (0, 0), mask)
+def seal(size):
+    """The icon's seal at an arbitrary size, alpha intact.
+
+    Drawn at SS x and downsampled, exactly as make_icons.render does, and off
+    the same fractions, so this is the toolbar asset enlarged rather than a
+    second drawing of it.
+    """
+    s = size * SS
+    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    m = round(s * SEAL_MARGIN)
+    d.rounded_rectangle([m, m, s - 1 - m, s - 1 - m],
+                        radius=round(s * SEAL_CORNER), fill=CLAY)
+
+    outer, corner, band = SEAL_RING
+    inset = round(s * outer)
+    d.rounded_rectangle([inset, inset, s - 1 - inset, s - 1 - inset],
+                        radius=round(s * corner), outline=AEGEAN,
+                        width=max(1, round(s * band)))
+
+    # The glyph is centred on its INK, not on its em box: the epsilon's bowl
+    # sits low in the em and a box-centred one reads as sunk.
+    font = ImageFont.truetype(SEAL_FONT, round(s * SEAL_GLYPH))
+    mask = Image.new("L", (s, s), 0)
+    md = ImageDraw.Draw(mask)
+    box = md.textbbox((0, 0), GLYPH, font=font)
+    md.text(((s - (box[2] - box[0])) / 2 - box[0],
+             (s - (box[3] - box[1])) / 2 - box[1]), GLYPH, font=font, fill=255)
+    img = Image.composite(Image.new("RGBA", (s, s), CREAM), img, mask)
+
+    return img.resize((size, size), Image.LANCZOS)
+
+
+def draw_line(d, xy, text, font, fill):
+    """Draw one line by its ink top-left, so a spec's y is what the reader sees
+    rather than wherever the font's ascent happens to put it."""
+    box = d.textbbox((0, 0), text, font=font)
+    d.text((xy[0] - box[0], xy[1] - box[1]), text, font=font, fill=fill)
 
 
 def render(width, height, spec):
-    w, h = width * SS, height * SS
-    img = Image.new("RGB", (w, h), JADE)
+    img = Image.new("RGB", (width, height), GROUND)
     d = ImageDraw.Draw(img)
-    d.rectangle([0, 0, w - 1, h - 1], outline=CINNABAR, width=round(spec["rule"] * SS))
 
-    hanja = ImageFont.truetype(BATANG, round(spec["glyph"] * SS), index=0)
-    eumhun = ImageFont.truetype(BATANG, round(spec["eumhun"] * SS), index=0)
-    name = ImageFont.truetype(MALGUN_BD, round(spec["name"] * SS))
-    tag = ImageFont.truetype(MALGUN, round(spec["tag"] * SS))
+    mark = seal(spec["seal"])
+    img.paste(mark, (spec["seal_x"], spec["seal_y"]), mark)
 
-    # Left: 國 with its eumhun beneath, the extension's own worked example.
-    gx, gy = round(spec["gx"] * SS), round(spec["gy"] * SS)
-    k = round(spec["dilate"] * SS)
-    box = d.textbbox((0, 0), GLYPH, font=hanja)
-    paste_glyph(img, (gx - box[0], gy - box[1]), GLYPH, hanja, k, WHITE)
-    # Dilation grows the glyph by k on every side, so its visual centre and
-    # baseline both sit k outside the measured ink box.
-    gw = (box[2] - box[0]) + 2 * k
-    gbottom = gy + (box[3] - box[1]) + k
-    ebox = d.textbbox((0, 0), EUMHUN, font=eumhun)
-    d.text(((gx - k) + (gw - (ebox[2] - ebox[0])) / 2 - ebox[0],
-            gbottom + round(spec["gap"] * SS) - ebox[1]),
-           EUMHUN, font=eumhun, fill=MIST)
+    x = spec["text_x"]
+    draw_line(d, (x, spec["name_y"]), WORDMARK,
+              ImageFont.truetype(UI_SEMIBOLD, spec["name"]), CLAY)
+    draw_line(d, (x, spec["tag_y"]), TAGLINE,
+              ImageFont.truetype(UI, spec["tag"]), MUTED)
 
-    # Right: wordmark and what it is.
-    tx = round(spec["tx"] * SS)
-    d.text((tx, round(spec["name_y"] * SS)), "Okpyeon", font=name, fill=WHITE)
-    for i, line in enumerate(("Hanja popup dictionary", "for Korean learners")):
-        d.text((tx, round((spec["tag_y"] + i * spec["tag_lh"]) * SS)),
-               line, font=tag, fill=MIST)
+    # The marquee has room for a real breakdown under the tagline; the small
+    # tile does not, and a squeezed one would only be noise.
+    if "example_y" in spec:
+        draw_line(d, (x, spec["example_y"]), EXAMPLE,
+                  ImageFont.truetype(UI, spec["example"]), FAINT)
 
-    # Marquee only: room for a line of real vocabulary the character builds.
-    if spec.get("examples_y"):
-        ex = ImageFont.truetype(MALGUN, round(spec["ex"] * SS))
-        d.text((tx, round(spec["examples_y"] * SS)),
-               "\uad6d\ubbfc \u570b\u6c11   \u00b7   \ud55c\uad6d \u97d3\u570b"
-               "   \u00b7   \uad6d\uac00 \u570b\u5bb6   \u00b7   \uc678\uad6d \u5916\u570b",
-               font=ex, fill=MIST_DIM)
-
-    return img.resize((width, height), Image.LANCZOS)
+    return img
 
 
-SMALL = dict(rule=7, glyph=96, eumhun=23, name=34, tag=15.5, dilate=0.7,
-             gx=46, gy=88, gap=18, tx=196, name_y=96, tag_y=140, tag_lh=23)
+# Both specs centre the seal-and-text group in the frame: the block width is
+# the seal plus its gap plus the widest line, and the block height is the text
+# stack, which is the taller of the two columns in neither case by accident.
+SMALL = dict(seal=104, seal_x=38, seal_y=88, text_x=174,
+             name=40, name_y=103, tag=17, tag_y=160)
 
-MARQUEE = dict(rule=14, glyph=210, eumhun=50, name=76, tag=34, dilate=1.4,
-               gx=150, gy=160, gap=38, tx=560, name_y=175, tag_y=278, tag_lh=48,
-               examples_y=400, ex=28)
+MARQUEE = dict(seal=272, seal_x=243, seal_y=144, text_x=599,
+               name=104, name_y=160, tag=42, tag_y=300,
+               example=30, example_y=376)
 
 
 if __name__ == "__main__":
@@ -109,6 +137,7 @@ if __name__ == "__main__":
         path = OUT_DIR / f"promo-{wd}x{ht}.png"
         img = render(wd, ht, spec)
         assert img.mode == "RGB", f"promo images must have no alpha, got {img.mode}"
+        assert img.size == (wd, ht), f"{path.name}: rendered {img.size}"
         img.save(path, "PNG", optimize=True)
         print(f"{path.name:22s} {img.size[0]}x{img.size[1]}  {img.mode}  "
               f"{path.stat().st_size:,} B")

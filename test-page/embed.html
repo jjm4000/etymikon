@@ -1728,10 +1728,11 @@
       api.query(".usedin-row").textContent === "Used in 1 word",
       api.query(".usedin-row") ? api.query(".usedin-row").textContent : "no row");
     api.query(".usedin-row").click();
-    await checkSoon("it opens the list view, crumbed by the word",
+    await checkSoon("it opens the list view, crumbed Used in and titled by the word",
       function () {
         return api.viewDepth() === 2 && !!api.query(".card.usedin") &&
-          api.crumbLabels().join(" › ") === "absolute › absolute";
+          api.query(".card.usedin .surface").textContent === "absolute" &&
+          api.crumbLabels().join(" › ") === "absolute › Used in";
       },
       function () { return api.crumbLabels().join(" › "); });
     api.queryAll(".crumb")[0].click();
@@ -1792,6 +1793,51 @@
     check("the wordmark carries no CJK font stack",
       !/Batang|Myeongjo|Songti|SimSun/i.test(getComputedStyle(brand).fontFamily),
       getComputedStyle(brand).fontFamily);
+
+    // Brand color. The wordmark and the corner seal are the ICON's terracotta,
+    // so the panel belongs to the thing the reader clicked to open it, and the
+    // 13px bold wordmark has to clear WCAG AA against whichever ground the
+    // reader's colour scheme supplies. 13px bold is NOT "large text": the bar
+    // is 4.5, not 3. Measured here rather than asserted in a comment, so a
+    // later tweak to either token cannot quietly drop below it.
+    function srgbChannel(c) {
+      c /= 255;
+      return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+    function luminance(color) {
+      var text = String(color).trim();
+      var parts;
+      if (text.charAt(0) === "#") {
+        parts = [parseInt(text.slice(1, 3), 16), parseInt(text.slice(3, 5), 16),
+                 parseInt(text.slice(5, 7), 16)];
+      } else {
+        parts = (text.match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
+      }
+      return 0.2126 * srgbChannel(parts[0]) + 0.7152 * srgbChannel(parts[1]) +
+        0.0722 * srgbChannel(parts[2]);
+    }
+    function contrastRatio(a, b) {
+      var la = luminance(a), lb = luminance(b);
+      return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+    }
+    var rootStyle = getComputedStyle(document.documentElement);
+    var brandToken = rootStyle.getPropertyValue("--brand").trim();
+    var sealToken = rootStyle.getPropertyValue("--seal").trim();
+    check("the wordmark and the seal are the icon's terracotta, not a fork leftover",
+      /^#(C0552B|E07A4F)$/i.test(brandToken) &&
+      /^rgba\((192, 85, 43|224, 122, 79), 0\.3/.test(sealToken),
+      brandToken + " / " + sealToken);
+    check("the seal is the brand colour at an alpha, never a second hue",
+      sealToken.indexOf(
+        brandToken.toUpperCase() === "#C0552B" ? "192, 85, 43" : "224, 122, 79"
+      ) >= 0, sealToken);
+    var brandRatio = contrastRatio(getComputedStyle(brand).color,
+      rootStyle.getPropertyValue("--page-bg"));
+    check("the 13px bold wordmark clears WCAG AA against the panel ground",
+      brandRatio >= 4.5, brandRatio.toFixed(2) + ":1");
+    check("the blue accent is untouched: only the brand recoloured",
+      /^#(2f57c9|96b4ff)$/i.test(rootStyle.getPropertyValue("--page-accent").trim()),
+      rootStyle.getPropertyValue("--page-accent").trim());
     // HOME, from as deep as the reader can get: a drill-down inside a view
     // that is not even the search view.
     await search("subterranean");

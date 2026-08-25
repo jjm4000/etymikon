@@ -1066,13 +1066,32 @@ class Origin:
                 key = stepped
         return key
 
+    def is_affix(self, lang, key, form=""):
+        """True when this source-language page is an affix, not a lemma.
+
+        Either the written form carries a hyphen or the entry pos says so.
+        """
+        for f in (form, self.cl[lang]["form"].get(key) or key):
+            if f and (f.startswith("-") or f.endswith("-")):
+                return True
+        return self.cl[lang]["pos"].get(key, "") in AFFIX_POS
+
     def flatten(self, lang, key, depth, seen):
         """[(display form, root key or None)] for a lemma, or None.
 
         None means the lemma does not decompose and should stay whole. A
         part whose key is a ROOT_SKIPS entry keeps its display form and
         loses its link, exactly as an inert morph chip does.
+
+        Affixes are TERMINAL (SPEC, owner field finding 2026-08-25). An
+        affix page is the end of the road even when Wiktionary records a
+        split for it: -ārium splits as -ārius + -um, which put library,
+        calendar and rosary in a la:-um card glossed "genitive plural
+        ending". A reader drilling a suffix wants the suffix, not the case
+        ending inside it.
         """
+        if self.is_affix(lang, key):
+            return None
         cl = self.cl[lang]
         raw = cl["split"].get(key)
         if not raw or len(raw) < 2 or depth <= 0:
@@ -1082,7 +1101,9 @@ class Origin:
             pk = norm_key(lang, p)
             if not pk:
                 return None
-            a = curation.ROOT_ALIASES.get(p) or curation.ROOT_ALIASES.get(pk)
+            a = (curation.ROOT_ALIASES.get(lang + ":" + pk)
+                 or curation.ROOT_ALIASES.get(p)
+                 or curation.ROOT_ALIASES.get(pk))
             if a:
                 pieces.append((p, a, None))
                 continue
@@ -1110,7 +1131,8 @@ class Origin:
         key = self.settle(lang, lemma)
         if not key:
             return None
-        a = curation.ROOT_ALIASES.get(key)
+        a = (curation.ROOT_ALIASES.get(lang + ":" + key)
+             or curation.ROOT_ALIASES.get(key))
         if a:
             # A curated alias is a decision about where the family belongs,
             # so it wins over anything the extract would decompose.
@@ -1919,6 +1941,8 @@ def main(argv):
     # an intermediate lemma is now decomposed rather than folded away.
     alt = collections.defaultdict(set)
     for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
+        # A language-qualified alias key names a page, not a surface form.
+        src = src.split(":", 1)[1] if ":" in src else src
         if dst in roots and src != roots[dst]["form"]:
             alt[dst].add(src)
     for key, forms in alt.items():

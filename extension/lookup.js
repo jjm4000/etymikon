@@ -268,6 +268,12 @@ function morphRow(morph, roots, wordTable) {
   return row;
 }
 
+/** The `org` of a words.json entry, or null when it carries none. */
+function orgOf(entry) {
+  if (entry === null || typeof entry !== "object") return null;
+  return entry.org !== null && typeof entry.org === "object" ? entry.org : null;
+}
+
 /**
  * The word table an org part is joined against: none. Parts carry `f` and at
  * most `r`, so they run through morphRow with nothing to resolve a `w` against
@@ -350,11 +356,29 @@ function buildWordMatch(resolved, data) {
     .filter((row) => row.f !== "");
   if (morphs.length > 0) match.morphs = morphs;
 
-  // A word never carries both morphs and org (data invariant), so the guard
-  // costs nothing and keeps a bad bundle from rendering two breakdowns.
-  if (morphs.length === 0 && entry.org !== null && typeof entry.org === "object") {
-    const org = originRow(entry.org, roots);
-    if (org !== null) match.org = org;
+  // The shadow-entry target: "ran" ships as a word on a marginal noun sense and
+  // shadows "run" at lookup time, so the card hands the reader a way to the
+  // lemma. Dropped when that lemma is gone from the bundle, and when a bad
+  // bundle points a word at itself, since either would render a row leading
+  // nowhere useful. Resolved here because the origin row below may inherit
+  // from it; emitted last, where the card renders it.
+  const lemma = str(entry.fo);
+  const seeAlso =
+    lemma !== "" && lemma !== resolved.canonical && hasOwn(table, lemma) ? lemma : "";
+
+  // The origin row. A word never carries both morphs and org (data invariant),
+  // so the guard costs nothing and keeps a bad bundle from rendering two
+  // breakdowns. An inflection carrying neither INHERITS its lemma's org, on the
+  // wire only: "appreciated" shows FROM LATIN appretiō beside its
+  // Also-a-form-of row, because the Latin chain is as true of the inflection as
+  // of the lemma. Morphs are never inherited, since a MADE OF claim describes
+  // the lemma's own English assembly and the inflection suffix is no part of it.
+  if (morphs.length === 0) {
+    const source = orgOf(entry) || (seeAlso === "" ? null : orgOf(table[seeAlso]));
+    if (source !== null) {
+      const org = originRow(source, roots);
+      if (org !== null) match.org = org;
+    }
   }
 
   // The used-in row: how many bigger words are built on this one. A count, not
@@ -363,15 +387,7 @@ function buildWordMatch(resolved, data) {
   const usedIn = rankedList(resolved.canonical, data && data.usedInIndex);
   if (usedIn.length > 0) match.usedInCount = usedIn.length;
 
-  // The shadow-entry row: "ran" ships as a word on a marginal noun sense and
-  // shadows "run" at lookup time, so the card hands the reader a way to the
-  // lemma. Dropped when that lemma is gone from the bundle, and when a bad
-  // bundle points a word at itself, since either would render a row leading
-  // nowhere useful.
-  const seeAlso = str(entry.fo);
-  if (seeAlso !== "" && seeAlso !== resolved.canonical && hasOwn(table, seeAlso)) {
-    match.seeAlso = seeAlso;
-  }
+  if (seeAlso !== "") match.seeAlso = seeAlso;
   return match;
 }
 
