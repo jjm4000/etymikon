@@ -1557,6 +1557,49 @@
       api.queryAll(".fam-row")[0].querySelector(".tier-chip").textContent === "Everyday",
       api.queryAll(".fam-row")[0].textContent.slice(0, 60));
 
+    // --- the chip survives the row's one-line clamp at ANY width -------------
+    // The definition is clamped to one line; the chip is NOT part of that
+    // clamp. Inside it, a long definition pushed the chip onto the hidden
+    // second line and the row silently lost it. Narrow the panel to the
+    // minimum, where every definition overflows, and every row must still show
+    // its chip.
+    function chipsShowing() {
+      return api.queryAll(".fam-row").filter(function (r) {
+        var chip = r.querySelector(".tier-chip");
+        if (!chip) return false;
+        var box = chip.getBoundingClientRect();
+        var rowBox = r.getBoundingClientRect();
+        // Painted, and on the row's own line rather than a clipped one below.
+        return box.width > 0 && box.height > 0 &&
+          box.bottom <= rowBox.bottom + 1 && box.top >= rowBox.top - 1;
+      }).length;
+    }
+    var famRowCount = api.queryAll(".fam-row").length;
+    check("test setup: the list is showing its eight preview rows",
+      famRowCount === 8, "rows=" + famRowCount);
+    check("every row shows its chip at the default width",
+      chipsShowing() === 8, "chips=" + chipsShowing() + "/8");
+    api.resizePanel(280, 400);
+    await until(function () { return api.panelSize().width <= 281; });
+    check("every row still shows its chip at the 280px minimum",
+      chipsShowing() === 8, "chips=" + chipsShowing() + "/8 at " +
+      Math.round(api.panelSize().width) + "px");
+    check("the definitions really are clamped at that width, so this is not vacuous",
+      api.queryAll(".fam-row").some(function (r) {
+        var body = r.querySelector(".clamp");
+        return body && body.scrollHeight > body.clientHeight + 1;
+      }), "clamped=" + api.queryAll(".fam-row").filter(function (r) {
+        var body = r.querySelector(".clamp");
+        return body && body.scrollHeight > body.clientHeight + 1;
+      }).length);
+    check("the chip sits outside the clamped text, as its own row child",
+      api.queryAll(".fam-row").every(function (r) {
+        var chip = r.querySelector(".tier-chip");
+        return !!chip && chip.parentNode === r;
+      }));
+    api.resetPanelSize();
+    await until(function () { return !api.isUserSized(); });
+
     // --- family pagination ------------------------------------------------
     var famCallsBefore = fake.__familyCalls;
     var more = api.query(".fam-more");

@@ -472,6 +472,20 @@
    * The list — the view's own scroll region.
    * ------------------------------------------------------------------ */
 
+  /**
+   * What a saved row CALLS itself. A word is its own title; a root is its FORM
+   * (terra), never the "<lang>:<form>" storage key that files it. The key is
+   * still the row's identity: data-key carries it, and clicking the row
+   * searches it. It is the title only as a fallback, for a row whose entry has
+   * left the dictionary and so has no form to show.
+   */
+  function primaryText(item) {
+    if (item.kind === "root" && typeof item.form === "string" && item.form !== "") {
+      return item.form;
+    }
+    return item.key;
+  }
+
   function buildItemRow(item) {
     var row = el("div", "saved-row");
     row.setAttribute("data-id", item.id);
@@ -497,7 +511,7 @@
     row.appendChild(hit);
 
     var text = el("div", "saved-text");
-    text.appendChild(el("span", "saved-primary", item.key));
+    text.appendChild(el("span", "saved-primary", primaryText(item)));
     if (item.missing === true) {
       text.appendChild(el("span", "saved-missing", "no longer in the dictionary"));
     } else {

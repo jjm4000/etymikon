@@ -2051,10 +2051,19 @@
       rows[0].querySelector(".saved-secondary").textContent ===
         "Below the ground; underground.",
       rows[0].textContent);
-    check("a root row's secondary line is its gloss",
-      rows[1].querySelector(".saved-primary").textContent === "la:terra" &&
+    // A root row TITLES itself by its form. The key is what files it, not what
+    // it is called: a reader who saved terra should see terra.
+    check("a root row is titled by its form, with its gloss beneath",
+      rows[1].querySelector(".saved-primary").textContent === "terra" &&
       rows[1].querySelector(".saved-secondary").textContent === "earth, land",
       rows[1].textContent);
+    check("the key is still the row's identity, so the row can be acted on",
+      rows[1].getAttribute("data-key") === "la:terra" &&
+      rows[1].getAttribute("data-kind") === "root",
+      rows[1].getAttribute("data-key"));
+    check("a row with no entry left falls back to the key it was filed under",
+      rows[2].querySelector(".saved-primary").textContent === "notaword",
+      rows[2].querySelector(".saved-primary").textContent);
     check("a row whose entry has left the dictionary says so instead of vanishing",
       rows[2].classList.contains("missing") &&
       !!rows[2].querySelector(".saved-missing"),
@@ -2233,6 +2242,22 @@
           api.isVisible();
       },
       function () { return rowKey + " / " + input.value; });
+    // The root row searches the KEY it was filed under, not the form it shows:
+    // the shell routes "la:terra" to the root card and would read "terra" as
+    // an ordinary word lookup with no answer.
+    sidebar.showView("saved");
+    await until(function () {
+      return document.querySelectorAll("#okp-saved-list .saved-row").length > 0;
+    });
+    var rootRow = document.querySelector(
+      '#okp-saved-list .saved-row[data-kind="root"]');
+    rootRow.click();
+    await checkSoon("clicking a root row opens its card, keyed not titled",
+      function () {
+        return sidebar.activeView() === "search" && input.value === "la:terra" &&
+          !!api.query(".card.root") && surfaceText() === "terra";
+      },
+      function () { return input.value + " / " + surfaceText(); });
 
     // --- the settings view -------------------------------------------------------
     sidebar.showView("settings");

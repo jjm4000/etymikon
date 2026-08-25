@@ -655,6 +655,13 @@ longer reproduces what it published.
 
 ## Other tooling in this directory
 
-`make_icons.py`, `make_promo.py`, `make_screenshots.py` and `make_zip.ps1`
-carry over from Okpyeon unchanged in mechanism. They are not part of the data
-build and do not read `cache/`.
+`make_icons.py` renders the epsilon seal icon set from the geometry in its
+tuning table. `make_promo.py` builds the store promo tiles from the same
+geometry, so the tile is the icon enlarged. `make_screenshots.py` drives the
+staging pages in `screenshots/` (shots-page.html for the selection popup,
+shots-panel.html for the sidebar) through a headless Chrome and writes the
+store screenshot set to the repo-root `screenshots/` directory; every scene
+asserts its SPEC wording before shooting. `make_zip.ps1` packs
+etymikon-<version>.zip. The mechanisms carry over from Okpyeon; the content
+is Etymikon's. None of these are part of the data build and none read
+`cache/`.

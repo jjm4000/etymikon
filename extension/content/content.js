@@ -487,6 +487,11 @@
     "}",
     // Registry badges sit side by side when more than one applies.
     ".tier-chip + .tier-chip { margin-left: 4px; }",
+    // In a list row the chip is a flex sibling of the clamped text rather than
+    // inline after it: it must never shrink, and the row's own gap already
+    // separates it, so the inline margin would double up.
+    ".entry-row > .tier-chip { flex: 0 0 auto; margin-left: 0; }",
+    ".entry-row > .tier-chip + .tier-chip { margin-left: 0; }",
     ".tier-chip--everyday { color: var(--tier-everyday-fg);",
     "  background: var(--tier-everyday-bg); border-color: var(--tier-everyday-edge); }",
     ".tier-chip--common { color: var(--tier-common-fg);",
@@ -2123,8 +2128,19 @@
     card.appendChild(row);
   }
 
-  // One family row: the word, its first definition, and its tier chip. The
-  // whole row navigates into that word's card.
+  /**
+   * One list row: the word, its first definition, and its tier chip. The whole
+   * row navigates into that word's card. Shared by family lists and used-in
+   * lists, so both get this shape and any fix to it.
+   *
+   * The chip is a SIBLING of the clamped text, never inside it. Inside, it was
+   * just more content for the one-line clamp to run past: a row with a long
+   * definition pushed its chip onto the hidden second line and simply lost it
+   * (measured 2026-08-25: 2 of terra's 8 rows showed no chip at a 420px
+   * panel). As a flex sibling it reserves its own width and the definition
+   * clamps around it, so every row shows word, clamped def and chip at every
+   * panel width.
+   */
   function buildFamilyRow(entry) {
     if (!entry || typeof entry !== "object") return null;
     var word = nonEmptyString(entry.word);
@@ -2135,8 +2151,8 @@
     text.appendChild(el("span", "fam-word", word));
     var def = nonEmptyString(entry.def);
     if (def) text.appendChild(el("span", "fam-def", ": " + capitalizeSense(def)));
-    appendBadges(text, entry);
     row.appendChild(clampWrap(text, 1));
+    appendBadges(row, entry);
 
     makeNavRow(row, word);
     return row;
