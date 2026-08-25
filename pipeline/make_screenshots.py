@@ -2,10 +2,15 @@
 
     python pipeline/make_screenshots.py
 
-Writes screenshots/1-character-lookup.png through 9-decomposition.png, all
-1280x800 24-bit RGB with no alpha channel, which is what the store accepts.
-The promotional tiles are a separate script (make_promo.py); this one only
-touches the numbered shots.
+Writes screenshots/1-word-breakdown.png through 8-used-in.png, all 1280x800
+24-bit RGB with no alpha channel, which is what the store accepts. The
+promotional tiles are a separate script (make_promo.py); this one only touches
+the numbered shots.
+
+Every scene runs on real shipped data. The words are real words.json entries,
+the counts in the labels are the counts the worker derives at runtime, and the
+tier chips are the tiers the frequency ranks give. Nothing in a shot is staged
+except the article the selection is made in.
 
 How it works
 ------------
@@ -15,7 +20,8 @@ pipeline/screenshots/ load the REAL extension code (lookup.js, saved.js,
 content.js, the sidepanel scripts, the shipped CSS, the shipped data files)
 behind the __hanjaHoverTestRuntime stub those scripts already accept in place of
 chrome.runtime. Everything in the resulting pixels is the product's own
-rendering; only the message transport is local. See pipeline/README.md.
+rendering; only the message transport is local. Each staging page documents its
+own query parameters in the comment at the top of the file.
 
 This script then:
 
@@ -29,10 +35,10 @@ This script then:
      empty the shot),
   4. composites the side-panel shots beside a narrower page shot, with the 1px
      separator Chrome draws between a page and its side panel,
-  5. asserts, per shot, both what the DOM says (the popup is up, the variant
-     note rendered, the settings view mounted) and what the pixels say (exact
-     size, RGB, no alpha, the corner seal actually visible where it is the
-     point of the shot),
+  5. asserts, per shot, both what the DOM says (the popup is up, the SPEC's
+     own label wording rendered, the settings view mounted) and what the pixels
+     say (exact size, RGB, no alpha, the corner seal actually visible where it
+     is the point of the shot),
   6. and only then moves the files into screenshots/. Any failed assertion
      leaves the committed set untouched.
 
@@ -90,7 +96,10 @@ SEPARATOR_DARK = (60, 64, 67)
 # --------------------------------------------------------------------------
 
 # Shorthands for the checks, which all run against the content script's own
-# test hook rather than poking at the DOM blind.
+# test hook rather than poking at the DOM blind. Every string a check looks for
+# is the SPEC's own wording: MADE OF, BUILDS N WORDS, FROM LATIN,
+# "Used in N words", "Show 5 more (N)". A shot that no longer says what the
+# SPEC says is not a shot worth shipping.
 POPUP_UP = ("popup is visible", "globalThis.__hanjaHover.isVisible()")
 
 
@@ -109,6 +118,95 @@ def has_text(label, selector, text):
     )
 
 
+def label_is(text):
+    """A section label reading exactly `text`. The house label style is one
+    element per section, so an exact match is the right test: "MADE OF" must
+    not pass on a label that merely contains it."""
+    return (
+        f"section label {text!r}",
+        f'[...globalThis.__hanjaHover.queryAll(".label")]'
+        f'.some((n) => n.textContent === "{text}")',
+    )
+
+
+def label_matches(label, pattern):
+    """A section label whose wording follows a SPEC pattern with a live count
+    in it, so a rebuilt bundle changes the number without breaking the shot."""
+    return (
+        label,
+        f'[...globalThis.__hanjaHover.queryAll(".label")]'
+        f'.some((n) => /{pattern}/.test(n.textContent))',
+    )
+
+
+def chip_forms(*forms):
+    """The chip row shows exactly these forms, in this order. Chips are the one
+    place the product makes a factual claim about a word's assembly."""
+    # The two encodings are compared AS STRINGS, so this one has to match what
+    # JSON.stringify writes exactly: no space after a comma, and a macron as
+    # itself rather than as an escape. Only the outer dump, which builds the JS
+    # literal, may escape anything.
+    wanted = json.dumps(list(forms), separators=(",", ":"), ensure_ascii=False)
+    return (
+        "chips read " + " + ".join(forms),
+        'JSON.stringify([...globalThis.__hanjaHover.queryAll(".morph-form")]'
+        f'.map((n) => n.textContent)) === {json.dumps(wanted)}',
+    )
+
+
+def rows_are(count):
+    return (
+        f"{count} ranked rows",
+        f'globalThis.__hanjaHover.queryAll(".fam-row").length === {count}',
+    )
+
+
+# Word cards and family rows render exactly one tier chip (SPEC, "Tier chips").
+TIERS_EXCLUSIVE = (
+    "every ranked row carries exactly one tier chip",
+    '[...globalThis.__hanjaHover.queryAll(".fam-row")]'
+    '.every((r) => r.querySelectorAll(".tier-chip").length === 1)',
+)
+
+# A ranked row clamps to one line and the tier chip rides at the END of that
+# line, so a narrow popup loses the chip on every row with a long definition.
+# A shot that advertises the tier signal has to prove the chips reached the
+# pixels, not merely the DOM. The clamp pushes an overflowing chip onto a
+# hidden SECOND line rather than off the right edge, so the box is tested on
+# both axes: a chip below the row is as invisible as one past its right edge.
+CHIPS_IN_VIEW = (
+    "at least 3 tier chips survive the one-line row clamp",
+    '[...globalThis.__hanjaHover.queryAll(".fam-row")].filter((r) => {'
+    ' const c = r.querySelector(".tier-chip"); if (!c) return false;'
+    ' const b = c.getBoundingClientRect(), rr = r.getBoundingClientRect();'
+    ' return b.width > 0 && b.right <= rr.right + 1 && b.bottom <= rr.bottom + 1;'
+    '}).length >= 3',
+)
+
+# The whole-card rule: a list that fits the inline cap is fetched up front and
+# rendered whole, so no "Show 5 more (N)" control is built at all.
+NO_PAGER = (
+    'the list fits inline, so no "Show 5 more (N)" control renders',
+    'globalThis.__hanjaHover.queryAll(".fam-more").length === 0',
+)
+
+IN_FRAME = (
+    "the whole popup is in frame",
+    f"globalThis.__hanjaHover.hostRect().bottom < {SHOT_H}",
+)
+
+
+def crumbs_include(*labels):
+    """The trail carries these crumbs. Visible crumbs only: the hook filters
+    out anything width-based elision has hidden, so this asserts what a reader
+    sees rather than what the DOM holds."""
+    return (
+        "breadcrumb trail carries " + " and ".join(labels),
+        "((c) => " + " && ".join(f"c.indexOf({json.dumps(x)}) >= 0" for x in labels)
+        + ")(globalThis.__hanjaHover.crumbLabels())",
+    )
+
+
 def panel_has(label, selector, text=None):
     if text is None:
         return (label, f'!!document.querySelector("{selector}")')
@@ -119,155 +217,188 @@ def panel_has(label, selector, text=None):
     )
 
 
+def seal_has_room(view):
+    """The corner seal is fit-gated: it shows only while it fits under the
+    view's content. A shot that is meant to show it must prove the gate is
+    open before the pixels are asked about it."""
+    return (
+        f"the {view} view leaves the seal room",
+        f'document.querySelector(".view--{view}").classList'
+        '.contains("view--roomy")',
+    )
+
+
 SHOTS = [
     {
         "n": 1,
-        "name": "1-character-lookup.png",
+        "name": "1-word-breakdown.png",
         "kind": "page",
-        # 天 highlighted in the opening paragraph: one character, its eumhun,
-        # its glosses and the compounds it builds. 天 replaced 學 for variety
-        # (學生 already fronts the Japanese shot) and won on glyph simplicity
-        # and compound appeal (천사, 천재).
-        "page": {"scene": "1", "scroll": 0},
-        "checks": [POPUP_UP, head_is("\u5929"),
-                   has_text("compounds listed", ".compounds .cpd-hangul", "\ucc9c\uc0ac")],
+        # subterranean selected in the opening paragraph. It is the SPEC's own
+        # worked example and the one word that shows both chip kinds at once:
+        # English affixes around a Latin lemma.
+        "page": {"scene": "breakdown", "w": 420},
+        "checks": [
+            POPUP_UP,
+            head_is("subterranean"),
+            label_is("MADE OF"),
+            chip_forms("sub-", "terra", "-an"),
+            has_text("chips carry their glosses", ".morph-gloss", "dry land"),
+            has_text("tier chip reads Advanced", ".tier-chip", "Advanced"),
+            IN_FRAME,
+        ],
     },
     {
         "n": 2,
-        "name": "2-hangul-reverse-lookup.png",
-        # 국민 (hangul) highlighted: the hangul-to-hanja direction. Captured
-        # dark: one shot of the five-store set answers "does it do dark mode",
-        # and this one reads best inverted.
+        "name": "2-root-family.png",
         "kind": "page",
-        "dark": True,
-        "page": {"scene": "2", "scroll": 262},
-        "checks": [POPUP_UP, head_is("\u570b\u6c11"),
-                   has_text("hangul headline", ".card .hangul", "\uad6d\ubbfc")],
+        # The terra chip from shot 1, opened. A root card is where the product
+        # pays the reader back: the gloss, and the shipped words built on it,
+        # ranked by frequency with their tiers.
+        #
+        # Wider than the other popup shots on purpose, and the panel is
+        # user-resizable, so this is a size a reader can have. At 420 the
+        # one-line clamp eats the tier chip on every row with a long
+        # definition; 640 is where the count stops improving.
+        "page": {"scene": "root", "w": 640, "bottom": 40},
+        "checks": [
+            POPUP_UP,
+            head_is("terra"),
+            has_text("label line reads Latin root", ".rootlabel", "Latin root"),
+            label_matches("family label reads BUILDS N WORDS",
+                          r"^BUILDS \d+ WORDS$"),
+            rows_are(8),
+            TIERS_EXCLUSIVE,
+            CHIPS_IN_VIEW,
+            has_text("territory among the family", ".fam-word", "territory"),
+            NO_PAGER,
+            crumbs_include("subterranean", "terra"),
+            IN_FRAME,
+        ],
     },
     {
         "n": 3,
-        "name": "3-recursive-breakdown.png",
-        # 자본 highlighted, then "used in larger words" opened and 資本主義
-        # followed: the popup's own navigation, two levels deep.
+        "name": "3-latin-origin.png",
         "kind": "page",
-        "page": {"scene": "3", "scroll": 393, "bottom": 100},
-        "checks": [POPUP_UP, head_is("\u8cc7\u672c\u4e3b\u7fa9"),
-                   ("breadcrumb trail present",
-                    '!!globalThis.__hanjaHover.query(".crumbs .crumb")')],
+        # territory selected: a word with no English split, so the card says
+        # where it came from instead. The Latin lemma decomposes, so the origin
+        # renders as a chip row under FROM LATIN and both parts are cards.
+        "page": {"scene": "origin", "w": 420},
+        "checks": [
+            POPUP_UP,
+            head_is("territory"),
+            label_is("FROM LATIN territōrium"),
+            chip_forms("terra", "-tōrium"),
+            has_text("used-in row reads Used in 2 words", ".usedin-row",
+                     "Used in 2 words"),
+            has_text("tier chip reads Common", ".tier-chip", "Common"),
+            IN_FRAME,
+        ],
     },
     {
         "n": 4,
-        "name": "4-homophone-browse.png",
-        # A single hangul syllable, 국: every hanja read that way.
-        "kind": "page",
-        "page": {"scene": "4", "scroll": 566, "bottom": 80},
-        "checks": [POPUP_UP,
-                   ("several hanja share the reading",
-                    'globalThis.__hanjaHover.queryAll(".reading-row").length >= 3'),
-                   has_text("\u570b among them", ".reading-row", "\u570b")],
+        "name": "4-sidebar-search.png",
+        "kind": "composite",
+        "panel_w": 560,
+        "page": {"scene": "plain", "scroll": 0},
+        # The sidebar answering a typed word. The search view renders through
+        # content.js, so its nodes live in the embedded panel's shadow root and
+        # only its own query hook sees them; the seal is the panel's own DOM.
+        "panel": {"view": "search", "q": "beautiful"},
+        "checks": [
+            head_is("beautiful"),
+            label_is("MADE OF"),
+            chip_forms("beauty", "-ful"),
+            seal_has_room("search"),
+        ],
+        "pixels": "seal",
     },
     {
         "n": 5,
-        "name": "5-sidebar-search.png",
+        "name": "5-saved-words.png",
         "kind": "composite",
         "panel_w": 560,
-        "page": {"scene": "0", "scroll": 0},
-        "panel": {"view": "search", "q": "\uad6d\ubbfc"},
-        # The search view renders through content.js, so its nodes live in the
-        # embedded panel's shadow root and only its own query hook sees them.
-        "checks": [head_is("國民"),
-                   has_text("component cards", ".card .surface", "民"),
-                   ("component section present",
-                    '!!globalThis.__hanjaHover.query(".components")')],
+        "page": {"scene": "plain", "scroll": 430},
+        # A library with three folders, two of them collapsed. Collapsing is
+        # also what keeps the rendered rows down to what the seal's room rule
+        # tolerates, and it is what a reader with three folders actually does.
+        "panel": {"view": "saved", "collapse": "Latin roots,Saved"},
+        "checks": [
+            panel_has("saved view mounted", ".view--saved"),
+            panel_has("filter reads All (11)", ".saved-bar", "All (11)"),
+            panel_has("Reading list folder header", ".saved-folder", "Reading list"),
+            panel_has("subterranean saved row", ".saved-row", "subterranean"),
+            panel_has("row secondary text is the definition", ".saved-secondary",
+                      "Below ground"),
+            panel_has("delete action present", ".saved-actions", "Delete"),
+            seal_has_room("saved"),
+        ],
+        "pixels": "seal",
     },
     {
         "n": 6,
-        "name": "6-saved-words.png",
+        "name": "6-settings.png",
         "kind": "composite",
         "panel_w": 560,
-        "page": {"scene": "0", "scroll": 430},
-        # Six rendered rows is the most the seal's room rule tolerates: with a
-        # seventh the view stops being .view--roomy and the seal correctly
-        # vanishes. Two folders are therefore collapsed, which is also the
-        # honest picture of a library with three folders in it.
-        "panel": {"view": "saved", "collapse": "Saved,\uc2dc\ud5d8"},
+        "page": {"scene": "plain", "scroll": 200},
+        # The Anki fields, rendered from the worker's own token lists: nothing
+        # in this view names a field, so the shot proves the schema, not a
+        # hand-written form.
+        "panel": {"view": "settings"},
         "checks": [
-            panel_has("saved view mounted", ".view--saved"),
-            ("seal has room", 'document.querySelector(".view--saved")'
-                              '.classList.contains("view--roomy")'),
-            panel_has("filter reads All (13)", ".saved-bar", "All (13)"),
-            panel_has("delete action present", ".saved-actions", "Delete"),
-            panel_has("expanded folder rows", ".saved-row", "\u570b\u6c11"),
+            panel_has("settings view mounted", ".view--settings"),
+            panel_has("Anki export group heading", ".settings-heading", "Anki export"),
+            panel_has("Word cards: back row", ".settings-row", "Word cards: back"),
+            panel_has("Breakdown field checkbox", ".settings-checkbox", "Breakdown"),
+            panel_has("Root cards: back row", ".settings-row", "Root cards: back"),
+            panel_has("Family field checkbox", ".settings-checkbox", "Family"),
+            panel_has("attribution footer", ".settings-footer",
+                      "Definitions from Wiktionary, CC BY-SA."),
+            seal_has_room("settings"),
         ],
         "pixels": "seal",
     },
     {
         "n": 7,
-        "name": "7-settings.png",
-        "kind": "composite",
-        "panel_w": 560,
-        "page": {"scene": "0", "scroll": 200},
-        "panel": {"view": "settings"},
+        "name": "7-dark-mode.png",
+        "kind": "page",
+        "dark": True,
+        # Shot 1 again under prefers-color-scheme: dark. One shot of the set
+        # answers "does it do dark mode", and the breakdown card is the one
+        # worth answering it with.
+        "page": {"scene": "breakdown", "w": 420},
         "checks": [
-            panel_has("settings view mounted", ".view--settings"),
-            panel_has("anki export section", ".view--settings", "Anki export"),
-            ("seal has room", 'document.querySelector(".view--settings")'
-                              '.classList.contains("view--roomy")'),
+            POPUP_UP,
+            head_is("subterranean"),
+            label_is("MADE OF"),
+            chip_forms("sub-", "terra", "-an"),
+            ("the card took its dark ground",
+             'globalThis.__hanjaHover.panelStyle("--bg").trim() === "#23232a"'),
+            IN_FRAME,
         ],
-        "pixels": "seal",
     },
     {
         "n": 8,
-        "name": "8-japanese-lookup.png",
+        "name": "8-used-in.png",
         "kind": "page",
-        # A Japanese page: 学生 highlighted resolves to the canonical 學生, and
-        # the variant note that says so is the whole point of the shot.
-        "page": {"scene": "5", "scroll": 230},
+        # absolute selected, then its "Used in 4 words" row followed. The
+        # mirror of the breakdown: not what this word is made of, but what is
+        # made of it.
+        # Wide for the same reason shot 2 is: the tier chip rides at the end of
+        # a one-line row, and a narrow popup clips it.
+        "page": {"scene": "usedin", "w": 640, "bottom": 40},
         "checks": [
             POPUP_UP,
-            head_is("\u5b78\u751f"),
-            has_text("variant note", ".canonical", "\u5b66\u751f \u2192 \u5b78\u751f"),
-            has_text("component card 學", ".card .surface", "\u5b78"),
-            has_text("component card 生", ".card .surface", "\u751f"),
-            ("both component heads are in frame",
-             '[...globalThis.__hanjaHover.queryAll(".card .surface")]'
-             ".every((n) => n.getBoundingClientRect().bottom < 800)"),
-        ],
-    },
-    {
-        "n": 9,
-        "name": "9-decomposition.png",
-        "kind": "composite",
-        "panel_w": 560,
-        "page": {"scene": "0", "scroll": 120},
-        # 樂 searched in the panel, its "Made of" row opened: four parts with
-        # their readings (幺's arrives via the readings[0] fallback), and the
-        # "Part of" row underneath — 樂 is inside 9 characters, 藥 among them.
-        # Replaced 學 here for variety: 學生 already fronts the Japanese shot.
-        "panel": {"view": "search", "q": "樂", "expand": "madeof"},
-        "checks": [
-            head_is("樂"),
-            ("made-of row is open",
-             'globalThis.__hanjaHover.query(".madeof-row")'
-             '.getAttribute("aria-expanded") === "true"'),
-            ("part list is showing",
-             '!globalThis.__hanjaHover.query(".madeof-list").hidden'),
-            ("four part rows",
-             'globalThis.__hanjaHover.queryAll(".madeof-part").length === 4'),
-            # Every row must carry a reading: a bare glyph in the shot would
-            # advertise the feature failing to join.
-            ("every part row reads as a character",
-             '[...globalThis.__hanjaHover.queryAll(".madeof-part")]'
-             '.every((n) => n.classList.contains("nav") &&'
-             ' (n.querySelector(".r-eumhun") || {}).textContent)'),
-            has_text("나무 목 among the parts", ".madeof-part", "나무 목"),
-            ("part-of row present",
-             '!!globalThis.__hanjaHover.query(".foundin-row")'),
-            ("part-of names a plausible count",
-             '(globalThis.__hanjaHover.query(".foundin-row b").textContent | 0) >= 1'),
-            ("the whole section is in frame",
-             'globalThis.__hanjaHover.query(".foundin-row")'
-             ".getBoundingClientRect().bottom < 800"),
+            head_is("absolute"),
+            has_text("the head label says Used in", ".rootlabel", "Used in"),
+            label_matches("list label reads USED IN N WORDS",
+                          r"^USED IN \d+ WORDS$"),
+            rows_are(4),
+            TIERS_EXCLUSIVE,
+            CHIPS_IN_VIEW,
+            has_text("absolutely at the head of the list", ".fam-word", "absolutely"),
+            NO_PAGER,
+            crumbs_include("absolute", "Used in"),
+            IN_FRAME,
         ],
     },
 ]
@@ -404,7 +535,7 @@ class Chrome:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
-        self.profile = tempfile.mkdtemp(prefix="okp-shot-")
+        self.profile = tempfile.mkdtemp(prefix="etym-shot-")
         self.proc = subprocess.Popen([
             CHROME,
             "--headless=new",
@@ -563,18 +694,21 @@ def assert_image(image, name):
 
 
 def assert_seal(image, name):
-    """The jade 玉篇 seal sits in the panel's lower-right corner when the view
-    leaves room for it. Its ink is the only non-grey thing down there, so a
-    green cast in that box is proof it rendered."""
-    box = image.crop((SHOT_W - 130, SHOT_H - 230, SHOT_W - 10, SHOT_H - 10))
+    """The ἐτυμικόν seal sits in the panel's lower-right corner when the view
+    leaves room for it. It is stamped in the icon's terracotta, and the panel
+    around it is grey text on a near-neutral ground, so a warm cast in that box
+    is proof it rendered. The predicate holds in both schemes: the light tint
+    lands near (236, 204, 191) and the dark one near (96, 63, 54), and both are
+    unmistakably red-over-green-over-blue."""
+    box = image.crop((SHOT_W - 300, SHOT_H - 140, SHOT_W - 4, SHOT_H - 4))
     pixels = box.tobytes()
-    jade = 0
+    clay = 0
     for i in range(0, len(pixels), 3):
         r, g, b = pixels[i], pixels[i + 1], pixels[i + 2]
-        if g > r + 8 and g > b + 4 and g < 245:
-            jade += 1
-    if jade < 200:
-        raise AssertionError(f"{name}: seal not visible ({jade} jade pixels)")
+        if r > g + 12 and g > b + 5 and r > b + 25 and r < 250:
+            clay += 1
+    if clay < 400:
+        raise AssertionError(f"{name}: seal not visible ({clay} terracotta pixels)")
 
 
 def build(shot, chrome, port, work_dir):
@@ -614,7 +748,7 @@ def main():
             raise SystemExit(f"--only {args.only} matched no shots")
 
     server, port = serve_root()
-    work_dir = Path(tempfile.mkdtemp(prefix="okp-screenshots-"))
+    work_dir = Path(tempfile.mkdtemp(prefix="etym-screenshots-"))
     chrome = Chrome()
     written = []
     try:

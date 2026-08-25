@@ -1,0 +1,325 @@
+<!doctype html>
+<!--
+  Staging page for the in-page popup screenshots. Driven by
+  pipeline/make_screenshots.py; not part of the shipped extension.
+
+  It is a plausible English magazine article that loads the REAL extension
+  code: extension/lookup.js and extension/saved.js answer queries against the
+  REAL extension/data/*.json, behind the __hanjaHoverTestRuntime stub that
+  content.js already supports in place of chrome.runtime, and then the REAL
+  extension/content/content.js runs unmodified on top. Nothing about the
+  popup's markup, styling or layout is reproduced here. Only the message
+  transport is local.
+
+  This exists because Chrome 151 headless ignores --load-extension, so the
+  content script cannot be injected the normal way for a capture run.
+
+  Query parameters:
+    scene=NAME  which scene to drive (see the switch at the bottom)
+    place=F     fraction of the viewport the selected word is scrolled to
+    scroll=N    absolute scroll offset, for the scene that selects nothing
+    w=N         popup width handed to the product's own resizePanel
+    bottom=N    gap to leave under the popup when sizing it to its content
+
+  Scenes scroll to their own target rather than to a pinned offset, so an edit
+  to the prose above a word cannot silently move it out of frame.
+
+  Signals completion by setting documentElement.dataset.shotReady.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Meridian Review: the words we build from older words</title>
+<style>
+  html { color-scheme: light; }
+  body {
+    margin: 0; background: #fff; color: #16161a;
+    font: 16.5px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .masthead { border-bottom: 1px solid #e6e6ec; padding: 20px 0 19px; }
+  .wrap { width: 704px; margin: 0 0 0 176px; }
+  /* Composite shots may give the page less than its usual 919px (the panel is
+     user-resizable); the article reflows instead of clipping. */
+  @media (max-width: 918px) {
+    .wrap { width: auto; max-width: 704px; margin: 0 32px; }
+  }
+  .brand { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  .masthead .wrap { display: flex; align-items: baseline; gap: 28px; }
+  .masthead nav { display: flex; gap: 22px; font-size: 14px; color: #6b6b73; }
+  .masthead nav .on { color: #16161a; font-weight: 600; }
+  .kicker {
+    margin: 44px 0 0; font-size: 12.5px; font-weight: 600; color: #6b6b73;
+    letter-spacing: .08em;
+  }
+  h1 {
+    margin: 10px 0 14px; font-size: 34px; line-height: 1.28; font-weight: 700;
+    letter-spacing: -.02em;
+  }
+  .standfirst { margin: 0 0 22px; font-size: 18px; line-height: 1.7; color: #3d3d46; }
+  .byline {
+    margin: 0; padding: 18px 0 0; border-top: 1px solid #e6e6ec;
+    font-size: 14px; color: #86868f;
+  }
+  article p { margin: 0 0 26px; }
+  #p1 { margin-top: 42px; }
+  h2 { margin: 34px 0 14px; font-size: 21px; font-weight: 700; letter-spacing: -.01em; }
+  blockquote {
+    margin: 30px 0; padding: 0 0 0 20px; border-left: 3px solid #d8d8e0;
+    font-size: 17px; color: #2c2c34;
+  }
+  blockquote p { margin: 0; }
+  figure { margin: 30px 0; }
+  .photo {
+    height: 200px; border-radius: 6px; background: #eeeef2;
+    display: flex; align-items: center; justify-content: center; gap: 64px;
+    font-size: 38px; color: #cfcfd8;
+  }
+  figcaption { margin-top: 10px; font-size: 13.5px; color: #86868f; }
+  .tail { height: 340px; }
+  /* The article restyles itself for dark captures (make_screenshots.py sets
+     prefers-color-scheme per shot), the way a real dark-themed site would. */
+  @media (prefers-color-scheme: dark) {
+    html { color-scheme: dark; }
+    body { background: #131316; color: #e6e6ea; }
+    .masthead, .byline { border-color: #26262c; }
+    .masthead nav { color: #8f8f98; }
+    .masthead nav .on { color: #e6e6ea; }
+    .kicker, .byline, figcaption { color: #8f8f98; }
+    .standfirst { color: #b9b9c2; }
+    blockquote { border-color: #3a3a42; color: #cfcfd6; }
+    .photo { background: #1e1e23; color: #46464e; }
+  }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <span class="brand">The Meridian Review</span>
+    <nav><span class="on">Ideas</span><span>Science</span><span>Culture</span><span>Books</span></nav>
+  </div>
+</header>
+
+<article>
+  <div class="wrap">
+    <p class="kicker">LANGUAGE</p>
+    <h1>The words we build from older words</h1>
+    <p class="standfirst">Vocabulary is not a list to be memorised. Most long
+      English words are assembled from parts, and the parts repeat.</p>
+    <p class="byline">Elena Hart, 14 March 2026</p>
+
+    <p id="p1">English wears its history where a reader can see it. Take
+      <span id="s-subterranean">subterranean</span>. The prefix carries the
+      sense of under. The middle is the Latin word for land. The ending turns
+      the pair into an adjective, and the finished word means what its parts
+      say it means.</p>
+
+    <p id="p2">The same Latin root surfaces where nobody goes looking for it.
+      A country's <span id="s-territory">territory</span> is the land it holds,
+      and the Latin word behind it is built on terra. Once that pattern is
+      visible it keeps turning up.</p>
+
+    <blockquote><p>Learners stop guessing at long words once they can see the
+      joins. Reading gets faster, and it stays faster.</p></blockquote>
+
+    <h2>Roots hidden in ordinary words</h2>
+
+    <p id="p3">Some words keep their origin better hidden.
+      <span id="s-absolute">Absolute</span> descends from a Latin verb meaning
+      to set loose. That is why an absolute ruler answers to nobody. The family
+      around the word is easier to hold once its base is clear.</p>
+
+    <figure>
+      <div class="photo"><span>sub-</span><span>terra</span><span>-an</span></div>
+      <figcaption>A first-year seminar on word formation. File photo.</figcaption>
+    </figure>
+
+    <p>Not everyone agrees that roots belong in a vocabulary course. Some
+      teachers argue the hours are better spent on reading widely. The
+      disagreement is about emphasis, not about whether the parts are real.</p>
+
+    <p>Publishers have started to print the parts beside the headword. An
+      entry that shows the join costs one extra line and saves the reader a
+      second lookup.</p>
+
+    <p>The habit outlasts the course. A reader who has met one root will meet
+      it again, in a word nobody taught them.</p>
+
+    <div class="tail"></div>
+  </div>
+</article>
+
+<script type="module">
+/*
+ * Staging driver for the store screenshots. Loads the REAL extension/lookup.js
+ * and extension/saved.js against the REAL data files, installs the message
+ * stub content.js already supports, then loads the REAL content/content.js and
+ * drives one scene. Nothing about the rendering is faked.
+ */
+import { lookup, buildFamily, buildFamilyIndex, buildRoot, buildUsedIn, buildUsedInIndex }
+  from "/extension/lookup.js";
+import { normalizeSavedState, normalizeSettings, checkKeys, toggleItem, joinItems }
+  from "/extension/saved.js";
+
+const params = new URLSearchParams(location.search);
+const scene = params.get("scene") || "breakdown";
+
+const [words, roots, forms] = await Promise.all(
+  ["words", "roots", "forms"].map((n) =>
+    fetch("/extension/data/" + n + ".json").then((r) => r.json())));
+
+/* The worker's own lazy indexes, built by the worker's own builders. Nothing
+   about ranking, counting or chunking is reimplemented here. */
+let familyIndex = null;
+let usedInIndex = null;
+const data = { words, roots, forms };
+const getFamilyIndex = () => (familyIndex ||= buildFamilyIndex(words));
+const getUsedInIndex = () => (usedInIndex ||= buildUsedInIndex(words));
+
+let savedState = normalizeSavedState(null);
+const settings = normalizeSettings(null, savedState);
+
+function handle(msg) {
+  switch (msg && msg.type) {
+    case "lookup":
+      return lookup(String(msg.text || ""), { ...data, usedInIndex: getUsedInIndex() });
+    case "root":
+      return { ok: true, root: buildRoot(msg.key, data, getFamilyIndex()) };
+    case "family":
+      return { ok: true, ...buildFamily(msg.key, data, getFamilyIndex(), msg.offset) };
+    case "usedIn":
+      return { ok: true, ...buildUsedIn(msg.key, data, getUsedInIndex(), msg.offset) };
+    case "openTab": return { ok: true };
+    case "savedGet":
+      return { ok: true, folders: savedState.folders,
+               items: joinItems(savedState.items, { words, roots }) };
+    case "savedCheck": return { ok: true, saved: checkKeys(savedState, msg.keys) };
+    case "savedToggle": {
+      const r = toggleItem(savedState, msg.kind, msg.key, settings.defaultFolderId, Date.now());
+      savedState = r.state;
+      const out = { ok: true, saved: r.saved, folders: savedState.folders };
+      if (r.item) { out.item = r.item; out.folderId = r.item.folderId; }
+      return out;
+    }
+    case "settingsGet": return { ok: true, settings };
+    default: return { ok: false, error: "unknown message type" };
+  }
+}
+
+globalThis.__hanjaHoverTestRuntime = {
+  __isStub: true,
+  sendMessage(msg, cb) {
+    let resp;
+    try { resp = handle(msg); } catch (e) { resp = { ok: false, error: String(e) }; }
+    if (typeof cb === "function") { setTimeout(() => cb(resp), 0); return undefined; }
+    return Promise.resolve(resp);
+  },
+};
+
+await new Promise((res, rej) => {
+  const s = document.createElement("script");
+  s.src = "/extension/content/content.js";
+  s.onload = res; s.onerror = rej;
+  document.head.appendChild(s);
+});
+
+const api = globalThis.__hanjaHover;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Scroll so the word about to be selected sits in the upper part of the
+   frame, which is where the popup has room to open under it. Measured off the
+   node rather than pinned to a pixel offset, so editing the prose above it
+   cannot push the shot out of frame. */
+function scrollTo(node) {
+  const top = node.getBoundingClientRect().top + window.scrollY;
+  const frac = Number(params.get("place") || 0.28);
+  window.scrollTo(0, Math.max(0, Math.round(top - window.innerHeight * frac)));
+}
+
+function select(node) {
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+async function untilVisible() {
+  for (let i = 0; i < 100; i++) {
+    if (api.isVisible()) return true;
+    await sleep(50);
+  }
+  return false;
+}
+
+async function show(id) {
+  const node = document.getElementById(id);
+  scrollTo(node);
+  await sleep(60);
+  select(node);
+  api.handleSelection();
+  await untilVisible();
+  await sleep(250);
+}
+
+// The panel ships 340x360 and carries a drag handle. These shots use the
+// product's own resize (the same code path a drag runs) to size it to its
+// content, up to the room the selection leaves below it.
+function panelEl() {
+  let node = api.query(".view");
+  while (node && !node.classList.contains("panel")) node = node.parentElement;
+  return node;
+}
+
+async function fit() {
+  const width = Number(params.get("w") || 384);
+  const panel = panelEl();
+  api.resizePanel(width, 240);
+  await sleep(200);
+  const top = panel.getBoundingClientRect().top;
+  const room = Math.floor(window.innerHeight - top - Number(params.get("bottom") || 12));
+  const need = panel.scrollHeight + 2;
+  api.resizePanel(width, Math.max(240, Math.min(room, need)));
+  await sleep(300);
+}
+
+/* A chip is opened the way a reader opens it: the chip's own click handler
+   runs the drill-down, breadcrumbs and all. */
+async function openChip(form) {
+  const chip = api.queryAll(".morph.nav").find(
+    (c) => (c.querySelector(".morph-form") || {}).textContent === form);
+  if (chip) chip.click();
+  await sleep(500);
+}
+
+async function openUsedIn() {
+  const row = api.query(".usedin-row");
+  if (row) row.click();
+  await sleep(500);
+}
+
+if (scene === "plain") {
+  window.scrollTo(0, Number(params.get("scroll") || 0));
+  await sleep(60);
+}
+if (scene === "breakdown") await show("s-subterranean");
+if (scene === "origin") await show("s-territory");
+if (scene === "root") {
+  await show("s-subterranean");
+  await openChip("terra");
+}
+if (scene === "usedin") {
+  await show("s-absolute");
+  await openUsedIn();
+}
+if (api.isVisible()) await fit();
+
+await sleep(300);
+document.documentElement.dataset.shotReady = scene;
+</script>
+
+</body>
+</html>
