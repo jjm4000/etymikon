@@ -465,6 +465,66 @@ function creditedRoots(entry) {
 }
 
 /**
+ * The root keys one root's `parts` name, each at most once. Only an anchor
+ * root carries `parts` (the source lemma's own split, in the org.parts shape),
+ * so for every other root this is empty.
+ */
+function partRoots(entry) {
+  const keys = new Set();
+  if (entry === null || typeof entry !== "object") return keys;
+  for (const part of Array.isArray(entry.parts) ? entry.parts : []) {
+    if (part === null || typeof part !== "object") continue;
+    const key = str(part.r);
+    if (key !== "") keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * The closure of the root graph: for a key, that key plus every root its
+ * `parts` name, recursively through nested anchors. accēdō names cēdō, so a
+ * credit to accēdō is a credit to cēdō too (SPEC: root families credit through
+ * anchors, owner decision 2026-09-01). Cycle-safe by construction, since a key
+ * is visited once per walk, and memoised, since the index asks about the same
+ * few thousand keys for every word in the table. A key with no card, or no
+ * parts, closes over itself alone.
+ */
+function rootClosure(roots) {
+  const memo = Object.create(null);
+  return (key) => {
+    if (memo[key] !== undefined) return memo[key];
+    const out = new Set();
+    const stack = [key];
+    while (stack.length > 0) {
+      const next = stack.pop();
+      if (out.has(next)) continue;
+      out.add(next);
+      if (hasOwn(roots, next)) {
+        for (const named of partRoots(roots[next])) stack.push(named);
+      }
+    }
+    memo[key] = out;
+    return out;
+  };
+}
+
+/**
+ * The credit rule of the family index: every root an entry credits directly,
+ * and every root those credits reach through anchor `parts`. The ranked walk
+ * stays the one in rankedIndex; only what a word counts toward changes.
+ */
+function creditsThroughAnchors(roots) {
+  const closure = rootClosure(roots);
+  return (entry) => {
+    const keys = new Set();
+    for (const key of creditedRoots(entry)) {
+      for (const reached of closure(key)) keys.add(reached);
+    }
+    return keys;
+  };
+}
+
+/**
  * The word keys one entry credits through its `morphs[].w` chips, each at most
  * once. This is the used-in relation: music crediting muse means muse is USED
  * IN music. Only `w` counts. An `r` chip names a root and an org part names a
@@ -513,7 +573,10 @@ function rankedIndex(table, creditsOf) {
 
 /**
  * Derive the root-to-words index from words.json, ranked by `fr` ascending,
- * unranked last, ties by key.
+ * unranked last, ties by key. A word counts for a root when it credits the
+ * root directly, or credits an anchor whose `parts` in roots.json credit it,
+ * recursively: the cēdō card lists access even though access's own row stops
+ * at accēdō. Nothing is stored; both files are read at worker start.
  *
  * This is the expensive one (31 ms and 65 MB of allocation over 76,496 words,
  * measured 2026-08-24), so it builds only where a ranked LIST is rendered: a
@@ -521,10 +584,12 @@ function rankedIndex(table, creditsOf) {
  * sizes takes buildFamilyCounts instead.
  *
  * @param {object} wordsFile parsed words.json
+ * @param {object} [rootsFile] parsed roots.json, for the anchor `parts`
  * @returns {Record<string, string[]>} root key -> word keys, ranked
  */
-export function buildFamilyIndex(wordsFile) {
-  return rankedIndex((wordsFile && wordsFile.words) || {}, creditedRoots);
+export function buildFamilyIndex(wordsFile, rootsFile) {
+  const roots = (rootsFile && rootsFile.roots) || {};
+  return rankedIndex((wordsFile && wordsFile.words) || {}, creditsThroughAnchors(roots));
 }
 
 /**
@@ -547,20 +612,22 @@ export function buildUsedInIndex(wordsFile) {
  * one number per key, no per-root array and no sort. The omnibox rows rank by
  * family SIZE, so this is all they ever needed.
  *
- * Counts the same way buildFamilyIndex does, so a size read here and a
- * `familyCount` read from the index can never disagree.
+ * Counts the same way buildFamilyIndex does, anchors included, so a size read
+ * here and a `familyCount` read from the index can never disagree.
  *
  * @param {object} wordsFile parsed words.json
+ * @param {object} [rootsFile] parsed roots.json, for the anchor `parts`
  * @returns {Record<string, number>} root key -> family size
  */
-export function buildFamilyCounts(wordsFile) {
+export function buildFamilyCounts(wordsFile, rootsFile) {
   const table = (wordsFile && wordsFile.words) || {};
+  const creditsOf = creditsThroughAnchors((rootsFile && rootsFile.roots) || {});
   /** @type {Record<string, number>} */
   const counts = Object.create(null);
   for (const word of Object.keys(table)) {
     const entry = table[word];
     if (entry === null || typeof entry !== "object") continue;
-    for (const key of creditedRoots(entry)) {
+    for (const key of creditsOf(entry)) {
       counts[key] = (counts[key] || 0) + 1;
     }
   }
@@ -638,6 +705,15 @@ export function buildRoot(key, data, familyIndex) {
   // Greek forms show their romanization beside the form.
   const rom = str(entry.rom);
   if (rom !== "") root.rom = rom;
+  // An anchor's own breakdown: the source lemma's split, in the org.parts
+  // shape, joined exactly as org parts are (an `r` part carries its root
+  // gloss, anything else comes back as the form alone). Only anchors carry
+  // it, so most roots come back without the field.
+  const parts = (Array.isArray(entry.parts) ? entry.parts : [])
+    .filter((part) => part !== null && typeof part === "object")
+    .map((part) => morphRow(part, roots, NO_WORDS))
+    .filter((part) => part.f !== "");
+  if (parts.length > 0) root.parts = parts;
   // The source lemma of an English affix, joined like a morph chip so the row
   // never navigates to a card that did not ship.
   const src = str(entry.src);
@@ -809,7 +885,7 @@ export function buildSearchIndex(data) {
 
   // Sizes, not lists: the rows rank by how many words a root builds and never
   // name one of them.
-  const counts = buildFamilyCounts(data && data.words);
+  const counts = buildFamilyCounts(data && data.words, data && data.roots);
   const rootTable = rootTableOf(data);
   const roots = [];
   for (const key of Object.keys(rootTable)) {

@@ -292,7 +292,7 @@ const forms = {
 // carries its count, so the fixture bundle carries it too.
 const usedInIndex = buildUsedInIndex(words);
 const data = { words, roots, forms, usedInIndex };
-const familyIndex = buildFamilyIndex(words);
+const familyIndex = buildFamilyIndex(words, roots);
 const joinData = { ...data, familyIndex };
 
 // ---------------------------------------------------------------------------
@@ -695,6 +695,165 @@ test("org parts credit root families exactly as morphs do", () => {
   assert.deepEqual(twice["la:memor"], ["rememorate"]);
 });
 
+// --- anchor root cards and transitive families ----------------------------
+// An anchor is a source lemma English borrowed already assembled. Its card
+// carries `parts` in the org.parts shape, and a word crediting the anchor
+// credits every root those parts name (SPEC, owner decision 2026-09-01).
+
+const anchorRoots = {
+  v: 1,
+  roots: {
+    "la:accedo": {
+      form: "accēdō",
+      lang: "la",
+      gloss: "to approach",
+      kind: "root",
+      parts: [{ f: "ad-", r: "la:ad-" }, { f: "cēdō", r: "la:cedo" }],
+    },
+    "la:ad-": { form: "ad-", lang: "la", gloss: "to, toward", kind: "prefix" },
+    "la:cedo": { form: "cēdō", lang: "la", gloss: "to go", kind: "root" },
+    // A nested anchor: its parts name another anchor, whose parts name a base.
+    "la:concessio": {
+      form: "concessiō",
+      lang: "la",
+      gloss: "a yielding",
+      kind: "root",
+      parts: [{ f: "concēdō", r: "la:concedo" }, { f: "-tiō", r: "la:-tio" }],
+    },
+    "la:concedo": {
+      form: "concēdō",
+      lang: "la",
+      gloss: "to yield",
+      kind: "root",
+      // The second part names a root this bundle does not ship: inert.
+      parts: [{ f: "cēdō", r: "la:cedo" }, { f: "con-", r: "la:con-" }],
+    },
+    // A cycle, which real data never carries and the walk must survive.
+    "la:sero": {
+      form: "serō",
+      lang: "la",
+      gloss: "to join",
+      kind: "root",
+      parts: [{ f: "sera", r: "la:sera" }, { f: "-ō", r: "la:-o" }],
+    },
+    "la:sera": {
+      form: "sera",
+      lang: "la",
+      gloss: "a bolt",
+      kind: "root",
+      parts: [{ f: "serō", r: "la:sero" }, { f: "-a" }],
+    },
+    "la:-o": { form: "-ō", lang: "la", gloss: "verb-forming", kind: "suffix" },
+  },
+};
+
+const anchorWords = {
+  v: 1,
+  words: {
+    // Stops at the anchor: the row never names cēdō itself.
+    access: {
+      senses: [{ pos: "noun", defs: ["A way of approaching."] }],
+      org: { l: "accessus", lang: "la", parts: [{ f: "accēdō", r: "la:accedo" }, { f: "-tus" }] },
+      fr: 1748,
+    },
+    // Names the base directly.
+    cede: {
+      senses: [{ pos: "verb", defs: ["To give up."] }],
+      org: { r: "la:cedo", f: "cēdō" },
+      fr: 30000,
+    },
+    // Names the base AND the anchor: still one credit to cēdō.
+    accession: {
+      senses: [{ pos: "noun", defs: ["The act of acceding."] }],
+      org: {
+        l: "accessiō",
+        lang: "la",
+        parts: [{ f: "accēdō", r: "la:accedo" }, { f: "cēdō", r: "la:cedo" }],
+      },
+      fr: 20000,
+    },
+    // Two anchors deep.
+    concession: {
+      senses: [{ pos: "noun", defs: ["A thing yielded."] }],
+      org: { r: "la:concessio", f: "concessiō" },
+      fr: 9000,
+    },
+    // Credits one side of the cycle.
+    seraglio: {
+      senses: [{ pos: "noun", defs: ["A harem."] }],
+      org: { r: "la:sero", f: "serō" },
+      fr: 130261,
+    },
+  },
+};
+
+const anchorData = { words: anchorWords, roots: anchorRoots };
+const anchorIndex = buildFamilyIndex(anchorWords, anchorRoots);
+
+test("a root card passes its parts through, joined like org parts", () => {
+  const root = buildRoot("la:accedo", anchorData, anchorIndex);
+  assert.deepEqual(root.parts, [
+    { f: "ad-", r: "la:ad-", gloss: "to, toward" },
+    { f: "cēdō", r: "la:cedo", gloss: "to go" },
+  ]);
+  // A part naming an unshipped root comes back as the form alone.
+  assert.deepEqual(buildRoot("la:concedo", anchorData, anchorIndex).parts, [
+    { f: "cēdō", r: "la:cedo", gloss: "to go" },
+    { f: "con-" },
+  ]);
+  // A root with no parts carries no field at all, not an empty list.
+  assert.equal("parts" in buildRoot("la:cedo", anchorData, anchorIndex), false);
+  assert.equal("parts" in buildRoot("la:ad-", anchorData, anchorIndex), false);
+});
+
+test("a word crediting an anchor credits the roots the anchor's parts name", () => {
+  assert.deepEqual(anchorIndex["la:accedo"], ["access", "accession"]);
+  // access never names cēdō or ad- itself; it reaches both through accēdō.
+  assert.deepEqual(anchorIndex["la:cedo"], ["access", "concession", "accession", "cede"]);
+  assert.deepEqual(anchorIndex["la:ad-"], ["access", "accession"]);
+  // Ranked exactly as any family: fr ascending.
+  const root = buildRoot("la:cedo", anchorData, anchorIndex);
+  assert.equal(root.familyCount, 4);
+  assert.equal(root.family[0].word, "access");
+});
+
+test("a word naming both the anchor and its base credits the base once", () => {
+  assert.equal(anchorIndex["la:cedo"].filter((w) => w === "accession").length, 1);
+});
+
+test("credits pass through nested anchors", () => {
+  // concession names concessiō, which names concēdō, which names cēdō.
+  assert.deepEqual(anchorIndex["la:concessio"], ["concession"]);
+  assert.deepEqual(anchorIndex["la:concedo"], ["concession"]);
+  assert.ok(anchorIndex["la:cedo"].includes("concession"));
+  // The unshipped key an inner part names is credited too; roots.json decides
+  // whether it has a card, exactly as for a direct reference.
+  assert.deepEqual(anchorIndex["la:con-"], ["concession"]);
+  assert.equal(buildRoot("la:con-", anchorData, anchorIndex), null);
+});
+
+test("a cycle in the parts graph credits each root once and terminates", () => {
+  assert.deepEqual(anchorIndex["la:sero"], ["seraglio"]);
+  assert.deepEqual(anchorIndex["la:sera"], ["seraglio"]);
+  assert.deepEqual(anchorIndex["la:-o"], ["seraglio"]);
+});
+
+test("the family counts credit through anchors exactly as the index does", () => {
+  const counts = buildFamilyCounts(anchorWords, anchorRoots);
+  assert.deepEqual(Object.keys(counts).sort(), Object.keys(anchorIndex).sort());
+  for (const key of Object.keys(anchorIndex)) {
+    assert.equal(counts[key], anchorIndex[key].length, key);
+  }
+  assert.equal(counts["la:cedo"], 4);
+});
+
+test("with no roots.json the index credits direct references only", () => {
+  const bare = buildFamilyIndex(anchorWords);
+  assert.deepEqual(bare["la:accedo"], ["access", "accession"]);
+  assert.deepEqual(bare["la:cedo"], ["accession", "cede"]);
+  assert.equal(bare["la:ad-"], undefined);
+});
+
 // --- inherited origin -----------------------------------------------------
 
 test("a shadow word inherits its lemma's decomposed origin", () => {
@@ -900,7 +1059,7 @@ test("an unusable wik is dropped rather than passed on", () => {
 
 // --- roots and families ---------------------------------------------------
 
-test("the family index is derived from words.json alone", () => {
+test("the family index is derived at runtime and credits every referenced key", () => {
   assert.deepEqual(familyIndex["en:-an"], ["suburban", "subterranean"]);
   // The index credits every referenced key. roots.json decides which of them
   // has a card, and buildRoot is where an unshipped key stops.
@@ -1275,7 +1434,7 @@ test("the prebuilt omnibox index answers exactly like a fresh one", () => {
 });
 
 test("the family counts agree with the ranked index, without building it", () => {
-  const counts = buildFamilyCounts(words);
+  const counts = buildFamilyCounts(words, roots);
   assert.deepEqual(Object.keys(counts).sort(), Object.keys(familyIndex).sort());
   for (const key of Object.keys(familyIndex)) {
     assert.equal(counts[key], familyIndex[key].length, key);
@@ -1964,7 +2123,7 @@ await testAsync("smoke: the shipped bundle resolves the SPEC's anchor words", as
     return;
   }
   const placeholder = bundle.words.placeholder === true;
-  const index = buildFamilyIndex(bundle.words);
+  const index = buildFamilyIndex(bundle.words, bundle.roots);
 
   const sub = lookup("Subterranean", bundle).matches[0];
   assert.ok(sub, "subterranean must ship");
@@ -2100,12 +2259,55 @@ await testAsync("smoke: decomposed org rows join their parts", async () => {
         keys.some((key) => typeof key === "string" && key.includes("memor")),
         "a memor part"
       );
-      const index = buildFamilyIndex(bundle.words);
+      const index = buildFamilyIndex(bundle.words, bundle.roots);
       const memor = index["la:memor"] || [];
       assert.ok(memor.includes("remember"), "remember is in la:memor's family");
     }
   }
   console.log(`      (${decomposed.length} words carry a decomposed org)`);
+});
+
+await testAsync("smoke: anchor root cards carry parts and credit through them", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const rootTable = bundle.roots.roots;
+  const withParts = Object.keys(rootTable).filter((key) => Array.isArray(rootTable[key].parts));
+  if (withParts.length === 0) {
+    console.log("      (no root carries parts in this build yet, unverified)");
+    return;
+  }
+  // The org.parts contract, on a root: 2 or more parts, every part a form,
+  // every link a shipped root, never a word chip.
+  const bad = withParts.filter((key) => {
+    const parts = rootTable[key].parts;
+    return (
+      parts.length < 2 ||
+      parts.some((p) => p === null || typeof p !== "object" || typeof p.f !== "string" ||
+        p.f === "" || "w" in p || (typeof p.r === "string" && !(p.r in rootTable)))
+    );
+  });
+  assert.deepEqual(bad.slice(0, 5), [], `${bad.length} root parts rows are unrenderable`);
+  // Only classical lemmas are anchors, so no en: affix carries parts.
+  const affixes = withParts.filter((key) => key.startsWith("en:"));
+  assert.deepEqual(affixes.slice(0, 5), [], `${affixes.length} en: roots carry parts`);
+
+  // The SPEC's anchor: accēdō reads ad- + cēdō, and cēdō's family reaches
+  // access through it although access's own row stops at accēdō.
+  if (Object.prototype.hasOwnProperty.call(rootTable, "la:accedo")) {
+    const index = buildFamilyIndex(bundle.words, bundle.roots);
+    const accedo = buildRoot("la:accedo", bundle, index);
+    assert.deepEqual(accedo.parts.map((p) => p.r), ["la:ad-", "la:cedo"]);
+    assert.ok(accedo.parts.every((p) => typeof p.gloss === "string" && p.gloss !== ""));
+    const cedo = buildRoot("la:cedo", bundle, index);
+    assert.ok(cedo.familyCount >= 3, `cēdō builds ${cedo.familyCount}`);
+    assert.ok((index["la:cedo"] || []).includes("access"), "access is in cēdō's family");
+    assert.equal("parts" in cedo, false, "cēdō is a base lemma with no split");
+  }
 });
 
 await testAsync("smoke: an inflection inherits its lemma's origin", async () => {

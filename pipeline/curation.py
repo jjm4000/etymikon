@@ -8,7 +8,7 @@ only, loaded because sys.path[0] is pipeline/ whenever build.py runs as a
 script.
 
 Wiktionary is right about etymology and wrong about what a reader wants to
-see. These six tables are where that gap is recorded, one entry at a
+see. These eight tables are where that gap is recorded, one entry at a
 time, each with the reason it exists. They are reviewed in PR diffs.
 
     BLOCKED_SPLITS   harvested split is true but semantically dead
@@ -17,6 +17,8 @@ time, each with the reason it exists. They are reviewed in PR diffs.
     ROOT_SKIPS       keys never emitted as roots
     ROOT_GLOSSES     hand gloss overriding the harvested one
     BASE_ROUTES      bound base part -> the classical root it really names
+    ROOT_STOPS       source lemmas recursion must never split
+    LEMMA_STEPS      source-language lemma -> the lemma a chain steps to
 
 An ROOT_ALIASES key is a bare surface form (terra, terr-) when it should
 bind wherever that form appears, English morphemes included, and a
@@ -262,21 +264,33 @@ BASE_ROUTES = {
 # finds on its own (a lemma reached by ORG_ANCHOR_MIN or more words is an
 # anchor already). This list is for the remainder: a lemma too thinly
 # referenced to qualify, whose split still teaches less than it costs.
-# Empty is the healthy state; add a key only with the family that exposed it.
+# Empty is the healthy state, and it is empty; add a key only with the
+# family that exposed it.
 
 ROOT_STOPS = frozenset({
-    # Both are BASE_ROUTES targets with exactly two part-reaches, one short
-    # of ORG_ANCHOR_MIN. The parts-only anchor rule (owner decision
-    # 2026-09-01) counts only what a row really credits, and two is enough
-    # to ship a root card but not enough to be an anchor, so without these
-    # two lines the pair flattens away and takes its route with it.
-    # la:laxō: relaxō = re- + laxō is the row that teaches; splitting laxō
-    # into laxus + -ō names the adjective and the verb-forming ending, and
-    # relax's lax chip loses la:laxō from its chain and falls back to the
-    # English word lax.
-    "la:laxo",
-    # la:ēligō: elegance, elegant and eligible all read ēligō + suffix;
-    # drilling to ex- + legō puts "to gather" on the card instead of "to
-    # choose", and electrix and inelegant lose the route target.
-    "la:eligo",
+    # la:laxō and la:ēligō sat here while ORG_ANCHOR_MIN was 3: each has
+    # exactly two part-reaches, enough to ship a card and one short of an
+    # anchor, so without a stop the pair flattened away and took its
+    # BASE_ROUTES target with it. ORG_ANCHOR_MIN went to 2 on 2026-09-01
+    # (owner decision) and both became anchors on their own, so both left.
 })
+
+# ---------------------------------------------------------------- lemma steps
+# Source-language lemma -> the lemma a chain steps to before it is judged.
+# The build already steps an INFLECTION page to its lemma, because such a
+# page carries no gloss and no split of its own. This table is for the pages
+# that step in the same way but do not look like inflections to the parser:
+# a participle Wiktionary made a lemma page, with a gloss of its own and no
+# form-of link. Applied in Origin.settle ahead of the automatic step, so an
+# entry here wins over what the extract says about the page. Keys and values
+# are language-qualified page keys, macrons stripped.
+
+LEMMA_STEPS = {
+    # dēpōnēns is a Latin lemma page ("deponent", a grammatical term) rather
+    # than a form-of page for dēpōnō, so settle() stopped on it, the chain
+    # reached a lemma with no split, and deponent shipped nothing. prōpōnēns
+    # beside it IS a form-of page and steps to prōpōnō on its own. The step
+    # here is the one the source would record if the page were shaped like
+    # its sibling (owner decision 2026-09-01).
+    "la:deponens": "la:depono",
+}

@@ -1259,7 +1259,15 @@ ORG_DEPTH = 3           # levels of source-language splitting, SPEC cap
 # parts inert. 3 drills through those to the base the family shares, so
 # analysis, analyze, palsy and paralytic all land on grc:λύω, and leaves
 # 8.5% inert. Both keep solvō, pōnō and mittō, which is what the rule is for.
-ORG_ANCHOR_MIN = 3
+#
+# Set to 2 on 2026-09-01 (owner decision). The cost of a shallower row went
+# away once an anchor's card carries the anchor's own split (`parts` in
+# roots.json) and the family index credits through it: contract stops at
+# contrahō, the contrahō card reads con- + trahō, and trahō still lists
+# contract. What 2 buys is that a lemma two words reach, which is enough to
+# ship a card, is also enough to keep it from flattening away. la:laxō and
+# la:ēligō needed ROOT_STOPS entries for exactly that gap at 3.
+ORG_ANCHOR_MIN = 2
 
 
 class Origin:
@@ -1297,6 +1305,17 @@ class Origin:
         if not key:
             return None
         cl = self.cl[lang]
+        # A curated step first (LEMMA_STEPS, owner decision 2026-09-01). The
+        # automatic step below only fires on a page that looks like an
+        # inflection to the parser: no gloss, no split, a form-of link.
+        # dēpōnēns is a lemma page with a gloss of its own, so the parser
+        # stops on it, and the chain never reached dēpōnō. The table names
+        # the step the source would have recorded.
+        curated = curation.LEMMA_STEPS.get(lang + ":" + key)
+        if curated:
+            stepped = curated.split(":", 1)[1]
+            self.alias[key] = lang + ":" + stepped
+            return stepped
         if key not in cl["gloss"] and key not in cl["split"] and key in cl["fo"]:
             stepped = cl["fo"][key]
             if stepped:
@@ -1326,7 +1345,9 @@ class Origin:
         out = []
         for p in raw:
             pk = norm_key(lang, p)
-            if not pk:
+            if not pk or pk == key:
+                # A split naming the lemma itself does not decompose (see
+                # flatten), so it credits nothing either.
                 return ()
             if (curation.ROOT_ALIASES.get(lang + ":" + pk)
                     or curation.ROOT_ALIASES.get(p)
@@ -1422,6 +1443,19 @@ class Origin:
             pk = norm_key(lang, p)
             if not pk:
                 return None
+            if pk in seen:
+                # A split whose part is the lemma itself, macrons aside:
+                # errō = errō + -ō, palpō = palpō + -ō. Wiktionary is
+                # recording the verb's conjugation ending, not an assembly,
+                # and a row that reads "errō = errō + -ō" teaches a reader
+                # nothing. The lemma stays whole (owner decision 2026-09-01;
+                # 8 rows at the time). `seen` holds the lemma and every
+                # lemma above it, so the same refusal covers a cycle two
+                # pages long: serō = sera + -ō and sera = serō + -a, which
+                # flattened seraglio to "serō = serō + -a + -ō". The inner
+                # split is refused, sera stays whole, and the row reads
+                # sera + -ō.
+                return None
             a = (curation.ROOT_ALIASES.get(lang + ":" + pk)
                  or curation.ROOT_ALIASES.get(p)
                  or curation.ROOT_ALIASES.get(pk))
@@ -1442,7 +1476,7 @@ class Origin:
                 out.append((form, None))
                 continue
             sub = None
-            if (pk is not None and pk not in seen
+            if (pk is not None
                     and rkey not in self.anchors
                     and rkey not in curation.ROOT_STOPS):
                 sub = self.flatten(lang, pk, depth - 1, seen | {pk})
@@ -1640,12 +1674,34 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
         else:
             w["org"] = copy.deepcopy(org)
 
+    # ---- the anchors' own splits, raw --------------------------------------
+    # Every anchor's split as flatten() names it, root keys and all, before
+    # anyone knows which of those roots ship. Two things read it: the credit
+    # count below, and the `parts` field the anchor's card carries.
+    anchor_parts = {}
+    for key in origin.anchors:
+        lang, pk = key.split(":", 1)
+        flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
+        if flat and len(flat) >= 2:
+            anchor_parts[key] = flat
+    through = root_closure({
+        k: {"parts": [{"f": f, "r": r} for f, r in flat if r]}
+        for k, flat in anchor_parts.items()})
+
     # ---- resolve morphemes to roots, count references -------------------
     # One word credits a root once, however many of its morphs name it, and
-    # the org row counts in the same tally. This is the runtime's rule:
-    # lookup.js buildFamilyIndex is the authority, and the ship threshold has
-    # to agree with it or a root ships whose card renders a family of one
-    # (review finding 2026-08-24, 12 shipped words double-credited).
+    # the org row counts in the same tally. A credit to an anchor is also a
+    # credit to every root the anchor's split names, recursively (owner
+    # decision 2026-09-01): access names accēdō, accēdō names cēdō, so
+    # access counts for cēdō. This is the runtime's rule: lookup.js
+    # buildFamilyIndex is the authority, and the ship threshold has to agree
+    # with it or a root ships whose card renders a family of one (review
+    # finding 2026-08-24, 12 shipped words double-credited). Counting direct
+    # credits alone was measured at ORG_ANCHOR_MIN 2 (2026-09-01): 43 base
+    # cards HEAD shipped went under the threshold once the rows above them
+    # stopped at an anchor (grc:λύω, la:anima, la:sciō), 19 word rows and 64
+    # anchor cards got a dead chip for it, and fornix and τάσσω, each named
+    # by one row and one anchor, never shipped.
     refs = collections.Counter()
     for wl, w in shipped.items():
         credited = set()
@@ -1680,7 +1736,10 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
                 del w["org"]
             else:
                 credited.add(org["r"])
+        reached = set()
         for k in credited:
+            reached |= through(k)
+        for k in reached:
             refs[k] += 1
 
     # ---- build the root set --------------------------------------------
@@ -1721,6 +1780,29 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
             alt[dst].add(src)
     for key, forms in alt.items():
         roots[key]["alt"] = sorted(forms)[:MAX_ALT]
+
+    # ---- the anchor's own breakdown (owner decision 2026-09-01) ---------
+    # Recursion stops at an anchor, so every row naming one reads shallower
+    # than the source: access reads accēdō + -tus, and ad- + cēdō appeared
+    # nowhere. The anchor's card carries that split itself now, as `parts`
+    # in the org.parts shape, produced by the same flatten() the word rows
+    # use: recursion stops at other anchors, affixes stay terminal, and a
+    # part whose root did not ship stays inert with its form alone. Only
+    # anchors carry parts. Affix roots and plain roots never do, and the
+    # runtime family index credits a root through the anchors that name it
+    # (lookup.js buildFamilyIndex), so cēdō still lists access.
+    for key, r in roots.items():
+        flat = anchor_parts.get(key)
+        if not flat:
+            continue
+        parts = []
+        for form, rkey in flat:
+            part = {"f": form}
+            if rkey and rkey in roots:
+                part["r"] = rkey
+            parts.append(part)
+        r["parts"] = parts
+        c["rootparts"] += 1
 
     # `src` on an English affix: the Latin or Greek lemma its own chain
     # reaches, when that lemma ships a card of its own.
@@ -1809,38 +1891,74 @@ def org_roots(org):
     return [org["r"]] if org.get("r") else []
 
 
-def family_index(words):
+def root_closure(roots):
+    """key -> the set of root keys a credit to `key` also credits.
+
+    A root, plus every root its `parts` name, recursively through nested
+    anchors. Cycle-safe: a key is visited once. Memoised per call site,
+    since verify asks for the same few thousand keys many times over.
+    """
+    memo = {}
+
+    def closure(key):
+        found = memo.get(key)
+        if found is not None:
+            return found
+        out = set()
+        stack = [key]
+        while stack:
+            k = stack.pop()
+            if k in out:
+                continue
+            out.add(k)
+            for p in (roots.get(k) or {}).get("parts") or ():
+                if p.get("r"):
+                    stack.append(p["r"])
+        memo[key] = out
+        return out
+    return closure
+
+
+def family_index(words, roots):
     """root key -> word keys, the index the service worker derives at runtime.
 
     A mirror, not a second implementation: lookup.js buildFamilyIndex is the
     authority for this shape and this counting rule. A word credits a root
     once, however many of its morphs name it, and an org row credits it the
-    same way. Verify has to see the families the reader will see.
+    same way. A credit to an anchor is also a credit to every root the
+    anchor's `parts` name, recursively (owner decision 2026-09-01): access
+    names accēdō, accēdō names cēdō, so access is in cēdō's family. Verify
+    has to see the families the reader will see.
+
+    The ship threshold in link_and_prune stays on DIRECT credits and does
+    not read this.
     """
+    through = root_closure(roots)
     idx = collections.defaultdict(list)
     for k, w in words.items():
         credited = set()
         for m in w.get("morphs") or ():
             if m.get("r"):
-                credited.add(m["r"])
+                credited |= through(m["r"])
         for r in org_roots(w.get("org")):
-            credited.add(r)
+            credited |= through(r)
         for r in sorted(credited):
             idx[r].append(k)
     return idx
 
 
-def verify(words_obj, roots_obj, forms_obj, anchors=None):
+def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None):
     """Spot-check the emitted data. Returns the number of failed checks.
 
-    `anchors` is the source-lemma anchor set the build computed. A
-    `--verify` run reads the JSON and nothing else, so it has no anchor
-    set and the two anchor checks are not run there.
+    `anchors` is the source-lemma anchor set the build computed and
+    `splits` the subset whose lemma decomposes in its own extract. A
+    `--verify` run reads the JSON and nothing else, so it has neither and
+    the anchor checks are not run there.
     """
     words = words_obj["words"]
     roots = roots_obj["roots"]
     fmap = forms_obj["map"]
-    idx = family_index(words)
+    idx = family_index(words, roots)
     checks = []
 
     def add(name, ok, detail):
@@ -2032,6 +2150,75 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None):
         add("no org part or morph chip naming an anchor is inert", not dead,
             "%d inert anchor references%s"
             % (len(dead), (": " + "; ".join(dead[:8])) if dead else ""))
+
+    # ---- anchor root cards carry their own breakdown -------------------
+    # (owner decision 2026-09-01.) `parts` on a root is the org.parts shape
+    # and follows its contract: every `r` is a shipped root, and only an
+    # anchor carries the field, since only an anchor stops recursion and
+    # hides a split from the rows above it. Most anchors are base lemmas
+    # with no split of their own (cēdō, θεός), and those carry no parts.
+    badpart = sorted(
+        k for k, r in roots.items()
+        for p in r.get("parts") or ()
+        if not isinstance(p, dict) or not p.get("f")
+        or (p.get("r") and p["r"] not in roots))
+    withparts = sorted(k for k, r in roots.items() if r.get("parts"))
+    add("every r inside a root's parts exists in roots.json, every part has an f",
+        not badpart and all(len(roots[k]["parts"]) >= 2 for k in withparts),
+        "%d roots carry parts, %d bad%s"
+        % (len(withparts), len(badpart),
+           (": " + ", ".join(badpart[:5])) if badpart else ""))
+    if anchors is not None:
+        stray = sorted(k for k in withparts if k not in anchors)
+        add("only anchors carry parts", not stray,
+            "%d non-anchor roots with parts%s"
+            % (len(stray), (": " + ", ".join(stray[:5])) if stray else ""))
+        want = sorted(k for k in (splits or ()) if k in roots)
+        bare = [k for k in want if not roots[k].get("parts")]
+        extra = sorted(k for k in withparts if k not in (splits or ()))
+        add("every anchor whose lemma decomposes carries parts, and no other",
+            not bare and not extra,
+            "%d anchors, %d decompose, %d of those bare, %d carry parts "
+            "without a split%s"
+            % (len(anchors), len(want), len(bare), len(extra),
+               (": " + ", ".join((bare + extra)[:5])) if bare or extra else ""))
+
+    acc = roots.get("la:accedo") or {}
+    add("la:accedo carries parts reading ad- + cēdō, both linked",
+        [p.get("r") for p in acc.get("parts") or ()] == ["la:ad-", "la:cedo"],
+        json.dumps(acc, ensure_ascii=False))
+    cedfam = set(idx.get("la:cedo") or ())
+    add("la:cedo's family reaches access, concede and precede through "
+        "their anchors",
+        {"access", "concede", "precede"} <= cedfam,
+        "family %d: %s" % (len(cedfam), ", ".join(sorted(cedfam)[:10])))
+
+    # The curated lemma step (LEMMA_STEPS): dēpōnēns steps to dēpōnō.
+    dep = org_of("deponent")
+    add("deponent carries a decomposed org: dēpōnō = dē- + pōnō",
+        bool(dep) and dep.get("l") == "dēpōnō"
+        and [p.get("r") for p in dep["parts"]] == ["la:de-", "la:pono"],
+        json.dumps(dep, ensure_ascii=False))
+
+    # Two rows the parts-only reach rule left with a dead first chip at
+    # ORG_ANCHOR_MIN 3, restored at 2: fornix and τάσσω are anchors now.
+    for k, form, key in (("fornicate", "fornix", "la:fornix"),
+                         ("tactic", "τάσσω", "grc:τάσσω")):
+        o = org_of(k) or {}
+        hit = [p for p in o.get("parts") or () if p["f"] == form]
+        add("%s links its %s part" % (k, form),
+            bool(hit) and hit[0].get("r") == key,
+            json.dumps(o, ensure_ascii=False))
+
+    # A split naming the lemma itself is no split (owner decision
+    # 2026-09-01): errō = errō + -ō stays whole.
+    selfpart = sorted(
+        k for k, w in words.items()
+        if any(la_key(p["f"]) == la_key(w["org"]["l"])
+               for p in (w.get("org") or {}).get("parts") or ()))
+    add("no org row names its own lemma as a part", not selfpart,
+        "%d offenders%s" % (len(selfpart),
+                            (": " + ", ".join(selfpart[:5])) if selfpart else ""))
 
     orgparts = [k for k, w in words.items()
                 if (w.get("org") or {}).get("parts")]
@@ -2551,10 +2738,12 @@ def main(argv):
         "for want of one (%d linking pass%s)"
         % (format(sum(1 for wl in chain_only if wl in shipped), ","),
            format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
-    log("  %s roots kept (%s src links); %s word chips, %s morph chips left "
-        "inert, %s org parts inert, %s org rows dropped, %s repeated morphs "
-        "credited once, %s base chips routed to a classical root"
+    log("  %s roots kept (%s src links, %s anchor cards carrying parts); "
+        "%s word chips, %s morph chips left inert, %s org parts inert, "
+        "%s org rows dropped, %s repeated morphs credited once, %s base "
+        "chips routed to a classical root"
         % (format(len(roots), ","), format(lp["src"], ","),
+           format(lp["rootparts"], ","),
            format(lp["wchip"], ","), format(lp["inert"], ","),
            format(lp["inertpart"], ","), format(lp["orgdrop"], ","),
            format(lp["repeat"], ","), format(lp["routed"], ",")))
@@ -2725,7 +2914,16 @@ def main(argv):
                 % (k, w.get("fr", "-"), show_org(w.get("org")), bits,
                    w["senses"][0]["defs"][0][:70]))
 
-    failed = verify(words_obj, roots_obj, forms_obj, origin.anchors)
+    # The anchors whose lemma decomposes, for the root-parts check. The same
+    # flatten() the emit used, so the check asks the build what it should
+    # have written.
+    splits = set()
+    for k in origin.anchors:
+        lang, pk = k.split(":", 1)
+        flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
+        if flat and len(flat) >= 2:
+            splits.add(k)
+    failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     write_report()

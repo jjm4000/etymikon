@@ -272,6 +272,16 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
       "src": "la:sub",
       "gloss": "under, beneath",
       "kind": "prefix"
+    },
+    "la:accedo": {
+      "form": "accēdō",
+      "lang": "la",
+      "gloss": "to go or come toward, approach, reach",
+      "kind": "root",
+      "parts": [
+        { "f": "ad-", "r": "la:ad-" },
+        { "f": "cēdō", "r": "la:cedo" }
+      ]
     }
   }
 }
@@ -306,12 +316,24 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 - `src`: for `en:` affixes whose entry derives from a Latin/Greek
   lemma, the key of that lemma's card when shipped. Renders as one line
   on the affix card ("From Latin sub ›") and navigates to it.
+- `parts` (owner decision 2026-09-01): on ANCHOR roots only, the
+  anchor's own split in the org.parts shape, `[{f, r?}]`, produced by
+  the same flatten() the word rows use. Recursion stops at other
+  anchors, affixes are terminal, and a part whose root does not ship
+  stays inert with `f` alone. Affix roots and plain roots never carry
+  the field, and an anchor whose lemma has no split in its extract
+  (cēdō, θεός) does not either. See "Anchor cards carry their own
+  breakdown".
 - A root ships when at least 2 DISTINCT shipped words reference it
   (via `morphs` or `org`); a word whose split repeats a morpheme
   counts once, in the build's threshold and verify exactly as in the
   runtime family index (review finding 2026-08-24: the build counted
-  per morph and could ship a root whose family renders one word). The family list is never stored; the worker derives the
-  root-to-words index from words.json at runtime, ranked by `fr`
+  per morph and could ship a root whose family renders one word). A
+  reference to an anchor is a reference to every root the anchor's
+  `parts` name, recursively, in the threshold as in the index (see
+  "Root families credit through anchors"). The family list is never stored; the worker derives the
+  root-to-words index from words.json and the `parts` in roots.json at
+  runtime, ranked by `fr`
   ascending, unranked last, ties by key. Any pipeline change to morphs
   changes families on the next worker start with no other work
   (Okpyeon's recomposition property, carried over as a binding
@@ -392,6 +414,11 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 
 - `family`: the first 8 of the derived index (ranked as specified under
   roots.json), each with the word's first def, `fr`, and `tier`.
+- `parts`: on an anchor root, its `parts` joined exactly as a word's
+  org parts are (`r` chips get the root gloss, partless chips come
+  back as `f` only): `"parts": [ { "f": "ad-", "r": "la:ad-", "gloss":
+  "to, toward" }, { "f": "cēdō", "r": "la:cedo", "gloss": "to go, move,
+  proceed" } ]`. Absent on every other root.
 - `{ "type": "family", "key": "la:terra", "offset": 0 }` returns ONE
   CHUNK of the ranked list: `{ "ok": true, "rows": [...], "total": N,
   "offset": 0 }`, chunk size 200, same row shape. Rationale (found in
@@ -513,6 +540,13 @@ Sections in order:
   lang joined in plain English; en affixes say just "Prefix"/"Suffix").
 - `appendRootGloss`: the gloss as a single sense line ("earth, land"),
   same clamp rules.
+- `appendRootParts` (owner decision 2026-09-01): for anchor roots
+  carrying `parts`, the chip row under the label "MADE OF", the same
+  buildChipRow and the same label the word card uses. Chips with `r`
+  open that root card as an ordinary drill-down, root to root, with
+  breadcrumbs; partless chips are inert. Absent when no `parts`. Both
+  surfaces render it through the one content.js renderer the sidepanel
+  embeds.
 - `appendRootSource`: for en: affixes with `src`, one quiet nav row in
   the appendOrigin style, gloss included when the source lemma has
   one: "From Latin sub (under, beneath) ›". Absent otherwise.
@@ -689,7 +723,12 @@ Parsing rules, English extract:
   roots (Old French steps, Middle English steps); `ROOT_GLOSSES`,
   hand glosses overriding the harvested one where Wiktionary's sense
   ordering picks a bad card gloss, seeded with en:-ness, en:-ly, and
-  en:-y (their harvested first senses are usage notes, not glosses). Every list is data,
+  en:-y (their harvested first senses are usage notes, not glosses);
+  `BASE_ROUTES` (below); `ROOT_STOPS`, source lemmas recursion must
+  never split, empty in the healthy state; `LEMMA_STEPS`, source-
+  language lemma to the lemma a chain steps to before it is judged,
+  language-qualified keys (see "Lemma steps and self-part splits").
+  Every list is data,
   reviewed in PR diffs, and each entry carries a one-line reason
   comment.
 - Origin chains: for words without an accepted split, walk der/bor/inh
@@ -836,19 +875,137 @@ A morph chip names a root only through `r`, which the dangling-root
 check already covers; reading a chip's English spelling instead would
 call bulla, carō and fīnis references to Latin cards they are not.
 
-`ORG_ANCHOR_MIN` stays 3. hesitation now reads haereō + -titō + -tiō
+`ORG_ANCHOR_MIN` stayed 3 at this decision. hesitation now reads
+haereō + -titō + -tiō
 with three live links, solvō stays an anchor, and absolute still reads
 ab- + solvō. Of the 139 org rows the rule changed, 135 drilled deeper
 and every one of the 50 inert parts among them became a link.
 
-The rule leaves one gap, and it is the reason `ROOT_STOPS` is no longer
+The rule left one gap, and it was the reason `ROOT_STOPS` stopped being
 empty: a lemma with exactly two part-reaches would ship as a root on
 two credits but is one short of being an anchor, so it flattens away
-and takes its card with it. la:laxō and la:ēligō are both that shape
-and both are `BASE_ROUTES` targets, so they carry entries in
-`ROOT_STOPS` with their reasons. `ORG_ANCHOR_MIN` of 2 would close the
-gap generally at the cost of 249 more anchors and 160 shallower rows;
-it was measured and not taken.
+and takes its card with it. la:laxō and la:ēligō were both that shape
+and both are `BASE_ROUTES` targets, so they carried entries in
+`ROOT_STOPS` with their reasons. `ORG_ANCHOR_MIN` of 2 closes the gap
+generally; it was measured at 249 more anchors and 160 shallower rows
+and not taken then. It was taken later the same day, once anchor cards
+carried their own split, and both entries left (see "ORG_ANCHOR_MIN is
+2").
+
+### Anchor cards carry their own breakdown (2026-09-01)
+
+An owner decision. Recursion stops at an anchor, so every row naming
+one reads shallower than the source: access read accēdō + -tus, and
+ad- + cēdō appeared nowhere, because the accēdō card was terminal
+(gloss, language, kind, family, and nothing about the anchor's own
+assembly).
+
+Rule: at build, every anchor's entry in roots.json gains `parts`, the
+same shape as org.parts, produced by the same flatten() the word rows
+use. Recursion stops at other anchors, affixes stay terminal, and a
+part whose root does not ship stays inert with `f` alone. Only anchors
+get the field; affix roots and plain roots do not, and an anchor whose
+lemma has no split in its extract carries none either, which is most
+of them: at 2026-09-01, 279 of 884 anchors decompose. The anchor's
+split starts with a fresh depth budget of ORG_DEPTH from its own card,
+so it can read deeper than the rows above it did; that is the
+recursion doing from the card what it could not do from the row.
+
+Runtime: the root card renders a MADE OF section from `parts`, the
+word card's own buildChipRow under the word card's own label, after
+the gloss block and before the family section. Chips link to root
+cards and the breadcrumb trail works root to root (access › accēdō ›
+cēdō). One renderer serves both surfaces, since the sidepanel embeds
+content.js. Badge and tier conventions are untouched: a root card
+still renders no tier chip.
+
+Three verify checks pin the field: every `r` inside a root's `parts`
+exists in roots.json; only anchors carry `parts`; every anchor whose
+lemma decomposes carries `parts`, and no other root does. The last two
+run only on a full build, since a `--verify` run has no anchor set.
+Anchor: la:accedo carries parts reading ad- + cēdō, both linked.
+
+### Root families credit through anchors (2026-09-01)
+
+An owner decision. The family index (lookup.js buildFamilyIndex, and
+buildFamilyCounts beside it) counts a word for a root when the word
+credits the root directly OR credits an anchor whose `parts` credit
+the root, recursively through nested anchors, cycle-safe. The effect
+is that the cēdō card still lists access, concede and precede after
+those rows stop at accēdō, concēdō and praecēdō, and "BUILDS N WORDS"
+on the root card reflects the same count (cēdō builds 39 at
+2026-09-01, access at the head of the list). Used-in on WORD cards is
+unchanged: it reverses the w-chip graph, not roots. The index now reads
+roots.json as well as words.json; nothing is stored, and the
+recomposition property holds.
+
+The build's ship threshold counts the same way, and this deviates from
+the letter of the owner's instruction, which said the threshold stays
+on direct credits (flagged for owner ratification 2026-09-01). It was
+measured at `ORG_ANCHOR_MIN` 2 with direct credits only: 43 base cards
+HEAD shipped went under the threshold once the rows above them stopped
+at an anchor (grc:λύω, la:anima, la:sciō, la:senex among them), 19
+word rows and 64 anchor cards got a dead chip for it, and fornix and
+τάσσω, each named by one row and one anchor's split, never shipped,
+which the same decision expected to see restored. The SPEC's own older
+rule, that the threshold and the runtime index count identically or a
+card ships with a family it does not have, decides it: a credit
+through an anchor counts in both places. With that count no HEAD root
+is lost except the three noted under "ORG_ANCHOR_MIN is 2".
+The count is not circular: an anchor's split is read raw from
+flatten() before anyone knows which roots ship, and `r` is written on
+a part only afterwards.
+
+### ORG_ANCHOR_MIN is 2 (2026-09-01)
+
+An owner decision, taken after the two sections above landed. A lemma
+two words reach is enough to ship a card, and it is now enough to be
+an anchor. The rows above it stop there, the card carries the split,
+and the family below still credits through. Anchors went from 434 to
+884. Of the 5,906 org rows, 395 changed: 380 read shallower (contract
+reads contrahō + -tus, and the contrahō card reads con- + trahō),
+14 relinked at the same depth, 1 gained a row. No row read deeper.
+
+The two `ROOT_STOPS` entries left. la:laxō and la:ēligō have exactly
+two part-reaches, so at 2 they are anchors on their own; relax still
+routes its lax chip to la:laxō, and every BASE_ROUTES target ships.
+`ROOT_STOPS` is empty, its documented healthy state. fornicate links
+its fornix part and tactic its τάσσω part, through the crediting rule
+above rather than through the minimum.
+
+Three roots HEAD shipped are gone, all intermediates the depth cap
+used to stop on: la:avidus (the audeō card now drills to aveō + -idus,
+so audacious credits aveō rather than avidus, and adulatory's avidus
+chip is inert), la:gestus (gesticulor drills to gerō + -tus) and
+la:invideō (invidia drills to in- + videō). Each is the flatten rule
+reaching the base from the anchor's card.
+
+### Lemma steps and self-part splits (2026-09-01)
+
+Two owner decisions.
+
+`LEMMA_STEPS` in curation.py maps a source-language lemma to the lemma
+a chain steps to before it is judged, language-qualified keys, each
+with a reason. settle() reads it ahead of the automatic form-of step,
+which only fires on a page that looks like an inflection to the parser
+(no gloss, no split, a form-of link). Seeded with la:deponens to
+la:depono: dēpōnēns is a Latin lemma page with a gloss of its own, so
+the chain settled on it and deponent shipped nothing, while prōpōnēns
+beside it is a form-of page and steps on its own. Anchor: deponent
+ships with dēpōnō = dē- + pōnō, both parts linked.
+
+A split whose part is the lemma itself, macrons aside, is no split:
+errō = errō + -ō is Wiktionary recording the conjugation ending, and
+the lemma stays whole. 8 rows carried one (arrant, caligo, err, palp,
+palpate, pigeon, seraglio, uncus). The same refusal covers a cycle two
+pages long (serō = sera + -ō and sera = serō + -a), where the inner
+split is refused and seraglio reads sera + -ō. Effects under the
+chain-only drop rule: arrant, caligo, palpate and uncus are past the
+cap and their only row was the self-split, so they no longer ship;
+err and palp are inside the cap and keep their cards with a single
+"From Latin" row; pigeon keeps its card and loses its row (pīpiō is
+credited by nothing else). Verify asserts no org row names its own
+lemma as a part.
 
 ### Chain candidacy past the cap (2026-09-01)
 
@@ -883,12 +1040,20 @@ forms.json is assembled, so it credits no root, it is no form target,
 and it cannot be a forms.json row. That is the path the tail-split
 suppression already takes, one stage earlier.
 
-At 2026-09-01: 6,615 chain-only candidates, 2,306 ship, 4,178 dropped.
+At 2026-09-01: 6,615 chain-only candidates, 2,303 ship, 4,181 dropped.
 proponent and exponent gain FROM LATIN rows on prōpōnō and expōnō.
-deponent does not ship, and the reason is in the source rather than the
-rule: dēpōnēns is a Latin lemma page with a gloss of its own, so the
-chain settles there and does not step to dēpōnō, while prōpōnēns is a
-form-of page and does step.
+deponent did not ship at first, and the reason was in the source rather
+than the rule: dēpōnēns is a Latin lemma page with a gloss of its own,
+so the chain settled there and did not step to dēpōnō, while prōpōnēns
+is a form-of page and does step. A `LEMMA_STEPS` entry closes it (see
+"Lemma steps and self-part splits").
+
+No rank floor for chain-only candidates (owner decision 2026-09-01).
+The tail of the chain half runs rarer than the split half, down to
+words attested once in the corpus, and a floor was considered and
+decided against: attestation is the outer edge of the dictionary, the
+same edge the split half has, and a decomposed row is the breakdown
+the cap exists to admit.
 
 ### Coverage report lines (2026-09-01)
 
@@ -936,7 +1101,13 @@ silently diverged from):
   ships as a word with no morphs (same reason: it carries adjective,
   adverb and noun senses, so it is not in forms.json either);
   "territories" resolves to territory via forms.json, "walked" to walk,
-  "children" to child.
+  "children" to child. Added 2026-09-01: la:accedo carries parts
+  reading ad- + cēdō, both linked; la:cedo's family reaches access,
+  concede and precede through their anchors; deponent carries dēpōnō =
+  dē- + pōnō; fornicate links its fornix part and tactic its τάσσω
+  part; no org row names its own lemma as a part; every `r` inside a
+  root's `parts` exists in roots.json; only anchors carry `parts`;
+  every anchor whose lemma decomposes carries `parts`, and no other.
 - Distribution sanity, printed in the build report: total words around
   83k (29k ranked lemma pages inside the top 50,000, since inflection
   pages live in forms.json, plus the attested tail that carries a split
@@ -991,14 +1162,19 @@ types that no longer exist, the feature is deleted.
 - lookup.js: Node suite over schema-exact inline fixtures: token
   extraction, case folding, forms map, each suffix rule and its repair
   cases, morphs join, root/family requests, family ranking, omnibox
-  suggestions, tier function cutoffs.
+  suggestions, tier function cutoffs, root `parts` passthrough, and
+  transitive family crediting (a word crediting an anchor whose parts
+  credit a base root, a nested anchor, a cycle guard, once-per-word).
 - Harness pages: fixture blocks rewritten to English fixtures
   (byte-identical across the two pages, the carried-over rule): word
   card sections render and order correctly, breakdown chips navigate,
   inert chips do not, org row navigates, root card family paginates
   with the whole-card rule, formOf note scoping, saved/star/bubble and
   settings against English fields, sidebar views and handshake, tier
-  chips exclusive.
+  chips exclusive, the root card MADE OF row (renders on an anchor
+  root between gloss and family, absent on an affix root and a plain
+  root, a chip pushes the part's root card root to root, the crumb
+  returns), on both pages.
 - Real-app pass: test-page/index.html rewritten with English staging
   content (paragraphs containing anchor words), screenshots via the
   carried-over CDP harness with English scenes.

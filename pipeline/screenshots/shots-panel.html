@@ -82,7 +82,7 @@ const [words, roots, forms, manifest] = await Promise.all([
 let familyIndex = null;
 let usedInIndex = null;
 const data = { words, roots, forms };
-const getFamilyIndex = () => (familyIndex ||= buildFamilyIndex(words));
+const getFamilyIndex = () => (familyIndex ||= buildFamilyIndex(words, roots));
 const getUsedInIndex = () => (usedInIndex ||= buildUsedInIndex(words));
 const savedData = () => ({ words, roots, familyIndex: getFamilyIndex() });
 

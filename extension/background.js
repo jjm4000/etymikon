@@ -110,7 +110,7 @@ function getData() {
 
 /** The family index for the loaded bundle, built on first use. */
 function getFamilyIndex(data) {
-  if (familyIndex === null) familyIndex = buildFamilyIndex(data.words);
+  if (familyIndex === null) familyIndex = buildFamilyIndex(data.words, data.roots);
   return familyIndex;
 }
 

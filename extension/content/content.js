@@ -1862,10 +1862,11 @@
   }
 
   /**
-   * THE chip row. One implementation, two call sites: the breakdown of an
-   * English word, and the decomposed source lemma of an origin. The two say
-   * the same kind of thing about different languages, so they must not drift
-   * into two anatomies (SPEC: "the morphs chip anatomy verbatim").
+   * THE chip row. One implementation, three call sites: the breakdown of an
+   * English word, the decomposed source lemma of an origin, and the split an
+   * anchor root card carries of its own. All three say the same kind of thing
+   * about different languages, so they must not drift into two anatomies
+   * (SPEC: "the morphs chip anatomy verbatim").
    *
    * A chip is the form over the gloss the worker joined for it, and it links
    * in one of two directions while looking the same either way: `r` opens a
@@ -2102,6 +2103,26 @@
     var gloss = nonEmptyString(rootOf(m).gloss);
     if (!gloss) return;
     appendSenseList(card, [gloss]);
+  }
+
+  function rootPartsEnabled(settings) {
+    return true;
+  }
+
+  // MADE OF on a root card: an anchor's own breakdown. A Latin or Greek lemma
+  // that English borrowed already assembled stops the recursion above it, so
+  // access reads accēdō + -tus and the reader never saw ad- + cēdō anywhere.
+  // The worker joins the anchor's `parts` exactly as it joins a word's org
+  // parts, so this is the word card's chip row under the word card's label,
+  // and each chip opens its root card as an ordinary drill-down. Absent on
+  // affix roots and plain roots, which carry no parts.
+  function appendRootParts(card, m) {
+    if (!rootPartsEnabled(sectionSettings())) return;
+    var parts = usableParts(rootOf(m).parts);
+    if (parts.length < 2) return;
+
+    card.appendChild(el("div", "label", "MADE OF"));
+    card.appendChild(buildChipRow(parts));
   }
 
   function rootSourceEnabled(settings) {
@@ -2644,6 +2665,8 @@
     appendRootHead(card, m);
 
     appendRootGloss(card, m);
+
+    appendRootParts(card, m);
 
     appendRootSource(card, m);
 

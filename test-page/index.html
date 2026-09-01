@@ -490,6 +490,39 @@
         { word: "photograph", fr: 7300 },
         { word: "biography", def: "An account of a life.", fr: 16400 }
       ]
+    },
+    // An ANCHOR: a Latin lemma English borrowed already assembled, so the
+    // rows above it stop at it and its card carries the split itself, as
+    // `parts` in the org.parts shape (owner decision 2026-09-01). The card
+    // lays them out under MADE OF; each chip opens its root card.
+    "la:accedo": {
+      form: "accēdō", lang: "la", gloss: "to go or come toward, approach",
+      kind: "root",
+      parts: [
+        { f: "ad-", r: "la:ad-" },
+        { f: "cēdō", r: "la:cedo" }
+      ],
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "accession", def: "The act of acceding.", fr: 20000 }
+      ]
+    },
+    "la:ad-": {
+      form: "ad-", lang: "la", gloss: "to, toward", kind: "prefix",
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "adapt", def: "To make suitable.", fr: 5200 }
+      ]
+    },
+    // The base the anchor names. A base lemma has no split of its own, so
+    // its card carries no parts; its family lists access through accēdō.
+    "la:cedo": {
+      form: "cēdō", lang: "la", gloss: "to go, move, proceed", kind: "root",
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "concede", def: "To yield a point.", fr: 11000 },
+        { word: "precede", def: "To go before.", fr: 12500 }
+      ]
     }
   };
 
@@ -705,6 +738,8 @@
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
+    // An anchor's own split, joined exactly as a word's org parts are.
+    if (root.parts) out.parts = joinMorphs(root.parts);
     // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
     // the form to print, and the source root's gloss when it has one. It is
     // never a bare key on the wire.
@@ -2109,6 +2144,67 @@
         "https://en.wiktionary.org/wiki/" + encodeURIComponent("λόγος") +
         "#Ancient_Greek",
       api.query(".wiki").href);
+
+    // --- an anchor root card carries its own breakdown ------------------------
+    // accēdō is a lemma English borrowed already assembled, so the rows above
+    // it stop at it. Its card lays out ad- + cēdō under MADE OF, the word
+    // card's own label and chip row, between the gloss and the family.
+    api.showRoot(anchor, fake.__root("la:accedo").root);
+    check("an anchor root renders MADE OF between its gloss and its family",
+      sectionOrder().join(" | ") ===
+        "head | glosses | label | morphs | label | family",
+      sectionOrder().join(" | "));
+    check("the row is labelled MADE OF, the word card's own wording",
+      labels()[0] === "MADE OF" && labels()[1] === "BUILDS 2 WORDS",
+      labels().join("/"));
+    check("the chips read the anchor's own split, each over its root gloss",
+      texts(api.queryAll(".morph-form")).join(" ") === "ad- cēdō" &&
+      texts(api.queryAll(".morph-gloss")).join(" | ") ===
+        "to, toward | to go, move, proceed",
+      texts(api.queryAll(".morph-form")).join(" "));
+    check("both chips are nav chips",
+      api.queryAll(".morph.nav").length === 2 &&
+      api.queryAll(".morph.inert").length === 0,
+      "nav=" + api.queryAll(".morph.nav").length);
+    var rootCallsBeforeAnchor = fake.__rootCalls;
+    api.queryAll(".morph")[1].click();          // cēdō
+    await checkSoon("a chip on a root card pushes the part's root card, root to root",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.root") &&
+          api.query(".surface").textContent === "cēdō" &&
+          api.crumbLabels().join(" › ") === "accēdō › cēdō";
+      },
+      function () {
+        return "depth=" + api.viewDepth() + " trail=" + api.crumbLabels().join(" › ");
+      });
+    check("it costs exactly one root request, for la:cedo",
+      fake.__rootCalls === rootCallsBeforeAnchor + 1 &&
+      fake.__lastRootKey === "la:cedo",
+      "calls=" + fake.__rootCalls + " key=" + fake.__lastRootKey);
+    check("the base lemma's card carries no MADE OF row (it has no split)",
+      !api.query(".morphs") && labels().indexOf("MADE OF") < 0 &&
+      labels().indexOf("BUILDS 3 WORDS") >= 0,
+      labels().join("/"));
+    check("the base's family lists access, reached through the anchor",
+      texts(api.queryAll(".fam-word"))[0] === "access",
+      texts(api.queryAll(".fam-word")).join(","));
+    api.queryAll(".crumb")[0].click();
+    await checkSoon("the crumb returns to the anchor's card with its row intact",
+      function () {
+        return api.viewDepth() === 1 &&
+          api.query(".surface").textContent === "accēdō" &&
+          texts(api.queryAll(".morph-form")).join(" ") === "ad- cēdō";
+      },
+      function () { return "depth=" + api.viewDepth(); });
+    api.showRoot(anchor, fake.__root("en:-ful").root);
+    check("an affix root renders no MADE OF row",
+      !api.query(".morphs") && labels().indexOf("MADE OF") < 0,
+      labels().join("/"));
+    api.showRoot(anchor, fake.__root("la:terra").root);
+    check("a plain root renders no MADE OF row either",
+      !api.query(".morphs") && labels().indexOf("MADE OF") < 0 &&
+      sectionOrder()[2] === "label" && sectionOrder()[3] === "family",
+      sectionOrder().join(" | "));
 
     // --- chunked families ----------------------------------------------------
     var famCallsBeforeChunk = fake.__familyCalls;

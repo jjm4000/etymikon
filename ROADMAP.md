@@ -15,14 +15,16 @@ checks).
   and come back on the breadcrumb trail. Words that English borrowed
   already assembled show the assembly under a FROM LATIN or FROM GREEK
   label naming the source word (territory reads territōrium, terra +
-  -tōrium).
+  -tōrium). A source word that is itself assembled carries its own
+  breakdown on its root card (accēdō reads ad- + cēdō), and the base
+  card's family counts through it.
 - **Bidirectional families.** Word cards carry "Used in N words", the
   reverse of the morpheme graph, so absolute lists absolutely without
   the reader having to guess it exists.
 - **Lemmatization.** Inflected selections resolve to their lemma, and
   shipped inflections that shadow one (ran, appreciated) carry an "Also
   a form of" row plus their lemma's origin row.
-- **A general dictionary under the etymology.** 82,846 words with the
+- **A general dictionary under the etymology.** 82,843 words with the
   hybrid cap: everything attested in the top 50,000 ranks, plus every
   rarer word carrying a breakdown, whether that breakdown is an English
   split or a classical origin chain that decomposes. American spellings

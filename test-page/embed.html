@@ -499,6 +499,39 @@
         { word: "photograph", fr: 7300 },
         { word: "biography", def: "An account of a life.", fr: 16400 }
       ]
+    },
+    // An ANCHOR: a Latin lemma English borrowed already assembled, so the
+    // rows above it stop at it and its card carries the split itself, as
+    // `parts` in the org.parts shape (owner decision 2026-09-01). The card
+    // lays them out under MADE OF; each chip opens its root card.
+    "la:accedo": {
+      form: "accēdō", lang: "la", gloss: "to go or come toward, approach",
+      kind: "root",
+      parts: [
+        { f: "ad-", r: "la:ad-" },
+        { f: "cēdō", r: "la:cedo" }
+      ],
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "accession", def: "The act of acceding.", fr: 20000 }
+      ]
+    },
+    "la:ad-": {
+      form: "ad-", lang: "la", gloss: "to, toward", kind: "prefix",
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "adapt", def: "To make suitable.", fr: 5200 }
+      ]
+    },
+    // The base the anchor names. A base lemma has no split of its own, so
+    // its card carries no parts; its family lists access through accēdō.
+    "la:cedo": {
+      form: "cēdō", lang: "la", gloss: "to go, move, proceed", kind: "root",
+      family: [
+        { word: "access", def: "A way of approaching.", fr: 1748 },
+        { word: "concede", def: "To yield a point.", fr: 11000 },
+        { word: "precede", def: "To go before.", fr: 12500 }
+      ]
     }
   };
 
@@ -714,6 +747,8 @@
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
+    // An anchor's own split, joined exactly as a word's org parts are.
+    if (root.parts) out.parts = joinMorphs(root.parts);
     // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
     // the form to print, and the source root's gloss when it has one. It is
     // never a bare key on the wire.
@@ -1722,6 +1757,46 @@
       },
       function () { return api.crumbLabels().join(" › "); });
 
+    // An anchor root card carries its own breakdown, and the section is
+    // renderer-side, so the sidebar gets it with no code of its own: MADE OF
+    // between the gloss and the family, chips that push the part's root card
+    // root to root, and a crumb that comes back.
+    await search("la:accedo");
+    check("an anchor root renders MADE OF between its gloss and its family here",
+      !!api.query(".morphs") &&
+      texts(api.queryAll(".morph-form")).join(" ") === "ad- cēdō" &&
+      texts(api.queryAll(".label")).join("/") === "MADE OF/BUILDS 2 WORDS",
+      texts(api.queryAll(".label")).join("/"));
+    check("both chips are nav chips carrying their root glosses",
+      api.queryAll(".morph.nav").length === 2 &&
+      texts(api.queryAll(".morph-gloss")).join(" | ") ===
+        "to, toward | to go, move, proceed",
+      texts(api.queryAll(".morph-gloss")).join(" | "));
+    api.queryAll(".morph")[1].click();           // cēdō
+    await checkSoon("a chip on the root card pushes the part's root card with a crumb",
+      function () {
+        return api.viewDepth() === 2 && surfaceText() === "cēdō" &&
+          api.crumbLabels().join(" › ") === "accēdō › cēdō";
+      },
+      function () { return api.crumbLabels().join(" › "); });
+    check("the base lemma's card carries no MADE OF row, and lists access",
+      !api.query(".morphs") &&
+      texts(api.queryAll(".label")).indexOf("MADE OF") < 0 &&
+      texts(api.queryAll(".fam-word"))[0] === "access",
+      texts(api.queryAll(".label")).join("/"));
+    api.queryAll(".crumb")[0].click();
+    await checkSoon("the crumb returns to the anchor's card with its row intact",
+      function () {
+        return api.viewDepth() === 1 && surfaceText() === "accēdō" &&
+          texts(api.queryAll(".morph-form")).join(" ") === "ad- cēdō";
+      },
+      function () { return "depth=" + api.viewDepth(); });
+    await search("en:-ful");
+    check("an affix root renders no MADE OF row on this surface",
+      !api.query(".morphs") &&
+      texts(api.queryAll(".label")).indexOf("MADE OF") < 0,
+      texts(api.queryAll(".label")).join("/"));
+
     // "Show all" is part of the family section, so the sidebar gets it with no
     // code of its own: one section, one call site, every surface.
     await search("la:terra");
@@ -2606,7 +2681,8 @@
     } else {
       ["appendWordHead", "appendGlosses", "appendBreakdown", "appendOrigin",
        "appendUsedIn", "appendSeeAlso", "appendRootHead", "appendRootGloss",
-       "appendRootSource", "appendFamily", "appendListHead", "appendListRows"
+       "appendRootParts", "appendRootSource", "appendFamily", "appendListHead",
+       "appendListRows"
       ].forEach(function (name) {
         var defs = source.split("function " + name + "(").length - 1;
         var uses = source.split(name + "(").length - 1;
@@ -2615,7 +2691,7 @@
       });
       check("one settings accessor, and every section predicate goes through it",
         (source.split("function sectionSettings(").length - 1) === 1 &&
-        (source.split("Enabled(sectionSettings())").length - 1) === 12,
+        (source.split("Enabled(sectionSettings())").length - 1) === 13,
         "predicates=" + (source.split("Enabled(sectionSettings())").length - 1));
     }
 

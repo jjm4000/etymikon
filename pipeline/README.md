@@ -4,7 +4,7 @@ Builds the three data files the extension ships with:
 
 ```
 extension/data/words.json   per-word: definitions, morpheme breakdown, frequency rank
-extension/data/roots.json   per-root: form, gloss, kind, aliases
+extension/data/roots.json   per-root: form, gloss, kind, aliases, the anchor's own split
 extension/data/forms.json   inflected form or spelling variant -> lemma
 ```
 
@@ -385,6 +385,27 @@ it, in the ship threshold and in verify, so that the number on a card and the
 number in the threshold are the same number. Nineteen shipped words repeat a
 morpheme today (great-great-grandson, ununoctium, fixer-upper).
 
+A reference to an anchor is also a reference to every root the anchor's own
+split names, recursively (owner decision 2026-09-01; see "Anchor cards carry
+their own split" below). access names accēdō, accēdō names cēdō, so access
+counts for cēdō in the threshold as on the card. The count reads the
+anchor's split raw from flatten(), before anyone knows which roots ship, so
+it is not circular. Counting direct references alone was measured at
+`ORG_ANCHOR_MIN` 2: 43 base cards HEAD shipped fell under the threshold once
+the rows above them stopped at an anchor, 19 word rows and 64 anchor cards
+got a dead chip, and fornix and τάσσω never shipped. The owner's instruction
+read "direct credits"; the deviation is flagged in the SPEC.
+
+Anchor cards carry their own split (owner decision 2026-09-01). Every anchor
+whose lemma decomposes gets `parts` in roots.json, the org.parts shape,
+from the same flatten() the word rows use: recursion stops at other
+anchors, affixes stay terminal, a part whose root did not ship stays inert
+with its form alone. 279 of 884 anchors decompose; the rest are base lemmas
+(cēdō, θεός) with no split in their extract and carry no field. The card
+renders the row under MADE OF. Four anchor parts are inert, all the
+nominative marker la:-s that `ROOT_SKIPS` keeps off the cards (dux, index,
+praeses, vindex).
+
 `kind` comes from the harvested entry `pos`, never from the shape of the form.
 An `interfix` page becomes kind `infix`, because the SPEC enum has no
 interfix member. A `circumfix` page becomes `circumfix`. A combining form is a
@@ -409,7 +430,7 @@ reconstructed proto form yields no `org`.
 chain's source lemma decomposes inside its own language it ships decomposed,
 `{l, lang, parts}`, where `parts` follow the morphs chip contract: `f` to
 display, `r` when that root ships, absent for an inert chip. When it does not
-decompose it keeps the single `{r, f}` shape. 4,610 of the 5,909 org rows are
+decompose it keeps the single `{r, f}` shape. 4,604 of the 5,906 org rows are
 decomposed.
 
 **Recursive flattening** replaces the one-hop unification rule. A chain lemma
@@ -426,11 +447,14 @@ re- + `corcord->` + -ō, whose middle piece is a wiktextract artifact with no
 page behind it. `ROOT_SKIPS` and `ROOT_ALIASES` apply at every level, and a
 curated alias stops the recursion where it lands.
 
-**Anchors are terminal too.** A lemma that `ORG_ANCHOR_MIN` (3) or more
+**Anchors are terminal too.** A lemma that `ORG_ANCHOR_MIN` (2) or more
 English words reach is a card the reader wants, so recursion stops there
 instead of splitting it. Everything else is a pure intermediate, a one-off
 participle or a derived noun nothing else points at, and flattening walks
-straight through it.
+straight through it. The anchor's card carries the split the rows above it
+no longer show, and the family index credits through it, so a shallower row
+costs nothing: contract reads contrahō + -tus, the contrahō card reads
+con- + trahō, and trahō still lists contract.
 
 Reaching is counted per word through PARTS only: the immediate parts of the
 split belonging to the lemma the chain settles on (owner decision
@@ -450,19 +474,24 @@ any piece has no card of its own; without that, la:absens, la:potens,
 la:praesens and five Greek lemmas became anchors no row ever named.
 
 `ROOT_STOPS` in curation.py is there for lemmas too thinly reached to qualify
-whose split still teaches less than it costs. It holds la:laxō and la:ēligō:
-both have exactly two part-reaches, one short of `ORG_ANCHOR_MIN`, and both
-are `BASE_ROUTES` targets, so without the stop the pair flattens away and
-takes its route with it.
+whose split still teaches less than it costs. It is empty, which is its
+healthy state. It held la:laxō and la:ēligō while `ORG_ANCHOR_MIN` was 3:
+both have exactly two part-reaches, one short of the minimum then, and both
+are `BASE_ROUTES` targets, so without the stop the pair flattened away and
+took its route with it. At 2 both are anchors on their own.
 
 Without this rule the pipeline over-flattens. Reading `etymon` gave solvō a
 split of its own (sē- + luō), and depth-3 recursion dissolved the card that
 absolute, absolve, solution, dissolution and resolution all share (owner field
 report 2026-08-25). Both candidate thresholds were measured on the full
-bundle: 2 keeps 38 more mid-level cards, every one a derived compound with a
-family of exactly two, and leaves 11.5% of org parts inert; 3 drills through
-those to the base the family shares, so analysis, analyze, palsy and paralytic
-all land on grc:λύω, and leaves 8.5% inert.
+bundle at the time: 2 kept 38 more mid-level cards, every one a derived
+compound with a family of exactly two, and left 11.5% of org parts inert; 3
+drilled through those to the base the family shares and left 8.5% inert.
+The minimum went to 2 on 2026-09-01 (owner decision), once the anchor card
+carried the split and the family credited through it: anchors went from 434
+to 884, and 395 org rows changed, 380 of them shallower, none deeper.
+analysis and analyze now stop at grc:ἀναλύω, whose card reads ἀνα- + λύω,
+and λύω still lists both.
 
 The two terminal rules are independent and do not interact. An affix is
 terminal by shape or pos whatever its popularity, which is why sē- in
@@ -477,8 +506,19 @@ calendar and rosary in a la:-um card glossed "genitive plural ending" (owner
 field finding 2026-08-25). A reader drilling a suffix wants the suffix, not
 the case ending inside it.
 
+**A split naming the lemma itself is no split** (owner decision 2026-09-01).
+errō = errō + -ō and palpō = palpō + -ō are Wiktionary recording the
+conjugation ending, and a row reading "errō = errō + -ō" teaches nothing, so
+the lemma stays whole. flatten() refuses a split naming the lemma or any
+lemma above it, which also covers a two-page cycle: serō = sera + -ō and
+sera = serō + -a flattened seraglio to "serō + -a + -ō"; the inner split is
+refused and seraglio reads sera + -ō. Eight rows carried a self-part. Four
+of those words were past the cap with no other row (arrant, caligo, palpate,
+uncus) and no longer ship; err and palp keep their cards with a single row;
+pigeon keeps its card and loses its row.
+
 **Latin and Greek affix pages are root nodes** now, reached through org
-parts, with `kind` from their entry pos. 131 of them ship: la:re-, la:-tōrium,
+parts, with `kind` from their entry pos. 203 of them ship: la:re-, la:-tōrium,
 grc:-ισμός. The 2-distinct-word threshold applies unchanged, and org parts
 credit families exactly as morphs `r` chips do, once per word.
 
@@ -503,6 +543,15 @@ Wiktionary records the split of `terrēnus` at the Italic stage rather than
 the Latin one, so `terrain` reaches terra by a curated alias rather than by
 decomposition. Flattening itself produces no aliases: an intermediate lemma
 is decomposed now rather than folded away.
+
+The automatic step only fires on a page that looks like an inflection to
+the parser: no gloss, no split, a form-of link. `LEMMA_STEPS` (owner
+decision 2026-09-01) names the pages that step the same way and do not look
+like it. dēpōnēns is a Latin lemma page with a gloss of its own ("deponent",
+the grammatical term), so the chain settled on it and deponent shipped
+nothing, while prōpōnēns beside it is a form-of page and steps to prōpōnō
+on its own. The entry la:deponens to la:depono is read in settle() ahead of
+the automatic step, and deponent ships reading dēpōnō = dē- + pōnō.
 
 ### Keys and forms
 
@@ -538,7 +587,7 @@ the pipeline can fix that; it is a cap-rule question for the owner.
 
 ## Curation
 
-`curation.py` is data only, seven tables, every entry carrying the reason it
+`curation.py` is data only, eight tables, every entry carrying the reason it
 exists:
 
 | table            | what it holds                                                    |
@@ -549,7 +598,8 @@ exists:
 | `ROOT_SKIPS`     | keys that must never become root cards                            |
 | `ROOT_GLOSSES`   | hand glosses overriding the harvested one                         |
 | `BASE_ROUTES`    | bound base part -> the classical root it really names             |
-| `ROOT_STOPS`     | source lemmas recursion must never split                          |
+| `ROOT_STOPS`     | source lemmas recursion must never split (empty)                  |
+| `LEMMA_STEPS`    | source-language lemma -> the lemma a chain steps to               |
 
 An alias key is a bare surface form (`terra`, `terr-`) when it should bind
 wherever that form appears, English morphemes included, and a
@@ -595,7 +645,10 @@ that decomposes (owner decision 2026-09-01). The chain half is provisional at
 survey time: whether a chain flattens depends on the dominant entry, on the
 Latin and Greek extracts and on the anchor set, none of which pass 1 has. So
 a chain-carrier becomes a candidate and emit drops it again unless its final
-org row decomposes. 6,615 candidates, 2,306 ship, 4,178 dropped.
+org row decomposes. 6,615 candidates, 2,303 ship, 4,181 dropped. A rank
+floor for these candidates was considered and decided against (owner
+decision 2026-09-01): attestation is the edge, the same edge the split half
+has.
 
 That second condition is not in the original cap wording and it is the single
 largest shape decision in the build, so here are the numbers. Wiktionary
@@ -603,7 +656,7 @@ carries about 270,000 English words with an affix split. Nearly all of them
 are unattested technical coinages: nanovoltmeter, nonradiometric,
 bigluconate, extremistical. Shipping them measured 289,811 words and a 53 MB
 `words.json` at bring-up (2026-08-24, before the rank charset fix). Requiring
-a frequency rank produces 82,846 words and a 19.6 MB `words.json`. The tail
+a frequency rank produces 82,843 words and a 19.8 MB `words.json`. The tail
 that survives is the readable half: snarkiness, ringbearer,
 parapsychological, glucoside.
 
@@ -680,6 +733,15 @@ keeps at least one navigable part.
 Anchor anchors (2026-09-01): every anchor lemma ships as a root card, and no
 org part naming an anchor is inert. Both are skipped on a `--verify` run,
 which reads the JSON and has no anchor set to check against.
+
+Root-parts anchors (2026-09-01): every `r` inside a root's `parts` exists in
+roots.json and every part has a form; only anchors carry `parts`; every
+anchor whose lemma decomposes carries `parts` and no other root does (the
+last two need the anchor set, so `--verify` skips them); la:accedo carries
+parts reading ad- + cēdō, both linked; la:cedo's family reaches access,
+concede and precede through their anchors; deponent carries dēpōnō = dē- +
+pōnō; fornicate links its fornix part and tactic its τάσσω part; no org row
+names its own lemma as a part.
 
 Curation anchors: understand ships with no morphs; had ships as a word with no
 morphs and no forms.json row; running ships with no morphs because its split

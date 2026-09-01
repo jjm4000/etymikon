@@ -8,7 +8,10 @@ territōrium, terra + -tōrium, and each part is clickable.
 
 Each morpheme opens a root card: the root's form, its source, its
 gloss, and the English words built on it, ranked by frequency and
-paginated. Word cards link upward too: "Used in N words" lists what
+paginated. A Latin or Greek word that English borrowed already
+assembled carries its own breakdown on its card (accēdō reads ad- +
+cēdō), and the cēdō card still lists access, concede and precede below
+it. Word cards link upward too: "Used in N words" lists what
 English builds on the word, so the whole family can be walked in either
 direction with a breadcrumb trail. Every word carries a frequency tier
 chip (Everyday, Common, Advanced, Rare), and inflected selections
@@ -29,8 +32,8 @@ any card saves it into folders; folders export to Anki or CSV.
 
 ![Used in](screenshots/8-used-in.png)
 
-The shipped dictionary holds 82,846 words, 2,831 roots (English affixes
-beside Latin and Greek lemmas), and 108,407 inflection mappings, built
+The shipped dictionary holds 82,843 words, 3,021 roots (English affixes
+beside Latin and Greek lemmas), and 108,401 inflection mappings, built
 from Wiktionary at build time. Lookups work offline. The extension
 makes no network requests of any kind.
 
