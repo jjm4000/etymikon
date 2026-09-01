@@ -59,6 +59,9 @@ CACHE = os.path.join(HERE, "cache")
 OUT = os.path.join(ROOT, "extension", "data")
 REPORT_FILE = os.path.join(CACHE, "build-report.txt")
 VERIFY_REPORT_FILE = os.path.join(CACHE, "verify-report.txt")
+# The words a field report is most likely to be about: a classical origin in
+# the source and nothing to show for it on the card. See the coverage lines.
+MISSES_FILE = os.path.join(CACHE, "misses-report.txt")
 
 ENGLISH_URL = ("https://kaikki.org/dictionary/English/"
                "kaikki.org-dictionary-English.jsonl.gz")
@@ -89,6 +92,9 @@ DEF_MAX_CHARS = 400     # a longer sense is dropped whole, never cut
 ROOT_GLOSS_CARD = 80    # the card budget a root gloss should fit
 ROOT_GLOSS_MAX = 160    # safety cap: a longer root gloss is dropped, never cut
 MAX_ALT = 8             # alias forms listed on a root card
+# The band the coverage lines measure. The commonest ten thousand words are
+# the ones a reader meets, so a breakdown gap there is a gap that gets seen.
+COVERAGE_TOP = 10000
 
 # Word keys the runtime can actually reach. lookup.js takes the first token of
 # letters, apostrophes and internal hyphens, so anything outside that shape is
@@ -149,6 +155,7 @@ def download(url: str, dest: str, force: bool = False) -> str:
     if force and have:
         os.remove(dest)
         have = 0
+    want = -1
     if have and not force:
         # The extracts are hundreds of megabytes and republished on kaikki's
         # own schedule. A HEAD request per build is cheap; skip it when the
@@ -157,25 +164,43 @@ def download(url: str, dest: str, force: bool = False) -> str:
         if want <= 0 or have == want:
             log("  cached   %s (%s)" % (os.path.basename(dest), mb(have)))
             return dest
-        if have > want:
-            log("  local copy larger than remote; restarting %s"
-                % os.path.basename(dest))
-            os.remove(dest)
-            have = 0
+        # Any size mismatch means kaikki republished. A completed file from
+        # the old publication looks exactly like an interrupted download of
+        # the new one, so it must never be a resume target: curl -C - would
+        # append the new remote's tail to the old file and corrupt it
+        # (agent finding 2026-09-01, both English and Latin caches).
+        log("  remote republished; restarting %s" % os.path.basename(dest))
+        os.remove(dest)
     else:
         want = remote_size(url)
+    # Resume only ever applies to a .part file, and only when the remote is
+    # still the same size the interrupted attempt was fetching.
+    part = dest + ".part"
+    wantf = dest + ".want"
+    partial = os.path.getsize(part) if os.path.exists(part) else 0
+    recorded = ""
+    if os.path.exists(wantf):
+        with open(wantf) as f:
+            recorded = f.read().strip()
+    if partial and (want <= 0 or recorded != str(want)):
+        os.remove(part)
+        partial = 0
+    with open(wantf, "w") as f:
+        f.write(str(want))
     log("  fetching %s%s" % (
         os.path.basename(dest),
-        (" (resuming at %s of %s)" % (mb(have), mb(want))) if have else "",
+        (" (resuming at %s of %s)" % (mb(partial), mb(want))) if partial
+        else "",
     ))
-    # -C - resumes a partial download; large files stay cached across reruns.
     rc = subprocess.run(
         ["curl", "-L", "--fail", "--retry", "3", "--retry-delay", "2",
-         "-C", "-", "-o", dest, url]
+         "-C", "-", "-o", part, url]
     ).returncode
-    now = os.path.getsize(dest) if os.path.exists(dest) else 0
+    now = os.path.getsize(part) if os.path.exists(part) else 0
     if rc != 0 and not (want > 0 and now == want):
         raise SystemExit("download failed (curl exit %s): %s" % (rc, url))
+    os.replace(part, dest)
+    os.remove(wantf)
     log("  got      %s (%s)" % (os.path.basename(dest), mb(now)))
     return dest
 
@@ -285,10 +310,21 @@ DECOMP_NAMES = frozenset({
 # a surface analysis is the reader-facing layer by definition.
 SURF_NAMES = frozenset({"surf", "surface analysis"})
 # Templates that state an origin language without splitting.
+#
+# The `+` names are the same templates with the category-adding variant
+# Wiktionary now writes ({{bor+|en|la|compōnēns}}). They carry an identical
+# arg layout and only the name differs. Missing them cost 294 shipped words
+# their whole chain, component among them: its only classical template is a
+# bor+, so the FROM LATIN row was absent while compose beside it decomposed
+# (owner field report 2026-09-01). A census of the extract has bor+ on 2,285
+# classical targets and der+ on 98. lbor+, slbor+, ubor+ and uder+ do not
+# appear yet; they are listed because the plain names are, and a name that
+# never fires costs nothing.
 ORIGIN_NAMES = frozenset({
     "der", "derived", "bor", "borrowed", "inh", "inherited",
     "lbor", "learned borrowing", "slbor", "semi-learned borrowing",
     "ubor", "uder", "unadapted borrowing",
+    "der+", "bor+", "inh+", "lbor+", "slbor+", "ubor+", "uder+",
 })
 LATIN_CODES = frozenset({
     "la", "la-cla", "la-lat", "la-med", "la-ecc", "la-new", "la-vul",
@@ -338,6 +374,102 @@ def clean_part(raw) -> str:
 # report 2026-08-25). Both are read on every pass, English included (owner
 # ruling 2026-08-25).
 ETY_NAMES = frozenset({"ety", "etymon"})
+
+# ------------------------------------------------------- the census gate
+#
+# Every template name above CENSUS_MIN uses in the English extract has to be
+# classified, either as one the pipeline reads or as one it deliberately
+# ignores. A name in neither table fails the build. This exists because the
+# `bor+` variant appeared in the source, nothing noticed, and 294 words lost
+# their origin row silently. A new high-count name is now loud.
+CENSUS_MIN = 1000       # uses of a name below this are not the build's problem
+
+# The names the pipeline actually reads. Not a list: the union of the tables
+# above, so it can never drift from them.
+HARVESTED = DECOMP_NAMES | SURF_NAMES | ORIGIN_NAMES | ETY_NAMES
+
+# The names the pipeline sees and passes over, each with the reason. Read off
+# the census of the English extract (2026-09-01). Nothing here is a gap: every
+# one states something this dictionary does not carry, or is markup. Two
+# entries name templates the extract does not currently carry, `m` and `l`:
+# only their `+` variants appear, and the plain names are listed beside them
+# for the same reason the plain origin names are.
+IGNORED = {
+    "cog": "lists a cognate in a sister language, not an origin",
+    "ncog": "a cognate again, in a language with no shared descent claim",
+    "noncog": "an explicitly non-cognate lookalike, listed for contrast",
+    "col-top": "opens the collapsible column the cognate list sits in",
+    "glossary": "links a term to Wiktionary's glossary; the word is prose",
+    "root": "states a PIE root, reconstructed, out of scope",
+    "dercat": "adds derivation categories, carries no lemma of its own",
+    "doublet": "names a word from the same source, a sibling not a parent",
+    "dbt": "the short name of doublet",
+    "piecewise doublet": "a doublet stated part by part, still a sibling",
+    "blend": "two English words fused; the pieces are not morphemes",
+    "clipping": "a shortening of one English word, no morpheme boundary",
+    "calque": "a loan translation; the parts are the other language's",
+    "coin": "names the person who invented the word",
+    "coinage": "the long name of coin",
+    "named-after": "names a person the word honours",
+    "named-after/list": "the list form of named-after",
+    "unk": "says the origin is unknown",
+    "unc": "says the origin is uncertain",
+    "onomatopoeic": "says the word imitates a sound; there is no source word",
+    "back-form": "a word cut down from a longer one, not built from parts",
+    "m": "a formatting link to a mention of a term",
+    "m+": "the same link with the language name written out",
+    "l": "a formatting link to an entry",
+    "l+": "the same link with the language name written out",
+    "lang": "prints a language-tagged string, usually a title or a name",
+    "lg": "prints a language-tagged word inside another template's prose",
+    "zh-l": "a formatting link to a Chinese entry",
+    "translit": "prints a romanisation of a foreign spelling",
+    "wp": "links the Wikipedia article",
+    "taxlink": "links a taxonomic name",
+    "taxfmt": "italicises a taxonomic name",
+    "sense": "labels which sense the etymology paragraph is about",
+    "senseno": "the same label written as a sense number",
+    "etymid": "an internal id for one etymology section",
+    "etydate": "the year of first attestation, not a source word",
+    "sup": "renders a superscript character",
+    "yesno": "normalises a yes/no parameter for another template",
+    "nb...": "renders an ellipsis marking omitted quotation text",
+    "!": "escapes a pipe character inside another template's markup",
+    "nonlemma": "marks the page as a non-lemma form",
+    "PIE word": "names the PIE word a root belongs to, reconstructed",
+}
+
+
+def census_gate(counts):
+    """Fail the build on a high-count template name nobody has classified.
+
+    Returns the top-30 table for the report. Raises when a name at or above
+    CENSUS_MIN is in neither HARVESTED nor IGNORED, which means the source
+    grew a template the pipeline has never been told what to do with.
+    """
+    def klass(name):
+        if name in HARVESTED:
+            return "HARVESTED"
+        if name in IGNORED:
+            return "ignored: " + IGNORED[name]
+        return "UNCLASSIFIED"
+
+    top = [(n, c, klass(n)) for n, c in counts.most_common(30)]
+    unknown = sorted(((c, n) for n, c in counts.items()
+                      if c >= CENSUS_MIN and n not in HARVESTED
+                      and n not in IGNORED), reverse=True)
+    if unknown:
+        log("=========== TEMPLATE CENSUS FAILED =========")
+        for c, n in unknown:
+            log("  %8s  %s" % (format(c, ","), n))
+        log("Every etymology template name at or above %s uses must be listed "
+            "in HARVESTED or IGNORED in build.py. Classify the names above, "
+            "then rebuild." % format(CENSUS_MIN, ","))
+        write_report()
+        raise SystemExit("template census: %d unclassified name(s) at or "
+                         "above %d uses" % (len(unknown), CENSUS_MIN))
+    return top
+
 
 # Preference between templates on ONE entry, highest wins, first in source
 # order breaks a tie. The order is a statement about what each template is
@@ -782,6 +914,11 @@ def survey_english(path, ranks):
     and the dominant-homograph rule needs to see every entry of a word
     before it can pick a split. So this pass only decides candidacy and
     harvests the tables that do not depend on it.
+
+    The template-name census rides along here rather than in a pass of its
+    own. It counts every etymology template name on every English entry,
+    including the ones no rule reads, which is the point: census_gate needs
+    the names the pipeline has never heard of.
     """
     cand = set()
     forms_raw = {}
@@ -789,6 +926,7 @@ def survey_english(path, ranks):
     us_raw = {}
     mixed_raw = {}
     affixes = {}
+    tnames = collections.Counter()
     stats = collections.Counter()
     with gzip.open(path, "rb") as f:
         for line in f:
@@ -799,6 +937,10 @@ def survey_english(path, ranks):
             w = e.get("word")
             if not w:
                 continue
+            for t in e.get("etymology_templates") or ():
+                n = t.get("name")
+                if n:
+                    tnames[n] += 1
             wl = w.lower()
             pos = e.get("pos") or ""
             fo = inflection_form_of(e)
@@ -871,7 +1013,8 @@ def survey_english(path, ranks):
     # A forced split has to be harvested even when nothing else would have
     # nominated the word.
     cand |= set(curation.FORCED_SPLITS)
-    return cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, stats
+    return (cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
+            stats)
 
 
 # ------------------------------------------------------- English pass 2
@@ -1994,8 +2137,8 @@ def main(argv):
            min(ranks, key=ranks.get) if ranks else "-"))
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
-    cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, s1 = survey_english(
-        ENGLISH_FILE, ranks)
+    (cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
+     s1) = survey_english(ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits)"
         % (format(s1["lines"], ","), format(len(cand), ","),
            format(s1["tail_split"], ",")))
@@ -2003,6 +2146,15 @@ def main(argv):
         "%s affix entries"
         % (format(len(forms_raw), ","), format(len(alt_raw), ","),
            format(len(mixed_raw), ","), format(len(affixes), ",")))
+
+    # The gate runs here, before the expensive passes: an unclassified
+    # template name is a question about how to read the source, and the
+    # answer changes what the rest of the build would produce.
+    census_top = census_gate(tnames)
+    n_high = sum(1 for c in tnames.values() if c >= CENSUS_MIN)
+    log("  %s distinct template names, %s at or above %s uses, all classified"
+        % (format(len(tnames), ","), format(n_high, ","),
+           format(CENSUS_MIN, ",")))
 
     log("[4/7] harvesting senses, splits and chains")
     harvest, s2 = harvest_english(ENGLISH_FILE, cand)
@@ -2323,6 +2475,38 @@ def main(argv):
     log("fo fields     : %s (%s pure pages, %s mixed pages)"
         % (format(n_fo + n_mixed, ","), format(n_fo, ","),
            format(n_mixed, ",")))
+
+    # ---- coverage, tracked build over build ------------------------------
+    # Two report lines, not a gate. The first says how much of the band a
+    # reader actually meets carries a breakdown of some kind. The second
+    # counts the words whose source states a classical origin and whose card
+    # shows nothing for it, which is the shape every breakdown field report
+    # has taken so far. The list goes to a file so the next one can be
+    # checked against it before anyone goes looking.
+    top_band = [k for k, w in shipped.items()
+                if w.get("fr") is not None and w["fr"] <= COVERAGE_TOP]
+    covered = [k for k in top_band
+               if shipped[k].get("morphs")
+               or (shipped[k].get("org") or {}).get("parts")]
+    # A re-keyed record was harvested under its British spelling, so the
+    # chain is looked up by the page the record came from.
+    misses = sorted((w["fr"], k) for k, w in shipped.items()
+                    if harvest.get(w.get("wik") or k, {}).get("org")
+                    and not w.get("morphs") and not w.get("org"))
+    with open(MISSES_FILE, "w", encoding="utf-8", newline="\n") as fh:
+        for r, k in misses:
+            fh.write("%d\t%s\n" % (r, k))
+    log("=============== COVERAGE ===================")
+    log("breakdown coverage, top %s ranks : %.1f%% (%s of %s carry morphs or "
+        "a decomposed org)"
+        % (format(COVERAGE_TOP, ","),
+           100.0 * len(covered) / max(1, len(top_band)),
+           format(len(covered), ","), format(len(top_band), ",")))
+    log("classical origin, nothing shipped: %s words (list in %s)"
+        % (format(len(misses), ","), os.path.basename(MISSES_FILE)))
+    log("=========== TEMPLATE CENSUS (top 30) =======")
+    for name, count, kind in census_top:
+        log("  %8s  %-22s %s" % (format(count, ","), name, kind))
     log("================= SIZES ====================")
     log("words.json    : %s" % mb(s_w))
     log("roots.json    : %s" % mb(s_r))

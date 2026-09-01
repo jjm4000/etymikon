@@ -692,6 +692,19 @@ Parsing rules, English extract:
   Chains that reach only ine-pro or nothing yield no org. The `etymon`
   template's structured tree may replace this walk if it proves more
   reliable; the anchors decide, not preference.
+- The `+` template variants are harvested too (2026-09-01, owner field
+  report: component showed no breakdown). Wiktionary now also writes
+  der+, bor+, inh+ and their kin, which are the same templates with an
+  identical arg layout and a category added. Reading only the plain
+  names cost 294 shipped words their whole chain: component's only
+  classical template is a bor+, so it shipped no FROM LATIN row while
+  compose beside it decomposed on the same lemma. A census of the
+  English extract has bor+ on 2,285 classical targets and der+ on 98.
+  lbor+, slbor+, ubor+ and uder+ are in the set as well; they do not
+  appear in the extract yet, and a name that never fires costs
+  nothing. Nothing downstream changed: component's compōnēns steps to
+  compōnō through the form-of hop and flattens to con- + pōnō, the
+  same row compose already carried.
 - Root unification hop (validated 2026-08-24: chains stop at the
   derived lemma, terrain reaches la:terrenum, territory reaches
   la:territōrium, terrestrial reaches la:terrestris, three cards where
@@ -748,6 +761,48 @@ Parsing rules, English extract:
   50000; ship unranked or deeper words only when they carry morphs;
   then drop roots that fell under 2 references, then drop forms.json
   entries whose lemma dropped.
+
+### Template census gate (2026-09-01)
+
+The process fix behind the `+` variants. The bor+ name was in the
+source for months, nothing in the build knew it existed, and 294 words
+lost their origin row in silence. A missing template name now fails the
+build the way a broken anchor does.
+
+Pass 1 counts every etymology template name on every English entry, at
+no extra cost: it already reads the file. Two tables in build.py then
+classify what the census found. `HARVESTED` is the union of the tables
+the pipeline reads (DECOMP_NAMES, SURF_NAMES, ORIGIN_NAMES, ETY_NAMES),
+so it can never drift from them. `IGNORED` is a dict of name to a
+one-line reason: "root" states a PIE root, reconstructed and out of
+scope; "cog" lists a cognate, not an origin; "m", "l" and "lang" are
+formatting links. A name with `CENSUS_MIN` uses or more (1,000) in
+neither table fails the build, which prints the offending names with
+their counts and stops before the expensive passes. Names under the
+threshold are not the build's problem.
+
+The build report prints the top 30 names with their counts and their
+classification, so the shape of the source is visible every run. At
+2026-09-01 the extract has 447 distinct names, 49 of them at or above
+the threshold, all classified.
+
+### Coverage report lines (2026-09-01)
+
+Two numbers in the build report, tracked build over build. They are
+report only, never a gate: they move with the corpus, and the thing
+they measure is the harvest getting better rather than a rule holding.
+
+- Breakdown coverage of the top `COVERAGE_TOP` ranks (10,000): the
+  percent of shipped words in that band carrying either a morphs split
+  or a decomposed org row. The commonest ten thousand words are the
+  ones a reader meets, so a gap there is a gap that gets seen. 33.7% at
+  2026-09-01, up from 33.5% before the `+` variants were read.
+- Words whose raw entry states a classical origin and which shipped
+  with neither morphs nor org: 1,906 at 2026-09-01. Every breakdown
+  field report so far has been about a word in this class. The list
+  goes to pipeline/cache/misses-report.txt, sorted by rank, one word
+  per line with its rank, so the next report can be checked against it
+  before anyone goes looking.
 
 Verification (the anchor pattern carries over: the build fails loudly
 when an anchor breaks; anchors are verified against the source before
