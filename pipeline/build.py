@@ -18,6 +18,7 @@ Outputs (UTF-8, no BOM, compact / no indentation)
 Usage
     python pipeline/build.py            # download if missing, parse, emit, verify
     python pipeline/build.py --verify   # re-verify existing outputs only
+    python pipeline/build.py --offline  # build from the cache, contact nobody
     python pipeline/build.py --force-download
 
 See pipeline/README.md.
@@ -26,6 +27,7 @@ See pipeline/README.md.
 from __future__ import annotations
 
 import collections
+import copy
 import gzip
 import io
 import json
@@ -149,9 +151,19 @@ def remote_size(url: str) -> int:
     return int(sizes[-1]) if sizes else -1
 
 
-def download(url: str, dest: str, force: bool = False) -> str:
+def download(url: str, dest: str, force: bool = False,
+             offline: bool = False) -> str:
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     have = os.path.getsize(dest) if os.path.exists(dest) else 0
+    if offline:
+        # No HEAD request, no size comparison, no fetch. The cache is the
+        # corpus. kaikki republishes on its own schedule, and a republish
+        # mid-task moves every number in the report, so a run that has to
+        # be comparable to the run before it uses this.
+        if not have:
+            raise SystemExit("--offline: %s is not in the cache" % dest)
+        log("  offline  %s (%s)" % (os.path.basename(dest), mb(have)))
+        return dest
     if force and have:
         os.remove(dest)
         have = 0
@@ -302,9 +314,19 @@ def first_clause(g: str) -> str:
 # for this file.
 
 # Templates that split a word into morphemes.
+#
+# `com+` and `compound+` are the category-adding variants of `com` and
+# `compound`, the same relation the `+` origin names carry (owner decision
+# 2026-09-01). The census found them at 631 and 45 uses, both under
+# CENSUS_MIN, so the gate never spoke up. Their arg layout is identical to
+# the plain names, verified against the extract: arg 1 is the language code
+# and the parts run from arg 2 (com+ on homeworld is home + world, compound+
+# on elderberry is elder + berry). These two are the only `+` variants of a
+# decomposition name the extract carries.
 DECOMP_NAMES = frozenset({
     "prefix", "pre", "suffix", "suf", "affix", "af", "confix",
-    "compound", "com", "surf", "surface analysis", "univerbation",
+    "compound", "com", "compound+", "com+",
+    "surf", "surface analysis", "univerbation",
 })
 # The surface-analysis templates. Preferred over the others on one entry:
 # a surface analysis is the reader-facing layer by definition.
@@ -919,8 +941,15 @@ def survey_english(path, ranks):
     own. It counts every etymology template name on every English entry,
     including the ones no rule reads, which is the point: census_gate needs
     the names the pipeline has never heard of.
+
+    Returns the chain-only candidates beside the candidate set. Those are
+    the words past RANK_CAP that no English-surface split nominates and a
+    classical origin chain does. They are provisional: emit keeps the ones
+    whose org row decomposes and drops the rest, and the set is what tells
+    emit which words that rule may touch.
     """
     cand = set()
+    chain_only = set()      # candidates nominated by a chain and nothing else
     forms_raw = {}
     alt_raw = {}
     us_raw = {}
@@ -992,7 +1021,10 @@ def survey_english(path, ranks):
                         seen.append(t)
                         stats["mixed"] += 1
 
-            if pos == "name" or wl in cand:
+            # A word already nominated by a split, or by its rank, is
+            # settled. A chain-only nomination is provisional, so a later
+            # entry may still upgrade it to a split.
+            if pos == "name" or (wl in cand and wl not in chain_only):
                 continue
             r = ranks.get(wl)
             if r is None:
@@ -1001,20 +1033,34 @@ def survey_english(path, ranks):
                 continue
             if r <= RANK_CAP:
                 cand.add(wl)
-            else:
-                # A tail word only earns a card through its breakdown, so a
-                # split that suppression will throw away does not make it a
-                # candidate. This is a superset test: if the dominant entry
-                # ends up carrying a real split, some entry does.
-                sp = entry_split(e, "en")
-                if sp is not None and sp[-1] not in INFLECTIONAL:
-                    cand.add(wl)
+                chain_only.discard(wl)
+                continue
+            # A tail word only earns a card through its breakdown, so a
+            # split that suppression will throw away does not make it a
+            # candidate. This is a superset test: if the dominant entry
+            # ends up carrying a real split, some entry does.
+            sp = entry_split(e, "en")
+            if sp is not None and sp[-1] not in INFLECTIONAL:
+                if wl not in cand:
                     stats["tail_split"] += 1
+                cand.add(wl)
+                chain_only.discard(wl)
+            elif wl not in cand and entry_chain(e) is not None:
+                # A flattenable classical origin chain is a breakdown too
+                # (owner decision 2026-09-01). Whether this one flattens is
+                # not knowable here: it depends on the dominant entry, on
+                # the source-language extracts and on the anchor set, none
+                # of which pass 1 has. So the word becomes a candidate and
+                # emit drops it again unless its org row decomposes.
+                cand.add(wl)
+                chain_only.add(wl)
+                stats["tail_chain"] += 1
     # A forced split has to be harvested even when nothing else would have
     # nominated the word.
     cand |= set(curation.FORCED_SPLITS)
-    return (cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
-            stats)
+    chain_only -= set(curation.FORCED_SPLITS)
+    return (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes,
+            tnames, stats)
 
 
 # ------------------------------------------------------- English pass 2
@@ -1258,6 +1304,42 @@ class Origin:
                 key = stepped
         return key
 
+    def top_reaches(self, lang, key):
+        """The root keys one lemma's own split credits at its top level.
+
+        Empty when the lemma does not decompose at all. This mirrors
+        flatten's piece loop, because the point is to count what a row will
+        really name. A split with a piece that has no card of its own is
+        refused whole and credits nothing, so counting its parts would make
+        an anchor out of a lemma no row ever names: la:absens, la:potens,
+        la:praesens and five Greek lemmas were exactly that.
+
+        Affixes and curated aliases are left out. Neither is ever split by
+        flatten, so anchoring one changes nothing.
+        """
+        if self.is_affix(lang, key):
+            return ()
+        cl = self.cl[lang]
+        raw = cl["split"].get(key)
+        if not raw or len(raw) < 2:
+            return ()
+        out = []
+        for p in raw:
+            pk = norm_key(lang, p)
+            if not pk:
+                return ()
+            if (curation.ROOT_ALIASES.get(lang + ":" + pk)
+                    or curation.ROOT_ALIASES.get(p)
+                    or curation.ROOT_ALIASES.get(pk)):
+                continue
+            if pk not in cl["gloss"]:
+                return ()
+            rkey = lang + ":" + pk
+            if rkey in curation.ROOT_SKIPS or self.is_affix(lang, pk, p):
+                continue
+            out.append(rkey)
+        return out
+
     def find_anchors(self, chains):
         """Mark the source lemmas that are teachable in their own right.
 
@@ -1266,17 +1348,31 @@ class Origin:
         Everything else is a pure intermediate (a one-off participle, a
         derived noun nothing else points at) and flattening walks through it.
 
-        Reaching is counted at two removes, per word: the lemma a chain
-        settles on, and the immediate parts of that lemma's own split. That
-        is what makes solvō an anchor. No English chain names solvō itself,
-        but absolvō, dissolvō, resolvō and solūtiō all split onto it, and
-        those are the words whose card it should be. Counting only direct
-        hits would leave solvō a fragment (owner field report 2026-08-25:
-        reading `etymon` gave solvō a split of its own, and unrestricted
-        recursion dissolved the card into sē- + luō).
+        Reaching is counted through PARTS only, per word: the immediate
+        parts of the split belonging to the lemma the word's chain settles
+        on, as top_reaches works them out. That is what makes solvō an
+        anchor. No English chain names solvō itself, but absolvō, dissolvō,
+        resolvō and solūtiō all split onto it, and those are the words
+        whose card it should be.
 
-        Non-circular by construction: it looks one level down, never at the
-        recursion's own output. Returns the number of anchors found.
+        The settled lemma itself is NOT a reach (owner decision
+        2026-09-01). A part is the only path that credits a root: credits
+        are derived at runtime from the chips in morphs and org.parts, and
+        a word that settles on a lemma flattens THROUGH that lemma and
+        never names it. Counting settle hits as reaches made a lemma an
+        anchor that no row credited three times, so recursion stopped at a
+        card that never shipped and the part rendered inert. haesitātiō
+        showed it: haesitō became an anchor on settle counts, carried one
+        credit, missed the 2-word root threshold, and hesitation read
+        "haesitō + -tiō" with the first chip dead. Counting parts only,
+        haesitō flattens and the row reads haereō + -titō + -tiō, three
+        live links.
+
+        With this rule an anchor has ORG_ANCHOR_MIN part-reaches, so at
+        least that many rows name it, so it clears the 2-word root
+        threshold and ships. Non-circular by construction: it looks one
+        level down, never at the recursion's own output. Returns the number
+        of anchors found.
         """
         seen = collections.Counter()
         for chain in chains:
@@ -1286,13 +1382,7 @@ class Origin:
             key = self.settle(lang, lemma)
             if not key:
                 continue
-            cl = self.cl[lang]
-            reached = {lang + ":" + key}
-            for p in cl["split"].get(key) or ():
-                pk = norm_key(lang, p)
-                if pk and not self.is_affix(lang, pk, p):
-                    reached.add(lang + ":" + pk)
-            for r in reached:
+            for r in set(self.top_reaches(lang, key)):
                 seen[r] += 1
         self.anchors = {k for k, n in seen.items() if n >= ORG_ANCHOR_MIN}
         return len(self.anchors)
@@ -1529,6 +1619,150 @@ def rekey_us_primary(shipped, fmap, us_raw, ranks):
     return pairs
 
 
+def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
+    """Resolve every chip, build the root set, drop what missed the threshold.
+
+    Re-runnable, and it has to be. Dropping a word changes who credits what,
+    so the chain-only rule calls this again on the smaller word set. Each
+    pass rebuilds every chip from its own form and re-takes every org row
+    from `org_rows`, so no pass inherits the edits of the one before it.
+
+    Returns (roots, counters).
+    """
+    c = collections.Counter()
+    for wl, w in shipped.items():
+        for m in w.get("morphs") or ():
+            m.pop("r", None)
+            m.pop("w", None)
+        org = org_rows.get(wl)
+        if org is None:
+            w.pop("org", None)
+        else:
+            w["org"] = copy.deepcopy(org)
+
+    # ---- resolve morphemes to roots, count references -------------------
+    # One word credits a root once, however many of its morphs name it, and
+    # the org row counts in the same tally. This is the runtime's rule:
+    # lookup.js buildFamilyIndex is the authority, and the ship threshold has
+    # to agree with it or a root ships whose card renders a family of one
+    # (review finding 2026-08-24, 12 shipped words double-credited).
+    refs = collections.Counter()
+    for wl, w in shipped.items():
+        credited = set()
+        # The roots this word's own chain reaches, for the base-route gate.
+        # A word with morphs keeps its chain in the harvest even though the
+        # schema gives it no org row, and that chain is the evidence a route
+        # needs: transport runs through trānsportō, airport runs through
+        # nothing at all.
+        chain_roots = origin.chain_roots(harvest.get(wl, {}).get("org")) \
+            if w.get("morphs") else ()
+        for m in w.get("morphs") or ():
+            field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots)
+            if field == "r" and curation.BASE_ROUTES.get(m["f"].lower()) == k:
+                c["routed"] += 1
+            if field == "r" and k not in curation.ROOT_SKIPS:
+                m["r"] = k
+                if k in credited:
+                    c["repeat"] += 1
+                credited.add(k)
+            elif field == "w":
+                m["w"] = k
+                c["wchip"] += 1
+        # An org row credits its roots exactly as morph chips do, once per
+        # word, whether it is a single lemma or a decomposed one.
+        org = w.get("org")
+        if org and "parts" in org:
+            for p in org["parts"]:
+                if p.get("r"):
+                    credited.add(p["r"])
+        elif org:
+            if org["r"] in curation.ROOT_SKIPS:
+                del w["org"]
+            else:
+                credited.add(org["r"])
+        for k in credited:
+            refs[k] += 1
+
+    # ---- build the root set --------------------------------------------
+    roots = {}
+    for key, n in refs.items():
+        if n < 2:
+            continue
+        lang, form = key.split(":", 1)
+        if lang == "en":
+            a = affixes.get(form)
+            if not a:
+                continue
+            gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
+        else:
+            cl = classical[lang]
+            gloss = cl["gloss"].get(form)
+            disp = cl["form"].get(form) or form
+            rom = cl["rom"].get(form, "")
+            pos = cl["pos"].get(form, "")
+        # A hand gloss overrides the harvest and can carry a card on its own.
+        gloss = curation.ROOT_GLOSSES.get(key) or gloss
+        if not gloss:
+            continue
+        r = {"form": disp, "lang": lang, "gloss": gloss,
+             "kind": root_kind(pos, disp)}
+        if rom:
+            r["rom"] = rom
+        roots[key] = r
+
+    # Alias forms, from curation and from the inflection step, listed on the
+    # card they were folded into. Flattening produces no aliases of its own:
+    # an intermediate lemma is now decomposed rather than folded away.
+    alt = collections.defaultdict(set)
+    for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
+        # A language-qualified alias key names a page, not a surface form.
+        src = src.split(":", 1)[1] if ":" in src else src
+        if dst in roots and src != roots[dst]["form"]:
+            alt[dst].add(src)
+    for key, forms in alt.items():
+        roots[key]["alt"] = sorted(forms)[:MAX_ALT]
+
+    # `src` on an English affix: the Latin or Greek lemma its own chain
+    # reaches, when that lemma ships a card of its own.
+    for key, r in roots.items():
+        if r["lang"] != "en":
+            continue
+        a = affixes.get(key.split(":", 1)[1])
+        if not a or not a["src"]:
+            continue
+        # src names one lemma card, so it takes the settled key rather than
+        # a decomposition.
+        s = origin.settle(a["src"][0], a["src"][1])
+        s = curation.ROOT_ALIASES.get(s) or (a["src"][0] + ":" + s if s else None)
+        if s and s in roots and s != key:
+            r["src"] = s
+            c["src"] += 1
+
+    # ---- drop references to roots that did not make it ------------------
+    for wl, w in shipped.items():
+        for m in w.get("morphs") or ():
+            if m.get("r") and m["r"] not in roots:
+                del m["r"]
+                c["inert"] += 1
+        org = w.get("org")
+        if org and "parts" in org:
+            # A part whose root missed the threshold renders inert. A row
+            # where every part did teaches nothing navigable, so it goes.
+            for p in org["parts"]:
+                if p.get("r") and p["r"] not in roots:
+                    del p["r"]
+                    c["inertpart"] += 1
+            if not any(p.get("r") for p in org["parts"]):
+                del w["org"]
+                c["orgdrop"] += 1
+        elif org and org["r"] not in roots:
+            del w["org"]
+            c["orgdrop"] += 1
+        elif org:
+            org["f"] = roots[org["r"]]["form"]
+    return roots, c
+
+
 # ---------------------------------------------------------------- emit
 
 def write_json(name, obj):
@@ -1596,7 +1830,13 @@ def family_index(words):
     return idx
 
 
-def verify(words_obj, roots_obj, forms_obj):
+def verify(words_obj, roots_obj, forms_obj, anchors=None):
+    """Spot-check the emitted data. Returns the number of failed checks.
+
+    `anchors` is the source-lemma anchor set the build computed. A
+    `--verify` run reads the JSON and nothing else, so it has no anchor
+    set and the two anchor checks are not run there.
+    """
     words = words_obj["words"]
     roots = roots_obj["roots"]
     fmap = forms_obj["map"]
@@ -1753,6 +1993,45 @@ def verify(words_obj, roots_obj, forms_obj):
         add("%s ships as a %s root node" % (key, kind),
             r is not None and r.get("kind") == kind,
             json.dumps(r, ensure_ascii=False) if r else "MISSING")
+
+    # ---- anchors ship, and nothing that names one is inert --------------
+    # The invariant the parts-only reach rule buys (owner decision
+    # 2026-09-01). An anchor has ORG_ANCHOR_MIN part-reaches, every one of
+    # which credits it, so it clears the 2-word root threshold; recursion
+    # stopping at a lemma that never ships is what left hesitation with a
+    # dead haesitō chip.
+    if anchors is not None:
+        skipped = set(curation.ROOT_SKIPS)
+        want = sorted(k for k in anchors if k not in skipped
+                      and k not in curation.ROOT_ALIASES)
+        unshipped = [k for k in want if k not in roots]
+        add("every anchor lemma ships as a root card", not unshipped,
+            "%d anchors, %d unshipped%s"
+            % (len(want), len(unshipped),
+               (": " + ", ".join(unshipped[:8])) if unshipped else ""))
+
+        # Only an org part can name an anchor by spelling: it carries the
+        # source-language headword flattening put there. A morph chip is an
+        # English surface string, and it names a root only through `r`,
+        # which the dangling-root check already covers. Reading a chip's
+        # spelling instead would call bulla, carō and fīnis references to
+        # the Latin cards they are not.
+        dead = []
+        for k, w in sorted(words.items()):
+            org = w.get("org") or {}
+            lang = org.get("lang")
+            for p in org.get("parts") or ():
+                if p.get("r"):
+                    continue
+                if lang + ":" + norm_key(lang, p["f"]) in anchors:
+                    dead.append("%s org part %s" % (k, p["f"]))
+        chipped = {m["r"] for w in words.values()
+                   for m in (w.get("morphs") or ()) if m.get("r")}
+        dead += ["morph chip root %s" % r for r in sorted(chipped & anchors)
+                 if r not in roots]
+        add("no org part or morph chip naming an anchor is inert", not dead,
+            "%d inert anchor references%s"
+            % (len(dead), (": " + "; ".join(dead[:8])) if dead else ""))
 
     orgparts = [k for k, w in words.items()
                 if (w.get("org") or {}).get("parts")]
@@ -2028,10 +2307,10 @@ def verify(words_obj, roots_obj, forms_obj):
     capped_morphs = sum(1 for k in capped if words[k].get("morphs"))
     langs = collections.Counter(k.split(":", 1)[0] for k in roots)
     dist = [
-        ("total words", format(len(words), ","), "SPEC says around 81k"),
+        ("total words", format(len(words), ","), "SPEC says around 83k"),
         ("words inside rank 50,000", format(len(capped), ","),
-         "SPEC says around 46k"),
-        ("split-bearing tail", format(len(words) - len(capped), ","), ""),
+         "SPEC says around 29k"),
+        ("breakdown-bearing tail", format(len(words) - len(capped), ","), ""),
         ("words with morphs", format(len(with_morphs), ","), ""),
         ("morphs coverage of capped words",
          "%.1f%% (%s of %s)" % (100.0 * capped_morphs / max(1, len(capped)),
@@ -2120,15 +2399,20 @@ def main(argv):
         write_report(VERIFY_REPORT_FILE)
         raise SystemExit(1 if failed else 0)
     force = "--force-download" in argv
+    offline = "--offline" in argv
+    if force and offline:
+        raise SystemExit("--force-download and --offline contradict each other")
     t0 = time.time()
     os.makedirs(CACHE, exist_ok=True)
     os.makedirs(OUT, exist_ok=True)
 
-    log("[1/7] downloading sources into pipeline/cache")
-    download(ENGLISH_URL, ENGLISH_FILE, force)
-    download(LATIN_URL, LATIN_FILE, force)
-    download(GREEK_URL, GREEK_FILE, force)
-    download(EXTFREQ_URL, EXTFREQ_FILE, force)
+    log("[1/7] %s"
+        % ("reading sources from pipeline/cache (--offline)" if offline
+           else "downloading sources into pipeline/cache"))
+    download(ENGLISH_URL, ENGLISH_FILE, force, offline)
+    download(LATIN_URL, LATIN_FILE, force, offline)
+    download(GREEK_URL, GREEK_FILE, force, offline)
+    download(EXTFREQ_URL, EXTFREQ_FILE, force, offline)
 
     log("[2/7] reading the frequency list")
     ranks = parse_ranks(EXTFREQ_FILE)
@@ -2137,11 +2421,12 @@ def main(argv):
            min(ranks, key=ranks.get) if ranks else "-"))
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
-    (cand, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
+    (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
      s1) = survey_english(ENGLISH_FILE, ranks)
-    log("  %s lines read; %s candidate words (%s of them tail splits)"
+    log("  %s lines read; %s candidate words (%s of them tail splits, "
+        "%s tail chains still to prove they flatten)"
         % (format(s1["lines"], ","), format(len(cand), ","),
-           format(s1["tail_split"], ",")))
+           format(s1["tail_split"], ","), format(len(chain_only), ",")))
     log("  %s inflection pages, %s alternative-spelling pages, %s mixed pages, "
         "%s affix entries"
         % (format(len(forms_raw), ","), format(len(alt_raw), ","),
@@ -2196,7 +2481,8 @@ def main(argv):
         # and they are 45 MB of dictionary nobody looks up. Attestation is
         # what lands the total on the size the SPEC predicts.
         rank = ranks.get(wl)
-        if rank is None or (rank > RANK_CAP and not parts):
+        if rank is None or (rank > RANK_CAP and not parts
+                            and wl not in chain_only):
             continue
         senses = [{"pos": p, "defs": rec["defs"][p]} for p in rec["pos"]
                   if rec["defs"][p]]
@@ -2220,144 +2506,58 @@ def main(argv):
     log("  %s source lemmas are anchors (reached by %d or more words), so "
         "recursion stops at them" % (format(n_anchor, ","), ORG_ANCHOR_MIN))
 
+    org_rows = {}
     for wl, chain in pending_org.items():
         org = origin.resolve(chain[0], chain[1])
         if org:
-            shipped[wl]["org"] = org
+            org_rows[wl] = org
     log("  origin chains: %s decomposed, %s single"
         % (format(origin.stats["decomposed"], ","),
            format(origin.stats["single"], ",")))
 
-    # ---- resolve morphemes to roots, count references -------------------
-    # One word credits a root once, however many of its morphs name it, and
-    # the org row counts in the same tally. This is the runtime's rule:
-    # lookup.js buildFamilyIndex is the authority, and the ship threshold has
-    # to agree with it or a root ships whose card renders a family of one
-    # (review finding 2026-08-24, 12 shipped words double-credited).
-    refs = collections.Counter()
-    n_wchip = n_repeat = n_routed = 0
-    for wl, w in shipped.items():
-        credited = set()
-        # The roots this word's own chain reaches, for the base-route gate.
-        # A word with morphs keeps its chain in the harvest even though the
-        # schema gives it no org row, and that chain is the evidence a route
-        # needs: transport runs through trānsportō, airport runs through
-        # nothing at all.
-        chain_roots = origin.chain_roots(harvest.get(wl, {}).get("org")) \
-            if w.get("morphs") else ()
-        for m in w.get("morphs") or ():
-            field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots)
-            if field == "r" and curation.BASE_ROUTES.get(m["f"].lower()) == k:
-                n_routed += 1
-            if field == "r" and k not in curation.ROOT_SKIPS:
-                m["r"] = k
-                if k in credited:
-                    n_repeat += 1
-                credited.add(k)
-            elif field == "w":
-                m["w"] = k
-                n_wchip += 1
-        # An org row credits its roots exactly as morph chips do, once per
-        # word, whether it is a single lemma or a decomposed one.
-        org = w.get("org")
-        if org and "parts" in org:
-            for p in org["parts"]:
-                if p.get("r"):
-                    credited.add(p["r"])
-        elif org:
-            if org["r"] in curation.ROOT_SKIPS:
-                del w["org"]
-            else:
-                credited.add(org["r"])
-        for k in credited:
-            refs[k] += 1
-
-    # ---- build the root set --------------------------------------------
-    roots = {}
-    for key, n in refs.items():
-        if n < 2:
-            continue
-        lang, form = key.split(":", 1)
-        if lang == "en":
-            a = affixes.get(form)
-            if not a:
-                continue
-            gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
-        else:
-            cl = classical[lang]
-            gloss = cl["gloss"].get(form)
-            disp = cl["form"].get(form) or form
-            rom = cl["rom"].get(form, "")
-            pos = cl["pos"].get(form, "")
-        # A hand gloss overrides the harvest and can carry a card on its own.
-        gloss = curation.ROOT_GLOSSES.get(key) or gloss
-        if not gloss:
-            continue
-        r = {"form": disp, "lang": lang, "gloss": gloss,
-             "kind": root_kind(pos, disp)}
-        if rom:
-            r["rom"] = rom
-        roots[key] = r
-
-    # Alias forms, from curation and from the inflection step, listed on the
-    # card they were folded into. Flattening produces no aliases of its own:
-    # an intermediate lemma is now decomposed rather than folded away.
-    alt = collections.defaultdict(set)
-    for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
-        # A language-qualified alias key names a page, not a surface form.
-        src = src.split(":", 1)[1] if ":" in src else src
-        if dst in roots and src != roots[dst]["form"]:
-            alt[dst].add(src)
-    for key, forms in alt.items():
-        roots[key]["alt"] = sorted(forms)[:MAX_ALT]
-
-    # `src` on an English affix: the Latin or Greek lemma its own chain
-    # reaches, when that lemma ships a card of its own.
-    n_src = 0
-    for key, r in roots.items():
-        if r["lang"] != "en":
-            continue
-        a = affixes.get(key.split(":", 1)[1])
-        if not a or not a["src"]:
-            continue
-        # src names one lemma card, so it takes the settled key rather than
-        # a decomposition.
-        s = origin.settle(a["src"][0], a["src"][1])
-        s = curation.ROOT_ALIASES.get(s) or (a["src"][0] + ":" + s if s else None)
-        if s and s in roots and s != key:
-            r["src"] = s
-            n_src += 1
-
-    # ---- drop references to roots that did not make it ------------------
-    n_inert = n_orgdrop = n_inertpart = 0
-    for wl, w in shipped.items():
-        for m in w.get("morphs") or ():
-            if m.get("r") and m["r"] not in roots:
-                del m["r"]
-                n_inert += 1
-        org = w.get("org")
-        if org and "parts" in org:
-            # A part whose root missed the threshold renders inert. A row
-            # where every part did teaches nothing navigable, so it goes.
-            for p in org["parts"]:
-                if p.get("r") and p["r"] not in roots:
-                    del p["r"]
-                    n_inertpart += 1
-            if not any(p.get("r") for p in org["parts"]):
-                del w["org"]
-                n_orgdrop += 1
-        elif org and org["r"] not in roots:
-            del w["org"]
-            n_orgdrop += 1
-        elif org:
-            org["f"] = roots[org["r"]]["form"]
+    # ---- the chain-only rule, and the linking it feeds -------------------
+    # A chain-only candidate earns its card with a DECOMPOSED org row and
+    # nothing else (owner decision 2026-09-01). A single "From Latin x" row
+    # past the cap is a card with no breakdown on it, which is what the cap
+    # exists to keep out. The row that decides is the row as EMITTED, so the
+    # test has to run after root pruning as well as before it: a decomposed
+    # row whose every part missed the 2-word threshold is deleted there, and
+    # 24 words shipped bare when the test ran only before it.
+    #
+    # Dropping a word changes who credits what, so linking runs again on the
+    # smaller set. It terminates because every extra pass removes at least
+    # one word from a finite set. A dropped word takes nothing with it: all
+    # of this happens before forms.json is assembled, so it credits no root,
+    # it is no form target, and it cannot be a forms.json row. That is the
+    # path the tail-split suppression takes, one stage earlier.
+    n_chaindrop = 0
+    for wl in list(chain_only):
+        if wl in shipped and not (org_rows.get(wl) or {}).get("parts"):
+            del shipped[wl]
+            n_chaindrop += 1
+    passes = 0
+    while True:
+        passes += 1
+        roots, lp = link_and_prune(shipped, org_rows, harvest, origin,
+                                   affixes, classical)
+        stale = [wl for wl in chain_only if wl in shipped
+                 and not (shipped[wl].get("org") or {}).get("parts")]
+        if not stale:
+            break
+        for wl in stale:
+            del shipped[wl]
+        n_chaindrop += len(stale)
+    log("  chain-only candidates: %s ship on a decomposed org, %s dropped "
+        "for want of one (%d linking pass%s)"
+        % (format(sum(1 for wl in chain_only if wl in shipped), ","),
+           format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
     log("  %s roots kept (%s src links); %s word chips, %s morph chips left "
         "inert, %s org parts inert, %s org rows dropped, %s repeated morphs "
         "credited once, %s base chips routed to a classical root"
-        % (format(len(roots), ","), format(n_src, ","), format(n_wchip, ","),
-           format(n_inert, ","), format(n_inertpart, ","),
-           format(n_orgdrop, ","), format(n_repeat, ","),
-           format(n_routed, ",")))
+        % (format(len(roots), ","), format(lp["src"], ","),
+           format(lp["wchip"], ","), format(lp["inert"], ","),
+           format(lp["inertpart"], ","), format(lp["orgdrop"], ","),
+           format(lp["repeat"], ","), format(lp["routed"], ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader
@@ -2525,7 +2725,7 @@ def main(argv):
                 % (k, w.get("fr", "-"), show_org(w.get("org")), bits,
                    w["senses"][0]["defs"][0][:70]))
 
-    failed = verify(words_obj, roots_obj, forms_obj)
+    failed = verify(words_obj, roots_obj, forms_obj, origin.anchors)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     write_report()

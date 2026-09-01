@@ -22,10 +22,11 @@ checks).
 - **Lemmatization.** Inflected selections resolve to their lemma, and
   shipped inflections that shadow one (ran, appreciated) carry an "Also
   a form of" row plus their lemma's origin row.
-- **A general dictionary under the etymology.** 79,380 words with the
+- **A general dictionary under the etymology.** 82,846 words with the
   hybrid cap: everything attested in the top 50,000 ranks, plus every
-  rarer word carrying a breakdown. American spellings are primary;
-  British spellings resolve to them.
+  rarer word carrying a breakdown, whether that breakdown is an English
+  split or a classical origin chain that decomposes. American spellings
+  are primary; British spellings resolve to them.
 - **The sidebar shell.** Typed search, the `et` omnibox keyword, saved
   words in folders, Anki and CSV export, dark mode, the ἐτυμικόν corner
   seal, terracotta chrome matching the epsilon seal icon.

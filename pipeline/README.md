@@ -50,7 +50,13 @@ zones for eyeball review.
 | ------------------ | --------------------------------------------------------------- |
 | *(none)*           | full build                                                       |
 | `--verify`         | re-run the spot-checks against the already-emitted JSON only      |
+| `--offline`        | build from the cached sources only, no network at all             |
 | `--force-download` | delete and re-fetch the cached sources (e.g. for a data refresh)  |
+
+`--offline` skips the remote size check and uses whatever is in `cache/`,
+failing loudly when a source file is missing. Use it when a run has to be
+comparable to the run before it: kaikki republishes the extracts on its own
+schedule, and a refresh mid-task moves every number in the report.
 
 ## Sources
 
@@ -274,8 +280,11 @@ is why the ranked count reads 29,257 rather than 29,250.
 ### Splits
 
 A split comes from an etymology template named `prefix`, `pre`, `suffix`,
-`suf`, `affix`, `af`, `confix`, `compound`, `com`, `surf`, `surface analysis`
-or `univerbation`, whose language argument is exactly `en`. The language
+`suf`, `affix`, `af`, `confix`, `compound`, `com`, `compound+`, `com+`,
+`surf`, `surface analysis` or `univerbation`, whose language argument is
+exactly `en`. `com+` and `compound+` are the category-adding variants of the
+plain names and carry an identical arg layout (owner decision 2026-09-01);
+they are the only `+` variants of a decomposition name the extract carries. The language
 argument matters more than it looks: without it the same template names pick
 up Latin-stage and Old-French-stage analyses, and the split you get belongs to
 a different word.
@@ -400,7 +409,7 @@ reconstructed proto form yields no `org`.
 chain's source lemma decomposes inside its own language it ships decomposed,
 `{l, lang, parts}`, where `parts` follow the morphs chip contract: `f` to
 display, `r` when that root ships, absent for an inert chip. When it does not
-decompose it keeps the single `{r, f}` shape. 2,065 of the 3,233 org rows are
+decompose it keeps the single `{r, f}` shape. 4,610 of the 5,909 org rows are
 decomposed.
 
 **Recursive flattening** replaces the one-hop unification rule. A chain lemma
@@ -423,14 +432,28 @@ instead of splitting it. Everything else is a pure intermediate, a one-off
 participle or a derived noun nothing else points at, and flattening walks
 straight through it.
 
-Reaching is counted per word at two removes: the lemma a chain settles on,
-and the immediate parts of that lemma's own split. That two-level count is
-what makes solvō an anchor. No English chain names solvō itself, but absolvō,
-dissolvō, resolvō and solūtiō all split onto it, and those are the words whose
-card it is. The count never looks at the recursion's own output, so it cannot
-go circular. `ROOT_STOPS` in curation.py is there for lemmas too thinly
-reached to qualify whose split still teaches less than it costs; it is empty
-today, which is the healthy state.
+Reaching is counted per word through PARTS only: the immediate parts of the
+split belonging to the lemma the chain settles on (owner decision
+2026-09-01). That is what makes solvō an anchor. No English chain names solvō
+itself, but absolvō, dissolvō, resolvō and solūtiō all split onto it, and
+those are the words whose card it is. The count never looks at the
+recursion's own output, so it cannot go circular.
+
+The lemma a chain settles on is NOT a reach. Credits come from the chips in
+morphs and org.parts, and a word that settles on a lemma flattens through it
+and never names it, so a settle hit credits nothing. Counting settle hits
+made haesitō an anchor on three of them; one row named it, it carried one
+credit, it missed the 2-word root threshold, and hesitation read "haesitātiō
+= haesitō + -tiō" with a dead chip. A part is only counted when the split it
+belongs to would really be emitted, since flatten refuses a split whole when
+any piece has no card of its own; without that, la:absens, la:potens,
+la:praesens and five Greek lemmas became anchors no row ever named.
+
+`ROOT_STOPS` in curation.py is there for lemmas too thinly reached to qualify
+whose split still teaches less than it costs. It holds la:laxō and la:ēligō:
+both have exactly two part-reaches, one short of `ORG_ANCHOR_MIN`, and both
+are `BASE_ROUTES` targets, so without the stop the pair flattens away and
+takes its route with it.
 
 Without this rule the pipeline over-flattens. Reading `etymon` gave solvō a
 split of its own (sē- + luō), and depth-3 recursion dissolved the card that
@@ -564,8 +587,15 @@ writes back to this file.
 ## The dictionary cap
 
 Every word ranked in the top 50,000 ships unconditionally. Past that a word
-ships only if it carries a morpheme breakdown **and** the frequency corpus
-attests it at all.
+ships only if it carries a breakdown **and** the frequency corpus attests it
+at all.
+
+A breakdown is either an English-surface split or a classical origin chain
+that decomposes (owner decision 2026-09-01). The chain half is provisional at
+survey time: whether a chain flattens depends on the dominant entry, on the
+Latin and Greek extracts and on the anchor set, none of which pass 1 has. So
+a chain-carrier becomes a candidate and emit drops it again unless its final
+org row decomposes. 6,615 candidates, 2,306 ship, 4,178 dropped.
 
 That second condition is not in the original cap wording and it is the single
 largest shape decision in the build, so here are the numbers. Wiktionary
@@ -573,9 +603,15 @@ carries about 270,000 English words with an affix split. Nearly all of them
 are unattested technical coinages: nanovoltmeter, nonradiometric,
 bigluconate, extremistical. Shipping them measured 289,811 words and a 53 MB
 `words.json` at bring-up (2026-08-24, before the rank charset fix). Requiring
-a frequency rank produces 79,380 words and an 18.6 MB `words.json`. The tail
+a frequency rank produces 82,846 words and a 19.6 MB `words.json`. The tail
 that survives is the readable half: snarkiness, ringbearer,
 parapsychological, glucoside.
+
+The chain half of the tail runs rarer than the split half. It reaches useful
+words at the top (excerpt, cursive, succinct, inflection, benediction) and
+archaic or technical ones at the bottom (jocose, funest, astrict, tentorium,
+rejectamenta). All of them are corpus-attested; a rank near 1.4 million means
+one occurrence in OpenSubtitles.
 
 ## Nothing is ever truncated
 
@@ -640,6 +676,10 @@ Origin anchors: memory carries a decomposed org reading memoria = memor +
 -tōrium; la:memor ships with memory and remember in its family; la:re- ships
 as a prefix node and la:-tōrium as a suffix node; every decomposed org row
 keeps at least one navigable part.
+
+Anchor anchors (2026-09-01): every anchor lemma ships as a root card, and no
+org part naming an anchor is inert. Both are skipped on a `--verify` run,
+which reads the JSON and has no anchor set to check against.
 
 Curation anchors: understand ships with no morphs; had ships as a word with no
 morphs and no forms.json row; running ships with no morphs because its split

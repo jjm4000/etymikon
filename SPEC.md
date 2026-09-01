@@ -631,6 +631,14 @@ Skeleton carries over: download-if-missing with curl resume and remote
 size check, cached corpus files in pipeline/cache/, stream-parse, emit,
 verify, `--verify` and `--force-download` flags.
 
+`--offline` (2026-09-01) skips the remote size check and builds from
+whatever is in pipeline/cache/, failing loudly when a source file is
+missing. kaikki republishes the extracts on its own schedule, and the
+size check restarts a download whenever the remote differs, so an
+ordinary build can swap the corpus out mid-task and move every number in
+the report. A run that has to be comparable to the run before it uses
+this flag. It contradicts `--force-download`, and saying both fails.
+
 Sources:
 
 - kaikki.org English extract (jsonl.gz, ~500 MB): entries, splits,
@@ -705,6 +713,19 @@ Parsing rules, English extract:
   nothing. Nothing downstream changed: component's compōnēns steps to
   compōnō through the form-of hop and flattens to con- + pōnō, the
   same row compose already carried.
+- The `+` decomposition variants are harvested too (owner decision
+  2026-09-01). `com+` and `compound+` are the category-adding variants
+  of `com` and `compound`, and the census found them at 631 and 45 uses
+  in the English extract, both under CENSUS_MIN, so the gate never
+  spoke up. Their arg layout is identical to the plain names, verified
+  against the extract: arg 1 is the language code and the parts run
+  from arg 2 (com+ on homeworld is home + world, compound+ on
+  elderberry is elder + berry). They are the only `+` variants of a
+  decomposition name the extract carries; the whole `+` census is
+  bor+, m+, inh+, com+, der+, compound+, l+. Reading them gave 84 words
+  past the cap a card they had no other route to and 35 already-shipped
+  words their first morphs row, bankroll, chainsaw, doghouse and
+  skyscraper among them.
 - Root unification hop (validated 2026-08-24: chains stop at the
   derived lemma, terrain reaches la:terrenum, territory reaches
   la:territōrium, terrestrial reaches la:terrestris, three cards where
@@ -758,9 +779,10 @@ Parsing rules, English extract:
   the most frequent `t=` arg among referencing templates; a root with
   no gloss from either source is dropped and its references lose `r`.
 - Hybrid cap, applied after all harvesting: ship words with fr <=
-  50000; ship unranked or deeper words only when they carry morphs;
-  then drop roots that fell under 2 references, then drop forms.json
-  entries whose lemma dropped.
+  50000; ship deeper words only when they carry morphs or a decomposed
+  org row (see the chain-candidacy section); never ship an unranked
+  word; then drop roots that fell under 2 references, then drop
+  forms.json entries whose lemma dropped.
 
 ### Template census gate (2026-09-01)
 
@@ -786,6 +808,88 @@ classification, so the shape of the source is visible every run. At
 2026-09-01 the extract has 447 distinct names, 49 of them at or above
 the threshold, all classified.
 
+### Anchor reach counts parts only (2026-09-01)
+
+An owner decision, from a field report on hesitation. The word read
+"haesitātiō = haesitō + -tiō" with the first chip dead.
+
+Recursion stops at an anchor, a source lemma `ORG_ANCHOR_MIN` (3) or
+more English words reach. Reaching used to be counted two ways per
+word: the lemma the word's chain SETTLES on, and the immediate parts of
+that lemma's split. Settle hits are the bug. Credits are derived at
+runtime from the chips in morphs and org.parts, and a word that settles
+on a lemma flattens THROUGH it and never names it, so a settle hit
+credits nothing. haesitō collected three of them, became an anchor,
+appeared as a part in one row, carried one credit, missed the 2-word
+root threshold and rendered inert. Recursion had stopped at a card that
+never shipped.
+
+Reaching is now counted through parts only. A part is also only counted
+when the split it belongs to would really be emitted: flatten refuses a
+split whole when any piece has no card of its own, so a part of a
+refused split credits nothing either. Affixes and curated aliases are
+left out, since flatten never splits either one. With that, an anchor
+has three part-reaches, three rows name it, it clears the 2-word
+threshold, and it ships. Two verify checks assert it: every anchor
+lemma ships as a root card, and no org part naming an anchor is inert.
+A morph chip names a root only through `r`, which the dangling-root
+check already covers; reading a chip's English spelling instead would
+call bulla, carō and fīnis references to Latin cards they are not.
+
+`ORG_ANCHOR_MIN` stays 3. hesitation now reads haereō + -titō + -tiō
+with three live links, solvō stays an anchor, and absolute still reads
+ab- + solvō. Of the 139 org rows the rule changed, 135 drilled deeper
+and every one of the 50 inert parts among them became a link.
+
+The rule leaves one gap, and it is the reason `ROOT_STOPS` is no longer
+empty: a lemma with exactly two part-reaches would ship as a root on
+two credits but is one short of being an anchor, so it flattens away
+and takes its card with it. la:laxō and la:ēligō are both that shape
+and both are `BASE_ROUTES` targets, so they carry entries in
+`ROOT_STOPS` with their reasons. `ORG_ANCHOR_MIN` of 2 would close the
+gap generally at the cost of 249 more anchors and 160 shallower rows;
+it was measured and not taken.
+
+### Chain candidacy past the cap (2026-09-01)
+
+An owner decision. Past `RANK_CAP` a word earned a card only through an
+English-surface split. A flattenable classical origin chain is a
+breakdown too, and it is the same breakdown the card would show.
+
+Rule: a corpus-attested word above `RANK_CAP` carrying a classical
+origin template becomes a candidate. Every other candidacy rule is
+unchanged: no rank, no card; proper nouns are excluded; the hyphen and
+character rules stand. At emit the word ships only if its final org row
+is DECOMPOSED (`l`, `lang`, `parts`), and it is dropped otherwise. A
+single "From Latin x" row past the cap is a card with no breakdown on
+it, which is what the cap exists to keep out.
+
+Two details carry the rule.
+
+- The candidates are tracked in a set of their own, so the emit-stage
+  drop can never touch a rank-attested or split-nominated word. A
+  chain-only nomination is provisional: a later entry carrying a real
+  split upgrades the word out of the set.
+- The row that decides is the row as EMITTED, so the test runs after
+  root pruning as well as before it. A decomposed row whose every part
+  missed the 2-word threshold is deleted there, and 24 words shipped
+  bare when the test ran only before it. Dropping a word changes who
+  credits what, so linking runs again on the smaller set; it terminates
+  because every extra pass removes at least one word from a finite set.
+  Two passes at 2026-09-01.
+
+A dropped word takes nothing with it. The drop happens before
+forms.json is assembled, so it credits no root, it is no form target,
+and it cannot be a forms.json row. That is the path the tail-split
+suppression already takes, one stage earlier.
+
+At 2026-09-01: 6,615 chain-only candidates, 2,306 ship, 4,178 dropped.
+proponent and exponent gain FROM LATIN rows on prōpōnō and expōnō.
+deponent does not ship, and the reason is in the source rather than the
+rule: dēpōnēns is a Latin lemma page with a gloss of its own, so the
+chain settles there and does not step to dēpōnō, while prōpōnēns is a
+form-of page and does step.
+
 ### Coverage report lines (2026-09-01)
 
 Two numbers in the build report, tracked build over build. They are
@@ -795,10 +899,10 @@ they measure is the harvest getting better rather than a rule holding.
 - Breakdown coverage of the top `COVERAGE_TOP` ranks (10,000): the
   percent of shipped words in that band carrying either a morphs split
   or a decomposed org row. The commonest ten thousand words are the
-  ones a reader meets, so a gap there is a gap that gets seen. 33.7% at
+  ones a reader meets, so a gap there is a gap that gets seen. 33.8% at
   2026-09-01, up from 33.5% before the `+` variants were read.
 - Words whose raw entry states a classical origin and which shipped
-  with neither morphs nor org: 1,906 at 2026-09-01. Every breakdown
+  with neither morphs nor org: 1,752 at 2026-09-01. Every breakdown
   field report so far has been about a word in this class. The list
   goes to pipeline/cache/misses-report.txt, sorted by rank, one word
   per line with its rank, so the next report can be checked against it
@@ -834,9 +938,10 @@ silently diverged from):
   "territories" resolves to territory via forms.json, "walked" to walk,
   "children" to child.
 - Distribution sanity, printed in the build report: total words around
-  79k (29k ranked lemma pages inside the top 50,000, since inflection
-  pages live in forms.json, plus the split-bearing attested tail; all
-  moving with the corpus), morphs coverage around a third of capped
+  83k (29k ranked lemma pages inside the top 50,000, since inflection
+  pages live in forms.json, plus the attested tail that carries a split
+  or a decomposed chain; all moving with the corpus), morphs coverage
+  around a third of capped
   words with Germanic affixes in, roots in the low thousands, en:
   roots outnumber la:, no words.json entry with both morphs and org,
   no root under 2 distinct referencing words, no PIE key anywhere.

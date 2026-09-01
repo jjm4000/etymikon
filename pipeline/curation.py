@@ -264,4 +264,19 @@ BASE_ROUTES = {
 # referenced to qualify, whose split still teaches less than it costs.
 # Empty is the healthy state; add a key only with the family that exposed it.
 
-ROOT_STOPS = frozenset()
+ROOT_STOPS = frozenset({
+    # Both are BASE_ROUTES targets with exactly two part-reaches, one short
+    # of ORG_ANCHOR_MIN. The parts-only anchor rule (owner decision
+    # 2026-09-01) counts only what a row really credits, and two is enough
+    # to ship a root card but not enough to be an anchor, so without these
+    # two lines the pair flattens away and takes its route with it.
+    # la:laxō: relaxō = re- + laxō is the row that teaches; splitting laxō
+    # into laxus + -ō names the adjective and the verb-forming ending, and
+    # relax's lax chip loses la:laxō from its chain and falls back to the
+    # English word lax.
+    "la:laxo",
+    # la:ēligō: elegance, elegant and eligible all read ēligō + suffix;
+    # drilling to ex- + legō puts "to gather" on the card instead of "to
+    # choose", and electrix and inelegant lose the route target.
+    "la:eligo",
+})

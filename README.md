@@ -29,8 +29,8 @@ any card saves it into folders; folders export to Anki or CSV.
 
 ![Used in](screenshots/8-used-in.png)
 
-The shipped dictionary holds 79,380 words, 2,255 roots (English affixes
-beside Latin and Greek lemmas), and 103,731 inflection mappings, built
+The shipped dictionary holds 82,846 words, 2,831 roots (English affixes
+beside Latin and Greek lemmas), and 108,407 inflection mappings, built
 from Wiktionary at build time. Lookups work offline. The extension
 makes no network requests of any kind.
 
