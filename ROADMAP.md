@@ -36,7 +36,18 @@ checks).
   routing, and skip lists live in pipeline/curation.py, each entry with
   its reason, so field reports become one-line fixes.
 
-## Next: store release
+## Next: origin subsystem, source graphs (decided 2026-09-05)
+
+The origin machinery is being replaced, not patched. SPEC.md "Origin
+subsystem, source graphs" holds the ratified design: Latin and Greek
+built as standalone graphs from templates and etymology prose, English
+attaching by any classical mention, the French group walked as
+pass-through, no origin ever silenced, a gold set scoring every build.
+Phase two adds Old English as a root language with Middle English as
+pass-through. A feasibility spike (pipeline/spike-origin.md) sizes the
+prose parser before the build starts.
+
+## Then: store release
 
 - Write the store listing and submit. Collateral is ready: icon set,
   promo tiles, eight screenshot scenes with wording checks.
@@ -51,9 +62,10 @@ checks).
   performance profile of every page, so it wants its own spike.
 - **Pronunciation.** IPA text ships in the extracts and would cost only
   bytes; audio would not. Deferred from v1 by decision.
-- **Non-classical origin rows.** Hebrew, Old Norse, and Arabic chains
-  (amen, berserk, algebra) fit the existing machinery; the open question
-  is whether their family sizes justify cards. Measure before building.
+- **Old Norse as a root language.** Decided 2026-09-05: every attested
+  language gets an origin row, and Old English becomes a root language
+  in phase two. Old Norse (139 top-10k words: sky, die, odd) is the one
+  row-only language worth re-measuring for cards after that.
 - **Browse roots by surface form.** One view for "ped" listing Latin pes
   beside Greek pais. Deferred from v1 by decision.
 - **Selection lookups into an open sidebar.** The embed contract was

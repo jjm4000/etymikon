@@ -26,11 +26,16 @@ needs its full binding detail.
   whatever the split's origin (Latinate and Germanic alike).
 - Root node set: English affix entries (sub-, -an) and Latin/Greek
   lemmas (terra, logos). Drill-down stops there. Proto-Indo-European is
-  out of scope everywhere, permanently for v1.
+  out of scope everywhere, permanently for v1. Extended 2026-09-05:
+  Old English lemmas join the root set in phase two of the origin
+  subsystem (see "Origin subsystem, source graphs").
 - Germanic affixes are IN (Jesse decision 2026-08-25, overriding the
   kickoff default): un-, fore-, -ful, -ness, -ly and their kin ship as
   ordinary en: roots with family lists. No origin filter applies to
   affix cards. Origin chains (`org`) stay Latin/Greek only.
+  Superseded 2026-09-05: origin rows render for every attested
+  language under the language-role table (see "Origin subsystem,
+  source graphs").
 - Morpheme chips split by target: a part that is itself a shipped word
   (muse in music, beauty in beautiful) links to that WORD card, not a
   root card. Root cards are for affixes and Latin/Greek lemmas only.
@@ -51,6 +56,9 @@ needs its full binding detail.
   etymology, browse-roots-by-surface (ped as pes vs pais), non-classical
   origin chains (a Hebrew or Old Norse org row is future work, pending a
   measurement of family sizes), any runtime network request.
+  The non-classical item was measured and decided 2026-09-05: row-only
+  origin rows ship for every attested language, Old English becomes a
+  root language in phase two (see "Origin subsystem, source graphs").
 
 ## Directory layout and ownership
 
@@ -1115,9 +1123,204 @@ silently diverged from):
   around a third of capped
   words with Germanic affixes in, roots in the low thousands, en:
   roots outnumber la:, no words.json entry with both morphs and org,
-  no root under 2 distinct referencing words, no PIE key anywhere.
+  no root under 2 distinct referencing words (superseded 2026-09-05
+  by never-silent: every referenced root ships), no PIE key anywhere.
 - A 10 plus 10 random sample per zone (ranked/unranked, split/no-split)
   in the build report for eyeball review.
+
+## Origin subsystem, source graphs (Jesse decisions 2026-09-05)
+
+This section replaces the origin-chain machinery described under
+"Pipeline" (origin_chain, the Flattener, the emit-stage drops) with a
+design the owner ratified after a week of field reports. Every earlier
+origin rule that conflicts with this section is superseded by it; the
+anchor rules of 2026-09-01 carry over where this section says so.
+
+### Why
+
+A census on 2026-09-05 of the top 10,000 shipped words that name a
+Latin or Greek source found 1,857 with a breakdown and about 1,190
+without. The misses sorted into causes:
+
+| cause | top 10k | all 1,752 misses |
+|---|---|---|
+| source lemma has no split; the single root was dropped by the 2-credit threshold | 378 | 843 |
+| source lemma has a structured split; our rules dropped the row | 102 | 284 |
+| chain names a lemma not found in the source extract | 96 | 263 |
+| decomposition exists only as prose on the source page (manuscript) | 76 | 138 |
+| decomposition exists only as prose on the English page (curious) | 65 | 137 |
+| English page has a split template the pipeline did not use | 40 | 84 |
+
+Two thirds of the silence is policy: the origin was known and not
+shown. The rest is that both Wiktionary and the pipeline treated
+decomposition as something only templates carry. The old design was
+English-first and template-only, and each stage that failed was
+silent. This section inverts it.
+
+### Principle 1: source graphs first
+
+Each root language is built as a standalone graph before any English
+page is read. A node is a lemma with a gloss and, for a non-Latin
+script, a romanization. Edges are of two kinds:
+
+- Decomposition: from the decomposition templates, from the `etymon`
+  tree, and from the etymology prose (PENDING SPIKE: the prose grammar
+  and its acceptance numbers are specified in a follow-up amendment
+  once pipeline/spike-origin.md reports; the rule shape is "From X (…)
+  + Y (…)" and "equivalent to X + Y" with mention templates supplying
+  each term's language).
+- Step: an inflection or participle page steps to its lemma, from
+  form_of links, from participle head templates, from prose of the
+  shape "past participle of X" or "ablative of X", and from the
+  LEMMA_STEPS curation table, in that order of precedence with
+  curation winning.
+
+The graph is verified on its own before English attaches: no cycles,
+no dangling edge, and a coverage table (nodes with a decomposition,
+nodes with prose the parser could not read, nodes with neither)
+printed in the build report and tracked build over build.
+
+### Principle 2: language roles
+
+Every language code the extracts use falls into exactly one role. The
+table lives in build.py as data with a reason per row, under the census
+gate: a code above the census threshold that is in no role fails the
+build.
+
+- Root languages: nodes ship as root cards with families and, where
+  the node decomposes, a MADE OF row. Phase one: Latin (all period
+  codes) and Ancient Greek (grc, grc-koi, gkm). Phase two: Old English
+  (ang). Census 2026-09-05, deepest named language of the top 10,000:
+  Latin 1,852, Old English 1,323, Greek 349.
+- Pass-through languages: pages are walked to continue a chain toward
+  a root language and never ship as cards. Phase one: Old French,
+  Anglo-Norman, Middle French, French. Phase two: Middle English. The
+  census found 388 top-10k words whose chain stops in the French group
+  and 535 whose chain stops at Middle English; most of the first group
+  are Latin words and most of the second are Old English words.
+- Row-only languages: every other attested language (Old Norse, Dutch
+  and Low German, Italian, Spanish, Arabic, Hebrew, Sanskrit, Japanese,
+  and the rest). A word whose deepest named origin is in this group
+  renders the single origin row and nothing else: no card, no family.
+  Old Norse (139 words) is the one to re-measure after phase two.
+- Reconstructed forms (a lemma starting with `*`) end the walk. No
+  Proto-Germanic or Proto-Indo-European node exists anywhere. The
+  ROADMAP decision stands.
+
+### Principle 3: English attaches by any mention
+
+An English page contributes the set of source-language terms it names,
+from any template that carries a language and a term (origin
+templates, mention templates, the parts of a decomposition template,
+the etymon tree) and from the prose parser. A term inside a cognate
+clause ("cognate with", "compare") is not an origin and is excluded by
+the parser's role, never by template name. The word attaches to the
+deepest term that exists in a root-language graph, preferring a term
+that decomposes over one that does not. Pass-through pages are walked
+first, so a chain that stops at Old French continues to Latin when the
+French page names it. No template name is load-bearing: the census
+gate still classifies names, but a new name can only add terms, never
+silence a word.
+
+### Principle 4: never silent
+
+If a source names an origin, the card shows it.
+
+- A word attached to a root-language node renders the decomposed row
+  (FROM LATIN lemma, chips) when the node decomposes, and the single
+  row ("From Latin soccus (a light low-heeled shoe)") when it does not.
+- Every root-language node that any word attaches to or any row names
+  ships as a root card. There is no credit threshold. A one-word family
+  is a valid card; its gloss is the value. The "no root under 2
+  distinct referencing words" sanity line under Verification is
+  superseded.
+- A word whose deepest origin is a row-only language renders the
+  single row with no link and no card. The row is inert but present.
+- The 2026-09-01 anchor rules carry over: reach counts through parts,
+  ORG_ANCHOR_MIN is 2, anchors carry `parts`, families credit through
+  anchors at build and at runtime. The emit-stage drops that removed
+  rows for threshold reasons are gone. A row is dropped only for a
+  stated reason (self-part split, a BLOCKED_SPLITS entry, a part page
+  that does not exist), and every drop writes its reason to the misses
+  report.
+
+### Row shapes (ratified from mockups 2026-09-05)
+
+Five cases, each rendered with the shipped stylesheet and approved:
+
+1. Prose-only decomposition on the source page: manuscript reads FROM
+   LATIN manūscrīptus with chips manus (hand) + scrībō (to write,
+   compose). Inflected and participial parts step to their lemma before
+   they become chips.
+2. Known origin with nothing to decompose: idea reads a single row
+   "From Greek ἰδέα (idéa; form, appearance, kind; idea)". sock and
+   pepper render the same shape.
+3. Structured split the old rules refused: system reads FROM GREEK
+   σύστημα with συν- + ἵστημι + -μα; period reads περι- + ὁδός.
+4. Root cards under never-silent: soccus ships with a one-word family
+   (sock); ἰδέα lists idea, ideal and ideology through anchor credit.
+5. Prose-only decomposition on the English page: curious reads FROM
+   LATIN cūriōsus with cūra + -ōsus.
+
+Romanization (Jesse decision 2026-09-05): a chip whose form is in a
+non-Latin script carries its romanization as a line between the form
+and the gloss, in the muted style the root card uses for its `rom`.
+The single origin row places the romanization first inside the
+parentheses, before the gloss, separated by a semicolon. Latin-script
+forms carry no romanization line. One rule covers Greek, Arabic,
+Hebrew and any script the row-only languages bring.
+
+### Principle 5: a gold set drives the build
+
+pipeline/gold.json holds hand-verified expectations, one row per word:
+the language, the lemma, and the ordered parts of the expected row (or
+"single" with the lemma, or "none"). The build scores itself against
+it on every run and prints precision per failure class; a build whose
+score falls below the committed score fails. The seed set covers every
+class this section names and every field report so far: component,
+manuscript, absolute, absolution, press, impress, system, period, idea,
+sock, curious, deponent, hesitation, access, concede, territory,
+remember, memory, subterranean, korean (expected: Korea + -an, Korea
+inert). A field report becomes a gold row before it becomes a fix.
+
+### Data and protocol changes
+
+- roots.json: `rom` on every non-Latin-script node (already present on
+  Greek roots); `parts` as specified 2026-09-01. Old English nodes
+  arrive in phase two under the `ang:` key prefix.
+- words.json `org`, single shape, gains a row-only form: `{lang, f,
+  gloss, rom?}` with no `r`. The worker passes it through unjoined,
+  since no root entry exists to join from. The decomposed shape is
+  unchanged; each part may carry `rom`.
+- The langName table in the extension grows to cover every row-only
+  language the build emits; the build fails when it emits a code the
+  table lacks (the same loud-failure pattern as the census gate).
+- The extension's card code needs only the romanization line on chips
+  and the inert single row. Everything else this section changes is
+  data.
+
+### Phases
+
+Phase one: Latin and Greek graphs with the prose parser, the French
+pass-through group, never-silent rows and cards, row-only rows with
+romanization, the gold set, the misses report with reasons. Phase two:
+the Old English graph with Middle English as pass-through. After phase
+two: re-measure Old Norse for a root role.
+
+### Verification additions
+
+- Graph checks: no cycles, no dangling edge, every node reachable from
+  at least one English word ships.
+- Anchors added 2026-09-05: manuscript carries manūscrīptus = manus +
+  scrībō, both linked; idea carries a single row naming grc:ἰδέα and
+  that root ships; system carries σύστημα decomposed; period carries
+  περίοδος = περι- + ὁδός; curious carries cūriōsus = cūra + -ōsus;
+  sock carries a single row naming la:soccus and that root ships with
+  a family of at least one; sky carries a row-only single row with
+  lang non and no `r`; no word with an origin template to a classified
+  language ships with neither morphs nor org, except through a drop
+  whose reason is in the misses report.
+- The gold score is printed and gated as specified in Principle 5.
 
 ## Naming (Jesse decision 2026-08-25)
 
