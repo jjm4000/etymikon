@@ -1164,11 +1164,28 @@ page is read. A node is a lemma with a gloss and, for a non-Latin
 script, a romanization. Edges are of two kinds:
 
 - Decomposition: from the decomposition templates, from the `etymon`
-  tree, and from the etymology prose (PENDING SPIKE: the prose grammar
-  and its acceptance numbers are specified in a follow-up amendment
-  once pipeline/spike-origin.md reports; the rule shape is "From X (…)
-  + Y (…)" and "equivalent to X + Y" with mention templates supplying
-  each term's language).
+  tree, and from the etymology prose. The prose grammar (measured in
+  pipeline/spike-origin.md, 2026-09-05) reads "From X (…) + Y (…)",
+  "equivalent to X + Y" and bare "X + Y" sequences, with the page's
+  mention templates supplying each term's language and form, nested
+  parentheses skipped, and a parenthetical of the shape "ablative of
+  Z", "past participle of Z", "genitive of Z", "frequentative of Z",
+  "diminutive of Z" stepping the term to Z. A parse is accepted only
+  when every part resolves to a page in the same extract and the
+  sentence carries no rejection stance ("not from", "rather than",
+  "unrelated to"). Measured: 813 of 2,165 prose-only Latin lemma pages
+  and 223 of 652 Greek captured within the same extract; 55 right, 3
+  partial, 2 wrong in a hand-checked 60. The uncaptured remainder is
+  mostly reconstructed parts, which the walk stops at anyway.
+- Lookup rules, applied to every chain lemma and every split part
+  before any other rule (spike section 3): Greek keys drop the
+  vowel-length marks (breve and macron) that page titles never carry,
+  and match accent and breathing loosely when the strict key misses;
+  a form-of page steps to its lemma and the step repeats once more
+  when the target is itself a form-of page (sciēns to sciō). The Greek
+  length-mark rule alone reached 87 of 421 missing chain lemmas and
+  129 of 255 refused structured splits (system, period, prophecy,
+  type, energy). Stepping form-of parts reached 83 more of the 255.
 - Step: an inflection or participle page steps to its lemma, from
   form_of links, from participle head templates, from prose of the
   shape "past participle of X" or "ablative of X", and from the
@@ -1301,11 +1318,24 @@ inert). A field report becomes a gold row before it becomes a fix.
 
 ### Phases
 
-Phase one: Latin and Greek graphs with the prose parser, the French
-pass-through group, never-silent rows and cards, row-only rows with
-romanization, the gold set, the misses report with reasons. Phase two:
-the Old English graph with Middle English as pass-through. After phase
-two: re-measure Old Norse for a root role.
+Phase one: Latin and Greek graphs with the lookup rules and the prose
+parser, the French pass-through group, never-silent rows and cards,
+row-only rows with romanization, the gold set, the misses report with
+reasons. Phase two: the Old English graph with Middle English as
+pass-through. After phase two: re-measure Old Norse for a root role.
+
+Expected outcome of phase one against the 1,752 misses of 2026-09-01
+(spike scenario C): 488 render decomposed, 1,039 render a single row,
+225 render nothing because Wiktionary never wrote the lemma (turbula,
+petia, ad montem). Inside the top 10,000: 141, 359 and 53. roots.json
+grows by about 1,900 cards, 0.21 MB. The build report prints the same
+three counts so the outcome is checked, not assumed.
+
+Single-row gloss quality (spike section 7): a minority of one-chip rows
+pick a homograph's gloss (cave from cava read as "jackdaw"). The step
+rules take most of these to the right lemma (cava is a form of cavus).
+The rest are gold rows and ROOT_GLOSSES entries, found by the gold set
+and the eyeball sample, never by a reader first.
 
 ### Verification additions
 
