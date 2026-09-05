@@ -872,8 +872,79 @@ test("a shadow word inherits its lemma's decomposed origin", () => {
 test("a shadow word inherits a single origin the same way", () => {
   const match = one("dialogues");
   assert.equal(match.seeAlso, "dialogue");
-  assert.deepEqual(match.org, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason" });
+  assert.deepEqual(match.org, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos" });
   assert.deepEqual(match.org, one("dialogue").org);
+});
+
+// --- the source-graph origin shapes (SPEC 2026-09-05) ------------------------
+
+test("a single origin row joins the root's romanization beside its gloss", () => {
+  // The renderer prints it first inside the parentheses; the worker joins it
+  // from the root entry, the same place the gloss comes from.
+  assert.deepEqual(one("dialogue").org, {
+    r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos",
+  });
+  // A Latin root has no romanization, so the row carries none.
+  assert.equal("rom" in one("terrain").org, false);
+});
+
+test("a decomposed org part and a root's parts carry the root's romanization", () => {
+  const bundle = {
+    words: { v: 1, words: {
+      system: {
+        senses: [{ pos: "noun", defs: ["A whole of parts."] }],
+        org: { l: "σύστημα", lang: "grc", parts: [
+          { f: "συν-", r: "grc:συν-" }, { f: "ἵστημι", r: "grc:ἵστημι" }, { f: "-μα" },
+        ] },
+        fr: 752,
+      },
+    } },
+    roots: { v: 1, roots: {
+      "grc:συν-": { form: "συν-", rom: "sun-", lang: "grc", gloss: "with", kind: "prefix" },
+      "grc:ἵστημι": { form: "ἵστημι", rom: "hístēmi", lang: "grc", gloss: "to stand", kind: "root" },
+    } },
+    forms: { v: 1, map: {} },
+  };
+  assert.deepEqual(buildMatches("system", bundle)[0].org, {
+    l: "σύστημα", lang: "grc", parts: [
+      { f: "συν-", r: "grc:συν-", gloss: "with", rom: "sun-" },
+      { f: "ἵστημι", r: "grc:ἵστημι", gloss: "to stand", rom: "hístēmi" },
+      { f: "-μα" },
+    ],
+  });
+  const root = buildRoot("grc:ἵστημι", bundle, buildFamilyIndex(bundle.words, bundle.roots));
+  assert.equal(root.rom, "hístēmi");
+  assert.equal(root.familyCount, 1, "a one-word family is a valid card");
+});
+
+test("a row-only org passes through unjoined, with no r and no root behind it", () => {
+  const bundle = {
+    words: { v: 1, words: {
+      sky: {
+        senses: [{ pos: "noun", defs: ["The air above."] }],
+        org: { lang: "non", f: "ský", gloss: "cloud" },
+        fr: 1100,
+      },
+      // A romanization travels too, and a missing gloss is simply absent.
+      algebra: {
+        senses: [{ pos: "noun", defs: ["A branch of mathematics."] }],
+        org: { lang: "ar", f: "الجبر", rom: "al-jabr" },
+        fr: 9000,
+      },
+      // A row-only org with no form has nothing to print.
+      blank: { senses: [{ pos: "noun", defs: ["Nothing."] }], org: { lang: "non" }, fr: 9 },
+    } },
+    roots: { v: 1, roots: {} },
+    forms: { v: 1, map: {} },
+  };
+  assert.deepEqual(buildMatches("sky", bundle)[0].org, { lang: "non", f: "ský", gloss: "cloud" });
+  assert.deepEqual(buildMatches("algebra", bundle)[0].org, {
+    lang: "ar", f: "الجبر", rom: "al-jabr",
+  });
+  assert.equal("org" in buildMatches("blank", bundle)[0], false);
+  // A row-only row names no root, so it credits no family.
+  assert.deepEqual(Object.keys(buildFamilyIndex(bundle.words, bundle.roots)), []);
+  assert.deepEqual(Object.keys(buildFamilyCounts(bundle.words, bundle.roots)), []);
 });
 
 test("a shadow word whose lemma has no origin inherits nothing", () => {
@@ -2103,7 +2174,8 @@ console.log("\nshipped data (skipped when extension/data is empty)");
 
 // --- smoke tests over the real files, asserting only SPEC anchors ---------
 
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), "..", "extension", "data");
+const here = dirname(fileURLToPath(import.meta.url));
+const dataDir = join(here, "..", "extension", "data");
 
 async function readBundle() {
   const [w, r, f] = await Promise.all([
@@ -2391,6 +2463,92 @@ await testAsync("smoke: used-in derives from the shipped w chips", async () => {
     assert.ok(used.includes("absolutely"), "absolute's usedIn contains absolutely");
   }
   console.log(`      (${keys.length} words are used in a bigger word)`);
+});
+
+await testAsync("smoke: every row-only code the data emits has a name in content.js", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  // The content script holds the one copy of the language-name table (it is
+  // a classic script and cannot import one), and the build fails when it
+  // emits a code the table lacks. This is the same check from the other side.
+  const source = await readFile(join(here, "..", "extension", "content", "content.js"), "utf8");
+  const table = /var LANG_NAME = \{([^}]*)\};/.exec(source);
+  assert.ok(table, "content.js declares LANG_NAME");
+  const names = new Set();
+  for (const m of table[1].matchAll(/(?:"([^"]+)"|([A-Za-z_]\w*))\s*:/g)) names.add(m[1] || m[2]);
+  const table2 = bundle.words.words;
+  const codes = new Set();
+  for (const key of Object.keys(table2)) {
+    const org = table2[key].org;
+    if (org && !org.r && !Array.isArray(org.parts) && typeof org.lang === "string") codes.add(org.lang);
+  }
+  const lacking = [...codes].filter((code) => !names.has(code)).sort();
+  assert.deepEqual(lacking, [], `${lacking.length} row-only codes have no name`);
+  // The rows themselves are the ratified shape and the worker passes them through.
+  const sample = [...Object.keys(table2)].find((key) => {
+    const org = table2[key].org;
+    return org && !org.r && !Array.isArray(org.parts);
+  });
+  if (sample) {
+    const match = lookup(sample, bundle).matches[0];
+    assert.deepEqual(match.org, table2[sample].org, `${sample} passes its row-only org through`);
+  }
+  console.log(`      (${codes.size} row-only codes, all named)`);
+});
+
+await testAsync("smoke: the gold set holds in the shipped data", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  // pipeline/gold.json is the build's own gate; the same exact-match rule
+  // (kind, language, lemma, ordered part forms) is applied here from the
+  // extension's side so the two can never read a row differently.
+  const gold = JSON.parse(await readFile(join(here, "..", "pipeline", "gold.json"), "utf8"));
+  const committed = JSON.parse(await readFile(join(here, "..", "pipeline", "gold-score.json"), "utf8"));
+  const table = bundle.words.words;
+  const actualOf = (word) => {
+    const entry = table[word];
+    if (!entry) return { kind: "none" };
+    if (Array.isArray(entry.morphs) && entry.morphs.length) {
+      return {
+        kind: "morphs",
+        parts: entry.morphs.map((m) => m.f),
+        inert: entry.morphs.filter((m) => !m.r && !m.w).map((m) => m.f),
+      };
+    }
+    const org = entry.org;
+    if (!org) return { kind: "none" };
+    if (Array.isArray(org.parts)) {
+      return { kind: "decomposed", lang: org.lang, lemma: org.l, parts: org.parts.map((p) => p.f) };
+    }
+    if (org.r) return { kind: "single", lang: org.r.split(":")[0], lemma: org.f };
+    return { kind: "rowonly", lang: org.lang, lemma: org.f };
+  };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const matches = (row, actual) => {
+    if (row.kind !== actual.kind) return false;
+    if (row.kind === "none") return true;
+    if (row.kind === "morphs") {
+      return same(row.parts, actual.parts) && same([...row.inert].sort(), [...actual.inert].sort());
+    }
+    if (row.lang !== actual.lang || row.lemma !== actual.lemma) return false;
+    return row.kind !== "decomposed" || same(row.parts, actual.parts);
+  };
+  const failures = gold.rows.filter((row) => !matches(row, actualOf(row.word))).map((row) => row.word);
+  assert.ok(
+    gold.rows.length - failures.length >= committed.score,
+    `gold score ${gold.rows.length - failures.length} under the committed ${committed.score}: ${failures.join(", ")}`
+  );
+  console.log(`      (gold ${gold.rows.length - failures.length} of ${gold.rows.length}, committed ${committed.score})`);
 });
 
 await testAsync("smoke: US-primary re-keyed words carry their page title", async () => {

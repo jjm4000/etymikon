@@ -328,6 +328,36 @@
       fr: 6100,
       org: { r: "grc:logos", f: "λόγος" }
     },
+    // A row-only origin (SPEC "Origin subsystem, source graphs", 2026-09-05):
+    // the deepest named origin is a language with no cards, so the entry
+    // carries {lang, f, gloss} with no r and the row renders present and
+    // inert.
+    sky: {
+      senses: [{ pos: "noun", defs: ["The atmosphere above a point on the earth."] }],
+      fr: 1100,
+      org: { lang: "non", f: "ský", gloss: "cloud" }
+    },
+    // A single origin row naming a Greek root: the romanization goes first
+    // inside the parentheses, before the gloss. The root builds one word,
+    // which is a valid card under never-silent.
+    idea: {
+      senses: [{ pos: "noun", defs: ["An image formed in the mind."] }],
+      fr: 285,
+      org: { r: "grc:idea", f: "ἰδέα" }
+    },
+    // A decomposed Greek origin: a chip in Greek script carries its
+    // romanization as a line between the form and the gloss.
+    system: {
+      senses: [{ pos: "noun", defs: ["A set of connected things forming a whole."] }],
+      fr: 752,
+      org: {
+        l: "σύστημα", lang: "grc",
+        parts: [
+          { f: "συν-", r: "grc:syn-" },
+          { f: "ἵστημι", r: "grc:histemi" }
+        ]
+      }
+    },
     // The long-gloss case. Real root glosses run to the 160-character safety
     // cap and thousands of word cards carry one past 80, so a chip here has a
     // gloss the clamp has to hold.
@@ -464,6 +494,22 @@
         { word: "etymology", fr: 32000 },
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
       ]
+    },
+    // A one-word family: the card is valid and its label has a singular.
+    "grc:idea": {
+      form: "ἰδέα", rom: "idéa", lang: "grc", gloss: "form, shape", kind: "root",
+      family: [{ word: "idea", fr: 285 }]
+    },
+    // The Greek parts of system's row, each with a romanization for the chip.
+    "grc:syn-": {
+      form: "συν-", rom: "sun-", lang: "grc", gloss: "with, together",
+      kind: "prefix",
+      family: [{ word: "system", fr: 752 }]
+    },
+    "grc:histemi": {
+      form: "ἵστημι", rom: "hístēmi", lang: "grc", gloss: "to stand; to set",
+      kind: "root",
+      family: [{ word: "system", fr: 752 }]
     },
     // The lemma remember's chain reaches, through a curated alias.
     "la:memor": {
@@ -615,6 +661,8 @@
         out.r = part.r;
         var root = ROOTS[part.r];
         if (root && root.gloss) out.gloss = root.gloss;
+        // The root's romanization rides on the chip, exactly like the worker.
+        if (root && root.rom) out.rom = root.rom;
         return out;
       }
       if (part.w) {
@@ -653,10 +701,17 @@
         l: entry.org.l, lang: entry.org.lang,
         parts: joinMorphs(entry.org.parts)
       };
-    } else if (entry.org) {
+    } else if (entry.org && entry.org.r) {
       match.org = { r: entry.org.r, f: entry.org.f };
       var root = ROOTS[entry.org.r];
       if (root && root.gloss) match.org.gloss = root.gloss;
+      if (root && root.rom) match.org.rom = root.rom;
+    } else if (entry.org) {
+      // Row-only: no root entry to join from, so the row passes through
+      // unjoined, exactly like the worker.
+      match.org = { lang: entry.org.lang, f: entry.org.f };
+      if (entry.org.gloss) match.org.gloss = entry.org.gloss;
+      if (entry.org.rom) match.org.rom = entry.org.rom;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
     // Omitted when nothing is built on this word, exactly like the worker.
@@ -1756,6 +1811,40 @@
           api.crumbLabels().join(" › ") === "territory › terra";
       },
       function () { return api.crumbLabels().join(" › "); });
+
+    // --- row-only origins, romanized rows and chips on this surface ----------
+    // All three are renderer-side, so the sidebar gets them with no code of
+    // its own: the inert row-only row, the romanization inside a single
+    // row's parentheses, and the romanization line on a Greek chip.
+    await search("sky");
+    var rowOnly = api.query(".origin-row");
+    check("a row-only origin renders one inert row in the sidebar",
+      !!rowOnly && rowOnly.classList.contains("inert") &&
+      !rowOnly.classList.contains("nav") && !rowOnly.hasAttribute("tabindex") &&
+      rowOnly.textContent === "From Old Norse ský (cloud)",
+      rowOnly ? rowOnly.textContent + " / " + rowOnly.className : "no row");
+    var depthBeforeRowOnly = api.viewDepth();
+    rowOnly.click();
+    await elapse(40);
+    check("clicking the row-only row navigates nowhere",
+      api.viewDepth() === depthBeforeRowOnly,
+      "depth=" + api.viewDepth());
+    await search("idea");
+    check("a single row in Greek script reads the romanization before the gloss",
+      !!api.query(".origin-row") &&
+      api.query(".origin-row").textContent === "From Greek ἰδέα (idéa; form, shape)",
+      api.query(".origin-row") ? api.query(".origin-row").textContent : "no row");
+    await search("system");
+    var greekChip = api.queryAll(".morph")[0];
+    check("a Greek chip carries a romanization line between form and gloss",
+      texts(api.queryAll(".morph-rom")).join(" ") === "sun- hístēmi" &&
+      texts(greekChip.children).join(" | ") === "συν- | sun- | with, together",
+      texts(greekChip.children).join(" | "));
+    await search("grc:idea");
+    check("a one-word family renders its card with BUILDS 1 WORD",
+      texts(api.queryAll(".label")).indexOf("BUILDS 1 WORD") >= 0 &&
+      api.queryAll(".fam-row").length === 1 && surfaceText() === "ἰδέα",
+      texts(api.queryAll(".label")).join("/") + " rows=" + api.queryAll(".fam-row").length);
 
     // An anchor root card carries its own breakdown, and the section is
     // renderer-side, so the sidebar gets it with no code of its own: MADE OF

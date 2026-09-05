@@ -257,6 +257,11 @@ function morphRow(morph, roots, wordTable) {
     row.r = rootKey;
     const gloss = str(roots[rootKey].gloss);
     if (gloss !== "") row.gloss = gloss;
+    // The root's romanization rides on the chip too, so a Greek part can
+    // carry its reading between the form and the gloss (SPEC 2026-09-05).
+    // The renderer decides by the form's script whether to show it.
+    const rom = str(roots[rootKey].rom);
+    if (rom !== "") row.rom = rom;
     return row;
   }
   const wordKey = str(morph.w);
@@ -290,9 +295,15 @@ const NO_WORDS = Object.freeze({});
  * and the parts join exactly like morph chips, an `r` part carrying its root
  * gloss and anything else coming back as the form alone.
  *
- * Single: the lemma does not decompose, so one quiet nav row names it.
+ * Single: the lemma does not decompose, so one quiet nav row names it, with
+ * the root's romanization joined for a form in another script.
  *
- * @returns {object|null} null when neither shape has anything to render
+ * Row-only (SPEC "Origin subsystem, source graphs", 2026-09-05): the deepest
+ * origin is a language with no cards, so the entry carries {lang, f, gloss?,
+ * rom?} and no `r`. There is no root entry to join from, so the row passes
+ * through unjoined and the renderer draws it inert.
+ *
+ * @returns {object|null} null when no shape has anything to render
  */
 function originRow(org, roots) {
   const parts = (Array.isArray(org.parts) ? org.parts : [])
@@ -310,10 +321,23 @@ function originRow(org, roots) {
   }
 
   const key = str(org.r);
-  if (key === "" || !hasOwn(roots, key)) return null;
+  if (key === "") {
+    const lang = str(org.lang);
+    const form = str(org.f);
+    if (lang === "" || form === "") return null;
+    const row = { lang, f: form };
+    const gloss = str(org.gloss);
+    if (gloss !== "") row.gloss = gloss;
+    const rom = str(org.rom);
+    if (rom !== "") row.rom = rom;
+    return row;
+  }
+  if (!hasOwn(roots, key)) return null;
   const row = { r: key, f: str(org.f) || str(roots[key].form) };
   const gloss = str(roots[key].gloss);
   if (gloss !== "") row.gloss = gloss;
+  const rom = str(roots[key].rom);
+  if (rom !== "") row.rom = rom;
   return row;
 }
 

@@ -143,7 +143,61 @@
       "(Etymikon's classification)"
   };
   // Language names, for the root label line and the quiet origin rows.
-  var LANG_NAME = { la: "Latin", grc: "Greek", en: "English" };
+  // Every language code a card can print: the root languages, the pass-
+  // through French group, and every row-only language the build emits
+  // (SPEC "Origin subsystem, source graphs", 2026-09-05). The build
+  // reads this table and fails when it emits a code the table lacks, so
+  // this is the one copy; the tables in pipeline/build.py are its source.
+  var LANG_NAME = { la: "Latin", grc: "Greek", en: "English", ae: "Avestan",
+    af: "Afrikaans", akk: "Akkadian", am: "Amharic", ang: "Old English",
+    ar: "Arabic", arc: "Aramaic", az: "Azerbaijani", bar: "Bavarian",
+    be: "Belarusian", bg: "Bulgarian", bn: "Bengali", bo: "Tibetan",
+    br: "Breton", ca: "Catalan", ceb: "Cebuano", cim: "Cimbrian",
+    cmn: "Mandarin", cop: "Coptic", cr: "Cree", cs: "Czech",
+    cu: "Old Church Slavonic", cy: "Welsh", da: "Danish", de: "German",
+    dum: "Middle Dutch", dz: "Dzongkha", egy: "Egyptian", el: "Greek",
+    enm: "Middle English", "enm-nor": "Northern Middle English",
+    es: "Spanish", "es-MX": "Mexican Spanish", et: "Estonian",
+    ett: "Etruscan", eu: "Basque", fa: "Persian",
+    "fa-cls": "Classical Persian", "fa-ira": "Iranian Persian", fi: "Finnish",
+    fo: "Faroese", fr: "French", frk: "Frankish", frm: "Middle French",
+    fro: "Old French", "fro-nor": "Old French", frr: "North Frisian",
+    fy: "West Frisian", ga: "Irish", gd: "Scottish Gaelic", gl: "Galician",
+    gmh: "Middle High German", gml: "Middle Low German",
+    "gmq-oda": "Old Danish", "gmq-osw": "Old Swedish",
+    "gmw-cfr": "Central Franconian", "gmw-msc": "Middle Scots",
+    goh: "Old High German", got: "Gothic", "grk-pro": "Proto-Hellenic",
+    gsw: "Alemannic German", gu: "Gujarati", gv: "Manx", haw: "Hawaiian",
+    hbo: "Biblical Hebrew", he: "Hebrew", hi: "Hindi", hit: "Hittite",
+    hop: "Hopi", hu: "Hungarian", hy: "Armenian", ibl: "Ibaloi",
+    id: "Indonesian", is: "Icelandic", it: "Italian", iu: "Inuktitut",
+    ja: "Japanese", ka: "Georgian", kk: "Kazakh", km: "Khmer",
+    kmr: "Northern Kurdish", kn: "Kannada", ko: "Korean", kw: "Cornish",
+    lad: "Ladino", lb: "Luxembourgish", li: "Limburgish", lt: "Lithuanian",
+    ltc: "Middle Chinese", lv: "Latvian", mga: "Middle Irish", mhn: "Mòcheno",
+    mi: "Māori", mk: "Macedonian", ml: "Malayalam", mn: "Mongolian",
+    mni: "Manipuri", mr: "Marathi", ms: "Malay", my: "Burmese",
+    nah: "Nahuatl", "nan-hbl": "Hokkien", "nan-tws": "Teochew",
+    nb: "Norwegian Bokmål", nci: "Classical Nahuatl", nds: "Low German",
+    "nds-de": "German Low German", ne: "Nepali", nl: "Dutch",
+    nn: "Norwegian Nynorsk", no: "Norwegian", non: "Old Norse", nrf: "Norman",
+    nrn: "Norn", oc: "Occitan", odt: "Old Dutch", ofs: "Old Frisian",
+    oj: "Ojibwe", orv: "Old East Slavic", os: "Ossetian", osp: "Old Spanish",
+    osx: "Old Saxon", ota: "Ottoman Turkish", ovd: "Elfdalian", pa: "Punjabi",
+    pal: "Middle Persian", peo: "Old Persian", phn: "Phoenician",
+    pl: "Polish", prg: "Old Prussian", pro: "Old Occitan", ps: "Pashto",
+    pt: "Portuguese", "pt-BR": "Brazilian Portuguese", qu: "Quechua",
+    ro: "Romanian", "roa-oit": "Old Italian", rom: "Romani", ru: "Russian",
+    sa: "Sanskrit", scn: "Sicilian", sco: "Scots", sga: "Old Irish",
+    sh: "Serbo-Croatian", si: "Sinhalese", sk: "Slovak", sl: "Slovene",
+    sq: "Albanian", stq: "Saterland Frisian", sux: "Sumerian", sv: "Swedish",
+    sw: "Swahili", syc: "Classical Syriac", ta: "Tamil", te: "Telugu",
+    th: "Thai", tl: "Tagalog", tpw: "Old Tupi", tr: "Turkish",
+    txb: "Tocharian B", ug: "Uyghur", uk: "Ukrainian", ur: "Urdu",
+    vi: "Vietnamese", vls: "West Flemish", wym: "Vilamovian",
+    xcl: "Old Armenian", xno: "Anglo-Norman", xpg: "Phrygian",
+    xto: "Tocharian A", yi: "Yiddish", yo: "Yoruba", yol: "Yola",
+    yue: "Cantonese", zh: "Chinese", zu: "Zulu" };
   // The Wiktionary section a root's own language lives under.
   var LANG_ANCHOR = { la: "Latin", grc: "Ancient_Greek", en: "English" };
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see scrollPanelTo)
@@ -411,6 +465,10 @@
     "  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;",
     "  overflow: hidden; overflow-wrap: anywhere;",
     "}",
+    // The romanization line of a chip in a non-Latin script: the root card's
+    // muted `rom` register, sized for a chip, between the form and the gloss.
+    ".morph-rom { font-size: 10px; font-weight: 500; color: var(--muted);",
+    "  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
     // Chips that open a root card carry hover and a pointer. A chevron would
     // crowd a row of three or four chips, so the pill itself is the affordance.
     ".morph.nav { cursor: pointer; }",
@@ -482,6 +540,10 @@
     "  color: var(--muted); font-size: 12px;",
     "}",
     ".origin-row b { font-weight: 600; color: var(--fg-soft); }",
+    // A row-only origin has no card behind it. It is present and inert:
+    // no pointer, no hover, no chevron, nothing that suggests it goes
+    // somewhere (SPEC Principle 4, 2026-09-05).
+    ".origin-row.inert { cursor: default; }",
     /* ---- tier chips ---- */
     // Same quiet register everywhere it appears: beside a headword, and at the
     // end of a family row. The base look is the neutral default for any FUTURE
@@ -1879,7 +1941,15 @@
     parts.forEach(function (p, i) {
       if (i) row.appendChild(el("span", "morph-plus", "+"));
       var chip = el("span", "morph");
-      chip.appendChild(el("span", "morph-form", nonEmptyString(p.f)));
+      var form = nonEmptyString(p.f);
+      chip.appendChild(el("span", "morph-form", form));
+      // A form in a non-Latin script carries its romanization as a line
+      // between the form and the gloss, in the muted style the root card
+      // uses for its own (Jesse decision 2026-09-05). One rule for Greek,
+      // Arabic, Hebrew and any script a row-only language brings; a
+      // Latin-script form carries no romanization line.
+      var rom = nonEmptyString(p.rom);
+      if (rom && nonLatinScript(form)) chip.appendChild(el("span", "morph-rom", rom));
       var gloss = nonEmptyString(p.gloss);
       if (gloss) chip.appendChild(el("span", "morph-gloss", gloss));
       var rootKey = nonEmptyString(p.r);
@@ -1958,30 +2028,53 @@
     return true;
   }
 
-  // The single-lemma shape: one quiet nav row into the root card.
+  // The single-lemma shape: one quiet nav row into the root card. A row-only
+  // origin (SPEC Principle 4, 2026-09-05) has no card behind it: the row is
+  // present and inert, with no nav affordance, no chevron and no click.
   function appendOriginRow(card, org) {
     var key = nonEmptyString(org.r);
-    var parts = splitRootKey(key);
-    var form = nonEmptyString(org.f) || parts.form;
-    if (!key || !form) return;
-
-    var row = el("div", "entry-row origin-row nav");
-    row.appendChild(buildOriginText(parts.lang, form, org.gloss));
-    makeNavRow(row, function () { navigateToRoot(key); });
-    card.appendChild(row);
+    if (key) {
+      var parts = splitRootKey(key);
+      var form = nonEmptyString(org.f) || parts.form;
+      if (!form) return;
+      var row = el("div", "entry-row origin-row nav");
+      row.appendChild(buildOriginText(parts.lang, form, org.gloss, org.rom));
+      makeNavRow(row, function () { navigateToRoot(key); });
+      card.appendChild(row);
+      return;
+    }
+    var lang = nonEmptyString(org.lang);
+    var plain = nonEmptyString(org.f);
+    if (!lang || !plain || !langName(lang)) return;
+    var inert = el("div", "entry-row origin-row inert");
+    inert.appendChild(buildOriginText(lang, plain, org.gloss, org.rom));
+    card.appendChild(inert);
   }
 
   // "From Latin terra (earth, land)" as elements. Shared by the word card's
   // origin row and the affix card's source row, which say the same thing
-  // about two different kinds of card.
-  function buildOriginText(lang, form, gloss) {
+  // about two different kinds of card. A romanization goes first inside the
+  // parentheses, before the gloss: "From Greek ἰδέα (idéa; form, shape)".
+  function buildOriginText(lang, form, gloss, rom) {
     var name = langName(lang);
     var text = el("span", "origin-text");
     text.appendChild(document.createTextNode("From " + (name ? name + " " : "")));
     text.appendChild(el("b", null, form));
+    var inside = [];
+    var reading = nonEmptyString(rom);
+    if (reading && nonLatinScript(form)) inside.push(reading);
     var short = nonEmptyString(gloss);
-    if (short) text.appendChild(document.createTextNode(" (" + short + ")"));
+    if (short) inside.push(short);
+    if (inside.length) text.appendChild(document.createTextNode(" (" + inside.join("; ") + ")"));
     return text;
+  }
+
+  // A form carrying a letter outside the Latin ranges: Greek, Arabic, Hebrew,
+  // Cyrillic. Combining marks and the Latin extensions count as Latin, so a
+  // macron or a diaeresis never triggers a romanization line.
+  var NON_LATIN = /[^\u0020-\u024f\u1e00-\u1eff\u2000-\u206f\u02b0-\u02ff\u0300-\u036f]/;
+  function nonLatinScript(form) {
+    return NON_LATIN.test(nonEmptyString(form));
   }
 
   function usedInEnabled(settings) {
@@ -2449,7 +2542,11 @@
       key: key,
       rows: r.family,
       total: r.familyCount,
-      label: function (total) { return "BUILDS " + total + " WORDS"; },
+      // A one-word family is a valid card under never-silent (SPEC
+      // Principle 4), so the label has a singular.
+      label: function (total) {
+        return "BUILDS " + total + (total === 1 ? " WORD" : " WORDS");
+      },
       fetch: fetchFamily,
       drill: {
         list: "family",
