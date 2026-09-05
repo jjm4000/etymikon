@@ -3,8 +3,8 @@
 Builds the three data files the extension ships with:
 
 ```
-extension/data/words.json   per-word: definitions, morpheme breakdown, frequency rank
-extension/data/roots.json   per-root: form, gloss, kind, aliases, the anchor's own split
+extension/data/words.json   per-word: definitions, morpheme breakdown, origin row, frequency rank
+extension/data/roots.json   per-root: form, gloss, kind, romanization, aliases, the anchor's own split
 extension/data/forms.json   inflected form or spelling variant -> lemma
 ```
 
@@ -34,10 +34,10 @@ Windows, if `python` still resolves to the Microsoft Store stub:
 & "C:\Users\Jesse\AppData\Local\Programs\Python\Python312\python.exe" "D:\Code\English Etymology\pipeline\build.py"
 ```
 
-The script does **download-if-missing → parse → curate → cap → emit → verify**
-and takes about 45 seconds once the downloads are cached. Two streaming passes
-over the English extract dominate the time. It exits non-zero if any
-verification check fails.
+The script does **download-if-missing → graphs → parse → curate → cap →
+emit → verify** and takes about 60 seconds once the downloads are cached. Two
+streaming passes over the English extract dominate the time. It exits
+non-zero if any verification check fails or the gold score drops.
 
 Every run prints a build report and writes the same text to
 `cache/build-report.txt`: counts, output sizes, the distribution numbers, the
@@ -65,14 +65,19 @@ schedule, and a refresh mid-task moves every number in the report.
 | `cache/kaikki-English.jsonl.gz`     | `https://kaikki.org/dictionary/English/kaikki.org-dictionary-English.jsonl.gz`                     | ~479 MB |
 | `cache/kaikki-Latin.jsonl.gz`       | `https://kaikki.org/dictionary/Latin/kaikki.org-dictionary-Latin.jsonl.gz`                        | ~101 MB |
 | `cache/kaikki-AncientGreek.jsonl.gz`| `https://kaikki.org/dictionary/Ancient%20Greek/kaikki.org-dictionary-AncientGreek.jsonl.gz`        | ~40 MB  |
+| `cache/kaikki-OldFrench.jsonl.gz`   | `https://kaikki.org/dictionary/Old%20French/kaikki.org-dictionary-OldFrench.jsonl.gz`              | ~3.3 MB |
+| `cache/kaikki-MiddleFrench.jsonl.gz`| `https://kaikki.org/dictionary/Middle%20French/kaikki.org-dictionary-MiddleFrench.jsonl.gz`        | ~1.3 MB |
+| `cache/kaikki-French.jsonl.gz`      | `https://kaikki.org/dictionary/French/kaikki.org-dictionary-French.jsonl.gz`                      | ~54 MB  |
 | `cache/en_full_opensubtitles.txt`   | `https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_full.txt`   | ~19 MB  |
 
 The English extract is the only source of definitions, morpheme splits and
-inflected forms. The Latin and Ancient Greek extracts supply the gloss, the
-headword form and the entry pos behind every `la:` and `grc:` card, plus the
-in-language splits that "The FROM LATIN row" flattens below. The frequency
-list supplies the `fr` rank and nothing else; no wording from it reaches the
-output. Licences and attribution are in
+inflected forms. The Latin and Ancient Greek extracts are the source graphs:
+every `la:` and `grc:` card, every decomposition edge and every step edge
+below comes from them. The three French-family extracts (added 2026-09-05;
+the sizes are the 2026-09-05 publication) are pass-through pages, read for
+the terms they name so a chain that stops at Old French can continue to
+Latin, and they never ship a card. The frequency list supplies the `fr`
+rank and nothing else; no wording from it reaches the output. Licences and attribution are in
 `../extension/data/DATA-LICENSE.md`.
 
 Files are read straight from gzip and never decompressed to disk. `cache/` is
@@ -377,34 +382,28 @@ English word never becomes a root card, because it already has a word card.
 
 ### Root cards
 
-A root ships when **two or more distinct shipped words** reference it, through
-a `morphs[].r` chip or an `org` row. A word whose split repeats a morpheme
-counts once, exactly as `lookup.js` `buildFamilyIndex` counts it at runtime.
-That function is the authority for the family index; the build only mirrors
-it, in the ship threshold and in verify, so that the number on a card and the
-number in the threshold are the same number. Nineteen shipped words repeat a
-morpheme today (great-great-grandson, ununoctium, fixer-upper).
+A root ships when any shipped word references it, through a `morphs[].r`
+chip, an `org` row, or an anchor's `parts` (SPEC "Origin subsystem, source
+graphs", Principle 4, owner decision 2026-09-05). There is no credit
+threshold: a one-word family is a valid card and its gloss is the value.
+2,395 cards build one word at 2026-09-05. A key is left out only when it
+has no gloss to carry a card or sits in `ROOT_SKIPS`, and a reference to it
+renders inert. Verify asserts the converse, that no card ships with an
+empty family.
 
-A reference to an anchor is also a reference to every root the anchor's own
-split names, recursively (owner decision 2026-09-01; see "Anchor cards carry
-their own split" below). access names accēdō, accēdō names cēdō, so access
-counts for cēdō in the threshold as on the card. The count reads the
-anchor's split raw from flatten(), before anyone knows which roots ship, so
-it is not circular. Counting direct references alone was measured at
-`ORG_ANCHOR_MIN` 2: 43 base cards HEAD shipped fell under the threshold once
-the rows above them stopped at an anchor, 19 word rows and 64 anchor cards
-got a dead chip, and fornix and τάσσω never shipped. The owner's instruction
-read "direct credits"; the deviation is flagged in the SPEC.
+The family index is still derived at runtime by `lookup.js`
+`buildFamilyIndex`, which the build mirrors for its report and its checks. A
+reference to an anchor is also a reference to every root the anchor's own
+split names, recursively (owner decision 2026-09-01): access names accēdō,
+accēdō names cēdō, so access counts for cēdō on the card.
 
 Anchor cards carry their own split (owner decision 2026-09-01). Every anchor
 whose lemma decomposes gets `parts` in roots.json, the org.parts shape,
 from the same flatten() the word rows use: recursion stops at other
 anchors, affixes stay terminal, a part whose root did not ship stays inert
-with its form alone. 279 of 884 anchors decompose; the rest are base lemmas
-(cēdō, θεός) with no split in their extract and carry no field. The card
-renders the row under MADE OF. Four anchor parts are inert, all the
-nominative marker la:-s that `ROOT_SKIPS` keeps off the cards (dux, index,
-praeses, vindex).
+with its form alone. 437 of 1,353 anchors decompose; the rest are base
+lemmas (cēdō, θεός) with no split in their graph and carry no field. The
+card renders the row under MADE OF.
 
 `kind` comes from the harvested entry `pos`, never from the shape of the form.
 An `interfix` page becomes kind `infix`, because the SPEC enum has no
@@ -412,146 +411,228 @@ interfix member. A `circumfix` page becomes `circumfix`. A combining form is a
 root unless its own page is written with a hyphen. Latin and Greek pages carry
 a pos as well, so `la:re-` stays a prefix instead of becoming a Latin root.
 Shape-guessing labeled ten interfix cards as suffixes and the one circumfix
-card as a root (review finding 2026-08-24).
+card as a root (review finding 2026-08-24). A hyphen-free affix page that is
+also a shipped word (a combining form recorded on the word's own page)
+links to the word card, never to a root card of its own.
 
-### Origin chains
+### Source graphs
 
-A word with no accepted split gets an `org` row instead, when its etymology
-reaches Latin or Greek. The walk goes through `der`, `bor`, `inh` and the
-learned-borrowing templates of the dominant entry, and the chain's root is the
-**last** template whose language argument is Latin or Greek. Last, not first:
-`music` passes through Latin mūsica on its way to Greek μουσική, and the Greek
-step is the one that means something. A chain that reaches only a
-reconstructed proto form yields no `org`.
+The origin subsystem is source-graph first (SPEC "Origin subsystem, source
+graphs", owner decisions 2026-09-05; the design replaces the origin-chain
+walk and the flattener of 2026-08-25). Each root language is built as a
+standalone graph before any English page is read, in `parse_classical` and
+`build_graph`:
 
-### The FROM LATIN row
+* A **node** is a glossed lemma page: the display form (Latin with its
+  macrons from the canonical form; Greek as the page title, never the
+  canonical form with its vowel-length marks), the card gloss, the entry
+  pos that decides `kind`, and for Greek the romanization. A page with
+  several lemma entries keeps every candidate gloss; the entry with the
+  most senses is the default, and a homograph is told apart later (see
+  "Gloss support"). The split and the prose of a key come from that same
+  entry, never from a homograph beside it: cēdō ("to go") shares its page
+  with cedo ("hand it over!"), and only the second is ce- + dō.
+* A **decomposition edge** comes from the decomposition templates, from
+  the `etymon` tree, or from the etymology prose, in that order, and one
+  edge per node. Every part is resolved through the lookup rules below and
+  has to be a node; a split with a reconstructed part, a part that is no
+  page, a part with no usable gloss, or a part naming the lemma itself is
+  refused whole, and the refusal carries its reason (la 624, grc 697
+  refused splits at 2026-09-05). `SOURCE_SPLITS` in curation.py is a hand
+  edge that overrides the page.
+* A **step edge** takes an inflection or participle page to its lemma:
+  from `form_of` links (every sense a form-of sense), from a participle
+  head (`la-part`, `grc-part`) whose etymon reads ":from<text:... participle
+  of>" or whose prose opens "Perfect passive participle of X", and from
+  `LEMMA_STEPS`, curation winning at every hop. An alternative-form page
+  (`alt_of`, no inflection) is recorded apart and stepped only where the
+  lookup says so.
 
-(Jesse decision 2026-08-25.) An `org` row takes one of two shapes. When the
-chain's source lemma decomposes inside its own language it ships decomposed,
-`{l, lang, parts}`, where `parts` follow the morphs chip contract: `f` to
-display, `r` when that root ships, absent for an inert chip. When it does not
-decompose it keeps the single `{r, f}` shape. 4,604 of the 5,906 org rows are
-decomposed.
+The graph is verified before English attaches. Every edge lands on a node
+(the build stops otherwise), a depth-first walk refuses the split that
+closes a cycle and records it as a refusal, and the coverage table goes to
+the report:
 
-**Recursive flattening** replaces the one-hop unification rule. A chain lemma
-is decomposed inside its source language, recursively, capped at
-`ORG_DEPTH` = 3 levels, so `memoriālis` reads memor + -ia + -ālis rather than
-anchoring on memoria, and every English word built on the family lands on the
-same deepest bases. Fragmentation was not only ugly: a card referenced by one
-word is pruned by the 2-word threshold, so those rows were vanishing.
+| lang | nodes | decomposed | template | etymon | prose | prose unread | neither |
+|------|-------|------------|----------|--------|-------|--------------|---------|
+| la   | 46,012 | 17,985 | 3,311 | 13,876 | 797 | 1,363 | 26,664 |
+| grc  | 20,182 | 9,210 | 8,946 | 48 | 217 | 431 | 10,541 |
 
-A split is taken **all or nothing**. If any piece of it has no glossable
-entry of its own, the whole split is refused and the part stays whole. That
-is Okpyeon's dead-end rule, and the extract needs it: `recordor` "splits" as
-re- + `corcord->` + -ō, whose middle piece is a wiktextract artifact with no
-page behind it. `ROOT_SKIPS` and `ROOT_ALIASES` apply at every level, and a
-curated alias stops the recursion where it lands.
+"prose unread" is a node whose etymology carries a plus the parser could
+not read into an accepted split. The table is tracked build over build.
 
-**Anchors are terminal too.** A lemma that `ORG_ANCHOR_MIN` (2) or more
-English words reach is a card the reader wants, so recursion stops there
-instead of splitting it. Everything else is a pure intermediate, a one-off
-participle or a derived noun nothing else points at, and flattening walks
-straight through it. The anchor's card carries the split the rows above it
-no longer show, and the family index credits through it, so a shallower row
-costs nothing: contract reads contrahō + -tus, the contrahō card reads
-con- + trahō, and trahō still lists contract.
+### Lookup rules
 
-Reaching is counted per word through PARTS only: the immediate parts of the
-split belonging to the lemma the chain settles on (owner decision
-2026-09-01). That is what makes solvō an anchor. No English chain names solvō
-itself, but absolvō, dissolvō, resolvō and solūtiō all split onto it, and
-those are the words whose card it is. The count never looks at the
-recursion's own output, so it cannot go circular.
+Every chain lemma and every split part goes through `Graph.lookup` before
+any other rule (SPEC Principle 1, measured in spike-origin.md section 3):
 
-The lemma a chain settles on is NOT a reach. Credits come from the chips in
-morphs and org.parts, and a word that settles on a lemma flattens through it
-and never names it, so a settle hit credits nothing. Counting settle hits
-made haesitō an anchor on three of them; one row named it, it carried one
-credit, it missed the 2-word root threshold, and hesitation read "haesitātiō
-= haesitō + -tiō" with a dead chip. A part is only counted when the split it
-belongs to would really be emitted, since flatten refuses a split whole when
-any piece has no card of its own; without that, la:absens, la:potens,
-la:praesens and five Greek lemmas became anchors no row ever named.
+1. the template arg is cleaned: inline modifiers, a section suffix,
+   trailing punctuation, and one side of an `a//b` alternation;
+2. the key is normalised: Latin macrons and breves off and lowercased;
+   Greek vowel-length marks (macron, breve) off, accents and breathings
+   kept, NFC, lowercased. Templates write σῠνῐ́στημῐ and περῐ́, page titles
+   write συνίστημι and περί, and the two meet on the key;
+3. a key that is no page at all matches loosely, every combining mark
+   stripped, preferring a glossed lemma among the pages that share the
+   loose spelling (πάπας reaches πάππας, coërceō reaches coerceō);
+4. a form-of page steps to its lemma, and the step repeats when the target
+   is itself a form-of page (sciēns to sciō, expectāre to exspectō),
+   `LEMMA_STEPS` winning at every hop.
 
-`ROOT_STOPS` in curation.py is there for lemmas too thinly reached to qualify
-whose split still teaches less than it costs. It is empty, which is its
-healthy state. It held la:laxō and la:ēligō while `ORG_ANCHOR_MIN` was 3:
-both have exactly two part-reaches, one short of the minimum then, and both
-are `BASE_ROUTES` targets, so without the stop the pair flattened away and
-took its route with it. At 2 both are anchors on their own.
+An alternative-form page is not a node and is not stepped through by the
+strict lookup: it exists as a spelling, and a word that names one attaches
+through some other mention. Split parts always step through it (prendere
+is an inflection of prendō, a spelling of prehendō, and the chip wants
+prehendō). The attachment steps through it in a fallback pass, which wins
+only when it reaches a node that decomposes: μονάρχης is a spelling of
+μόναρχος, which splits, so monarch reads Greek; σύκχος is a spelling of
+συγχίς, which does not, so sock stays on Latin soccus.
 
-Without this rule the pipeline over-flattens. Reading `etymon` gave solvō a
-split of its own (sē- + luō), and depth-3 recursion dissolved the card that
-absolute, absolve, solution, dissolution and resolution all share (owner field
-report 2026-08-25). Both candidate thresholds were measured on the full
-bundle at the time: 2 kept 38 more mid-level cards, every one a derived
-compound with a family of exactly two, and left 11.5% of org parts inert; 3
-drilled through those to the base the family shares and left 8.5% inert.
-The minimum went to 2 on 2026-09-01 (owner decision), once the anchor card
-carried the split and the family credited through it: anchors went from 434
-to 884, and 395 org rows changed, 380 of them shallower, none deeper.
-analysis and analyze now stop at grc:ἀναλύω, whose card reads ἀνα- + λύω,
-and λύω still lists both.
+### The prose parser
 
-The two terminal rules are independent and do not interact. An affix is
-terminal by shape or pos whatever its popularity, which is why sē- in
-absolvō's deeper split stays a leaf; an anchor is terminal by how many words
-reach it. Affix parts are skipped when anchors are counted, so an affix can
-never become an anchor.
+The grammar the spike measured (spike-origin.md, section 2; 55 right, 3
+partial, 2 wrong in a hand-checked 60). A sentence is tokenised into words
+and balanced parenthesis groups, so a plus inside a gloss never splits.
+Every " + " at depth zero joins the word before it, skipping its
+parentheses, to the word after it, and pluses chain. A term's language is
+the language name written before it (Latin, Medieval Latin, Ancient Greek,
+Old French and about eighty more), else the last language name at depth
+zero earlier in the sentence, else the page's own mention templates, else
+Greek script means Ancient Greek, else the page's own language. A
+parenthesis after the head is scanned for a step ("ablative of X", "past
+participle of X", "frequentative of X", "diminutive of X") and so is a
+trailing appositive (", accusative of mons"); a Greek head's
+transliteration is skipped.
 
-**Affixes are terminal.** Recursion never decomposes a part that is itself an
-affix, by hyphen shape or by entry pos. Wiktionary records splits for affixes
-too, and following them is how `-ārium` became -ārius + -um and put library,
-calendar and rosary in a la:-um card glossed "genitive plural ending" (owner
-field finding 2026-08-25). A reader drilling a suffix wants the suffix, not
-the case ending inside it.
+On a source page the parse is accepted only when every part resolves to a
+node of the same graph (the same-extract rule), none is reconstructed, none
+is the page itself, and the sentence carries no rejection stance ("not
+from", "rather than", "unrelated to", "folk etymology", "problematic").
+manuscript's row is the shape of it: the Latin page manūscrīptus reads
+"From manu (ablative of manus) + scriptus (past participle of scribere)",
+and the chips are manus and scrībō.
 
-**A split naming the lemma itself is no split** (owner decision 2026-09-01).
-errō = errō + -ō and palpō = palpō + -ō are Wiktionary recording the
-conjugation ending, and a row reading "errō = errō + -ō" teaches nothing, so
-the lemma stays whole. flatten() refuses a split naming the lemma or any
-lemma above it, which also covers a two-page cycle: serō = sera + -ō and
-sera = serō + -a flattened seraglio to "serō + -a + -ō"; the inner split is
-refused and seraglio reads sera + -ō. Eight rows carried a self-part. Four
-of those words were past the cap with no other row (arrant, caligo, palpate,
-uncus) and no longer ship; err and palp keep their cards with a single row;
-pigeon keeps its card and loses its row.
+Sentences are split with abbreviations respected ("e.g. Spanish por" does
+not end one), and each sentence takes a role: rejection, cognate ("cognate
+with", "compare", "akin", "related", "see also", "whence", "doublet",
+"displaced", "eclipsed", "calque", "semantic loan" and kin), or origin
+("from", "borrowed", "inherited"). A sentence with no cue continues the
+role of the sentence before it inside its paragraph, and a list-item
+paragraph continues the paragraph above it, which is how "Cognates"
+followed by one bullet per language reads. The role is what decides
+whether a mention is an origin; the template name never does (Wiktionary
+writes ordinary mentions with `noncog` and cognates with `m+`).
 
-**Latin and Greek affix pages are root nodes** now, reached through org
-parts, with `kind` from their entry pos. 203 of them ship: la:re-, la:-tōrium,
-grc:-ισμός. The 2-distinct-word threshold applies unchanged, and org parts
-credit families exactly as morphs `r` chips do, once per word.
+### Language roles
 
-Recursion is honest about what it cannot see. The extract records `memorō` as
-"From memor" and `rememoror` as "From memoror", in prose, with no
-decomposition template, so flattening cannot reach memor from either. Four
-`ROOT_ALIASES` entries supply the links the source omits, which is what that
-table is for, and la:memor then carries memory, remember and memorandum
-instead of fragmenting into three pruned cards.
+Every language code the extracts use is in exactly one role (SPEC
+Principle 2), as data in build.py with a reason per row, under the census
+gate: a code at or above `CENSUS_MIN` (1,000) uses on origin and mention
+templates that is in no role fails the build. 43 codes stand above the
+threshold at 2026-09-05, all in a role.
 
-### Inflection pages and curated links
+| role | codes | what happens |
+|------|-------|--------------|
+| root | Latin period codes (`la`, `la-lat`, `la-med`, `la-ecc`, `la-new`, `la-vul`, `la-cla`, `ML`, `LL`, `NL`, `VL`); `grc`, `grc-koi`, `gkm` | nodes ship as root cards with families |
+| pass-through | `fro`, `fro-nor`, `xno`, `frm`, `fr` | pages are walked to continue a chain toward a root language; never a card, never a row |
+| row-only | every other attested language, `ROW_ONLY_LANGS`, about 180 codes with the name the row prints | one inert origin row, no card, no family |
+| ignored | `en`, `mul`, the Chinese romanization schemes, undetermined and substrate codes, proto-language codes, a comma-joined list of codes | no origin language |
 
-Chains stop where Wiktionary stops, which is at the derived lemma rather than
-the base one, and often at an inflection of it. An inflection page carries no
-gloss and no split of its own, so it is stepped through to its lemma first:
-`territōriī` is judged as territōrium, and the inflected surface is recorded
-as an alias on the resulting card.
+A reconstructed term (starting with `*`) ends the walk whatever its code.
+The extension's `LANG_NAME` table is the one copy of the names the rows
+print; verify reads it out of content.js and fails when the build emits a
+code it lacks (the loud-failure pattern of the census gate), and the Node
+suite checks the same thing from the other side.
 
-That is not always enough, and where the source records a split at a stage
-flattening cannot reach, the link is made by hand in `curation.py`.
-Wiktionary records the split of `terrēnus` at the Italic stage rather than
-the Latin one, so `terrain` reaches terra by a curated alias rather than by
-decomposition. Flattening itself produces no aliases: an intermediate lemma
-is decomposed now rather than folded away.
+The pass-through extracts (Old French, Middle French, French) are read for
+their mentions only, into a per-page table of the terms each page names.
+kaikki publishes no Anglo-Norman extract (checked 2026-09-05), so an `xno`
+mention is walked only through what the English page itself says.
 
-The automatic step only fires on a page that looks like an inflection to
-the parser: no gloss, no split, a form-of link. `LEMMA_STEPS` (owner
-decision 2026-09-01) names the pages that step the same way and do not look
-like it. dēpōnēns is a Latin lemma page with a gloss of its own ("deponent",
-the grammatical term), so the chain settled on it and deponent shipped
-nothing, while prōpōnēns beside it is a form-of page and steps to prōpōnō
-on its own. The entry la:deponens to la:depono is read in settle() ahead of
-the automatic step, and deponent ships reading dēpōnō = dē- + pōnō.
+### Attachment
+
+An English page contributes the ordered terms it names (SPEC Principle 3),
+read by `page_mentions` from the dominant entry: origin templates (`der`,
+`bor`, `inh` and their `+` variants), mention templates in a sentence whose
+role is origin, the nodes of the `etymon` tree in chain order, the parts of
+decomposition templates, and the prose parser's plus-chains. A term a
+sentence steps ("Latin appreciātus, past participle of appretiō") names the
+stepped lemma as the next term. A pass-through mention is walked: the
+French page's own terms come after the English page's, in walk order, up
+to three pages deep and cycle-safe (8,245 pages walked at 2026-09-05).
+
+The root-language terms fall into **runs** by language. The first term of a
+run is the lemma English borrowed; the rest of the run is that lemma's own
+ancestry inside its language. The word attaches to the entry lemma of the
+deepest run, preferring a run whose entry decomposes (in the graph, or
+through parts the page itself supplies) and, inside a run whose entry does
+not, a later term of the same run that does. Without the run rule access
+would attach to accēdō instead of accessus and every anchor above a base
+verb would lose its reaches.
+
+A plus-chain in the English prose belongs to the last root or pass-through
+term named before it. When that owner is a node with no split, the chain
+supplies its parts (dīvortium = dī- + vertō); when it is a term Wiktionary
+never wrote, the row reads the term as written over the parts (ad montem =
+ad + mōns); when it is a reconstruction, the starred form labels the row
+(*manizāre = manus + -izō); when it is a pass-through word and no root
+lemma is named at all, the French word labels the row and the chips stay
+Latin (`lang` fro, frm or fr on a decomposed row). A chain with no term
+before it ("From Latin spectāculum + -ar") is the English word's own
+analysis, and its first term is the lemma. A mention that is a term of an
+owned chain is a part, not a lemma, so "from super- + prendere" written
+with mention templates never attaches a word to la:super-.
+
+When no root-language term resolves, the word's deepest row-only mention
+renders the row-only row. A word whose chain ends in a pass-through
+language with nothing deeper renders no row and goes to the misses file
+with that reason (410 words at 2026-09-05, dessert at Middle French,
+quite at Anglo-Norman). A root-language term that is no page at all is a
+miss too, with the term in the reason (madam names mea domina).
+
+### Origin rows
+
+An `org` row takes one of three shapes (SPEC "Row shapes", ratified from
+mockups 2026-09-05), 14,147 rows at 2026-09-05:
+
+* **decomposed**, `{l, lang, parts}`: the attached node decomposes, or the
+  page supplied parts for it. `parts` follow the morphs chip contract, `f`
+  to display and `r` when that root ships. 7,005 rows.
+* **single**, `{r, f}`: the node does not decompose ("From Latin soccus").
+  2,295 rows. The worker joins the root's gloss and romanization.
+* **row-only**, `{lang, f, gloss?, rom?}` with no `r`: the deepest named
+  origin is a row-only language ("From Old Norse ský (cloud)"). The gloss
+  and romanization come from the template's own `t` and `tr` args. The
+  worker passes it through unjoined and the card renders it inert. 4,847
+  rows, Old English 1,611 and Middle English 987 the largest groups until
+  phase two makes Old English a root language.
+
+A word never carries both morphs and org. Nothing is dropped for a
+threshold. What is dropped carries a stated reason: a refused split in the
+graph (self-part, missing part page, cycle), a `BLOCKED_SPLITS` entry, a
+`ROOT_SKIPS` key, a lemma never written, a chain ending in a pass-through
+language. Every reason goes to `cache/misses-report.txt`: one line per
+silent word with its rank and reason, then every refused split of both
+graphs.
+
+**Flattening** is the 2026-08-25 rule over the graph's edges. A lemma is
+decomposed recursively inside its language, capped at `ORG_DEPTH` (3), so
+memoriālis reads memor + -ia + -ālis. Affixes are terminal (a reader
+drilling a suffix wants the suffix, not the case ending inside it). Anchors
+are terminal: a lemma `ORG_ANCHOR_MIN` (2) or more words reach through the
+parts of the lemma they attach to is a card the reader wants, so recursion
+stops at it and its card carries the split (owner decisions 2026-09-01,
+carried over). 1,353 anchors at 2026-09-05. `ROOT_ALIASES` and
+`ROOT_SKIPS` apply at every level, and a curated alias stops the recursion
+where it lands.
+
+**Gloss support.** A key with several lemma entries takes the entry with
+the most senses by default. When the English pages that attach to it gloss
+the term themselves ("Latin cava (“cavity”)"), or the English word is a
+word of an entry's senses (cave), the entry whose senses share a content
+word with those wins instead, since the words that attach are the card's
+family. A name entry never wins on support. 55 cards at 2026-09-05.
+`ROOT_GLOSSES` still overrides the whole ladder.
 
 ### Keys and forms
 
@@ -562,9 +643,31 @@ macronised spelling is kept for display, taken from the `canonical` form or
 the head template.
 
 Greek root keys are the NFC form of the lemma, lowercased, with accents and
-breathings intact. Lowercasing is what makes Μοῦσα from a chain template and
-μοῦσα from the extract one key. Greek cards also carry `rom`, the
-romanization kaikki records on the entry.
+breathings intact and the vowel-length marks stripped (see "Lookup rules").
+Lowercasing is what makes Μοῦσα from a chain template and μοῦσα from the
+extract one key. Greek cards carry `rom`, the romanization kaikki records
+on the entry, and the worker joins it onto every chip and single row that
+names the root, so the card can print a reading under a form in Greek
+script. The spelling a word named (haesitātiōnem, absolūtus) is listed on
+the card it landed on as `alt`.
+
+### The gold set
+
+`gold.json` holds hand-verified expectations, one row per word (SPEC
+Principle 5): the kind (morphs, decomposed, single, rowonly, none), the
+language, the lemma, the ordered part forms, and the reason the row is a
+fact, read off the extract pages. The build scores every run as an exact
+match of kind, language, lemma and ordered part forms, prints precision per
+kind, and fails when the score drops under the number in
+`gold-score.json` (24 of 24 at 2026-09-05). The Node suite applies the same
+rule to the shipped data. A field report becomes a row here before it
+becomes a fix.
+
+`misses-2026-09-01.txt` is the list of 1,752 words that stated a classical
+origin and shipped nothing before the source graphs. The report counts what
+each renders now, so the outcome the SPEC expects is checked, not assumed:
+546 decomposed, 1,027 single, 179 nothing at 2026-09-05 (the spike sized
+488, 1,039 and 225); inside the top 10,000 ranks, 172, 340 and 41.
 
 ### Frequency ranks
 
@@ -587,7 +690,7 @@ the pipeline can fix that; it is a cap-rule question for the owner.
 
 ## Curation
 
-`curation.py` is data only, eight tables, every entry carrying the reason it
+`curation.py` is data only, nine tables, every entry carrying the reason it
 exists:
 
 | table            | what it holds                                                    |
@@ -600,6 +703,7 @@ exists:
 | `BASE_ROUTES`    | bound base part -> the classical root it really names             |
 | `ROOT_STOPS`     | source lemmas recursion must never split (empty)                  |
 | `LEMMA_STEPS`    | source-language lemma -> the lemma a chain steps to               |
+| `SOURCE_SPLITS`  | hand decomposition edge in a source graph (cūriōsus = cūra + -ōsus) |
 
 An alias key is a bare surface form (`terra`, `terr-`) when it should bind
 wherever that form appears, English morphemes included, and a
@@ -640,15 +744,15 @@ Every word ranked in the top 50,000 ships unconditionally. Past that a word
 ships only if it carries a breakdown **and** the frequency corpus attests it
 at all.
 
-A breakdown is either an English-surface split or a classical origin chain
-that decomposes (owner decision 2026-09-01). The chain half is provisional at
-survey time: whether a chain flattens depends on the dominant entry, on the
-Latin and Greek extracts and on the anchor set, none of which pass 1 has. So
-a chain-carrier becomes a candidate and emit drops it again unless its final
-org row decomposes. 6,615 candidates, 2,303 ship, 4,181 dropped. A rank
-floor for these candidates was considered and decided against (owner
-decision 2026-09-01): attestation is the edge, the same edge the split half
-has.
+A breakdown is either an English-surface split or a classical origin that
+decomposes (owner decision 2026-09-01). The origin half is provisional at
+survey time: whether an attachment flattens depends on the dominant entry,
+on the source graphs and on the anchor set, none of which pass 1 has. So a
+word naming a root or pass-through language becomes a candidate and emit
+drops it again unless its final org row decomposes. 9,474 candidates, 3,713
+ship, 5,761 dropped at 2026-09-05. A rank floor for these candidates was
+considered and decided against (owner decision 2026-09-01): attestation is
+the edge, the same edge the split half has.
 
 That second condition is not in the original cap wording and it is the single
 largest shape decision in the build, so here are the numbers. Wiktionary
@@ -656,7 +760,7 @@ carries about 270,000 English words with an affix split. Nearly all of them
 are unattested technical coinages: nanovoltmeter, nonradiometric,
 bigluconate, extremistical. Shipping them measured 289,811 words and a 53 MB
 `words.json` at bring-up (2026-08-24, before the rank charset fix). Requiring
-a frequency rank produces 82,843 words and a 19.8 MB `words.json`. The tail
+a frequency rank produces 84,253 words and a 20.6 MB `words.json`. The tail
 that survives is the readable half: snarkiness, ringbearer,
 parapsychological, glucoside.
 
@@ -698,8 +802,23 @@ root gloss.
 
 ## Verification
 
-Every run ends with counts, distribution numbers, output sizes, a sample of
-each cap zone, and the spot-checks. A failed check exits non-zero.
+Every run ends with counts, the graph coverage table, distribution numbers,
+output sizes, a sample of each cap zone, the spot-checks and the gold score.
+A failed check or a gold score under the committed one exits non-zero.
+
+Source-graph anchors (2026-09-05): manuscript carries manūscrīptus = manus +
+scrībō, both linked; idea carries a single row naming grc:ἰδέα, that root
+ships and carries a romanization; system carries σύστημα = συν- + ἵστημι +
+-μα; period carries περίοδος = περί + ὁδός, both linked; curious carries
+cūriōsus = cūra + -ōsus; sock carries a single row naming la:soccus, shipped
+with a family of at least one; sky carries a row-only row with lang non and
+no r; hesitation carries haesitātiō = haesitō + -tiō with la:haesito
+carrying haereō + -titō; every row-only org is `{lang, f, gloss?, rom?}`
+and its code is in `ROW_ONLY_LANGS` and in the extension's LANG_NAME table;
+every root card has a family of at least one word; no word with a
+classified origin ships with neither morphs nor org except through a drop
+in the misses file; the graphs have no cycle and no dangling edge (the
+build stops before English is read otherwise).
 
 Etymon anchors: abolitionism = abolition + -ism and absentee = absent + -ee,
 both split by the etymology tree where no plain template offers one.
@@ -784,7 +903,7 @@ resolves") is not an anchor, because it passes either way and pins nothing;
 the had anchor was rewritten for that reason on 2026-08-24.
 
 Data invariants: no entry carries both morphs and org, no morph carries both
-r and w, no root has fewer than two distinct referencing words, every root
+r and w, no root ships with an empty family, every root
 kind is in the SPEC enum, every referenced root key and every word chip target
 exists, en: root keys are affixes only, no key outside en/la/grc and no
 reconstructed form anywhere, every root has a gloss, no output carries a
@@ -795,11 +914,11 @@ Distribution numbers are printed next to the SPEC's expectation rather than
 asserted. They move with the corpus.
 
 Determinism is checked by hand rather than by the build: run it twice and
-compare hashes.
+compare hashes (byte-identical at 2026-09-05, misses file included).
 
 ```sh
-python pipeline/build.py && sha256sum extension/data/*.json > /tmp/h1
-python pipeline/build.py && sha256sum extension/data/*.json | diff /tmp/h1 -
+python pipeline/build.py --offline && sha256sum extension/data/*.json > /tmp/h1
+python pipeline/build.py --offline && sha256sum extension/data/*.json | diff /tmp/h1 -
 ```
 
 ## Spike artifacts
@@ -807,7 +926,10 @@ python pipeline/build.py && sha256sum extension/data/*.json | diff /tmp/h1 -
 `spike.py` and `spike_size.py` answered the feasibility questions before this
 pipeline existed: what fraction of common words decompose, and how large
 `words.json` would be at each frequency cap. `spike-report.md` records what
-they found. They are not part of the build and they are not extended.
+they found. `spike_origin.py` and `spike-origin.md` sized the source-graph
+design (the lookup rules, the prose grammar, the drop census) before it was
+built; the build reimplements what the spike measured and never imports it.
+None are part of the build and none are extended.
 
 Each holds a frozen copy of an early revision of the template tables and the
 parsing helpers. `build.py` is the authority for how the extracts are read and

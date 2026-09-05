@@ -1344,13 +1344,79 @@ and the eyeball sample, never by a reader first.
 - Anchors added 2026-09-05: manuscript carries manūscrīptus = manus +
   scrībō, both linked; idea carries a single row naming grc:ἰδέα and
   that root ships; system carries σύστημα decomposed; period carries
-  περίοδος = περι- + ὁδός; curious carries cūriōsus = cūra + -ōsus;
+  περίοδος = περί + ὁδός (corrected 2026-09-05, see the build notes
+  below: the extract splits it on the preposition, not the prefix);
+  curious carries cūriōsus = cūra + -ōsus;
   sock carries a single row naming la:soccus and that root ships with
   a family of at least one; sky carries a row-only single row with
   lang non and no `r`; no word with an origin template to a classified
   language ships with neither morphs nor org, except through a drop
   whose reason is in the misses report.
 - The gold score is printed and gated as specified in Principle 5.
+
+### Phase one as built (dated notes, 2026-09-05, build agent)
+
+Each note records where the build had to read this section against the
+extracts and what it did. None of them is a silent divergence; the
+owner rules on each.
+
+- period reads περίοδος = περί + ὁδός, not περι- + ὁδός. The Greek page
+  splits it as περῐ́ + ὁδός, the preposition περί reached through the
+  length-mark rule; the prefix page περι- is a different node. The
+  anchor and the gold row pin περί.
+- hesitation reads haesitātiō = haesitō + -tiō, with the haesitō card
+  carrying haereō + -titō. Under never-silent hesitance attaches as well
+  and both reach haesitō, so it is an anchor by the 2026-09-01 rule and
+  the row stops there. The 2026-09-01 wording (haereō + -titō + -tiō)
+  described the build before hesitance attached.
+- curious reads cūriōsus = cūra + -ōsus from a curated source edge
+  (`SOURCE_SPLITS` in curation.py), not from prose. The Latin page
+  records cūriōsus as a back-formation from incūriōsus, and no English
+  entry of curious names cūra; the only English split template on the
+  page belongs to the curium sense. The mockup's row is the standard
+  analysis, so it is data with its reason.
+- sock reads soccus because an alternative-form page is not a node.
+  σύκχος, which the sock page names, is a spelling of συγχίς (a glossed
+  Greek lemma). The lookup steps through form-of pages but through an
+  alternative-form page only in a fallback pass, and the fallback pass
+  wins only when it reaches a node that decomposes (μονάρχης is a
+  spelling of μόναρχος, which splits, so monarch reads Greek). idea
+  reads ἰδέα by the plain deepest rule.
+- Deepest term is read per language run: the terms an English page
+  names fall into runs by language, the first term of a run is the
+  lemma English borrowed, and the rest of the run is that lemma's own
+  ancestry. The word attaches to the deepest run's entry lemma, or to a
+  run whose entry decomposes when the deepest does not. Without the run
+  rule access attached to accēdō instead of accessus and every anchor
+  above a base verb lost its reaches.
+- A plus-chain in English prose belongs to the last root or
+  pass-through term named before it. When that term is a node without
+  a split, the chain supplies its parts (dīvortium = dī- + vertō); when
+  it is a term Wiktionary never wrote, the row reads the term as written
+  over the parts (ad montem = ad + mōns); when it is a reconstruction,
+  the starred form labels the row (*manizāre = manus + -izō); when it is
+  a pass-through word and no root lemma is named, the French word
+  labels the row and the chips stay Latin (lang fro, frm or fr on a
+  decomposed row). A chain with no term before it ("From Latin
+  spectāculum + -ar") is the English word's own analysis and its first
+  term is the lemma.
+- A word whose chain ends in a pass-through language with nothing
+  deeper (dessert at Middle French, quite at Anglo-Norman) renders no
+  row and goes to the misses file with that reason, since pass-through
+  pages never ship. kaikki publishes no Anglo-Norman extract, so an xno
+  page is never walked.
+- A homograph's card gloss is picked with support from the attaching
+  words (the template gloss and the English word itself): cava reads
+  "a hollow, hole, cave" for cave rather than the jackdaw. A name entry
+  never wins on support. ROOT_GLOSSES still overrides.
+- Greek forms print the page title, never the canonical form with its
+  vowel-length marks; the romanization keeps kaikki's marks as before.
+- Root cards grew by about 3,000, not 1,900: attachment by any mention
+  reaches more lemmas than the spike's chain set did. The outcome
+  against the 1,752 misses is 546 decomposed, 1,027 single and 179
+  nothing (the spike sized 488, 1,039 and 225); inside the top 10,000,
+  172, 340 and 41 (141, 359 and 53). The build report prints the line
+  every run, from pipeline/misses-2026-09-01.txt.
 
 ## Naming (Jesse decision 2026-08-25)
 
