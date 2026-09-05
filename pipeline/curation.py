@@ -19,6 +19,7 @@ time, each with the reason it exists. They are reviewed in PR diffs.
     BASE_ROUTES      bound base part -> the classical root it really names
     ROOT_STOPS       source lemmas recursion must never split
     LEMMA_STEPS      source-language lemma -> the lemma a chain steps to
+    SOURCE_SPLITS    hand decomposition edge in a source graph
 
 An ROOT_ALIASES key is a bare surface form (terra, terr-) when it should
 bind wherever that form appears, English morphemes included, and a
@@ -291,6 +292,25 @@ LEMMA_STEPS = {
     # reached a lemma with no split, and deponent shipped nothing. prōpōnēns
     # beside it IS a form-of page and steps to prōpōnō on its own. The step
     # here is the one the source would record if the page were shaped like
-    # its sibling (owner decision 2026-09-01).
+    # its sibling (owner decision 2026-09-01). The participle step of the
+    # source graph reads the same page's etymon now; the entry stays because
+    # curation wins over the extract at every hop.
     "la:deponens": "la:depono",
+}
+
+# --------------------------------------------------------------- source splits
+# Hand decomposition edges in a source graph, the FORCED_SPLITS of the root
+# languages. Keys are language-qualified page keys, macrons stripped; values
+# are the parts as the source page spells them, resolved through the same
+# lookup rules as a template part. An entry overrides whatever the page's
+# templates and prose say, so each one carries the reason the page's own
+# account is not the one to show.
+
+SOURCE_SPLITS = {
+    # The Latin page records cūriōsus as a back-formation from incūriōsus
+    # (incūria + -ōsus), which is a history, not an assembly: no row could
+    # show it, and curious shipped "From Latin cūriōsus" with nothing to
+    # click. The standard analysis, and the one the owner's mockup shows, is
+    # cūra ("care") + -ōsus ("full of") (SPEC row shape 5, 2026-09-05).
+    "la:curiosus": ["cūra", "-ōsus"],
 }

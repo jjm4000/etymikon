@@ -2,12 +2,15 @@
 # -*- coding: utf-8 -*-
 """Etymikon -- build-time data pipeline (Agent A).
 
-    download-if-missing  ->  parse  ->  curate  ->  cap  ->  emit  ->  verify
+    download-if-missing  ->  graphs  ->  parse  ->  curate  ->  cap  ->  emit  ->  verify
 
 Sources
     * kaikki.org English Wiktionary extract (JSONL gzip, ~500 MB):
-      definitions, morpheme splits, origin chains, inflected forms
-    * kaikki.org Latin and Ancient Greek extracts: root lemma glosses
+      definitions, morpheme splits, origin mentions, inflected forms
+    * kaikki.org Latin and Ancient Greek extracts: the source graphs
+      (lemma nodes, decomposition edges, step edges)
+    * kaikki.org Old French, Middle French and French extracts: the
+      pass-through pages a chain walks on its way to a root language
     * hermitdave/FrequencyWords en_full (OpenSubtitles 2018): ranks
 
 Outputs (UTF-8, no BOM, compact / no indentation)
@@ -84,6 +87,31 @@ ENGLISH_FILE = os.path.join(CACHE, "kaikki-English.jsonl.gz")
 LATIN_FILE = os.path.join(CACHE, "kaikki-Latin.jsonl.gz")
 GREEK_FILE = os.path.join(CACHE, "kaikki-AncientGreek.jsonl.gz")
 EXTFREQ_FILE = os.path.join(CACHE, "en_full_opensubtitles.txt")
+# The pass-through extracts (owner decision 2026-09-05). A chain that stops
+# at Old French continues to Latin when the French page names it, so the
+# French-group pages are read for their mentions and never ship as cards.
+# kaikki publishes no Anglo-Norman extract (checked 2026-09-05), so an xno
+# mention is walked only through what the English page itself says.
+PASS_FILES = {
+    "fro": ("https://kaikki.org/dictionary/Old%20French/"
+            "kaikki.org-dictionary-OldFrench.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldFrench.jsonl.gz")),
+    "frm": ("https://kaikki.org/dictionary/Middle%20French/"
+            "kaikki.org-dictionary-MiddleFrench.jsonl.gz",
+            os.path.join(CACHE, "kaikki-MiddleFrench.jsonl.gz")),
+    "fr": ("https://kaikki.org/dictionary/French/"
+           "kaikki.org-dictionary-French.jsonl.gz",
+           os.path.join(CACHE, "kaikki-French.jsonl.gz")),
+}
+# The gold set and its committed score (SPEC "Principle 5"). The build scores
+# itself against the rows on every run and fails when it scores under the
+# committed number.
+GOLD_FILE = os.path.join(HERE, "gold.json")
+GOLD_SCORE_FILE = os.path.join(HERE, "gold-score.json")
+# The 1,752 words that stated a classical origin and shipped nothing at
+# 2026-09-01. The report counts what each of them renders now, so the
+# expected outcome of the source-graph design is checked, not assumed.
+MISSES_BASELINE_FILE = os.path.join(HERE, "misses-2026-09-01.txt")
 
 # ---------------------------------------------------------------- shape caps
 
@@ -234,12 +262,25 @@ def la_key(s: str) -> str:
 
 
 def grc_key(s: str) -> str:
-    """Greek root key: NFC, lowercased. Accents and breathings are kept.
+    """Greek root key: vowel-length marks stripped, NFC, lowercased.
 
-    Greek spelling is meaningful, so nothing is stripped. NFC is what makes
-    Μοῦσα from a chain template and μοῦσα from the extract one key.
+    Accents and breathings are kept, because Greek spelling is meaningful.
+    The macron and breve are not spelling: templates write σῠνῐ́στημῐ and
+    περῐ́ to show vowel length, and page titles never carry them, so the
+    length marks are dropped from the key (SPEC lookup rules, 2026-09-05;
+    the rule alone reached 87 of 421 missing chain lemmas in the spike).
+    NFC is what makes Μοῦσα from a template and μοῦσα from the extract one
+    key.
     """
-    return unicodedata.normalize("NFC", s or "").lower()
+    d = unicodedata.normalize("NFD", s or "")
+    return unicodedata.normalize("NFC", RE_MACRON.sub("", d)).lower()
+
+
+def strip_marks(s: str) -> str:
+    """Every combining mark removed: the loose key behind the accent and
+    breathing fallback (πάπας reaches πάππας, coërceō reaches coerceo)."""
+    return "".join(ch for ch in unicodedata.normalize("NFD", s or "")
+                   if unicodedata.category(ch) != "Mn").lower()
 
 
 def norm_key(lang: str, s: str) -> str:
@@ -356,6 +397,148 @@ GREEK_CODES = frozenset({"grc", "grc-koi", "gkm"})
 # A suffix that only inflects. A split ending in one of these is not a
 # breakdown, so the word keeps its card and loses its morphs row.
 INFLECTIONAL = frozenset({"-s", "-es", "-ed", "-ing", "-est", "-'s", "-s'"})
+
+# ------------------------------------------------------- language roles
+#
+# Every language code the extracts use falls into exactly one role (SPEC
+# "Origin subsystem, source graphs", Principle 2, owner decision
+# 2026-09-05). The tables are data with a reason per row and sit under the
+# census gate: a code at or above CENSUS_MIN uses in no role fails the build,
+# the same loud-failure pattern as an unclassified template name.
+#
+#   root          nodes ship as root cards with families; phase one is Latin
+#                 (every period code) and Ancient Greek (grc, grc-koi, gkm)
+#   pass-through  pages are walked to continue a chain toward a root language
+#                 and never ship as cards; phase one is the French group
+#   row-only      every other attested language; the word renders one inert
+#                 origin row ("From Old Norse ský (cloud)") and nothing else
+#   ignored       codes that name no origin language at all
+#
+# A reconstructed term (starting with `*`) ends the walk whatever its code, so
+# the proto-language codes need no row: they never carry an attested term.
+ROOT_LANGS = {}
+for _c in LATIN_CODES:
+    ROOT_LANGS[_c] = "la"
+for _c in GREEK_CODES:
+    ROOT_LANGS[_c] = "grc"
+# Old Northern French is an etymology-only variant of Old French and its
+# terms live on the Old French pages.
+PASS_LANGS = {"fro": "Old French", "fro-nor": "Old French", "xno": "Anglo-Norman",
+              "frm": "Middle French", "fr": "French"}
+PASS_EXTRACT = {"fro": "fro", "fro-nor": "fro", "frm": "frm", "fr": "fr"}
+# Row-only languages with the name the row prints, read off the language
+# census of the English extract (2026-09-05, every code down to about 60
+# uses). The name is what Wiktionary prints for the code; the extension's
+# LANG_NAME table has to carry every code that reaches a row, and verify
+# checks it does.
+ROW_ONLY_LANGS = {
+    "enm": "Middle English", "ang": "Old English", "de": "German",
+    "nl": "Dutch", "es": "Spanish", "it": "Italian", "sv": "Swedish",
+    "cmn": "Mandarin", "non": "Old Norse", "da": "Danish", "ja": "Japanese",
+    "sa": "Sanskrit", "is": "Icelandic", "ar": "Arabic", "ru": "Russian",
+    "fy": "West Frisian", "sco": "Scots", "pl": "Polish", "ga": "Irish",
+    "ro": "Romanian", "stq": "Saterland Frisian", "cy": "Welsh",
+    "he": "Hebrew", "uk": "Ukrainian", "pt": "Portuguese",
+    "dum": "Middle Dutch", "no": "Norwegian", "nds": "Low German",
+    "goh": "Old High German", "hi": "Hindi", "gml": "Middle Low German",
+    "nds-de": "German Low German", "yi": "Yiddish", "fa": "Persian",
+    "gd": "Scottish Gaelic", "gmh": "Middle High German", "got": "Gothic",
+    "cs": "Czech", "nn": "Norwegian Nynorsk", "fo": "Faroese",
+    "lt": "Lithuanian", "el": "Greek", "hy": "Armenian", "frr": "North Frisian",
+    "sq": "Albanian", "sh": "Serbo-Croatian", "nb": "Norwegian Bokmål",
+    "fa-cls": "Classical Persian", "ko": "Korean", "ms": "Malay",
+    "lb": "Luxembourgish", "nan-hbl": "Hokkien", "yue": "Cantonese",
+    "zh": "Chinese", "af": "Afrikaans", "tr": "Turkish", "mi": "Māori",
+    "osx": "Old Saxon", "sk": "Slovak", "tl": "Tagalog", "eu": "Basque",
+    "ca": "Catalan", "ota": "Ottoman Turkish", "sga": "Old Irish",
+    "sl": "Slovene", "ofs": "Old Frisian", "mni": "Manipuri",
+    "gsw": "Alemannic German", "wym": "Vilamovian", "hu": "Hungarian",
+    "ur": "Urdu", "ta": "Tamil", "cim": "Cimbrian", "oc": "Occitan",
+    "nrf": "Norman", "bg": "Bulgarian", "yol": "Yola", "be": "Belarusian",
+    "kw": "Cornish", "hbo": "Biblical Hebrew", "fi": "Finnish",
+    "lv": "Latvian", "bn": "Bengali", "vi": "Vietnamese", "egy": "Egyptian",
+    "bar": "Bavarian", "haw": "Hawaiian", "br": "Breton", "th": "Thai",
+    "ae": "Avestan", "id": "Indonesian", "pa": "Punjabi",
+    "nci": "Classical Nahuatl", "pro": "Old Occitan", "ka": "Georgian",
+    "my": "Burmese", "gl": "Galician", "scn": "Sicilian", "li": "Limburgish",
+    "arc": "Aramaic", "mk": "Macedonian", "ml": "Malayalam", "gv": "Manx",
+    "cu": "Old Church Slavonic", "bo": "Tibetan", "txb": "Tocharian B",
+    "ltc": "Middle Chinese", "dz": "Dzongkha", "ovd": "Elfdalian",
+    "ug": "Uyghur", "gmw-cfr": "Central Franconian", "mhn": "Mòcheno",
+    "mn": "Mongolian", "akk": "Akkadian", "mr": "Marathi", "oj": "Ojibwe",
+    "ceb": "Cebuano", "vls": "West Flemish", "te": "Telugu", "km": "Khmer",
+    "gmq-osw": "Old Swedish", "pal": "Middle Persian", "xcl": "Old Armenian",
+    "kmr": "Northern Kurdish", "mga": "Middle Irish", "hop": "Hopi",
+    "yo": "Yoruba", "gu": "Gujarati", "ne": "Nepali", "xto": "Tocharian A",
+    "fa-ira": "Iranian Persian", "hit": "Hittite", "pt-BR": "Brazilian Portuguese",
+    "tpw": "Old Tupi", "odt": "Old Dutch", "qu": "Quechua", "am": "Amharic",
+    "peo": "Old Persian", "roa-oit": "Old Italian", "os": "Ossetian",
+    "enm-nor": "Northern Middle English", "syc": "Classical Syriac",
+    "nah": "Nahuatl", "rom": "Romani", "ps": "Pashto", "sw": "Swahili",
+    "phn": "Phoenician", "sux": "Sumerian", "ett": "Etruscan",
+    "nan-tws": "Teochew", "si": "Sinhalese", "nrn": "Norn", "et": "Estonian",
+    "cr": "Cree", "kk": "Kazakh", "orv": "Old East Slavic", "kn": "Kannada",
+    "iu": "Inuktitut", "zu": "Zulu", "prg": "Old Prussian",
+    "es-MX": "Mexican Spanish", "osp": "Old Spanish", "gmq-oda": "Old Danish",
+    "cop": "Coptic", "ibl": "Ibaloi", "gmw-msc": "Middle Scots",
+    "az": "Azerbaijani", "xpg": "Phrygian", "frk": "Frankish",
+    "lad": "Ladino", "grk-pro": "Proto-Hellenic",
+}
+# Codes that name no origin language, each with the reason.
+IGNORED_LANGS = {
+    "en": "the page's own language; an English term is a word, not an origin",
+    "mul": "translingual, a taxonomic or symbolic name rather than a language",
+    "mul-tax": "a taxonomic name",
+    "cmn-pinyin": "a romanization scheme, printed beside the Mandarin term",
+    "cmn-wadegiles": "a romanization scheme",
+    "cmn-tongyong": "a romanization scheme",
+    "zh-postal": "a romanization scheme",
+    "und": "an undetermined language",
+    "qfa-sub": "an unnamed substrate language",
+    "qfa-und": "an undetermined language",
+}
+RE_MULTI_CODE = re.compile(r",")
+
+
+def lang_role(code: str) -> str:
+    """One of root, pass, row, ignored, or "" for a code in no role."""
+    if code in ROOT_LANGS:
+        return "root"
+    if code in PASS_LANGS:
+        return "pass"
+    if code in ROW_ONLY_LANGS:
+        return "row"
+    if code in IGNORED_LANGS or RE_MULTI_CODE.search(code):
+        # "da,nb,nn,sv" is several codes in one argument, the shape of a
+        # cognate list. A proto-language code names nothing attested.
+        return "ignored"
+    if code.endswith("-pro") or code in ("gem", "gmq", "gmw", "cel", "sla",
+                                          "inc", "ira", "sem", "ine-ana",
+                                          "roa", "itc", "grk", "inc-hnd"):
+        return "ignored"
+    return ""
+
+
+def language_gate(counts):
+    """Fail the build on a high-count language code in no role.
+
+    `counts` is the census of language codes on origin and mention templates
+    carrying an attested term. Returns the top table for the report.
+    """
+    top = [(c, n, lang_role(c) or "UNCLASSIFIED") for c, n in counts.most_common(40)]
+    unknown = sorted(((n, c) for c, n in counts.items()
+                      if n >= CENSUS_MIN and not lang_role(c)), reverse=True)
+    if unknown:
+        log("=========== LANGUAGE CENSUS FAILED =========")
+        for n, c in unknown:
+            log("  %8s  %s" % (format(n, ","), c))
+        log("Every language code at or above %s uses must be a root, pass-"
+            "through, row-only or ignored language in build.py. Classify the "
+            "codes above, then rebuild." % format(CENSUS_MIN, ","))
+        write_report()
+        raise SystemExit("language census: %d unclassified code(s) at or "
+                         "above %d uses" % (len(unknown), CENSUS_MIN))
+    return top
 
 RE_PART_MOD = re.compile(r"<[^>]*>")
 RE_PART_BRACKET = re.compile(r"[<>]")
@@ -616,6 +799,55 @@ def entry_chain(e):
         elif code in GREEK_CODES:
             hit = ("grc", lemma)
     return hit
+
+
+RE_ETY_ROOT_CODE = re.compile(r"(?:^|[<:\s|])(la|la-[a-z]+|grc|grc-koi|gkm|fro|fro-nor|frm|fr|xno):")
+
+
+def names_classical(e):
+    """True when an entry names a root or pass-through language term.
+
+    The candidacy test for the tail (owner decision 2026-09-01, widened
+    2026-09-05 to every mention): a superset of what attaches, since emit
+    keeps only the words whose row decomposes. Cheap on purpose, it runs on
+    every entry of pass 1.
+    """
+    for t in e.get("etymology_templates") or ():
+        name = t.get("name") or ""
+        args = t.get("args") or {}
+        if name in ORIGIN_NAMES:
+            code, term = args.get("2") or "", args.get("3") or ""
+        elif name in MENTION_NAMES:
+            code, term = args.get("1") or "", args.get("2") or ""
+        elif name in ETY_NAMES or name in DECOMP_NAMES or name in SURF_NAMES:
+            for v in args.values():
+                if isinstance(v, str) and RE_ETY_ROOT_CODE.search(v):
+                    return True
+            continue
+        else:
+            continue
+        term = term.strip()
+        if term and term != "-" and not term.startswith("*") \
+                and (code in ROOT_LANGS or code in PASS_LANGS):
+            return True
+    return False
+
+
+def language_codes(e, counts):
+    """Count the language codes on origin and mention templates that carry
+    an attested term, for the language census."""
+    for t in e.get("etymology_templates") or ():
+        name = t.get("name") or ""
+        args = t.get("args") or {}
+        if name in ORIGIN_NAMES:
+            code, term = args.get("2") or "", args.get("3") or ""
+        elif name in MENTION_NAMES:
+            code, term = args.get("1") or "", args.get("2") or ""
+        else:
+            continue
+        term = term.strip()
+        if code and term and term != "-" and not term.startswith("*"):
+            counts[code] += 1
 
 
 def pure_form_of(e):
@@ -956,6 +1188,7 @@ def survey_english(path, ranks):
     mixed_raw = {}
     affixes = {}
     tnames = collections.Counter()
+    lcodes = collections.Counter()
     stats = collections.Counter()
     with gzip.open(path, "rb") as f:
         for line in f:
@@ -970,6 +1203,7 @@ def survey_english(path, ranks):
                 n = t.get("name")
                 if n:
                     tnames[n] += 1
+            language_codes(e, lcodes)
             wl = w.lower()
             pos = e.get("pos") or ""
             fo = inflection_form_of(e)
@@ -1045,13 +1279,13 @@ def survey_english(path, ranks):
                     stats["tail_split"] += 1
                 cand.add(wl)
                 chain_only.discard(wl)
-            elif wl not in cand and entry_chain(e) is not None:
-                # A flattenable classical origin chain is a breakdown too
-                # (owner decision 2026-09-01). Whether this one flattens is
-                # not knowable here: it depends on the dominant entry, on
-                # the source-language extracts and on the anchor set, none
-                # of which pass 1 has. So the word becomes a candidate and
-                # emit drops it again unless its org row decomposes.
+            elif wl not in cand and names_classical(e):
+                # A flattenable classical origin is a breakdown too (owner
+                # decision 2026-09-01). Whether this one flattens is not
+                # knowable here: it depends on the dominant entry, on the
+                # source graphs and on the anchor set, none of which pass 1
+                # has. So the word becomes a candidate and emit drops it
+                # again unless its org row decomposes.
                 cand.add(wl)
                 chain_only.add(wl)
                 stats["tail_chain"] += 1
@@ -1060,18 +1294,20 @@ def survey_english(path, ranks):
     cand |= set(curation.FORCED_SPLITS)
     chain_only -= set(curation.FORCED_SPLITS)
     return (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes,
-            tnames, stats)
+            tnames, lcodes, stats)
 
 
 # ------------------------------------------------------- English pass 2
 
-def harvest_english(path, cand):
-    """Second pass: senses, split and chain for every candidate word.
+def harvest_english(path, cand, origin):
+    """Second pass: senses, split and attachment for every candidate word.
 
-    The split and the chain both come from the dominant entry, meaning the
-    non-name, non-form-of entry with the most senses. That is the rule that
-    keeps `number` a count noun instead of numb + -er: the 17-sense entry
-    wins and it carries no split at all.
+    The split and the attachment both come from the dominant entry, meaning
+    the non-name, non-form-of entry with the most senses. That is the rule
+    that keeps `number` a count noun instead of numb + -er: the 17-sense
+    entry wins and it carries no split at all. The attachment is computed
+    here, while the entry is in hand, so the harvest keeps one small record
+    per word rather than the entry's templates and prose.
     """
     out = {}
     stats = collections.Counter()
@@ -1116,7 +1352,7 @@ def harvest_english(path, cand):
             rec = out.get(wl)
             if rec is None:
                 rec = {"pos": [], "defs": {}, "ns": -1, "sp": None,
-                       "org": None}
+                       "att": None}
                 out[wl] = rec
             pos = e.get("pos") or "other"
             if pos not in rec["defs"]:
@@ -1137,33 +1373,858 @@ def harvest_english(path, cand):
             if ns > rec["ns"]:
                 rec["ns"] = ns
                 rec["sp"] = entry_split(e, "en")
-                rec["org"] = entry_chain(e)
+                mentions, chains = page_mentions(
+                    e.get("etymology_templates") or [],
+                    e.get("etymology_text") or "", "en", wl)
+                rec["att"] = origin.attach(mentions, chains, wl)
+                if rec["att"] is not None:
+                    stats["attached" if "key" in rec["att"] else
+                          "rowonly" if "row" in rec["att"] else "missed"] += 1
     return out, stats
 
 
-# ------------------------------------------------- Latin and Greek extracts
+# ------------------------------------------------------- source graphs
+#
+# The origin subsystem is source-graph first (SPEC "Origin subsystem, source
+# graphs", owner decisions 2026-09-05). Each root language is built as a
+# standalone graph before any English page is read: a node is a glossed
+# lemma with a display form and, for Greek, a romanization; a decomposition
+# edge comes from the decomposition templates, from the etymon tree, or from
+# the etymology prose; a step edge takes an inflection or participle page to
+# its lemma. English words attach to the graph afterwards, by any mention.
+#
+# Everything below this banner up to the Origin class is the graph: the key
+# lookup rules, the prose parser, the mention reader shared with the English
+# and pass-through pages, and the graph builder with its own verification.
+
+# The mention-shaped templates: a language code in arg 1 and a term in arg 2.
+# `noncog` and `cog` are here on purpose. Wiktionary editors use them for
+# ordinary mentions as well ("equivalent to Latin manū + Latin scrīptus" on
+# manuscript is written with {{noncog}}), so the template name is never what
+# decides whether a term is an origin; the sentence it sits in is (SPEC
+# Principle 3).
+MENTION_NAMES = frozenset({"m", "m+", "l", "l+", "mention", "link",
+                           "cog", "ncog", "noncog", "cognate"})
+
+# A sentence that names a term as a relative rather than a source. The role
+# of a mention is read off the sentence around it, never off the template
+# name, and a term in one of these clauses is not an origin.
+RE_STANCE_COGNATE = re.compile(
+    r"\b(cognate\w*|compar\w*|cf\.?|akin|related|see also|more at|"
+    r"whence|doublet\w*|displac\w*|replac\w*|supersed\w*|reinforc\w*|"
+    r"influenc\w*|confus\w*|contaminat\w*|analog\w*|parallel\w*|"
+    r"same source|correspond\w*|descendants?|also the source|"
+    r"semantic loan|calque\w*|loan translation|eclips\w*|also from|"
+    r"equivalent to (?:the )?(?:modern|later|earlier))\b", re.I)
+# A sentence that states a source, which ends a cognate list's reach.
+RE_STANCE_ORIGIN = re.compile(
+    r"\b(from|borrow\w*|inherit\w*|deriv\w*|via|ultimately|calque\w*|"
+    r"of \w+ origin)\b", re.I)
+# A full stop that closes an abbreviation rather than a sentence.
+RE_ABBREV = re.compile(
+    r"(?:\b(?:e\.g|i\.e|cf|c|ca|etc|vs|viz|St|Mt|Dr|No|fl|al|ibid|op|cit|"
+    r"s\.v|q\.v|approx|esp|lit|pl|sg|masc|fem|neut|nom|gen|acc|dat|abl|"
+    r"[A-Z])|\d)\.$")
+# A sentence that rejects the derivation it names. A prose split inside one
+# is refused (SPEC Principle 1) and a mention inside one is no origin.
+RE_STANCE_REJECT = re.compile(
+    r"\b(not from|not derived|not related|unrelated|rather than|instead of|"
+    r"folk etymolog\w*|false etymolog\w*|has been (?:wrongly|erroneously)|"
+    r"mistakenly|incorrectly|no relation|is not|are not|does not derive|"
+    r"problematic|doubtful|dubious|rejected|discredited|disputed|unlikely|"
+    r"untenable|improbable)\b", re.I)
+
+# Language names as the prose writes them, to the family a graph is keyed by
+# or the code a row prints. Read off the spike's census of language names in
+# etymology prose (2026-09-05).
+LATIN_NAMES = {"Latin": "la", "Late Latin": "la", "Medieval Latin": "la",
+               "New Latin": "la", "Vulgar Latin": "la", "Ecclesiastical Latin": "la",
+               "Classical Latin": "la", "Mediaeval Latin": "la", "Renaissance Latin": "la",
+               "Modern Latin": "la", "Scientific Latin": "la", "British Latin": "la",
+               "Old Latin": "la"}
+GREEK_NAMES = {"Ancient Greek": "grc", "Koine Greek": "grc", "Byzantine Greek": "grc",
+               "Hellenistic Greek": "grc", "Attic Greek": "grc", "Ionic Greek": "grc",
+               "Doric Greek": "grc", "Aeolic Greek": "grc", "Homeric Greek": "grc",
+               "Epic Greek": "grc"}
+OTHER_NAMES = {"Greek": "el", "Modern Greek": "el", "Old French": "fro", "Middle French": "frm",
+               "French": "fr", "Anglo-Norman": "xno", "Old Northern French": "fro",
+               "Middle English": "enm", "Old English": "ang", "English": "en",
+               "Proto-Indo-European": "ine-pro", "Proto-Italic": "itc-pro",
+               "Proto-Hellenic": "grk-pro", "Proto-Germanic": "gem-pro",
+               "Proto-West Germanic": "gmw-pro", "Italian": "it", "Spanish": "es",
+               "German": "de", "Dutch": "nl", "Old Norse": "non", "Frankish": "frk",
+               "Old High German": "goh", "Middle High German": "gmh",
+               "Hebrew": "he", "Arabic": "ar", "Sanskrit": "sa", "Portuguese": "pt",
+               "Old Italian": "roa-oit", "Old Spanish": "osp", "Old Occitan": "pro",
+               "Middle Dutch": "dum", "Old Dutch": "odt", "Old Irish": "sga",
+               "Etruscan": "ett", "Persian": "fa", "Middle Persian": "pal",
+               "Old Persian": "peo", "Turkish": "tr", "Ottoman Turkish": "ota",
+               "Japanese": "ja", "Mandarin": "cmn", "Russian": "ru", "Egyptian": "egy",
+               "Coptic": "cop", "Aramaic": "arc", "Akkadian": "akk", "Gaulish": "cel-gau",
+               "Proto-Celtic": "cel-pro", "Proto-Slavic": "sla-pro", "Pre-Greek": "qsb-grc",
+               "Phoenician": "phn", "Scots": "sco", "Norman": "nrf", "Occitan": "oc",
+               "Catalan": "ca", "Late Middle English": "enm", "Early Modern English": "en",
+               "Middle Low German": "gml", "Low German": "nds", "Swedish": "sv",
+               "Danish": "da", "Irish": "ga", "Welsh": "cy", "Hindi": "hi",
+               "Proto-Semitic": "sem-pro", "Proto-Iranian": "ira-pro",
+               "Proto-Balto-Slavic": "ine-bsl-pro", "Gothic": "got", "Old Saxon": "osx",
+               "Old Frisian": "ofs", "West Frisian": "fy", "Icelandic": "is",
+               "Norwegian": "no", "Yiddish": "yi", "Polish": "pl", "Czech": "cs"}
+LANG_NAMES = {}
+LANG_NAMES.update(OTHER_NAMES)
+LANG_NAMES.update(LATIN_NAMES)
+LANG_NAMES.update(GREEK_NAMES)
+LANG_FIRST = {n.split(" ")[0] for n in LANG_NAMES}
+
+
+def lang_family(code: str) -> str:
+    """The graph a code belongs to (la, grc) or the code itself."""
+    return ROOT_LANGS.get(code) or code
+
+
+def norm_for(lang: str, s: str) -> str:
+    if lang == "la":
+        return la_key(s)
+    if lang == "grc":
+        return grc_key(s)
+    return unicodedata.normalize("NFC", s or "").lower()
+
+
+def is_greek(s: str) -> bool:
+    return any("\u0370" <= c <= "\u03ff" or "\u1f00" <= c <= "\u1fff" for c in s)
+
+
+RE_NON_LATIN = re.compile("[^\u0020-\u024f\u1e00-\u1eff\u2000-\u206f\u02b0-\u02ff\u0300-\u036f]")
+
+
+def non_latin_script(s: str) -> bool:
+    """True when the form carries a letter outside the Latin ranges."""
+    return bool(RE_NON_LATIN.search(s or ""))
+
+
+# ---- the etymology prose, with a rendered etymology tree removed ----------
+
+RE_TREE_LINE = re.compile(r"^([A-Z][\w\-]*(?: [A-Z][\w\-]*)*) (\S.*)$")
+PROSE_OPENERS = ("From ", "from ", "Borrowed", "Inherited", "Learned", "Ultimately",
+                 "By surface", "Partly", "Probably", "Possibly", "Perhaps", "Uncertain",
+                 "Unknown", "Compound", "Univerbation", "Equivalent", "First ", "Attested",
+                 "Of ", "Named", "Coined", "Originally", "Either", "Semi-learned",
+                 "Unadapted", "Back-formation", "Clipping", "Blend", "Derived", "Related",
+                 "See ", "Compare", "The ", "A ", "An ", "Cognate", "Akin", "Formed")
+
+
+def strip_tree(text, lang, key):
+    """The prose of an etymology_text, with a rendered etymology tree removed.
+
+    wiktextract renders the tree as one line per node ahead of the prose.
+    The prose starts after the line naming the page itself, else after the
+    last tree-shaped line.
+    """
+    if not text or not text.startswith("Etymology tree"):
+        return text or ""
+    lines = text.split("\n")
+    end = None
+    for i in range(len(lines) - 1, 0, -1):
+        m = RE_TREE_LINE.match(lines[i])
+        if not m:
+            continue
+        term = m.group(2).split(" (")[0]
+        term = re.sub(r"((?:[a-z]+\.)+\??|\?)$", "", term)
+        if norm_for(lang, term) == key and m.group(1).split(" ")[0] in LANG_FIRST:
+            end = i
+            break
+    if end is None:
+        for i, ln in enumerate(lines[1:], 1):
+            if ln.startswith(PROSE_OPENERS) or ". " in ln or ", " in ln:
+                end = i - 1
+                break
+    if end is None:
+        return ""
+    return "\n".join(lines[end + 1:])
+
+
+RE_SENT = re.compile(r"(?<=[.;])\s+(?=[A-Z“(])")
+
+
+def sentence_spans(prose):
+    """[(start, end, bullet)] of every sentence in the prose, paragraph by
+    paragraph. A full stop closing an abbreviation ("e.g. Spanish por") does
+    not end a sentence. `bullet` marks a list-item paragraph."""
+    out = []
+    pos = 0
+    for para in prose.split("\n"):
+        bullet = para.lstrip().startswith("*")
+        seg = 0
+        for m in RE_SENT.finditer(para):
+            if RE_ABBREV.search(para[max(0, m.start() - 12):m.start()]):
+                continue
+            if m.start() > seg:
+                out.append((pos + seg, pos + m.start(), bullet))
+            seg = m.end()
+        if len(para) > seg:
+            out.append((pos + seg, pos + len(para), bullet))
+        pos += len(para) + 1
+    return out
+
+
+def sentence_roles(prose, spans):
+    """The stance of every sentence, in order.
+
+    A sentence with a rejection or a cognate cue takes that role; a sentence
+    with a source cue ("from", "borrowed") is an origin; any other sentence
+    continues the role of the sentence before it inside its paragraph, so a
+    cognate list that runs on for several sentences stays a cognate list.
+    A list-item paragraph continues the paragraph above it, which is how
+    "Cognates" followed by one bullet per language reads; any other new
+    paragraph starts as an origin.
+    """
+    roles = []
+    prev = "origin"
+    last_end = 0
+    for a, b, bullet in spans:
+        new_para = prose[last_end:a].count("\n") > 0 if roles else False
+        if new_para and not bullet:
+            prev = "origin"
+        sent = prose[a:b]
+        if RE_STANCE_REJECT.search(sent):
+            r = "reject"
+        elif RE_STANCE_COGNATE.search(sent):
+            r = "cognate"
+        elif RE_STANCE_ORIGIN.search(sent):
+            r = "origin"
+        else:
+            r = prev
+        roles.append(r)
+        prev = r
+        last_end = b
+    return roles
+
+
+# ---- the prose decomposition parser --------------------------------------
+#
+# The grammar the spike measured (pipeline/spike-origin.md, section 2). A
+# sentence is tokenised into words and balanced parenthesis groups, so a plus
+# inside a gloss never splits. Every " + " at depth zero joins the word before
+# it (skipping its parentheses) to the word after it, and pluses chain. A
+# term's language is the language name written before it, else the last
+# language name at depth zero earlier in the sentence, else the page's
+# mention templates, else Greek script means Ancient Greek, else the page's
+# own language. A parenthesis after the head is scanned for a step ("ablative
+# of X", "past participle of X", "frequentative of X", "diminutive of X") and
+# so is a trailing appositive (", accusative of mons"). A Greek head's
+# transliteration is skipped.
+
+STEP_WORDS = ("ablative", "genitive", "dative", "accusative", "nominative", "vocative",
+              "locative", "participle", "supine", "frequentative", "frequentive",
+              "diminutive", "feminine", "neuter", "masculine", "plural", "singular",
+              "comparative", "superlative", "stem", "infinitive", "form", "variant",
+              "contraction", "augmentative", "iterative", "intensive", "inchoative",
+              "denominative", "deverbal", "deverbative", "gerundive", "gerund",
+              "imperative", "future", "perfect", "present", "past", "inflection",
+              "adverb", "adjective", "noun", "verb", "root", "base", "abbreviation",
+              "reduplication", "alternative", "syncopated", "syncopic", "apocopated")
+RE_STEP = re.compile(r"\b(" + "|".join(STEP_WORDS) + r")\b[^()]{0,40}?\bof\s+(?:the\s+)?"
+                     r"([^\s(),;“”\"]+)")
+# The inflectional shapes only: the step EDGES of the graph come from these
+# (SPEC Principle 1, "past participle of X", "ablative of X"), never from a
+# frequentative or diminutive statement, which relates two lemmas.
+RE_STEP_INFLECTION = re.compile(
+    r"\b(participle|ablative|genitive|dative|accusative|nominative|vocative|"
+    r"locative|plural|singular|infinitive|supine|gerundive|gerund|comparative|"
+    r"superlative|inflection)\b[^()]{0,40}?\bof\s+(?:the\s+)?([^\s(),;“”\"]+)")
+RE_TRANSLIT = re.compile(r"^[A-Za-zÀ-ɏḀ-ỿ̀-ͯ' ,\-‑\.]+?(?:,|$)")
+STOP_HEADS = {"the", "a", "an", "of", "from", "and", "or", "suffix", "prefix", "root",
+              "stem", "form", "with", "see", "also", "compare", "its", "their", "this",
+              "that", "which", "as", "in", "on", "to", "by", "for", "via", "either",
+              "both", "same", "second", "first", "element", "elements", "words", "word",
+              "verb", "noun", "adjective", "participle", "ending", "sense", "meaning",
+              "reduplication", "prefixed", "suffixed", "plus", "genitive", "ablative",
+              "accusative", "dative", "nominative", "plural", "singular", "perhaps",
+              "possibly", "probably", "later", "earlier", "originally", "ultimately",
+              "then", "i.e.", "e.g.", "literally", "roughly", "so", "thus", "hence"}
+STRIP_CHARS = ".,;:“”\"'’‘[]{}?!"
+
+
+def tokenize(sent):
+    """[('w', token) | ('p', inner) ...] with parentheses balanced."""
+    items = []
+    buf = []
+
+    def flush():
+        if buf:
+            for tok in "".join(buf).split():
+                items.append(("w", tok))
+            buf.clear()
+
+    i = 0
+    n = len(sent)
+    while i < n:
+        c = sent[i]
+        if c == "(":
+            depth = 1
+            j = i + 1
+            while j < n and depth:
+                if sent[j] == "(":
+                    depth += 1
+                elif sent[j] == ")":
+                    depth -= 1
+                j += 1
+            flush()
+            items.append(("p", sent[i + 1:j - 1] if depth == 0 else sent[i + 1:j]))
+            i = j
+        else:
+            buf.append(c)
+            i += 1
+    flush()
+    return items
+
+
+def clean_head(tok):
+    h = tok.strip(STRIP_CHARS)
+    h = h.replace("\u200b", "")
+    if h.endswith(",") or h.endswith("."):
+        h = h[:-1]
+    return h
+
+
+def lang_phrase_before(items, i):
+    """(code, n_tokens) of a language name ending at token i-1, or (None, 0)."""
+    for n in (3, 2, 1):
+        if i - n < 0:
+            continue
+        toks = items[i - n:i]
+        if any(t[0] != "w" for t in toks):
+            continue
+        phrase = " ".join(clean_head(t[1]) for t in toks)
+        if phrase in LANG_NAMES:
+            return LANG_NAMES[phrase], n
+    return None, 0
+
+
+def lang_phrase_at(items, i):
+    """(code, n_tokens) of a language name starting at token i, or (None, 0)."""
+    for n in (3, 2, 1):
+        toks = items[i:i + n]
+        if len(toks) < n or any(t[0] != "w" for t in toks):
+            continue
+        phrase = " ".join(clean_head(t[1]) for t in toks)
+        if phrase in LANG_NAMES:
+            return LANG_NAMES[phrase], n
+    return None, 0
+
+
+def recent_lang(items, i):
+    """The last language name mentioned at depth 0 before token i."""
+    j = i
+    while j > 0:
+        code, n = lang_phrase_before(items, j)
+        if code:
+            return code
+        j -= 1
+    return None
+
+
+class Term:
+    """One term of a prose plus-chain: its head, language and step target."""
+    __slots__ = ("head", "lang", "explicit", "step", "target")
+
+    def __init__(self, head):
+        self.head = head
+        self.lang = None
+        self.explicit = False
+        self.step = None
+        self.target = None
+
+
+def read_parens(term, items, i):
+    """Attach the paren groups starting at item i to term. Returns the next index."""
+    while i < len(items) and items[i][0] == "p":
+        inner = items[i][1].strip()
+        if is_greek(term.head):
+            m = RE_TRANSLIT.match(inner)
+            if m:
+                inner = inner[m.end():].strip()
+        m = RE_STEP.search(inner)
+        if m and not term.target:
+            tgt = clean_head(m.group(2))
+            if tgt and not tgt.startswith("*"):
+                term.step = m.group(1)
+                term.target = tgt
+        i += 1
+    return i
+
+
+def read_trailing_step(term, items, i):
+    """', accusative of mons' after a head: the appositive form of the step."""
+    if term.target or i >= len(items):
+        return
+    prev = items[i - 1]
+    if prev[0] == "w" and not prev[1].endswith(","):
+        return
+    window = []
+    for t in items[i:i + 8]:
+        if t[0] != "w":
+            break
+        window.append(t[1])
+    m = RE_STEP.search(" ".join(window))
+    if m and window and window[0].strip(STRIP_CHARS) in STEP_WORDS + ("the", "perfect", "present", "past"):
+        tgt = clean_head(m.group(2))
+        if tgt and not tgt.startswith("*"):
+            term.step = m.group(1)
+            term.target = tgt
+
+
+def parse_chains(sent):
+    """Every 'X + Y (+ Z)' chain in one sentence, as lists of Term."""
+    items = tokenize(sent)
+    chains = []
+    i = 0
+    n = len(items)
+    while i < n:
+        if not (items[i][0] == "w" and items[i][1] == "+"):
+            i += 1
+            continue
+        j = i - 1
+        while j >= 0 and items[j][0] == "p":
+            j -= 1
+        if j < 0 or items[j][0] != "w":
+            i += 1
+            continue
+        left = Term(clean_head(items[j][1]))
+        code, nl = lang_phrase_before(items, j)
+        if code:
+            left.lang, left.explicit = code, True
+        else:
+            left.lang = recent_lang(items, j)
+        read_parens(left, items, j + 1)
+        chain = [left]
+        k = i + 1
+        while True:
+            code, nl = lang_phrase_at(items, k)
+            if code:
+                k += nl
+            if k >= n or items[k][0] != "w":
+                break
+            head = clean_head(items[k][1])
+            term = Term(head)
+            if code:
+                term.lang, term.explicit = code, True
+            else:
+                term.lang = chain[-1].lang
+            k2 = read_parens(term, items, k + 1)
+            read_trailing_step(term, items, k2)
+            chain.append(term)
+            if k2 < n and items[k2][0] == "w" and items[k2][1] == "+":
+                k = k2 + 1
+                continue
+            break
+        chains.append(chain)
+        i = k
+    return chains
+
+
+# ---- the mention reader ---------------------------------------------------
+#
+# One reader for three kinds of page: the English page that attaches, the
+# pass-through page a chain walks, and the source page whose prose the graph
+# reads. It returns the ordered mentions of the page and the plus-chains of
+# its prose.
+#
+# A mention is (kind, code, term, gloss, rom, role, pos):
+#   kind   origin   an origin template (der, bor, inh and kin)
+#          mention  a mention-shaped template (m+, l+, noncog, cog)
+#          tree     a node of the etymon tree
+#          part     a part of a decomposition template, or a chain term
+#   role   origin, cognate or reject, read off the sentence the template
+#          expands into; origin templates and tree nodes are origins by
+#          construction, since the template itself is the claim.
+#   pos    where the template expands in the prose, or -1 when unknown. A
+#          plus-chain belongs to the last term named before it, and this is
+#          how that term is found.
+
+RE_LANG_PREFIX = re.compile(r"^([a-z][a-z0-9\-]{1,14}):(.*)$")
+
+
+def match_angle(s, i):
+    """Index just past the '>' that closes the '<' at i."""
+    depth = 0
+    j = i
+    while j < len(s):
+        if s[j] == "<":
+            depth += 1
+        elif s[j] == ">":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return len(s)
+
+
+def parse_eterm(s, default_lang):
+    """(lang, head, [(kind, [terms])]) for one etymon term with its nested tree."""
+    s = s.strip()
+    i = s.find("<")
+    core = s if i < 0 else s[:i]
+    mods = "" if i < 0 else s[i:]
+    lang, head = default_lang, core
+    m = RE_LANG_PREFIX.match(core)
+    if m:
+        lang, head = m.group(1), m.group(2)
+    children = []
+    j = 0
+    while j < len(mods):
+        if mods[j] != "<":
+            j += 1
+            continue
+        k = match_angle(mods, j)
+        inner = mods[j + 1:k - 1]
+        name, _, value = inner.partition(":")
+        if name == "ety":
+            q = value.find("<")
+            kind = (value if q < 0 else value[:q]).strip().lstrip(":")
+            rest = "" if q < 0 else value[q:]
+            terms = []
+            r = 0
+            while r < len(rest):
+                if rest[r] != "<":
+                    r += 1
+                    continue
+                e = match_angle(rest, r)
+                terms.append(parse_eterm(rest[r + 1:e - 1], lang))
+                r = e
+            children.append((kind, terms))
+        j = k
+    return (lang, head.strip(), children)
+
+
+ETY_DECOMP_KINDS = frozenset({"af", "affix", "afeq", "suf", "suffix", "pre", "prefix",
+                              "com", "compound", "con", "confix", "univ",
+                              "univerbation", "surf"})
+
+
+def etymon_analyses(t, page_lang):
+    """[(kind, [eterm])] for one ety/etymon template."""
+    args = t.get("args") or {}
+    lang = args.get("1") or page_lang
+    out = []
+    cur = None
+    i = 2
+    while str(i) in args:
+        a = (args[str(i)] or "").strip()
+        i += 1
+        if not a:
+            continue
+        if a.startswith(":"):
+            cur = (a[1:].split("<")[0], [])
+            out.append(cur)
+        else:
+            if cur is None:
+                cur = ("from", [])
+                out.append(cur)
+            cur[1].append(parse_eterm(a, lang))
+    return lang, out
+
+
+def tree_mentions(eterm, out, kind="tree"):
+    """Walk one etymon term depth first, appending mentions in chain order."""
+    lang, head, children = eterm
+    head = clean_part(head) or ""
+    if head and head not in ("+", "-"):
+        out.append((kind, lang, head, "", "", "origin", -1))
+    for ckind, terms in children:
+        if ckind in ETY_DECOMP_KINDS and len(terms) >= 2:
+            for term in terms:
+                tree_mentions(term, out, "part")
+        else:
+            for term in terms:
+                tree_mentions(term, out, "tree")
+
+
+def clean_gloss_arg(s) -> str:
+    return clean_text(s).strip("“”\"' ")
+
+
+RE_STEP_AFTER = re.compile(r"^[,;]?\s*(?:\(|the\s+)?(?:perfect |present |past |passive |active )*"
+                           r"(participle|ablative|genitive|dative|accusative|nominative|"
+                           r"vocative|infinitive|supine|plural|singular)\b[^()]{0,30}?"
+                           r"\bof\s+(?:the\s+)?([^\s(),;“”\"]+)")
+
+
+def prose_step(prose, pos, exp):
+    """The lemma the prose steps a term to right after its mention.
+
+    "from Latin appreciātus, past participle of appretiō" names appretiō as
+    the next term of the chain, and the English page writes it with no
+    template of its own. The step shapes are the inflectional ones only.
+    """
+    if pos < 0 or not exp:
+        return ""
+    tail = prose[pos + len(exp):pos + len(exp) + 90]
+    m = RE_STEP_AFTER.match(tail)
+    if not m:
+        return ""
+    tgt = clean_head(m.group(2))
+    if not tgt or tgt.startswith("*") or tgt.lower() in STOP_HEADS:
+        return ""
+    return tgt
+
+
+def paren_role(prose, at):
+    """The stance of the parenthesis a position sits in, or ""."""
+    depth = 0
+    j = at - 1
+    while j >= 0 and at - j < 400:
+        c = prose[j]
+        if c == ")":
+            depth += 1
+        elif c == "(":
+            if depth == 0:
+                inner = prose[j + 1:at]
+                if RE_STANCE_REJECT.search(inner):
+                    return "reject"
+                if RE_STANCE_COGNATE.search(inner):
+                    return "cognate"
+                return ""
+            depth -= 1
+        elif c == "\n":
+            return ""
+        j -= 1
+    return ""
+
+
+def page_mentions(templates, text, page_lang, key):
+    """(mentions, chains) for one page. See the banner above for the shapes.
+
+    `chains` is the prose parser's output, [[Term, ...], ...], in sentence
+    order, with each chain's sentence stance attached as the list's last
+    element ("origin" or "reject").
+    """
+    prose = strip_tree(text or "", page_lang, key)
+    spans = sentence_spans(prose)
+    roles = sentence_roles(prose, spans)
+
+    def role_at(pos):
+        for (a, b, _), r in zip(spans, roles):
+            if a <= pos < b:
+                inner = paren_role(prose, pos)
+                if inner:
+                    return inner
+                return r
+        return "origin"
+
+    mentions = []
+    cursor = 0
+    for t in templates or ():
+        name = t.get("name") or ""
+        args = t.get("args") or {}
+        if name in ORIGIN_NAMES:
+            code = args.get("2") or ""
+            term = clean_part(args.get("3") or "")
+            raw = (args.get("3") or "").strip()
+            if raw.startswith("*"):
+                term = "*" + (clean_part(raw[1:]) or "")
+            if not code or not term or term == "-":
+                continue
+            gloss = clean_gloss_arg(args.get("t") or args.get("5") or "")
+            rom = clean_text(args.get("tr") or "")
+            exp = t.get("expansion") or ""
+            pos = -1
+            if exp:
+                at = prose.find(exp, cursor)
+                if at >= 0:
+                    cursor = at
+                    pos = at
+            mentions.append(("origin", code, term, gloss, rom, "origin", pos))
+            stepped = prose_step(prose, pos, exp)
+            if stepped:
+                mentions.append(("mention", code, stepped, "", "", "origin", pos + 1))
+            continue
+        if name in MENTION_NAMES:
+            code = args.get("1") or ""
+            term = clean_part(args.get("2") or "")
+            raw = (args.get("2") or "").strip()
+            if raw.startswith("*"):
+                term = "*" + (clean_part(raw[1:]) or "")
+            if not code or not term or term == "-":
+                continue
+            gloss = clean_gloss_arg(args.get("t") or args.get("4") or "")
+            rom = clean_text(args.get("tr") or "")
+            role = "cognate" if name in ("cog", "ncog", "noncog", "cognate") else "origin"
+            exp = t.get("expansion") or ""
+            pos = -1
+            if exp:
+                at = prose.find(exp, cursor)
+                if at < 0:
+                    at = prose.find(exp)
+                if at >= 0:
+                    role = role_at(at)
+                    cursor = at
+                    pos = at
+            mentions.append(("mention", code, term, gloss, rom, role, pos))
+            if role == "origin":
+                stepped = prose_step(prose, pos, exp)
+                if stepped:
+                    mentions.append(("mention", code, stepped, "", "", "origin", pos + 1))
+            continue
+        u = unwrap(t)
+        if u is not None:
+            kind, tlang, targs, base, prefer = u
+            for p in template_parts(kind, targs, base):
+                mentions.append(("part", tlang, p, "", "", "origin", -1))
+            continue
+        if name in ETY_NAMES:
+            tlang, analyses = etymon_analyses(t, page_lang)
+            for akind, terms in analyses:
+                if akind in ETY_DECOMP_KINDS and len(terms) >= 2:
+                    for term in terms:
+                        tree_mentions(term, mentions, "part")
+                else:
+                    for term in terms:
+                        tree_mentions(term, mentions, "tree")
+
+    chains = []
+    if " + " in prose:
+        for (a, b, _), r in zip(spans, roles):
+            sent = prose[a:b]
+            if " + " not in sent:
+                continue
+            for chain in parse_chains(sent):
+                if len(chain) >= 2:
+                    at = sent.find(chain[0].head)
+                    chains.append((chain, r, a + (at if at >= 0 else 0)))
+    return mentions, chains
+
+
+# ---- the graph ------------------------------------------------------------
+
+class Graph:
+    """One root language: nodes, decomposition edges, step edges, lookups.
+
+    Built by parse_classical and verified there. The lookup rules (SPEC
+    Principle 1, measured in the spike's section 3) apply to every chain
+    lemma and every split part before any other rule:
+      1. the template arg is cleaned: trailing punctuation, one of a//b,
+         inline modifiers and section suffixes;
+      2. the key is normalised (Latin: macrons off; Greek: vowel-length
+         marks off, accents and breathings kept);
+      3. a key that is no page at all matches loosely, every combining mark
+         stripped, preferring a glossed lemma among the pages that share the
+         loose spelling;
+      4. a form-of page steps to its lemma, and the step repeats when the
+         target is itself a form-of page, LEMMA_STEPS winning over the
+         extract at every hop.
+    An alternative-form page (alt_of, no inflection) is not a lemma and is
+    not stepped through by default: it exists as a spelling, not as a node,
+    and a word that names one attaches through some other mention (sock
+    names Greek σύκχος, a spelling of συγχίς, and attaches to Latin soccus).
+    The alt_ok flag turns the step on: for every split part, and for the
+    fallback pass of the attachment when the strict pass finds nothing.
+    """
+
+    def __init__(self, lang):
+        self.lang = lang
+        self.gloss = {}          # key -> gloss (the card's)
+        self.cands = {}          # key -> [(weight, gloss, form, pos, rom, words)]
+        self.form = {}
+        self.pos = {}
+        self.rom = {}
+        self.titles = set()
+        self.fo = {}             # inflection and participle steps
+        self.alt = {}            # alternative-form pages
+        self.step = {}           # the merged step edges, curation winning
+        self.split = {}          # key -> [(form, part key)], resolved
+        self.split_src = {}      # key -> template | etymon | prose
+        self.refused = {}        # key -> reason a split was refused
+        self.prose_unread = set()
+        self.marks_idx = {}
+        self.stats = collections.Counter()
+
+    # -- lookups -----------------------------------------------------------
+
+    def is_node(self, key):
+        return key in self.gloss
+
+    def clean_term(self, s):
+        t = (s or "").strip()
+        t = RE_PART_MOD.sub("", t)
+        t = RE_PART_SECT.sub("", t).strip()
+        t = t.rstrip(",.;:")
+        if "//" in t:
+            t = t.split("//", 1)[0].strip()
+        return t
+
+    def loose(self, key):
+        """A page sharing the key's loose spelling, glossed ones first."""
+        hits = self.marks_idx.get(strip_marks(key))
+        if not hits:
+            return None
+        for h in hits:
+            if h in self.gloss:
+                return h
+        return hits[0]
+
+    def lookup(self, term, alt_ok=False):
+        """(key, first key) for a term, or (None, first key) when nothing lands.
+
+        The first key is the strict key of the term as written, recorded as
+        an alias on the card the lookup lands on when the two differ.
+        """
+        t = self.clean_term(term)
+        if not t or t.startswith("*"):
+            return None, ""
+        key = norm_for(self.lang, t)
+        first = key
+        if not key:
+            return None, ""
+        if key not in self.titles:
+            alt = self.loose(key)
+            if alt is None:
+                return None, first
+            key = alt
+        for _ in range(4):
+            if self.is_node(key) or key in self.split:
+                curated = curation.LEMMA_STEPS.get(self.lang + ":" + key)
+                if curated:
+                    key = curated.split(":", 1)[1]
+                    continue
+                return key, first
+            nxt = curation.LEMMA_STEPS.get(self.lang + ":" + key)
+            if nxt:
+                key = nxt.split(":", 1)[1]
+                continue
+            nxt = self.step.get(key)
+            if nxt is None and alt_ok:
+                nxt = self.alt.get(key)
+            if nxt is None or nxt == key:
+                return None, first
+            key = nxt
+        return None, first
+
+    def decomposes(self, key):
+        return key in self.split
+
+
+RE_PARTICIPLE_HEAD = re.compile(r"^(la-part|grc-part)")
+
 
 def parse_classical(path, lang):
-    """One streaming pass over the Latin or Ancient Greek extract.
+    """One streaming pass over the Latin or Ancient Greek extract, then the graph.
 
-    A root card needs a display form with its macrons, a gloss, the entry
-    pos that decides its kind, the lemma an inflection page points at, and
-    the entry's own decomposition. The last one drives recursive flattening:
-    territōrium splits as terra + -tōrium inside Latin and memoriālis as
-    memoria + -ālis, whose first part splits again as memor + -ia, so the
-    English words built on them land on the deepest bases instead of
-    fragmenting one card per intermediate lemma.
+    Streaming collects, per page key: the glossed lemma entries (every
+    candidate gloss, since a homograph's card gloss is chosen later with
+    the attaching words' own glosses as support), the inflection step, the
+    alternative-form step, the participle step from the etymon or the
+    prose, the first template split, and the prose of a page that has a
+    plus and no template split. The graph is assembled afterwards, when
+    every title is known and the lookup rules can resolve a part.
     """
-    gloss = {}
-    form = {}
-    kind_pos = {}
-    rom = {}
-    fo = {}
-    split = {}
-    stats = collections.Counter()
+    g = Graph(lang)
+    raw_split = {}
+    prose_pages = {}
+    part_steps = {}
     with gzip.open(path, "rb") as f:
         for line in f:
-            stats["lines"] += 1
+            g.stats["lines"] += 1
             e = loads(line)
             w = e.get("word")
             if not w:
@@ -1171,37 +2232,321 @@ def parse_classical(path, lang):
             k = norm_key(lang, w)
             if not k:
                 continue
+            g.titles.add(k)
             pos = e.get("pos") or ""
+            senses = e.get("senses") or []
             t = pure_form_of(e)
             if t:
                 tk = norm_key(lang, t)
-                if tk and tk != k and k not in fo:
-                    fo[k] = tk
+                has_form = any(s.get("form_of") for s in senses)
+                if tk and tk != k:
+                    if has_form:
+                        if k not in g.fo:
+                            g.fo[k] = tk
+                    elif k not in g.alt:
+                        g.alt[k] = tk
                 continue
-            ns = len(e.get("senses") or [])
-            g = best_gloss(e)
-            if g:
+            ns = len(senses)
+            gl = best_gloss(e)
+            head = ((e.get("head_templates") or [{}])[0].get("name") or "")
+            weight = ns if pos != "name" else -1000 + ns
+            if gl:
                 # A proper-noun entry only supplies a gloss when nothing else
                 # does. Μοῦσα is a name page and the only gloss Greek has.
-                weight = ns if pos != "name" else -1000 + ns
-                cur = gloss.get(k)
-                if cur is None or weight > cur[0]:
-                    gloss[k] = (weight, g)
-                    form[k] = display_form(e, w, lang, k)
-                    # Latin and Greek have affix pages of their own (la:re-,
-                    # grc:-ος), and their pos says so.
-                    kind_pos[k] = pos
-                    r = tagged_form(e, "romanization")
-                    if lang == "grc" and r:
-                        rom[k] = r
-            if k not in split:
+                words = set()
+                for s in senses:
+                    for raw in s.get("glosses") or []:
+                        words.update(RE_GLOSS_WORD.findall((raw or "").lower()))
+                r = tagged_form(e, "romanization") if lang == "grc" else ""
+                g.cands.setdefault(k, []).append(
+                    (weight, gl, display_form(e, w, lang, k), pos, r, words))
+            # A participle page with a gloss of its own is a lemma page to
+            # the parser; its step comes from the etymon's ":from" text or
+            # from the prose ("Present active participle of dēpōnō").
+            if RE_PARTICIPLE_HEAD.match(head) and k not in part_steps:
+                tgt = participle_step(e)
+                if tgt:
+                    tk = norm_key(lang, tgt)
+                    if tk and tk != k:
+                        part_steps[k] = tk
+            # The split and the prose of a key come from the entry that wins
+            # its card gloss, never from a homograph beside it: cēdō ("to
+            # go") shares its page with cedo ("hand it over!"), and only the
+            # second is ce- + dō. Entries are ranked by the gloss weight.
+            cur = raw_split.get(k)
+            if gl and (cur is None or weight > cur[0]):
                 parts = entry_split(e, lang)
-                if parts and len(parts) >= 2:
-                    split[k] = parts
-    stats["lemmas"] = len(gloss)
-    return {"gloss": {k: v[1] for k, v in gloss.items()}, "form": form,
-            "pos": kind_pos, "rom": rom, "fo": fo, "split": split,
-            "stats": stats}
+                src = "etymon"
+                for tt in e.get("etymology_templates") or ():
+                    if tt.get("name") in DECOMP_NAMES or tt.get("name") in SURF_NAMES:
+                        src = "template"
+                        break
+                text = e.get("etymology_text") or ""
+                prose = strip_tree(text, lang, k) if " + " in text else ""
+                raw_split[k] = (weight,
+                                parts if parts and len(parts) >= 2 else None, src,
+                                (e.get("etymology_templates") or [], text)
+                                if " + " in prose else None)
+    prose_pages = {}
+    splits = {}
+    for k, (weight, parts, src, prose) in raw_split.items():
+        if parts:
+            splits[k] = (parts, src)
+        elif prose:
+            prose_pages[k] = prose
+    build_graph(g, splits, prose_pages, part_steps)
+    return g
+
+
+RE_GLOSS_WORD = re.compile(r"[a-z]{3,}")
+
+
+def participle_step(e):
+    """The lemma a participle page names, from its etymon or its prose."""
+    for t in e.get("etymology_templates") or ():
+        if t.get("name") not in ETY_NAMES:
+            continue
+        args = t.get("args") or {}
+        a2 = (args.get("2") or "")
+        if a2.startswith(":from<text:") and "articiple of" in a2:
+            tgt = clean_part(args.get("3") or "")
+            if tgt:
+                return tgt
+    text = e.get("etymology_text") or ""
+    if text.startswith("Etymology tree"):
+        text = strip_tree(text, "la", "")
+    m = RE_STEP_INFLECTION.search(text[:200])
+    if m and "participle" in m.group(1):
+        tgt = clean_head(m.group(2))
+        if tgt and not tgt.startswith("*"):
+            return tgt
+    return ""
+
+
+def build_graph(g, raw_split, prose_pages, part_steps):
+    """Assemble and verify one graph from what the streaming pass collected."""
+    lang = g.lang
+    # ---- nodes: the default gloss is the entry with the most senses -------
+    for k, cands in g.cands.items():
+        cands.sort(key=lambda c: (-c[0], c[1]))
+        w, gl, form, pos, rom, _ = cands[0]
+        g.gloss[k] = gl
+        g.form[k] = form
+        g.pos[k] = pos
+        if rom:
+            g.rom[k] = rom
+    # ---- the loose index ---------------------------------------------------
+    idx = collections.defaultdict(list)
+    for k in g.titles:
+        idx[strip_marks(k)].append(k)
+    g.marks_idx = {m: sorted(ks) for m, ks in idx.items()}
+    # ---- step edges: form_of, then participle heads, then LEMMA_STEPS ------
+    for k, tk in g.fo.items():
+        g.step[k] = tk
+    for k, tk in part_steps.items():
+        if k not in g.step:
+            g.step[k] = tk
+    for src, dst in curation.LEMMA_STEPS.items():
+        sl, sk = src.split(":", 1)
+        if sl == lang:
+            g.step[sk] = dst.split(":", 1)[1]
+    g.stats["steps"] = len(g.step)
+    g.stats["alt_pages"] = len(g.alt)
+
+    # ---- decomposition edges from templates and the etymon tree -----------
+    def resolve_parts(k, raw_parts):
+        """[(form, key)] or a refusal reason string."""
+        out = []
+        for p in raw_parts:
+            if p.startswith("*"):
+                return "reconstructed part %s" % p
+            pk, _ = g.lookup(p, alt_ok=True)
+            if pk is None:
+                first = norm_for(lang, g.clean_term(p))
+                if first in g.titles:
+                    return "part %s has a page with no usable gloss" % p
+                return "part %s has no page" % p
+            if pk == k:
+                return "self-part split (%s names itself)" % p
+            out.append((g.form.get(pk) or g.clean_term(p), pk))
+        return out
+
+    # A curated edge wins over the page (SOURCE_SPLITS, the root languages'
+    # FORCED_SPLITS). It is resolved through the same lookup as a template
+    # part, so a curated part that names no page is as loud as any other.
+    for src_key, parts in curation.SOURCE_SPLITS.items():
+        sl, sk = src_key.split(":", 1)
+        if sl != lang:
+            continue
+        if sk not in g.gloss:
+            raise SystemExit("SOURCE_SPLITS names %s, which is no node" % src_key)
+        res = resolve_parts(sk, parts)
+        if isinstance(res, str):
+            raise SystemExit("SOURCE_SPLITS %s: %s" % (src_key, res))
+        raw_split.pop(sk, None)
+        g.split[sk] = res
+        g.split_src[sk] = "template"
+        g.stats["split_curated"] += 1
+
+    for k in sorted(raw_split):
+        parts, src = raw_split[k]
+        if k not in g.gloss:
+            continue          # a split on a page with no card never renders
+        res = resolve_parts(k, parts)
+        if isinstance(res, str):
+            g.refused[k] = res
+            g.stats["refused_" + src] += 1
+            continue
+        g.split[k] = res
+        g.split_src[k] = src
+        g.stats["split_" + src] += 1
+
+    # ---- decomposition edges from the prose --------------------------------
+    for k in sorted(prose_pages):
+        if k not in g.gloss or k in g.split:
+            continue
+        templates, text = prose_pages[k]
+        mentions, chains = page_mentions(templates, text, lang, k)
+        tl = {}
+        for kind, code, term, _, _, _, _ in mentions:
+            fam = lang_family(code)
+            tk = norm_for(lang, term)
+            if tk:
+                tl.setdefault(tk, fam)
+        parsed = None
+        why = ""
+        for chain, stance, _ in chains:
+            if stance == "reject":
+                why = why or "rejection stance"
+                continue
+            res = resolve_chain(g, chain, lang, tl, k)
+            if isinstance(res, str):
+                why = why or res
+                continue
+            parsed = res
+            break
+        if parsed:
+            g.split[k] = parsed
+            g.split_src[k] = "prose"
+            g.stats["split_prose"] += 1
+        else:
+            g.prose_unread.add(k)
+            if why:
+                g.refused.setdefault(k, "prose: " + why)
+
+    # ---- verification: no cycles, no dangling edge -------------------------
+    dangling = [(k, pk) for k, ps in g.split.items() for _, pk in ps
+                if pk not in g.gloss]
+    if dangling:
+        raise SystemExit("%s graph: %d dangling edges, e.g. %s"
+                         % (lang, len(dangling), dangling[:3]))
+    colour = {}
+
+    def visit(start):
+        stack = [(start, iter(g.split.get(start, ())))]
+        colour[start] = 1
+        path = [start]
+        while stack:
+            node, it = stack[-1]
+            nxt = None
+            for _, pk in it:
+                if colour.get(pk, 0) == 1:
+                    # A back edge closes a cycle: the split that closes it is
+                    # refused, and the refusal is a stated reason.
+                    g.refused[node] = "cycle through %s" % pk
+                    del g.split[node]
+                    g.split_src.pop(node, None)
+                    g.stats["refused_cycle"] += 1
+                    stack.pop()
+                    colour[node] = 2
+                    path.pop()
+                    nxt = "cut"
+                    break
+                if colour.get(pk, 0) == 0:
+                    nxt = pk
+                    break
+            if nxt == "cut":
+                continue
+            if nxt is None:
+                colour[node] = 2
+                stack.pop()
+                path.pop()
+            else:
+                colour[nxt] = 1
+                path.append(nxt)
+                stack.append((nxt, iter(g.split.get(nxt, ()))))
+
+    for k in sorted(g.split):
+        if colour.get(k, 0) == 0:
+            visit(k)
+    g.stats["nodes"] = len(g.gloss)
+    g.stats["decomposed"] = len(g.split)
+    g.stats["prose_unread"] = len(g.prose_unread)
+    return g
+
+
+def resolve_chain(g, chain, page_lang, tl, key):
+    """[(form, key)] for a prose chain, or a reason it is refused.
+
+    Accepted only when every part resolves to a node in this graph (the
+    same-extract rule), none is reconstructed, and none is the page itself.
+    A term with no language cue takes the page's mention templates' word
+    for it, else Greek script means Greek, else the page's own language:
+    on an English page that is English, and the chain is refused.
+    """
+    lang = g.lang
+    out = []
+    for term in chain:
+        head = term.head
+        if not head or head.lower() in STOP_HEADS or not any(c.isalpha() for c in head):
+            return "stop-word head %s" % head
+        if head.startswith("*"):
+            return "reconstructed part %s" % head
+        tlang = term.lang
+        if tlang is None:
+            tlang = tl.get(norm_for(lang, head))
+            if tlang is None:
+                tlang = "grc" if is_greek(head) else page_lang
+        fam = lang_family(tlang)
+        if is_greek(head) and fam != "el":
+            fam = "grc"
+        if fam != lang:
+            return "part %s is %s, not %s" % (head, fam, lang)
+        target = term.target or head
+        pk, _ = g.lookup(target, alt_ok=True)
+        if pk is None and term.target:
+            pk, _ = g.lookup(head, alt_ok=True)
+        if pk is None:
+            return "part %s has no page" % head
+        if pk == key:
+            return "self-part split (%s names itself)" % head
+        out.append((g.form.get(pk) or head, pk))
+    return out
+
+
+def read_passthrough(path, code):
+    """key -> (mentions, chains) for every page of a pass-through extract that
+    says anything about its origin. Pages with no etymology are skipped."""
+    pages = {}
+    n = 0
+    with gzip.open(path, "rb") as f:
+        for line in f:
+            n += 1
+            e = loads(line)
+            w = e.get("word")
+            if not w:
+                continue
+            k = norm_for(code, w)
+            if k in pages:
+                continue
+            templates = e.get("etymology_templates") or []
+            text = e.get("etymology_text") or ""
+            if not templates and " + " not in text:
+                continue
+            mentions, chains = page_mentions(templates, text, code, k)
+            if mentions or chains:
+                pages[k] = (mentions, chains)
+    return pages, n
 
 
 def tagged_form(e, tag):
@@ -1222,6 +2567,10 @@ def display_form(e, word, lang, key):
     Latin page titles drop macrons. The macronised spelling lives either in
     a form tagged canonical or in the head template's first arg.
     """
+    if lang == "grc":
+        # Greek titles are the spelling; the canonical form adds the vowel-
+        # length marks that the key strips and no card should print.
+        return word
     c = tagged_form(e, "canonical")
     if c and norm_key(lang, c) == key:
         return c
@@ -1271,205 +2620,460 @@ ORG_ANCHOR_MIN = 2
 
 
 class Origin:
-    """Where an origin chain settles: a decomposed source lemma, or a lemma.
+    """English attaches to the source graphs, and rows are read off them.
 
-    Supersedes the one-hop unification rule (SPEC, Jesse decision
-    2026-08-25). A chain lemma is decomposed recursively inside its own
-    language, so memoriālis reads memor + -ia + -ālis rather than anchoring
-    on memoria, and every English word built on the family lands on the same
-    deepest bases instead of fragmenting one card per intermediate lemma.
-    The fragmentation was not only ugly: a card referenced by one word is
-    pruned by the 2-word threshold, so those org rows were disappearing.
+    Attachment (SPEC Principle 3): an English page contributes the ordered
+    terms it names, from origin templates, mention templates in a sentence
+    that is not a cognate or a rejection, the etymon tree, decomposition
+    parts and the prose parser. Pass-through pages are walked in place, so
+    a chain that stops at Old French continues to Latin when the French
+    page names it. The root-language terms fall into runs by language, and
+    the entry lemma of a run is the first term of it that resolves: the
+    lemma English borrowed, with the rest of the run being that lemma's
+    own ancestry inside its language. The word attaches to the deepest
+    run's entry lemma, preferring a run whose entry decomposes (in the
+    graph, or through parts the English page itself supplies) and, inside
+    a run whose entry does not, a later term of the same run that does.
 
-    Two rules keep the recursion honest. Depth is capped at ORG_DEPTH. And a
-    split is taken all or nothing: if any piece of it has no glossable entry
-    of its own, the whole split is refused and the part stays whole. That is
-    Okpyeon's dead-end rule, and the extract needs it. recordor "splits" as
-    re- + corcord-> + -ō, where the middle piece is a wiktextract artifact
-    with no page behind it, and the whole split is rightly refused.
+    Rows (SPEC Principle 4): an attached word renders a decomposed row when
+    the node decomposes and a single row when it does not; a word whose
+    deepest named origin is a row-only language renders the row-only shape;
+    every referenced node ships as a root card. Nothing is dropped for a
+    threshold. What is dropped carries a stated reason into the misses
+    report.
+
+    Flattening is the 2026-08-25 rule over the graph's edges: recursion
+    capped at ORG_DEPTH, affixes terminal, anchors terminal, aliases and
+    skips honoured at every level.
     """
 
-    def __init__(self, classical):
-        self.cl = classical
-        self.alias = {}          # inflected lemma -> root key, for card alt
-        self.anchors = set()     # lemmas recursion must not split, see below
+    def __init__(self, graphs, pages):
+        self.g = graphs
+        self.pages = pages
+        self.alias = {}          # inflected or variant spelling -> root key
+        self.anchors = set()
         self.stats = collections.Counter()
+        self.hints = collections.defaultdict(list)   # root key -> gloss hints
+
+    # -- lookups shared with the affix `src` path --------------------------
 
     def settle(self, lang, lemma):
-        """The source-language key a chain lemma settles on, or None.
-
-        An inflection page carries no gloss and no split of its own, so it
-        steps to its lemma first: territōriī is judged as territōrium.
-        """
-        key = norm_key(lang, lemma)
-        if not key:
-            return None
-        cl = self.cl[lang]
-        # A curated step first (LEMMA_STEPS, owner decision 2026-09-01). The
-        # automatic step below only fires on a page that looks like an
-        # inflection to the parser: no gloss, no split, a form-of link.
-        # dēpōnēns is a lemma page with a gloss of its own, so the parser
-        # stops on it, and the chain never reached dēpōnō. The table names
-        # the step the source would have recorded.
-        curated = curation.LEMMA_STEPS.get(lang + ":" + key)
-        if curated:
-            stepped = curated.split(":", 1)[1]
-            self.alias[key] = lang + ":" + stepped
-            return stepped
-        if key not in cl["gloss"] and key not in cl["split"] and key in cl["fo"]:
-            stepped = cl["fo"][key]
-            if stepped:
-                self.alias[key] = lang + ":" + stepped
-                key = stepped
+        """The key a lemma settles on, or None. Records the spelling alias."""
+        key, first = self.g[lang].lookup(lemma, alt_ok=True)
+        if key and first and first != key:
+            self.alias[first] = lang + ":" + key
         return key
 
-    def top_reaches(self, lang, key):
+    # -- attachment ----------------------------------------------------------
+
+    def expand(self, mentions, depth, seen):
+        """The mentions with every pass-through page walked.
+
+        A walked page's mentions come after the page's own, in walk order,
+        and carry position -2: the page's own statement is read first, and
+        the French page only continues the chain past it.
+        """
+        own = list(mentions) if depth == 3 else [m[:6] + (-2,) for m in mentions]
+        walked = []
+        for m in mentions:
+            kind, code, term, gloss, rom, role, _ = m
+            if kind == "part" or role != "origin" or term.startswith("*"):
+                continue
+            ex = PASS_EXTRACT.get(code)
+            if not ex or depth <= 0:
+                continue
+            k = norm_for(ex, self.g["la"].clean_term(term))
+            if (ex, k) in seen:
+                continue
+            page = self.pages.get(ex, {}).get(k)
+            if page:
+                self.stats["walked_" + ex] += 1
+                walked.extend(self.expand(page[0], depth - 1, seen | {(ex, k)}))
+        return own + walked
+
+    def english_parts(self, ms, chains):
+        """fam -> [(form, key)]: the parts the English page supplies itself.
+
+        From a decomposition template whose language is a root language,
+        from the parts of an etymon analysis, and from the prose parser,
+        the first accepted set per language wins.
+        """
+        parts_by = {}
+        tl = {}
+        for kind, code, term, _, _, _, _ in ms:
+            fam = lang_family(code)
+            for f in ("la", "grc"):
+                tk = norm_for(f, term)
+                if tk:
+                    tl.setdefault(tk, fam)
+        run = []
+
+        def flush():
+            if len(run) >= 2:
+                fam = lang_family(run[0][1])
+                if fam in self.g and fam not in parts_by:
+                    g = self.g[fam]
+                    resolved = []
+                    for _, code, term, _, _, _, _ in run:
+                        pk, _ = g.lookup(term, alt_ok=True)
+                        if pk is None or lang_family(code) != fam:
+                            resolved = None
+                            break
+                        resolved.append((g.form.get(pk) or g.clean_term(term), pk))
+                    if resolved:
+                        parts_by[fam] = (resolved, -1, set())
+            del run[:]
+
+        for m in ms:
+            if m[0] == "part" and lang_family(m[1]) in self.g:
+                if run and run[-1][1] != m[1]:
+                    flush()
+                run.append(m)
+            else:
+                flush()
+        flush()
+        for chain, stance, pos in chains:
+            if stance == "reject":
+                continue
+            for fam in ("la", "grc"):
+                if fam in parts_by:
+                    continue
+                res = resolve_chain(self.g[fam], chain, "en", tl, None)
+                if not isinstance(res, str):
+                    heads = set()
+                    for t in chain:
+                        heads.add(strip_marks(t.head))
+                        if t.target:
+                            heads.add(strip_marks(t.target))
+                    parts_by[fam] = (res, pos, heads)
+        return parts_by
+
+    def attach(self, mentions, chains, word=""):
+        """The attachment of one English page.
+
+        Returns {"lang", "key", "first", "hint", "extra"} for a root-language
+        attachment, {"row": {...}} for a row-only origin, {"miss": reason}
+        when a root or pass-through term was named and nothing attaches, and
+        None when the page names no origin this dictionary classifies.
+        """
+        ms = self.expand(mentions, 3, set())
+        parts_by = self.english_parts(ms, chains)
+        # The parts the page supplies belong to the last term named before
+        # the plus-chain, whatever its language: "from Latin dīvortium, from
+        # dī- + vertere" splits dīvortium; "from Vulgar Latin *disiūnō, from
+        # dis- + iēiūnō" splits the reconstruction; "from Old French
+        # sorprendre, from super- + prendere" splits the French verb. That
+        # owner labels the row when it is no node of the graph.
+        owner = {}
+        for fam, (parts, pos, hs) in list(parts_by.items()):
+            if pos < 0:
+                continue
+            best = None
+            for kind, code, term, gloss, rom, role, mpos in ms:
+                if kind == "part" or role != "origin" or mpos < 0 or mpos >= pos:
+                    continue
+                if strip_marks(term) in hs:
+                    continue
+                if lang_role(code) not in ("root", "pass"):
+                    continue
+                if best is None or mpos > best[3]:
+                    best = (code, term, gloss, mpos)
+            if best is not None:
+                owner[fam] = best
+            else:
+                # No root or pass-through term is named before the chain:
+                # "From Latin spectāculum + -ar" is the English word's own
+                # analysis, and its first term is the lemma English
+                # borrowed, not a part.
+                del parts_by[fam]
+        # A mention that is a term of an owned chain is a part of the lemma
+        # the chain explains, not a lemma of its own: "from super- +
+        # prendere" written with mention templates must not attach a word
+        # to la:super-. The parser's role decides, never the template name.
+        heads = set()
+        for parts, pos, hs in parts_by.values():
+            if pos >= 0:
+                heads |= hs
+        if heads:
+            ms = [(("part",) + m[1:]) if m[0] in ("mention", "origin")
+                  and strip_marks(m[2]) in heads else m for m in ms]
+
+        own = []
+        named = []
+        for kind, code, term, gloss, rom, role, pos in ms:
+            if kind == "part" or role != "origin" or term.startswith("*"):
+                continue
+            fam = ROOT_LANGS.get(code)
+            if fam:
+                # The English word rides along as a gloss hint: the word
+                # that attaches is the surest sign of which homograph it
+                # attaches to (cave picks the hollow, not the jackdaw).
+                named.append((fam, term, (gloss + " " + word).strip()))
+                if pos != -2:
+                    own.append(named[-1])
+        if not named:
+            for kind, code, term, gloss, rom, role, pos in ms:
+                if kind == "part" or role != "origin" or term.startswith("*"):
+                    continue
+                r = lang_role(code)
+                if r in ("row", "pass"):
+                    named.append((None, term, gloss))
+            if not named and not owner:
+                return None
+        # The page's own terms decide first; a walked French page only
+        # continues the chain when the page itself settles nothing. The
+        # strict pass wins unless only the alternative-form pass reaches a
+        # node that decomposes (μονάρχης is a spelling of μόναρχος, which
+        # splits; σύκχος is a spelling of συγχίς, which does not, so sock
+        # stays on Latin soccus).
+        hit = self.pick_both(own, parts_by, owner)
+        if hit is not None:
+            return hit
+        for fam in ("la", "grc"):
+            own_fam = any(f == fam for f, _, _ in own)
+            if fam in parts_by and owner.get(fam) is None and not own_fam:
+                continue
+            if own_fam or owner.get(fam) is None:
+                continue
+            code, term, gloss, _ = owner[fam]
+            if ROOT_LANGS.get(code) == fam and term.startswith("*"):
+                return {"lang": fam, "key": None, "first": "", "hint": "",
+                        "label": "*" + self.g[fam].clean_term(term[1:]),
+                        "extra": parts_by[fam][0]}
+            if lang_role(code) == "pass" and not term.startswith("*"):
+                return {"lang": code, "key": None, "first": "", "hint": "",
+                        "label": self.g[fam].clean_term(term),
+                        "extra": parts_by[fam][0], "fam": fam}
+            other = ROOT_LANGS.get(code)
+            if other and other != fam and not term.startswith("*") \
+                    and self.g[other].lookup(term, True)[0] is None:
+                # New Latin parametrum, split as Greek παρα- + μέτρον: the
+                # unwritten Latin term labels the row and the chips are Greek.
+                return {"lang": other, "key": None, "first": "", "hint": "",
+                        "label": self.g[other].clean_term(term),
+                        "extra": parts_by[fam][0], "fam": fam}
+        hit = self.pick_both(named, parts_by, owner)
+        if hit is not None:
+            return hit
+        for fam in ("la", "grc"):
+            own = owner.get(fam)
+            if own is None or any(f == fam for f, _, _ in named):
+                continue
+            code, term, gloss, _ = own
+            if ROOT_LANGS.get(code) == fam and term.startswith("*"):
+                # A reconstructed form ends the walk and is never a node. It
+                # still labels the row whose parts the page gives ("FROM
+                # LATIN *disiūnō: dis- + iēiūnō", the Vulgar Latin shape the
+                # spike judged right on manage).
+                return {"lang": fam, "key": None, "first": "", "hint": "",
+                        "label": "*" + self.g[fam].clean_term(term[1:]),
+                        "extra": parts_by[fam][0]}
+            if lang_role(code) == "pass" and not term.startswith("*"):
+                # The parts assemble a pass-through word and the page names
+                # no lemma of their language: the French verb labels the
+                # row and the chips stay Latin.
+                return {"lang": code, "key": None, "first": "", "hint": "",
+                        "label": self.g[fam].clean_term(term),
+                        "extra": parts_by[fam][0], "fam": fam}
+        # ---- row-only: the deepest named origin is not a root language ----
+        if not any(fam for fam, _, _ in named):
+            row = None
+            stop = ""
+            for kind, code, term, gloss, rom, role, _ in ms:
+                if kind == "part" or role != "origin" or term.startswith("*"):
+                    continue
+                r = lang_role(code)
+                if r == "row":
+                    row = {"lang": code, "f": self.g["la"].clean_term(term)}
+                    if gloss:
+                        row["gloss"] = gloss
+                    if rom:
+                        row["rom"] = rom
+                    stop = ""
+                elif r == "pass":
+                    stop = code + ":" + term
+            if row:
+                return {"row": row}
+            if stop:
+                return {"miss": "chain stops in a pass-through language (%s)" % stop}
+            return None
+        reasons = []
+        for fam, term, _ in named:
+            if fam:
+                reasons.append("%s:%s never written" % (fam, term))
+        if not reasons:
+            reasons.append("parts named with no lemma to carry them")
+        return {"miss": "; ".join(reasons[:3])}
+
+    def splits(self, att):
+        """True when an attachment renders a decomposed row."""
+        if not att or "key" not in att:
+            return False
+        if att.get("extra"):
+            return True
+        return att["key"] is not None and self.g[att["lang"]].decomposes(att["key"])
+
+    def pick_both(self, named, parts_by, owner):
+        """The strict pick, unless only the alternative-form pick splits."""
+        strict = self.pick(named, parts_by, False, owner)
+        if strict is not None and self.splits(strict):
+            return strict
+        loose = self.pick(named, parts_by, True, owner)
+        if loose is not None and self.splits(loose):
+            return loose
+        return strict if strict is not None else loose
+
+    def pick(self, named, parts_by, alt_ok, owner):
+        """The attachment among the named root-language terms, or None."""
+        def owns(fam, term):
+            """True when the page's parts in `fam` belong to this term, or
+            to no term in particular."""
+            own = owner.get(fam)
+            if own is None:
+                return parts_by[fam][1] < 0
+            return strip_marks(own[1]) == strip_marks(term)
+
+        runs = []
+        for fam, term, gloss in named:
+            if not fam:
+                continue
+            key, first = self.g[fam].lookup(term, alt_ok)
+            c = (fam, key, term, gloss)
+            if runs and runs[-1][0][0] == fam:
+                runs[-1].append(c)
+            else:
+                runs.append([c])
+
+        def found(c, extra):
+            fam, key, term, gloss = c
+            return {"lang": fam, "key": key,
+                    "first": norm_for(fam, self.g[fam].clean_term(term)),
+                    "hint": gloss, "extra": extra}
+
+        best = None
+        for run in reversed(runs):
+            fam = run[0][0]
+            if run[0][1] is None and not alt_ok:
+                continue
+            entry = None
+            for c in run:
+                if c[1] is not None:
+                    entry = c
+                    break
+                if alt_ok and fam in parts_by and parts_by[fam][1] >= 0                         and owns(fam, c[2]):
+                    # A term Wiktionary never wrote (ad montem, dēcadēns) that
+                    # the English page splits itself. The row reads the term
+                    # as written over the parts, the row the spike counted as
+                    # decomposed from English prose.
+                    return {"lang": fam, "key": None, "first": "", "hint": "",
+                            "label": self.g[fam].clean_term(c[2]),
+                            "extra": parts_by[fam][0]}
+            if entry is None:
+                continue
+            fam, key = entry[0], entry[1]
+            if self.g[fam].decomposes(key):
+                return found(entry, None)
+            if fam in parts_by and owns(fam, entry[2]) and not self.is_affix(fam, key):
+                return found(entry, parts_by[fam][0])
+            for c in run[run.index(entry) + 1:]:
+                if c[1] is not None and self.g[c[0]].decomposes(c[1]):
+                    return found(c, None)
+                if c[1] is not None and fam in parts_by and owns(fam, c[2]):
+                    return found(c, parts_by[fam][0])
+            if best is None:
+                best = entry
+        return found(best, None) if best else None
+
+    # -- anchors and flattening ---------------------------------------------
+
+    def is_affix(self, lang, key, form=""):
+        """True when this source-language page is an affix, not a lemma."""
+        g = self.g[lang]
+        for f in (form, g.form.get(key) or key):
+            if f and (f.startswith("-") or f.endswith("-")):
+                return True
+        return g.pos.get(key, "") in AFFIX_POS
+
+    def parts_of(self, lang, key, extra=None):
+        """The top-level parts a lemma splits into: the graph's edge, else
+        the parts the English page supplied for it."""
+        return self.g[lang].split.get(key) or extra
+
+    def top_reaches(self, lang, key, extra=None):
         """The root keys one lemma's own split credits at its top level.
 
-        Empty when the lemma does not decompose at all. This mirrors
-        flatten's piece loop, because the point is to count what a row will
-        really name. A split with a piece that has no card of its own is
-        refused whole and credits nothing, so counting its parts would make
-        an anchor out of a lemma no row ever names: la:absens, la:potens,
-        la:praesens and five Greek lemmas were exactly that.
-
-        Affixes and curated aliases are left out. Neither is ever split by
-        flatten, so anchoring one changes nothing.
+        Mirrors flatten's piece loop, since the point is to count what a
+        row will really name. Affixes, aliases and skips are left out:
+        flatten never splits an affix or an alias, and a skip never ships.
         """
         if self.is_affix(lang, key):
             return ()
-        cl = self.cl[lang]
-        raw = cl["split"].get(key)
-        if not raw or len(raw) < 2:
+        parts = self.parts_of(lang, key, extra)
+        if not parts:
             return ()
         out = []
-        for p in raw:
-            pk = norm_key(lang, p)
-            if not pk or pk == key:
-                # A split naming the lemma itself does not decompose (see
-                # flatten), so it credits nothing either.
+        for form, pk in parts:
+            if pk == key:
                 return ()
             if (curation.ROOT_ALIASES.get(lang + ":" + pk)
-                    or curation.ROOT_ALIASES.get(p)
+                    or curation.ROOT_ALIASES.get(form)
                     or curation.ROOT_ALIASES.get(pk)):
                 continue
-            if pk not in cl["gloss"]:
-                return ()
             rkey = lang + ":" + pk
-            if rkey in curation.ROOT_SKIPS or self.is_affix(lang, pk, p):
+            if rkey in curation.ROOT_SKIPS or self.is_affix(lang, pk, form):
                 continue
             out.append(rkey)
         return out
 
-    def find_anchors(self, chains):
-        """Mark the source lemmas that are teachable in their own right.
-
-        A lemma that ORG_ANCHOR_MIN or more English words reach is a card
-        the reader wants, so recursion stops at it instead of splitting it.
-        Everything else is a pure intermediate (a one-off participle, a
-        derived noun nothing else points at) and flattening walks through it.
+    def find_anchors(self, attachments):
+        """Mark the source lemmas ORG_ANCHOR_MIN or more words reach.
 
         Reaching is counted through PARTS only, per word: the immediate
-        parts of the split belonging to the lemma the word's chain settles
-        on, as top_reaches works them out. That is what makes solvō an
-        anchor. No English chain names solvō itself, but absolvō, dissolvō,
-        resolvō and solūtiō all split onto it, and those are the words
-        whose card it should be.
-
-        The settled lemma itself is NOT a reach (owner decision
-        2026-09-01). A part is the only path that credits a root: credits
-        are derived at runtime from the chips in morphs and org.parts, and
-        a word that settles on a lemma flattens THROUGH that lemma and
-        never names it. Counting settle hits as reaches made a lemma an
-        anchor that no row credited three times, so recursion stopped at a
-        card that never shipped and the part rendered inert. haesitātiō
-        showed it: haesitō became an anchor on settle counts, carried one
-        credit, missed the 2-word root threshold, and hesitation read
-        "haesitō + -tiō" with the first chip dead. Counting parts only,
-        haesitō flattens and the row reads haereō + -titō + -tiō, three
-        live links.
-
-        With this rule an anchor has ORG_ANCHOR_MIN part-reaches, so at
-        least that many rows name it, so it clears the 2-word root
-        threshold and ships. Non-circular by construction: it looks one
-        level down, never at the recursion's own output. Returns the number
-        of anchors found.
+        parts of the split belonging to the lemma the word attaches to
+        (owner decision 2026-09-01). The attached lemma itself is not a
+        reach, since a word flattens through it and never names it.
         """
         seen = collections.Counter()
-        for chain in chains:
-            if not chain:
+        for att in attachments:
+            if not att or "key" not in att or att["key"] is None:
                 continue
-            lang, lemma = chain
-            key = self.settle(lang, lemma)
-            if not key:
-                continue
-            for r in set(self.top_reaches(lang, key)):
+            for r in set(self.top_reaches(att.get("fam") or att["lang"], att["key"],
+                                          att.get("extra"))):
                 seen[r] += 1
         self.anchors = {k for k, n in seen.items() if n >= ORG_ANCHOR_MIN}
         return len(self.anchors)
 
-    def is_affix(self, lang, key, form=""):
-        """True when this source-language page is an affix, not a lemma.
-
-        Either the written form carries a hyphen or the entry pos says so.
-        """
-        for f in (form, self.cl[lang]["form"].get(key) or key):
-            if f and (f.startswith("-") or f.endswith("-")):
-                return True
-        return self.cl[lang]["pos"].get(key, "") in AFFIX_POS
-
-    def flatten(self, lang, key, depth, seen):
+    def flatten(self, lang, key, depth, seen, extra=None):
         """[(display form, root key or None)] for a lemma, or None.
 
-        None means the lemma does not decompose and should stay whole. A
-        part whose key is a ROOT_SKIPS entry keeps its display form and
-        loses its link, exactly as an inert morph chip does.
-
-        Affixes are TERMINAL (SPEC, owner field finding 2026-08-25). An
-        affix page is the end of the road even when Wiktionary records a
-        split for it: -ārium splits as -ārius + -um, which put library,
-        calendar and rosary in a la:-um card glossed "genitive plural
-        ending". A reader drilling a suffix wants the suffix, not the case
-        ending inside it.
+        None means the lemma does not decompose and stays whole. A part in
+        ROOT_SKIPS keeps its form and loses its link. Affixes are terminal
+        (owner field finding 2026-08-25): -ārium splits as -ārius + -um in
+        the source, and a reader drilling a suffix wants the suffix. A split
+        naming the lemma or a lemma above it is refused (owner decision
+        2026-09-01), which the graph's cycle check already guarantees for
+        its own edges and `seen` guarantees for parts the English page
+        supplied.
         """
         if self.is_affix(lang, key):
             return None
-        cl = self.cl[lang]
-        raw = cl["split"].get(key)
-        if not raw or len(raw) < 2 or depth <= 0:
+        g = self.g[lang]
+        parts = g.split.get(key)
+        if parts is None and extra and depth == ORG_DEPTH:
+            parts = extra
+        if not parts or len(parts) < 2 or depth <= 0:
             return None
         pieces = []
-        for p in raw:
-            pk = norm_key(lang, p)
-            if not pk:
-                return None
+        for form, pk in parts:
             if pk in seen:
-                # A split whose part is the lemma itself, macrons aside:
-                # errō = errō + -ō, palpō = palpō + -ō. Wiktionary is
-                # recording the verb's conjugation ending, not an assembly,
-                # and a row that reads "errō = errō + -ō" teaches a reader
-                # nothing. The lemma stays whole (owner decision 2026-09-01;
-                # 8 rows at the time). `seen` holds the lemma and every
-                # lemma above it, so the same refusal covers a cycle two
-                # pages long: serō = sera + -ō and sera = serō + -a, which
-                # flattened seraglio to "serō = serō + -a + -ō". The inner
-                # split is refused, sera stays whole, and the row reads
-                # sera + -ō.
                 return None
             a = (curation.ROOT_ALIASES.get(lang + ":" + pk)
-                 or curation.ROOT_ALIASES.get(p)
+                 or curation.ROOT_ALIASES.get(form)
                  or curation.ROOT_ALIASES.get(pk))
             if a:
-                pieces.append((p, a, None))
+                pieces.append((form, a, None))
                 continue
-            # All or nothing: a piece with no card of its own would ship as
-            # an inert fragment, which teaches less than the whole part.
-            if pk not in cl["gloss"]:
-                return None
-            # One page, one spelling. Source templates write the same lemma
-            # both ways (creō in creātrīx, creo in prōcreātus), so the chip
-            # takes the headword form the page itself carries.
-            pieces.append((cl["form"].get(pk) or p, lang + ":" + pk, pk))
+            pieces.append((g.form.get(pk) or form, lang + ":" + pk, pk))
         out = []
         for form, rkey, pk in pieces:
             if rkey in curation.ROOT_SKIPS:
@@ -1486,27 +3090,47 @@ class Origin:
                 out.append((form, rkey))
         return out
 
-    def chain_roots(self, chain):
-        """Every root key a word's chain reaches, decomposed or whole.
+    def chain_roots(self, att):
+        """Every root key a word's attachment reaches, decomposed or whole.
 
         Used by the base-route gate in resolve_part. A word carrying morphs
-        ships no org row, but its chain is still the evidence for whether a
-        base part names a classical root.
+        ships no org row, but its attachment is still the evidence for
+        whether a base part names a classical root.
         """
-        if not chain:
+        if not att or "key" not in att:
             return ()
-        org = self.resolve(chain[0], chain[1], count=False)
+        org = self.resolve(att, count=False)
         if not org:
             return ()
         if "parts" in org:
             return {p["r"] for p in org["parts"] if p.get("r")}
         return {org["r"]} if org.get("r") else ()
 
-    def resolve(self, lang, lemma, count=True):
-        """The `org` value for a chain lemma: decomposed, single, or None."""
-        key = self.settle(lang, lemma)
-        if not key:
+    def resolve(self, att, count=True):
+        """The `org` value for an attachment: decomposed, single, row-only."""
+        if not att:
             return None
+        if "row" in att:
+            if count:
+                self.stats["rowonly"] += 1
+            return dict(att["row"])
+        if "key" not in att:
+            return None
+        lang, key = att["lang"], att["key"]
+        if key is None:
+            flat = self.flatten(att.get("fam") or lang, None, ORG_DEPTH, set(),
+                                att.get("extra"))
+            if not flat or len(flat) < 2:
+                return None
+            if count:
+                self.stats["decomposed"] += 1
+                self.stats["unwritten"] += 1
+            return {"l": att["label"], "lang": lang,
+                    "parts": [({"f": f, "r": r} if r else {"f": f}) for f, r in flat]}
+        if att.get("first") and att["first"] != key:
+            self.alias[att["first"]] = lang + ":" + key
+        if count and att.get("hint"):
+            self.hints[lang + ":" + key].append(att["hint"])
         a = (curation.ROOT_ALIASES.get(lang + ":" + key)
              or curation.ROOT_ALIASES.get(key))
         if a:
@@ -1515,12 +3139,12 @@ class Origin:
             if count:
                 self.stats["single"] += 1
             return {"r": a}
-        flat = self.flatten(lang, key, ORG_DEPTH, {key})
+        flat = self.flatten(lang, key, ORG_DEPTH, {key}, att.get("extra"))
         if flat and len(flat) >= 2:
             if count:
                 self.stats["decomposed"] += 1
                 self.stats["parts_%d" % min(len(flat), 6)] += 1
-            disp = self.cl[lang]["form"].get(key) or lemma
+            disp = self.g[lang].form.get(key) or key
             parts = []
             for form, rkey in flat:
                 part = {"f": form}
@@ -1549,7 +3173,10 @@ def resolve_part(part, word, affixes, shipped, chain_roots=()):
     a = curation.ROOT_ALIASES.get(part) or curation.ROOT_ALIASES.get(p)
     if a:
         return "r", a
-    if p in affixes:
+    if p in affixes and ("-" in p or p not in shipped):
+        # A hyphen-free affix page that is also a shipped word (a combining
+        # form recorded on the word's own page) links to the word card; an
+        # ordinary English word never becomes a root card.
         return "r", "en:" + p
     # A curated base route, and only when this word's own chain reaches the
     # root it names. See BASE_ROUTES for why the gate carries the safety.
@@ -1653,13 +3280,52 @@ def rekey_us_primary(shipped, fmap, us_raw, ranks):
     return pairs
 
 
-def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
-    """Resolve every chip, build the root set, drop what missed the threshold.
+def gloss_with_support(key, g, hints):
+    """The card gloss of a source node, its homographs told apart.
+
+    A key with several lemma entries (cava: a hollow, and a jackdaw) takes
+    the entry with the most senses by default. When the English pages that
+    attach to it gloss the term themselves ("Latin cava (“cavity”)"), the
+    entry whose senses share a content word with those glosses wins instead,
+    since the words that attach are the card's family. The default stands on
+    a tie.
+    """
+    cands = g.cands.get(key) or ()
+    if len(cands) < 2 or not hints:
+        return g.gloss.get(key), None
+    hint_words = set()
+    for h in hints:
+        hint_words.update(RE_GLOSS_WORD.findall(h.lower()))
+    if not hint_words:
+        return g.gloss.get(key), None
+    best = None
+    best_n = 0
+    for c in cands:
+        # A name entry never wins on support: its gloss is the name itself,
+        # and the English word (Terra) would vote for it every time.
+        if c[3] == "name":
+            continue
+        n = len(hint_words & c[5])
+        if n > best_n:
+            best, best_n = c, n
+    if best is None or best is cands[0]:
+        return g.gloss.get(key), None
+    return best[1], best
+
+
+def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
+    """Resolve every chip, build the root set, link what ships.
 
     Re-runnable, and it has to be. Dropping a word changes who credits what,
     so the chain-only rule calls this again on the smaller word set. Each
     pass rebuilds every chip from its own form and re-takes every org row
     from `org_rows`, so no pass inherits the edits of the one before it.
+
+    There is no credit threshold (SPEC Principle 4, owner decision
+    2026-09-05): every root key a shipped word references ships as a card,
+    a one-word family included. A key is left out only when it has no gloss
+    to carry a card (an English affix page with no usable sense) or is in
+    ROOT_SKIPS, and a reference to it renders inert.
 
     Returns (roots, counters).
     """
@@ -1693,24 +3359,18 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
     # the org row counts in the same tally. A credit to an anchor is also a
     # credit to every root the anchor's split names, recursively (owner
     # decision 2026-09-01): access names accēdō, accēdō names cēdō, so
-    # access counts for cēdō. This is the runtime's rule: lookup.js
-    # buildFamilyIndex is the authority, and the ship threshold has to agree
-    # with it or a root ships whose card renders a family of one (review
-    # finding 2026-08-24, 12 shipped words double-credited). Counting direct
-    # credits alone was measured at ORG_ANCHOR_MIN 2 (2026-09-01): 43 base
-    # cards HEAD shipped went under the threshold once the rows above them
-    # stopped at an anchor (grc:λύω, la:anima, la:sciō), 19 word rows and 64
-    # anchor cards got a dead chip for it, and fornix and τάσσω, each named
-    # by one row and one anchor, never shipped.
+    # access counts for cēdō. This is the runtime's rule (lookup.js
+    # buildFamilyIndex), mirrored here for the report and for the family
+    # checks; nothing is pruned by it any more.
     refs = collections.Counter()
     for wl, w in shipped.items():
         credited = set()
-        # The roots this word's own chain reaches, for the base-route gate.
-        # A word with morphs keeps its chain in the harvest even though the
-        # schema gives it no org row, and that chain is the evidence a route
-        # needs: transport runs through trānsportō, airport runs through
-        # nothing at all.
-        chain_roots = origin.chain_roots(harvest.get(wl, {}).get("org")) \
+        # The roots this word's own attachment reaches, for the base-route
+        # gate. A word with morphs keeps its attachment in the harvest even
+        # though the schema gives it no org row, and that is the evidence a
+        # route needs: transport runs through trānsportō, airport runs
+        # through nothing at all.
+        chain_roots = origin.chain_roots(harvest.get(wl, {}).get("att")) \
             if w.get("morphs") else ()
         for m in w.get("morphs") or ():
             field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots)
@@ -1725,15 +3385,17 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
                 m["w"] = k
                 c["wchip"] += 1
         # An org row credits its roots exactly as morph chips do, once per
-        # word, whether it is a single lemma or a decomposed one.
+        # word, whether it is a single lemma or a decomposed one. A row-only
+        # row names no root and credits nothing.
         org = w.get("org")
         if org and "parts" in org:
             for p in org["parts"]:
                 if p.get("r"):
                     credited.add(p["r"])
-        elif org:
+        elif org and org.get("r"):
             if org["r"] in curation.ROOT_SKIPS:
                 del w["org"]
+                c["orgskip"] += 1
             else:
                 credited.add(org["r"])
         reached = set()
@@ -1742,11 +3404,9 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
         for k in reached:
             refs[k] += 1
 
-    # ---- build the root set --------------------------------------------
+    # ---- build the root set: every referenced key with a gloss -----------
     roots = {}
-    for key, n in refs.items():
-        if n < 2:
-            continue
+    for key in refs:
         lang, form = key.split(":", 1)
         if lang == "en":
             a = affixes.get(form)
@@ -1754,14 +3414,19 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
                 continue
             gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
         else:
-            cl = classical[lang]
-            gloss = cl["gloss"].get(form)
-            disp = cl["form"].get(form) or form
-            rom = cl["rom"].get(form, "")
-            pos = cl["pos"].get(form, "")
+            g = graphs[lang]
+            gloss, picked = gloss_with_support(form, g, origin.hints.get(key))
+            disp = g.form.get(form) or form
+            rom = g.rom.get(form, "")
+            pos = g.pos.get(form, "")
+            if picked is not None:
+                disp, pos = picked[2], picked[3]
+                rom = picked[4] or rom
+                c["homograph"] += 1
         # A hand gloss overrides the harvest and can carry a card on its own.
         gloss = curation.ROOT_GLOSSES.get(key) or gloss
         if not gloss:
+            c["noglossroot"] += 1
             continue
         r = {"form": disp, "lang": lang, "gloss": gloss,
              "kind": root_kind(pos, disp)}
@@ -1769,14 +3434,15 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
             r["rom"] = rom
         roots[key] = r
 
-    # Alias forms, from curation and from the inflection step, listed on the
+    # Alias forms, from curation and from the lookup steps, listed on the
     # card they were folded into. Flattening produces no aliases of its own:
-    # an intermediate lemma is now decomposed rather than folded away.
+    # an intermediate lemma is decomposed rather than folded away.
     alt = collections.defaultdict(set)
     for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
         # A language-qualified alias key names a page, not a surface form.
         src = src.split(":", 1)[1] if ":" in src else src
-        if dst in roots and src != roots[dst]["form"]:
+        if dst in roots and src != roots[dst]["form"] \
+                and src != norm_key(dst.split(":", 1)[0], roots[dst]["form"]):
             alt[dst].add(src)
     for key, forms in alt.items():
         roots[key]["alt"] = sorted(forms)[:MAX_ALT]
@@ -1784,13 +3450,13 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
     # ---- the anchor's own breakdown (owner decision 2026-09-01) ---------
     # Recursion stops at an anchor, so every row naming one reads shallower
     # than the source: access reads accēdō + -tus, and ad- + cēdō appeared
-    # nowhere. The anchor's card carries that split itself now, as `parts`
-    # in the org.parts shape, produced by the same flatten() the word rows
-    # use: recursion stops at other anchors, affixes stay terminal, and a
-    # part whose root did not ship stays inert with its form alone. Only
-    # anchors carry parts. Affix roots and plain roots never do, and the
-    # runtime family index credits a root through the anchors that name it
-    # (lookup.js buildFamilyIndex), so cēdō still lists access.
+    # nowhere. The anchor's card carries that split itself, as `parts` in
+    # the org.parts shape, produced by the same flatten() the word rows use:
+    # recursion stops at other anchors, affixes stay terminal, and a part
+    # whose root does not ship stays inert with its form alone. Only anchors
+    # carry parts, and the runtime family index credits a root through the
+    # anchors that name it (lookup.js buildFamilyIndex), so cēdō still lists
+    # access.
     for key, r in roots.items():
         flat = anchor_parts.get(key)
         if not flat:
@@ -1820,7 +3486,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
             r["src"] = s
             c["src"] += 1
 
-    # ---- drop references to roots that did not make it ------------------
+    # ---- references to keys that carry no card render inert ---------------
     for wl, w in shipped.items():
         for m in w.get("morphs") or ():
             if m.get("r") and m["r"] not in roots:
@@ -1828,20 +3494,25 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, classical):
                 c["inert"] += 1
         org = w.get("org")
         if org and "parts" in org:
-            # A part whose root missed the threshold renders inert. A row
-            # where every part did teaches nothing navigable, so it goes.
             for p in org["parts"]:
                 if p.get("r") and p["r"] not in roots:
                     del p["r"]
                     c["inertpart"] += 1
             if not any(p.get("r") for p in org["parts"]):
+                # Every part is a skip: the lemma stays whole instead.
+                key = org["lang"] + ":" + norm_key(org["lang"], org["l"])
+                if key in roots:
+                    w["org"] = {"r": key, "f": roots[key]["form"]}
+                    c["orgwhole"] += 1
+                else:
+                    del w["org"]
+                    c["orgdrop"] += 1
+        elif org and org.get("r"):
+            if org["r"] not in roots:
                 del w["org"]
                 c["orgdrop"] += 1
-        elif org and org["r"] not in roots:
-            del w["org"]
-            c["orgdrop"] += 1
-        elif org:
-            org["f"] = roots[org["r"]]["form"]
+            else:
+                org["f"] = roots[org["r"]]["form"]
     return roots, c
 
 
@@ -1879,7 +3550,9 @@ def show_org(org):
         return "%s = %s" % (org["l"], " + ".join(
             p["f"] + ("[" + p["r"] + "]" if p.get("r") else "")
             for p in org["parts"]))
-    return org.get("r") or "-"
+    if org.get("r"):
+        return org["r"]
+    return "%s:%s (row-only)" % (org.get("lang"), org.get("f"))
 
 
 def org_roots(org):
@@ -1947,13 +3620,36 @@ def family_index(words, roots):
     return idx
 
 
-def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None):
+RE_LANG_NAME_TABLE = re.compile(r"var LANG_NAME = \{(.*?)\};", re.S)
+RE_LANG_NAME_KEY = re.compile(r"(?:\"([^\"]+)\"|([A-Za-z_][\w]*))\s*:")
+CONTENT_JS = os.path.join(ROOT, "extension", "content", "content.js")
+
+
+def extension_lang_names():
+    """The codes the extension's LANG_NAME table covers, read off content.js.
+
+    The extension holds the one copy of the table (the content script is a
+    classic script and cannot import it), and the build checks every code
+    it emits against that copy, the loud-failure pattern of the census gate.
+    """
+    if not os.path.exists(CONTENT_JS):
+        return None
+    with open(CONTENT_JS, encoding="utf-8") as fh:
+        m = RE_LANG_NAME_TABLE.search(fh.read())
+    if not m:
+        return None
+    return {a or b for a, b in RE_LANG_NAME_KEY.findall(m.group(1))}
+
+
+def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
+           harvest=None):
     """Spot-check the emitted data. Returns the number of failed checks.
 
     `anchors` is the source-lemma anchor set the build computed and
     `splits` the subset whose lemma decomposes in its own extract. A
     `--verify` run reads the JSON and nothing else, so it has neither and
-    the anchor checks are not run there.
+    the anchor checks are not run there. `harvest` carries the attachments,
+    for the never-silent check.
     """
     words = words_obj["words"]
     roots = roots_obj["roots"]
@@ -2407,9 +4103,128 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None):
     add("no morph carries both r and w", not rw,
         "%d offenders%s" % (len(rw), (": " + ", ".join(rw[:5])) if rw else ""))
 
-    thin = [k for k in roots if len(idx.get(k) or ()) < 2]
-    add("no root under 2 distinct referencing words", not thin,
-        "%d offenders%s" % (len(thin), (": " + ", ".join(sorted(thin)[:5])) if thin else ""))
+    # Never silent (owner decision 2026-09-05): there is no credit threshold,
+    # so every referenced root ships and a one-word family is a valid card.
+    # The old "no root under 2 distinct referencing words" line is
+    # superseded; what is asserted instead is that no root ships unreferenced.
+    orphan = [k for k in roots if not idx.get(k)]
+    add("every root card has a family of at least one word", not orphan,
+        "%d orphans%s; %d one-word families"
+        % (len(orphan), (": " + ", ".join(sorted(orphan)[:5])) if orphan else "",
+           sum(1 for k in roots if len(idx.get(k) or ()) == 1)))
+
+    # ---- the source-graph anchors (2026-09-05) --------------------------
+    def parts_of(k):
+        o = org_of(k) or {}
+        return [p["f"] for p in o.get("parts") or ()]
+
+    def linked_of(k):
+        o = org_of(k) or {}
+        return [p.get("r") for p in o.get("parts") or ()]
+
+    ms = org_of("manuscript")
+    add("manuscript carries manūscrīptus = manus + scrībō, both linked",
+        bool(ms) and ms.get("l") == "manūscrīptus"
+        and parts_of("manuscript") == ["manus", "scrībō"]
+        and linked_of("manuscript") == ["la:manus", "la:scribo"],
+        json.dumps(ms, ensure_ascii=False))
+
+    ida = org_of("idea")
+    add("idea carries a single row naming grc:ἰδέα, and that root ships",
+        bool(ida) and ida.get("r") == "grc:ἰδέα" and "grc:ἰδέα" in roots,
+        "%s | root=%s" % (json.dumps(ida, ensure_ascii=False),
+                          json.dumps(roots.get("grc:ἰδέα"), ensure_ascii=False)))
+    add("grc:ἰδέα carries a romanization",
+        bool((roots.get("grc:ἰδέα") or {}).get("rom")),
+        json.dumps(roots.get("grc:ἰδέα"), ensure_ascii=False))
+
+    sy = org_of("system")
+    add("system carries σύστημα decomposed: συν- + ἵστημι + -μα",
+        bool(sy) and sy.get("l") == "σύστημα" and sy.get("lang") == "grc"
+        and parts_of("system") == ["συν-", "ἵστημι", "-μα"],
+        json.dumps(sy, ensure_ascii=False))
+
+    # The Greek page splits περίοδος as περῐ́ + ὁδός: the preposition περί,
+    # reached through the length-mark rule, not the prefix page περι-.
+    pe = org_of("period")
+    add("period carries περίοδος = περί + ὁδός",
+        bool(pe) and pe.get("l") == "περίοδος"
+        and parts_of("period") == ["περί", "ὁδός"]
+        and all(linked_of("period")),
+        json.dumps(pe, ensure_ascii=False))
+
+    cu = org_of("curious")
+    add("curious carries cūriōsus = cūra + -ōsus",
+        bool(cu) and cu.get("l") == "cūriōsus"
+        and parts_of("curious") == ["cūra", "-ōsus"],
+        json.dumps(cu, ensure_ascii=False))
+
+    so = org_of("sock")
+    sofam = idx.get("la:soccus") or ()
+    add("sock carries a single row naming la:soccus, shipped with a family "
+        "of at least one",
+        bool(so) and so.get("r") == "la:soccus" and "la:soccus" in roots
+        and len(sofam) >= 1,
+        "%s | family %s" % (json.dumps(so, ensure_ascii=False), list(sofam)[:4]))
+
+    sk = org_of("sky")
+    add("sky carries a row-only single row with lang non and no r",
+        bool(sk) and sk.get("lang") == "non" and "r" not in sk
+        and "parts" not in sk and sk.get("f") == "ský",
+        json.dumps(sk, ensure_ascii=False))
+
+    # hesitance attaches now as well, so haesitō is reached by two words and
+    # is an anchor: the row stops at it and its card carries haereō + -titō.
+    hs = org_of("hesitation")
+    ha = roots.get("la:haesito") or {}
+    add("hesitation carries haesitātiō = haesitō + -tiō, both linked, and "
+        "la:haesito carries parts haereō + -titō",
+        bool(hs) and hs.get("l") == "haesitātiō"
+        and parts_of("hesitation") == ["haesitō", "-tiō"]
+        and all(linked_of("hesitation"))
+        and [p.get("r") for p in ha.get("parts") or ()] == ["la:haereo", "la:-tito"],
+        "%s | %s" % (json.dumps(hs, ensure_ascii=False),
+                     json.dumps(ha, ensure_ascii=False)))
+
+    # ---- row-only rows: the shape and the language names ----------------
+    rowonly = {k: w["org"] for k, w in words.items()
+               if w.get("org") and "parts" not in w["org"]
+               and not w["org"].get("r")}
+    badrow = sorted(k for k, o in rowonly.items()
+                    if not o.get("lang") or not o.get("f")
+                    or set(o) - {"lang", "f", "gloss", "rom"})
+    add("every row-only org is {lang, f, gloss?, rom?} with no r", not badrow,
+        "%d row-only rows, %d malformed%s"
+        % (len(rowonly), len(badrow), (": " + ", ".join(badrow[:5])) if badrow else ""))
+    rowcodes = sorted({o["lang"] for o in rowonly.values() if o.get("lang")})
+    notrow = [c for c in rowcodes if c not in ROW_ONLY_LANGS]
+    add("every row-only code is in the ROW_ONLY_LANGS table", not notrow,
+        "%d codes emitted%s" % (len(rowcodes),
+                                (", not in the table: " + ", ".join(notrow)) if notrow else ""))
+    ext = extension_lang_names()
+    if ext is None:
+        add("the extension's LANG_NAME table was read", False, "content.js not parsed")
+    else:
+        need = set(rowcodes) | {"la", "grc", "en"}
+        lacking = sorted(need - ext)
+        add("the extension's LANG_NAME table covers every emitted code",
+            not lacking,
+            "%d codes in content.js, %d needed%s"
+            % (len(ext), len(need), (", lacking: " + ", ".join(lacking)) if lacking else ""))
+
+    # ---- never silent: every classified origin shows, or is reported -----
+    if harvest is not None:
+        silent = []
+        for k, w in words.items():
+            if w.get("morphs") or w.get("org"):
+                continue
+            att = harvest.get(w.get("wik") or k, {}).get("att")
+            if att and "miss" not in att:
+                silent.append(k)
+        add("no word with a classified origin ships with neither morphs nor "
+            "org, except through a drop reported in the misses file",
+            not silent,
+            "%d silent%s" % (len(silent), (": " + ", ".join(silent[:8])) if silent else ""))
 
     KINDS = ("prefix", "suffix", "infix", "circumfix", "root")
     badkind = sorted(k for k, r in roots.items() if r.get("kind") not in KINDS)
@@ -2577,6 +4392,141 @@ def write_report(path=None):
         fh.write("\n".join(REPORT) + "\n")
 
 
+# ---------------------------------------------------------------- gold set
+
+def load_gold():
+    """The gold rows, or [] when the file is absent."""
+    if not os.path.exists(GOLD_FILE):
+        return []
+    with open(GOLD_FILE, encoding="utf-8") as fh:
+        return json.load(fh).get("rows") or []
+
+
+def gold_actual(word, words):
+    """What the shipped data says about a gold word, in the gold row shape."""
+    w = words.get(word)
+    if not w:
+        return {"kind": "none"}
+    if w.get("morphs"):
+        return {"kind": "morphs", "parts": [m["f"] for m in w["morphs"]],
+                "inert": [m["f"] for m in w["morphs"]
+                          if not m.get("r") and not m.get("w")]}
+    org = w.get("org")
+    if not org:
+        return {"kind": "none"}
+    if "parts" in org:
+        return {"kind": "decomposed", "lang": org["lang"], "lemma": org["l"],
+                "parts": [p["f"] for p in org["parts"]]}
+    if org.get("r"):
+        return {"kind": "single", "lang": org["r"].split(":", 1)[0],
+                "lemma": org.get("f") or org["r"].split(":", 1)[1]}
+    return {"kind": "rowonly", "lang": org.get("lang"), "lemma": org.get("f")}
+
+
+def gold_match(row, actual):
+    """Exact match of kind, language, lemma and the ordered part forms."""
+    if row.get("kind") != actual.get("kind"):
+        return False
+    kind = row["kind"]
+    if kind == "none":
+        return True
+    if kind == "morphs":
+        return (list(row.get("parts") or []) == list(actual.get("parts") or [])
+                and sorted(row.get("inert") or []) == sorted(actual.get("inert") or []))
+    if row.get("lang") != actual.get("lang") or row.get("lemma") != actual.get("lemma"):
+        return False
+    if kind == "decomposed":
+        return list(row.get("parts") or []) == list(actual.get("parts") or [])
+    return True
+
+
+def score_gold(words):
+    """(matched, total, per-class table, failures) against pipeline/gold.json."""
+    rows = load_gold()
+    per = collections.OrderedDict()
+    failures = []
+    matched = 0
+    for row in rows:
+        kind = row.get("kind", "?")
+        actual = gold_actual(row["word"], words)
+        ok = gold_match(row, actual)
+        n, m = per.get(kind, (0, 0))
+        per[kind] = (n + 1, m + (1 if ok else 0))
+        if ok:
+            matched += 1
+        else:
+            failures.append((row["word"], row, actual))
+    return matched, len(rows), per, failures
+
+
+def committed_gold_score():
+    if not os.path.exists(GOLD_SCORE_FILE):
+        return None
+    with open(GOLD_SCORE_FILE, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def gold_report(words):
+    """Print the gold score and return the number of failed gates (0 or 1)."""
+    matched, total, per, failures = score_gold(words)
+    committed = committed_gold_score()
+    log("================ GOLD SET ==================")
+    if not total:
+        log("no gold rows (pipeline/gold.json absent)")
+        return 0
+    for kind, (n, m) in per.items():
+        log("  %-12s %3d of %3d  (%.0f%% precision)" % (kind, m, n, 100.0 * m / n))
+    log("score %d of %d; committed %s"
+        % (matched, total, committed.get("score") if committed else "none"))
+    for word, row, actual in failures:
+        log("  FAIL %-14s expected %s\n                      got      %s"
+            % (word, json.dumps(row, ensure_ascii=False),
+               json.dumps(actual, ensure_ascii=False)))
+    if committed and matched < int(committed.get("score", 0)):
+        log("GOLD GATE FAILED: %d under the committed %d"
+            % (matched, committed["score"]))
+        return 1
+    return 0
+
+
+# ------------------------------------------------ the 2026-09-01 misses
+
+def misses_outcome(words):
+    """What each word of the 2026-09-01 misses list renders now.
+
+    Returns ((decomposed, single, nothing), (top10k decomposed, single,
+    nothing)) or None when the baseline file is absent. A single here is a
+    root-language single row or a row-only row; a decomposed row counts as
+    decomposed; a missing card or a card with neither counts as nothing.
+    """
+    if not os.path.exists(MISSES_BASELINE_FILE):
+        return None
+    rows = []
+    with open(MISSES_BASELINE_FILE, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            r, w = line.split("\t") if "\t" in line else line.split(None, 1)
+            rows.append((int(r), w))
+    out = {"all": [0, 0, 0], "top": [0, 0, 0]}
+    for r, wl in rows:
+        w = words.get(wl)
+        org = (w or {}).get("org")
+        if w and w.get("morphs"):
+            i = 0
+        elif org and "parts" in org:
+            i = 0
+        elif org:
+            i = 1
+        else:
+            i = 2
+        out["all"][i] += 1
+        if r <= COVERAGE_TOP:
+            out["top"][i] += 1
+    return tuple(out["all"]), tuple(out["top"]), len(rows)
+
+
 # ---------------------------------------------------------------- main
 
 def main(argv):
@@ -2599,6 +4549,8 @@ def main(argv):
     download(ENGLISH_URL, ENGLISH_FILE, force, offline)
     download(LATIN_URL, LATIN_FILE, force, offline)
     download(GREEK_URL, GREEK_FILE, force, offline)
+    for code in ("fro", "frm", "fr"):
+        download(PASS_FILES[code][0], PASS_FILES[code][1], force, offline)
     download(EXTFREQ_URL, EXTFREQ_FILE, force, offline)
 
     log("[2/7] reading the frequency list")
@@ -2609,7 +4561,7 @@ def main(argv):
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
     (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
-     s1) = survey_english(ENGLISH_FILE, ranks)
+     lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits, "
         "%s tail chains still to prove they flatten)"
         % (format(s1["lines"], ","), format(len(cand), ","),
@@ -2619,37 +4571,57 @@ def main(argv):
         % (format(len(forms_raw), ","), format(len(alt_raw), ","),
            format(len(mixed_raw), ","), format(len(affixes), ",")))
 
-    # The gate runs here, before the expensive passes: an unclassified
-    # template name is a question about how to read the source, and the
-    # answer changes what the rest of the build would produce.
+    # The gates run here, before the expensive passes: an unclassified
+    # template name or language code is a question about how to read the
+    # source, and the answer changes what the rest of the build produces.
     census_top = census_gate(tnames)
     n_high = sum(1 for c in tnames.values() if c >= CENSUS_MIN)
     log("  %s distinct template names, %s at or above %s uses, all classified"
         % (format(len(tnames), ","), format(n_high, ","),
            format(CENSUS_MIN, ",")))
+    lang_top = language_gate(lcodes)
+    n_lhigh = sum(1 for c in lcodes.values() if c >= CENSUS_MIN)
+    log("  %s distinct language codes, %s at or above %s uses, all in a role"
+        % (format(len(lcodes), ","), format(n_lhigh, ","),
+           format(CENSUS_MIN, ",")))
 
-    log("[4/7] harvesting senses, splits and chains")
-    harvest, s2 = harvest_english(ENGLISH_FILE, cand)
-    log("  %s words with at least one shippable sense (%s senses dropped "
-        "over %d chars)" % (format(len(harvest), ","),
-                            format(s2["dropped_long"], ","), DEF_MAX_CHARS))
-
-    log("[5/7] reading the Latin and Ancient Greek extracts")
-    classical = {"la": parse_classical(LATIN_FILE, "la"),
-                 "grc": parse_classical(GREEK_FILE, "grc")}
+    log("[4/7] building the source graphs and the pass-through tables")
+    graphs = {"la": parse_classical(LATIN_FILE, "la"),
+              "grc": parse_classical(GREEK_FILE, "grc")}
     for lang in ("la", "grc"):
-        c = classical[lang]
-        log("  %-3s %s lines, %s glossed lemmas, %s inflection pages, "
-            "%s lemmas with an in-language split"
-            % (lang, format(c["stats"]["lines"], ","),
-               format(len(c["gloss"]), ","), format(len(c["fo"]), ","),
-               format(len(c["split"]), ",")))
+        st = graphs[lang].stats
+        log("  %-3s %s lines, %s nodes, %s step edges, %s alternative-form "
+            "pages; splits: %s template, %s etymon, %s prose; refused: %s "
+            "template, %s etymon, %s cycle; prose unread %s"
+            % (lang, format(st["lines"], ","), format(st["nodes"], ","),
+               format(st["steps"], ","), format(st["alt_pages"], ","),
+               format(st["split_template"], ","), format(st["split_etymon"], ","),
+               format(st["split_prose"], ","), format(st["refused_template"], ","),
+               format(st["refused_etymon"], ","), format(st["refused_cycle"], ","),
+               format(st["prose_unread"], ",")))
+    pages = {}
+    for code in ("fro", "frm", "fr"):
+        pages[code], n_lines = read_passthrough(PASS_FILES[code][1], code)
+        log("  %-3s %s lines, %s pages with an origin" % (
+            code, format(n_lines, ","), format(len(pages[code]), ",")))
+    origin = Origin(graphs, pages)
+
+    log("[5/7] harvesting senses, splits and attachments")
+    harvest, s2 = harvest_english(ENGLISH_FILE, cand, origin)
+    log("  %s words with at least one shippable sense (%s senses dropped "
+        "over %d chars); %s attach to a root graph, %s row-only, %s name a "
+        "classical origin nothing reaches"
+        % (format(len(harvest), ","), format(s2["dropped_long"], ","),
+           DEF_MAX_CHARS, format(s2["attached"], ","),
+           format(s2["rowonly"], ","), format(s2["missed"], ",")))
+    for code in ("fro", "frm", "fr"):
+        log("  %s %s pass-through pages walked" % (
+            format(origin.stats["walked_" + code], ","), code))
 
     # ---- curate and cap -----------------------------------------------
     log("[6/7] curating, capping and resolving roots")
-    origin = Origin(classical)
     shipped = {}
-    pending_org = {}
+    pending = {}
     n_forced = n_blocked = n_infl = 0
     for wl, rec in harvest.items():
         raw = rec["sp"]
@@ -2680,8 +4652,8 @@ def main(argv):
             w["fr"] = rank
         if parts:
             w["morphs"] = [{"f": p} for p in parts]
-        elif rec["org"]:
-            pending_org[wl] = rec["org"]
+        elif rec["att"] and "miss" not in rec["att"]:
+            pending[wl] = rec["att"]
         shipped[wl] = w
     log("  %s words ship (%s forced splits, %s blocked, %s inflectional "
         "splits suppressed)"
@@ -2689,34 +4661,32 @@ def main(argv):
            format(n_blocked, ","), format(n_infl, ",")))
 
     # ---- which source lemmas are anchors in their own right --------------
-    n_anchor = origin.find_anchors(pending_org.values())
+    n_anchor = origin.find_anchors(pending.values())
     log("  %s source lemmas are anchors (reached by %d or more words), so "
         "recursion stops at them" % (format(n_anchor, ","), ORG_ANCHOR_MIN))
 
     org_rows = {}
-    for wl, chain in pending_org.items():
-        org = origin.resolve(chain[0], chain[1])
+    for wl, att in pending.items():
+        org = origin.resolve(att)
         if org:
             org_rows[wl] = org
-    log("  origin chains: %s decomposed, %s single"
+    log("  origin rows: %s decomposed, %s single, %s row-only"
         % (format(origin.stats["decomposed"], ","),
-           format(origin.stats["single"], ",")))
+           format(origin.stats["single"], ","),
+           format(origin.stats["rowonly"], ",")))
 
     # ---- the chain-only rule, and the linking it feeds -------------------
     # A chain-only candidate earns its card with a DECOMPOSED org row and
     # nothing else (owner decision 2026-09-01). A single "From Latin x" row
     # past the cap is a card with no breakdown on it, which is what the cap
     # exists to keep out. The row that decides is the row as EMITTED, so the
-    # test has to run after root pruning as well as before it: a decomposed
-    # row whose every part missed the 2-word threshold is deleted there, and
-    # 24 words shipped bare when the test ran only before it.
+    # test runs after linking as well as before it.
     #
     # Dropping a word changes who credits what, so linking runs again on the
     # smaller set. It terminates because every extra pass removes at least
     # one word from a finite set. A dropped word takes nothing with it: all
     # of this happens before forms.json is assembled, so it credits no root,
-    # it is no form target, and it cannot be a forms.json row. That is the
-    # path the tail-split suppression takes, one stage earlier.
+    # it is no form target, and it cannot be a forms.json row.
     n_chaindrop = 0
     for wl in list(chain_only):
         if wl in shipped and not (org_rows.get(wl) or {}).get("parts"):
@@ -2726,7 +4696,7 @@ def main(argv):
     while True:
         passes += 1
         roots, lp = link_and_prune(shipped, org_rows, harvest, origin,
-                                   affixes, classical)
+                                   affixes, graphs)
         stale = [wl for wl in chain_only if wl in shipped
                  and not (shipped[wl].get("org") or {}).get("parts")]
         if not stale:
@@ -2738,15 +4708,17 @@ def main(argv):
         "for want of one (%d linking pass%s)"
         % (format(sum(1 for wl in chain_only if wl in shipped), ","),
            format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
-    log("  %s roots kept (%s src links, %s anchor cards carrying parts); "
-        "%s word chips, %s morph chips left inert, %s org parts inert, "
-        "%s org rows dropped, %s repeated morphs credited once, %s base "
-        "chips routed to a classical root"
+    log("  %s roots ship (%s src links, %s anchor cards carrying parts, %s "
+        "homograph glosses picked by the attaching words); %s word chips, "
+        "%s morph chips left inert, %s org parts inert, %s org rows kept "
+        "whole, %s org rows dropped, %s repeated morphs credited once, %s "
+        "base chips routed to a classical root"
         % (format(len(roots), ","), format(lp["src"], ","),
-           format(lp["rootparts"], ","),
+           format(lp["rootparts"], ","), format(lp["homograph"], ","),
            format(lp["wchip"], ","), format(lp["inert"], ","),
-           format(lp["inertpart"], ","), format(lp["orgdrop"], ","),
-           format(lp["repeat"], ","), format(lp["routed"], ",")))
+           format(lp["inertpart"], ","), format(lp["orgwhole"], ","),
+           format(lp["orgdrop"], ","), format(lp["repeat"], ","),
+           format(lp["routed"], ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader
@@ -2841,8 +4813,12 @@ def main(argv):
               and w["fr"] <= RANK_CAP]
     n_morphs = sum(1 for w in shipped.values() if w.get("morphs"))
     n_org = sum(1 for w in shipped.values() if w.get("org"))
+    n_dec = sum(1 for w in shipped.values() if (w.get("org") or {}).get("parts"))
+    n_row = sum(1 for w in shipped.values()
+                if w.get("org") and "parts" not in w["org"] and not w["org"].get("r"))
     n_rmorphs = sum(1 for k in ranked if shipped[k].get("morphs"))
     langs = collections.Counter(k.split(":", 1)[0] for k in roots)
+    idx = family_index(shipped, roots)
     log("\n================= COUNTS ===================")
     log("words         : %s" % format(len(shipped), ","))
     log("  ranked <=%d: %s" % (RANK_CAP, format(len(ranked), ",")))
@@ -2850,11 +4826,17 @@ def main(argv):
     log("morphs        : %s words (%.1f%% of all, %.1f%% of ranked)"
         % (format(n_morphs, ","), 100.0 * n_morphs / max(1, len(shipped)),
            100.0 * n_rmorphs / max(1, len(ranked))))
-    log("org           : %s words (%.1f%% of all)"
-        % (format(n_org, ","), 100.0 * n_org / max(1, len(shipped))))
-    log("roots         : %s (en=%s la=%s grc=%s)"
+    log("org           : %s words (%.1f%% of all): %s decomposed, %s single, "
+        "%s row-only"
+        % (format(n_org, ","), 100.0 * n_org / max(1, len(shipped)),
+           format(n_dec, ","), format(n_org - n_dec - n_row, ","),
+           format(n_row, ",")))
+    log("roots         : %s (en=%s la=%s grc=%s); %s anchors; %s one-word "
+        "families"
         % (format(len(roots), ","), format(langs["en"], ","),
-           format(langs["la"], ","), format(langs["grc"], ",")))
+           format(langs["la"], ","), format(langs["grc"], ","),
+           format(len(origin.anchors), ","),
+           format(sum(1 for k in roots if len(idx.get(k) or ()) == 1), ",")))
     kinds = collections.Counter(r["kind"] for r in roots.values())
     log("  by kind     : %s"
         % " ".join("%s=%s" % (k, format(v, ","))
@@ -2864,38 +4846,96 @@ def main(argv):
     log("fo fields     : %s (%s pure pages, %s mixed pages)"
         % (format(n_fo + n_mixed, ","), format(n_fo, ","),
            format(n_mixed, ",")))
+    row_langs = collections.Counter(
+        w["org"]["lang"] for w in shipped.values()
+        if w.get("org") and "parts" not in w["org"] and not w["org"].get("r"))
+    log("row-only langs: %s"
+        % " ".join("%s=%s" % (k, format(v, ","))
+                   for k, v in row_langs.most_common(20)))
+
+    # ---- the graphs, tracked build over build ----------------------------
+    log("============ GRAPH COVERAGE ================")
+    log("  %-4s %8s %10s %8s %8s %8s %10s %8s" % (
+        "lang", "nodes", "decomposed", "template", "etymon", "prose",
+        "prose-unread", "neither"))
+    for lang in ("la", "grc"):
+        g = graphs[lang]
+        st = g.stats
+        neither = st["nodes"] - st["decomposed"] - st["prose_unread"]
+        log("  %-4s %8s %10s %8s %8s %8s %10s %8s" % (
+            lang, format(st["nodes"], ","), format(st["decomposed"], ","),
+            format(st["split_template"], ","), format(st["split_etymon"], ","),
+            format(st["split_prose"], ","), format(st["prose_unread"], ","),
+            format(neither, ",")))
+    log("  cycles 0, dangling edges 0 (the graph build fails otherwise); "
+        "refused splits: la %s, grc %s"
+        % (format(len(graphs["la"].refused), ","),
+           format(len(graphs["grc"].refused), ",")))
 
     # ---- coverage, tracked build over build ------------------------------
-    # Two report lines, not a gate. The first says how much of the band a
-    # reader actually meets carries a breakdown of some kind. The second
-    # counts the words whose source states a classical origin and whose card
-    # shows nothing for it, which is the shape every breakdown field report
-    # has taken so far. The list goes to a file so the next one can be
-    # checked against it before anyone goes looking.
+    # The first line says how much of the band a reader actually meets
+    # carries a breakdown of some kind. The second counts the words whose
+    # source states a classical origin and whose card shows nothing for it,
+    # the shape every breakdown field report has taken. Every one of them
+    # goes to the misses file with the reason it shows nothing (SPEC
+    # Principle 4), and so does every split the graph refused.
     top_band = [k for k, w in shipped.items()
                 if w.get("fr") is not None and w["fr"] <= COVERAGE_TOP]
     covered = [k for k in top_band
                if shipped[k].get("morphs")
                or (shipped[k].get("org") or {}).get("parts")]
     # A re-keyed record was harvested under its British spelling, so the
-    # chain is looked up by the page the record came from.
-    misses = sorted((w["fr"], k) for k, w in shipped.items()
-                    if harvest.get(w.get("wik") or k, {}).get("org")
-                    and not w.get("morphs") and not w.get("org"))
+    # attachment is looked up by the page the record came from.
+    misses = []
+    for k, w in shipped.items():
+        if w.get("morphs") or w.get("org"):
+            continue
+        att = harvest.get(w.get("wik") or k, {}).get("att")
+        if not att:
+            continue
+        if "miss" in att:
+            reason = att["miss"]
+        elif "key" in att:
+            reason = ("row dropped for %s:%s" % (att["lang"], att["key"]))
+        else:
+            reason = "row-only row dropped"
+        misses.append((w["fr"], k, reason))
+    misses.sort()
     with open(MISSES_FILE, "w", encoding="utf-8", newline="\n") as fh:
-        for r, k in misses:
-            fh.write("%d\t%s\n" % (r, k))
+        for r, k, reason in misses:
+            fh.write("%d\t%s\t%s\n" % (r, k, reason))
+        fh.write("\n# splits the graphs refused, with the reason\n")
+        for lang in ("la", "grc"):
+            for k in sorted(graphs[lang].refused):
+                fh.write("%s:%s\t%s\n" % (lang, k, graphs[lang].refused[k]))
+    reasons = collections.Counter(
+        r.split(":", 1)[0] if r.startswith(("la:", "grc:")) else r.split(" (")[0]
+        for _, _, r in misses)
     log("=============== COVERAGE ===================")
     log("breakdown coverage, top %s ranks : %.1f%% (%s of %s carry morphs or "
         "a decomposed org)"
         % (format(COVERAGE_TOP, ","),
            100.0 * len(covered) / max(1, len(top_band)),
            format(len(covered), ","), format(len(top_band), ",")))
-    log("classical origin, nothing shipped: %s words (list in %s)"
+    log("classical origin, nothing shipped: %s words (list with reasons in %s)"
         % (format(len(misses), ","), os.path.basename(MISSES_FILE)))
+    for reason, n in reasons.most_common(8):
+        log("    %6s  %s" % (format(n, ","), reason))
+    outcome = misses_outcome(shipped)
+    if outcome:
+        (a_d, a_s, a_n), (t_d, t_s, t_n), n_base = outcome
+        log("the %s misses of 2026-09-01 now render: decomposed %s, single %s, "
+            "nothing %s (top %s ranks: %s / %s / %s); the spike expected "
+            "488 / 1,039 / 225 and 141 / 359 / 53"
+            % (format(n_base, ","), format(a_d, ","), format(a_s, ","),
+               format(a_n, ","), format(COVERAGE_TOP, ","), format(t_d, ","),
+               format(t_s, ","), format(t_n, ",")))
     log("=========== TEMPLATE CENSUS (top 30) =======")
     for name, count, kind in census_top:
         log("  %8s  %-22s %s" % (format(count, ","), name, kind))
+    log("=========== LANGUAGE CENSUS (top 40) =======")
+    for code, count, role in lang_top:
+        log("  %8s  %-12s %s" % (format(count, ","), code, role))
     log("================= SIZES ====================")
     log("words.json    : %s" % mb(s_w))
     log("roots.json    : %s" % mb(s_r))
@@ -2923,7 +4963,9 @@ def main(argv):
         flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
         if flat and len(flat) >= 2:
             splits.add(k)
-    failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits)
+    failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits,
+                    harvest=harvest)
+    failed += gold_report(shipped)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     write_report()
