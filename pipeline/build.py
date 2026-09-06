@@ -393,6 +393,9 @@ ORIGIN_NAMES = frozenset({
 LATIN_CODES = frozenset({
     "la", "la-cla", "la-lat", "la-med", "la-ecc", "la-new", "la-vul",
     "ML", "ML.", "LL", "LL.", "NL", "NL.", "VL", "VL.",
+    # Early Medieval and Renaissance Latin, surfaced by the row-only pick
+    # once it stopped skipping codes in no role (review finding 7).
+    "la-eme", "la-ren",
 })
 GREEK_CODES = frozenset({"grc", "grc-koi", "gkm"})
 # A suffix that only inflects. A split ending in one of these is not a
@@ -425,8 +428,13 @@ for _c in GREEK_CODES:
 # Old Northern French is an etymology-only variant of Old French and its
 # terms live on the Old French pages.
 PASS_LANGS = {"fro": "Old French", "fro-nor": "Old French", "xno": "Anglo-Norman",
-              "frm": "Middle French", "fr": "French"}
-PASS_EXTRACT = {"fro": "fro", "fro-nor": "fro", "frm": "frm", "fr": "fr"}
+              "frm": "Middle French", "fr": "French",
+              # French variants (review finding 7): their pages, when any,
+              # live in the French extract; Law French has none, like xno.
+              "fr-CA": "Canadian French", "fr-aca": "Acadian French",
+              "frc": "Cajun French", "xno-law": "Law French"}
+PASS_EXTRACT = {"fro": "fro", "fro-nor": "fro", "frm": "frm", "fr": "fr",
+                "fr-CA": "fr", "fr-aca": "fr", "frc": "fr"}
 # Row-only languages with the name the row prints, read off the language
 # census of the English extract (2026-09-05, every code down to about 60
 # uses). The name is what Wiktionary prints for the code; the extension's
@@ -483,7 +491,53 @@ ROW_ONLY_LANGS = {
     "es-MX": "Mexican Spanish", "osp": "Old Spanish", "gmq-oda": "Old Danish",
     "cop": "Coptic", "ibl": "Ibaloi", "gmw-msc": "Middle Scots",
     "az": "Azerbaijani", "xpg": "Phrygian", "frk": "Frankish",
-    "lad": "Ladino", "grk-pro": "Proto-Hellenic",
+    "lad": "Ladino", "lij": "Ligurian", "hni": "Hani", "yrk-tun": "Tundra Nenets",
+    # Codes under CENSUS_MIN that reached a row once the row-only pick
+    # stopped skipping codes in no role (review finding 7, 2026-09-05). The
+    # names are the ones the template expansions print; kio, mrj, tig and
+    # yap carried no usable expansion and take their standard names.
+    # grk-pro left the table the same day (review finding 14): no proto
+    # language is a row-only language.
+    "aa": "Afar", "abe": "Abenaki", "ace": "Acehnese", "akz": "Alabama",
+    "ale": "Aleut", "alq": "Algonquin", "ami": "Amis",
+    "ang-ang": "Anglian Old English", "ang-nor": "Northumbrian Old English",
+    "apk": "Plains Apache", "arn": "Mapudungun", "arw": "Lokono",
+    "arz": "Egyptian Arabic", "ay": "Aymara", "bft": "Balti",
+    "bm": "Bambara", "car": "Kari'na", "cea": "Lower Chehalis",
+    "cel-gau": "Gaulish", "cho": "Choctaw", "chr": "Cherokee",
+    "cpi": "Chinese Pidgin English", "css": "Southern Ohlone", "cuk": "Kuna",
+    "dak": "Dakota", "dif": "Dieri", "dv": "Dhivehi", "ee": "Ewe",
+    "es-AR": "Rioplatense Spanish", "es-CU": "Cuban Spanish",
+    "evn": "Evenki", "ff": "Fula", "for": "Fore", "frp": "Franco-Provençal",
+    "gmw-ecg": "East Central German", "gug": "Paraguayan Guarani",
+    "gul": "Gullah", "gwi": "Gwich'in", "ha": "Hausa", "hid": "Hidatsa",
+    "hur": "Halkomelem", "ibb": "Ibibio", "ig": "Igbo", "ilo": "Ilocano",
+    "inc-mbn": "Middle Bengali", "jam": "Jamaican Creole",
+    "kee": "Eastern Keres", "kg": "Kongo", "khy": "Ekele", "kio": "Kiowa",
+    "kky": "Guugu Yimidhirr", "kld": "Gamilaraay", "kmb": "Kimbundu",
+    "kok": "Konkani", "ky": "Kyrgyz", "lkt": "Lakota", "lmo": "Lombard",
+    "lng": "Lombardic", "lo": "Lao", "lou": "Louisiana Creole",
+    "lre": "Laurentian", "lzz": "Laz", "man": "Mandingo", "mg": "Malagasy",
+    "mh": "Marshallese", "mia": "Miami", "mic": "Mi'kmaq",
+    "mns-nor": "Northern Mansi", "mrj": "Western Mari", "mus": "Creek",
+    "nrf-jer": "Jersey Norman", "nv": "Navajo", "nys": "Nyunga",
+    "oc-pro-old": "Old Provençal", "och": "Old Chinese",
+    "oma": "Omaha-Ponca", "omr": "Old Marathi", "otk": "Old Turkic",
+    "otw": "Ottawa", "owl": "Old Welsh", "pdc": "Pennsylvania German",
+    "pim": "Powhatan", "pis": "Pijin", "pra": "Prakrit",
+    "qwc": "Classical Quechua", "rap": "Rapa Nui", "rme": "Angloromani",
+    "roa-poi": "Poitevin-Saintongeais", "rw": "Rwanda-Rundi",
+    "ryu": "Okinawan", "sah": "Yakut", "se": "Northern Sami",
+    "sjw": "Shawnee", "sm": "Samoan", "so": "Somali", "spo": "Spokane",
+    "sth": "Shelta", "swg": "Swabian", "tew": "Tewa", "ti": "Tigrinya",
+    "tig": "Tigre", "tlh": "Klingon", "tli": "Tlingit", "tnq": "Taíno",
+    "to": "Tongan", "trk-oat": "Old Anatolian Turkish", "unm": "Unami",
+    "vec": "Venetan", "wa": "Walloon", "wam": "Massachusett", "wnw": "Wintu",
+    "wo": "Wolof", "wth": "Wathaurong", "xbc": "Bactrian", "xdk": "Dharug",
+    "xh": "Xhosa", "xng": "Middle Mongol", "xnt": "Narragansett",
+    "xpq": "Mohegan-Pequot", "yap": "Yapese", "ynn": "Yana",
+    "yua": "Yucatec Maya", "zlw-ocs": "Old Czech", "zun": "Zuni",
+    "zza": "Zazaki",
 }
 # Codes that name no origin language, each with the reason.
 IGNORED_LANGS = {
@@ -1382,7 +1436,7 @@ def harvest_english(path, cand, origin):
             if ns > rec["ns"]:
                 rec["ns"] = ns
                 rec["sp"] = entry_split(e, "en")
-                mentions, chains = page_mentions(
+                mentions, chains, settled = page_mentions(
                     e.get("etymology_templates") or [],
                     e.get("etymology_text") or "", "en", wl)
                 # The page's homograph evidence: read once, used for this
@@ -1391,7 +1445,7 @@ def harvest_english(path, cand, origin):
                                       e.get("etymology_text") or "", "en", wl)
                 ev = origin.evidence_of(terms, mentions, def_words(defs[0]))
                 origin.merge_evidence(ev, origin.ranks.get(wl))
-                rec["att"] = origin.attach(mentions, chains, wl, ev)
+                rec["att"] = origin.attach(mentions, chains, wl, ev, settled)
                 rec["cogonly"] = origin.cognate_only(mentions)
                 if rec["att"] is not None:
                     stats["attached" if "key" in rec["att"] else
@@ -1450,13 +1504,58 @@ RE_STANCE_HARD = re.compile(
     r"false\s+etymolog\w*|mistaken\w*|erroneous\w*|incorrect\w*|wrongly|"
     r"corruption\s+of|no\s+relation\s+to|calque\w*\s+of|loan\s+translation\s+of|"
     r"semantic\s+loan\s+of|modell?ed\s+(?:after|on)|translation\s+of|"
-    r"interpretation\s+of|imitation\s+of|rendering\s+of)\b", re.I)
+    r"interpretation\s+of|imitation\s+of|rendering\s+of|"
+    # A term named after a doubt cue is a proposal, not a stated origin
+    # (review finding 8, 2026-09-05): "a connection has also been suggested
+    # with Old Norse glámr", "this suggests a derivation from", "disputedly".
+    # "Suggested by Berzelius" and "proposed by Mulder" are coinages and do
+    # not count; a hedged origin ("of uncertain origin, but probably from")
+    # stands, since the hedge is not a rejection.
+    r"(?:suggested|proposed|hypothesi[sz]ed|conjectured|speculated|"
+    r"connected|linked)(?!\s+by\b)|suggests?(?!\s+by\b)|"
+    r"(?:a|the)\s+connection|disput\w*|doubtful|dubious|"
+    r"unlikely|resembl\w*|superficial\w*|corruption)\b", re.I)
 # A short heading paragraph followed by bullets. "Cognates" keeps every
 # bullet under it a cognate list however the bullets are worded ("from
 # Proto-Germanic: Scots knaw"), and "theories" or "etymology" makes every
 # bullet a rejected proposal rather than a stated origin (race).
 RE_HEADING_REJECT = re.compile(r"\b(theor\w*|hypothes\w*|propos\w*|suggest\w*|"
                                r"etymolog\w*|origin\w*)\b", re.I)
+# A cue that makes the term named AFTER it in the same sentence an aside
+# rather than a source: "influenced also by Punjabi X", "whence also French
+# Y", "replacing earlier Z" (review finding 7, 2026-09-05). The subset of the
+# cognate cues that never introduces the origin itself ("a descendant of
+# Latin X" does, so it is not here). Read positionally, like RE_STANCE_HARD.
+RE_ASIDE_ALL = re.compile(
+    r"\b(cognates?|cognate with|akin|related|whence|reinforced|influenced|"
+    r"influencing|calques?|calqued|loan translation|semantic loan|"
+    r"modell?ed (?:after|on)|interpretation of|translat(?:ion|ing) of|"
+    r"imitation of|rendering of)\b", re.I)
+# A cue that takes one object: the term right after it is the aside, and
+# the chain resumes at the next "from" ("compare French contraire, from Old
+# French contraire, from Latin contrārius"; "which replaced hôpital
+# ambulant via the suffix -ance, from Latin ambulō").
+RE_ASIDE_NEXT = re.compile(
+    r"\b(compare|compared|cf\.?|see also|more at|doublets?|displaced|"
+    r"displacing|replaced|replacing|superseded|eclipsed)\b", re.I)
+RE_RESUME_CUE = re.compile(
+    r"\b(from|via|borrow\w*|deriv\w*|inherit\w*|ultimately|through)\b|<", re.I)
+# "influenced by Old French rose, both from Latin rosa": a shared origin
+# resumes the chain after a sentence-wide cue as well.
+RE_RESUME_ALL = re.compile(r"\b(?:both|all|each)\s+(?:ultimately\s+)?from\b", re.I)
+# Not in either table: "conflation of X and Y, both from Z", "confusion
+# between X and Y" and "contamination of X by Y" describe the word's own
+# formation, and the terms after them are its sources (place reads Latin
+# platēa, hug reads Old Norse hugga). The forms are verbs and participles
+# so that a page never matches its own word (influence, analogy).
+# A cue between two origin templates that makes the second a step deeper
+# than the first. Without one they are alternatives at the same depth
+# ("Hindi गोरा / Urdu گورا", "German Steppe or French steppe"), and the
+# first is the one a row shows (review finding 7).
+RE_OR_CUE = re.compile(r"(?:^|\W)or(?:\W|$)|(?:^|\W)/(?:\W|$)", re.I)
+RE_STEP_CUE = re.compile(
+    r"\b(from|via|borrow\w*|deriv\w*|inherit\w*|ultimately|through|itself|"
+    r"earlier|originally|of|thence|then|etymon)\b|<", re.I)
 # A sentence that states a source, which ends a cognate list's reach.
 RE_STANCE_ORIGIN = re.compile(
     r"\b(from|borrow\w*|inherit\w*|deriv\w*|via|ultimately|calque\w*|"
@@ -1735,6 +1834,21 @@ def hard_cue_before(sent, at):
     sentence, outside any parenthesis."""
     flat = blank_parens(sent[:at])
     return RE_STANCE_HARD.search(flat) is not None
+
+
+def aside_cue_before(sent, at):
+    """True when a cognate-style cue before offset `at` in the sentence,
+    outside any parenthesis, makes the term an aside: a sentence-wide cue
+    anywhere before it, or a one-object cue with no resuming "from"
+    between the cue and the term."""
+    flat = blank_parens(sent[:at])
+    m = RE_ASIDE_ALL.search(flat)
+    if m and RE_RESUME_ALL.search(flat, m.end()) is None:
+        return True
+    last = None
+    for m in RE_ASIDE_NEXT.finditer(flat):
+        last = m
+    return last is not None and RE_RESUME_CUE.search(flat, last.end()) is None
 
 
 RE_ORIGIN_CUE = re.compile(r"(?:\bfrom|\bvia|<|\bof|\bborrow(?:ed|ing) from|"
@@ -2203,8 +2317,46 @@ def page_mentions(templates, text, page_lang, key):
                     # A bullet that rejects, or sits under a "theories"
                     # heading, is a listed proposal, not a stated origin.
                     return True
-                return hard_cue_before(prose[a:b], pos - a)
+                return (hard_cue_before(prose[a:b], pos - a)
+                        or aside_cue_before(prose[a:b], pos - a))
         return False
+
+    def sent_index(pos):
+        for i, (a, b, _) in enumerate(spans):
+            if a <= pos < b:
+                return i
+        return -1
+
+    prev = [None]           # (end, sentence) of the last positioned origin
+
+    def alternative(at, exp):
+        """True when this template names an alternative at the same depth
+        as the origin template before it: same sentence, no step cue
+        between (review finding 7)."""
+        si = sent_index(at)
+        p = prev[0]
+        prev[0] = (at + len(exp), si)
+        if p is None or p[1] != si or p[0] > at:
+            return False
+        between = prose[p[0]:at]
+        if RE_OR_CUE.search(blank_parens(between)):
+            # "either from Italian bizzarro or, less likely, from Basque
+            # bizar": an "or" joins alternatives whatever follows it.
+            return True
+        cues = RE_STEP_CUE.findall(between)
+        if cues and cues[-1].lower() == "via":
+            # "from Malayalam māṅṅa, possibly via Malay mangga": a "via"
+            # after a "from" term names a stage between the borrower and
+            # that term, not a deeper one (mango, review finding 7).
+            return True
+        return not cues
+
+    def comma_forms(raw):
+        """The spellings a comma-joined term lists after the first: an
+        alternative each, shown only when the first fails."""
+        if raw.startswith("*") or "," not in raw:
+            return []
+        return [f for f in (clean_part(x) for x in raw.split(",")[1:]) if f]
 
     mentions = []
     cursor = 0
@@ -2213,8 +2365,8 @@ def page_mentions(templates, text, page_lang, key):
         args = t.get("args") or {}
         if name in ORIGIN_NAMES:
             code = args.get("2") or ""
-            term = clean_part(args.get("3") or "")
             raw = (args.get("3") or "").strip()
+            term = clean_part(raw.split(",", 1)[0] if not raw.startswith("*") else raw)
             if raw.startswith("*"):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
@@ -2242,17 +2394,22 @@ def page_mentions(templates, text, page_lang, key):
                     pos = at
                     if rejected_at(at):
                         role = "reject"
+                    elif alternative(at, exp):
+                        role = "alt"
                     if not rom and non_latin_script(term):
                         rom = rom_after(prose, pos, exp)
             mentions.append(("origin", code, term, gloss, rom, role, pos))
+            for f in comma_forms(raw):
+                mentions.append(("origin", code, f, gloss, rom,
+                                 "alt" if role == "origin" else role, pos))
             stepped = prose_step(prose, pos, exp) if role == "origin" else ""
             if stepped:
                 mentions.append(("mention", code, stepped, "", "", "origin", pos + 1))
             continue
         if name in MENTION_NAMES:
             code = args.get("1") or ""
-            term = clean_part(args.get("2") or "")
             raw = (args.get("2") or "").strip()
+            term = clean_part(raw.split(",", 1)[0] if not raw.startswith("*") else raw)
             if raw.startswith("*"):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
@@ -2280,9 +2437,14 @@ def page_mentions(templates, text, page_lang, key):
                             role = "origin"
                     else:
                         role = role_at(at)
+                    if role == "origin" and alternative(at, exp):
+                        role = "alt"
                     if not rom and non_latin_script(term):
                         rom = rom_after(prose, pos, exp)
             mentions.append(("mention", code, term, gloss, rom, role, pos))
+            for f in comma_forms(raw):
+                mentions.append(("mention", code, f, gloss, rom,
+                                 "alt" if role == "origin" else role, pos))
             if role == "origin":
                 stepped = prose_step(prose, pos, exp)
                 if stepped:
@@ -2325,9 +2487,46 @@ def page_mentions(templates, text, page_lang, key):
                 continue
             for chain in parse_chains(sent):
                 if len(chain) >= 2:
-                    at = sent.find(chain[0].head)
+                    # The head as a whole word, so "mel + -āceus" is placed
+                    # at mel and not inside melaços (review finding 7).
+                    m = re.search(r"(?<!\w)" + re.escape(chain[0].head) + r"(?!\w)", sent)
+                    at = m.start() if m else sent.find(chain[0].head)
                     chains.append((chain, r, a + (at if at >= 0 else 0)))
-    return mentions, chains
+
+    # The terms the page's own clause continues to past each pass-through
+    # term: "via Middle French race from Italian razza" settles race on the
+    # page itself, while "from Old French engin; and partly from Middle
+    # English grin" is a second chain (gin). A clause is a sentence, or the
+    # stretch between semicolons inside one.
+    clauses = []
+    for a, b, _ in spans:
+        start = a
+        for i in range(a, b):
+            if prose[i] == ";":
+                clauses.append((start, i))
+                start = i + 1
+        clauses.append((start, b))
+
+    def clause_of(pos):
+        for i, (a, b) in enumerate(clauses):
+            if a <= pos < b:
+                return i
+        return -1
+
+    positioned = [m for m in mentions
+                  if m[6] >= 0 and m[0] != "part" and m[5] in ("origin", "alt")]
+    settled = {}
+    for m in positioned:
+        if lang_role(m[1]) != "pass":
+            continue
+        ci = clause_of(m[6])
+        later = [(m2[1], m2[2]) for m2 in positioned
+                 if m2[6] > m[6] and clause_of(m2[6]) == ci
+                 and not m2[2].startswith("*")
+                 and lang_role(m2[1]) in ("row", "root", "")]
+        if later:
+            settled[(m[1], m[2])] = later
+    return mentions, chains, settled
 
 
 # ---- homograph evidence on an English page --------------------------------
@@ -2821,7 +3020,7 @@ def build_graph(g, part_steps):
 
     def prose_split(k, templates, text):
         """(split or None, refusal reason) from one entry's prose."""
-        mentions, chains = page_mentions(templates, text, lang, k)
+        mentions, chains, _ = page_mentions(templates, text, lang, k)
         tl = {}
         for kind, code, term, _, _, _, _ in mentions:
             fam = lang_family(code)
@@ -3032,9 +3231,9 @@ def read_passthrough(path, code):
             text = e.get("etymology_text") or ""
             if not templates and " + " not in text:
                 continue
-            mentions, chains = page_mentions(templates, text, code, k)
+            mentions, chains, settled = page_mentions(templates, text, code, k)
             if mentions or chains:
-                pages[k] = (mentions, chains)
+                pages[k] = (mentions, chains, settled)
     return pages, n
 
 
@@ -3219,6 +3418,10 @@ class Origin:
             if not cands:
                 continue
             a = unicodedata.normalize("NFC", alt).lower()
+            if g.lookup(alt, alt_ok=True)[0] == key:
+                # The written form is an inflection page of the lemma
+                # (genere, ablative of genus), not an unwritten verb.
+                continue
             if not any(c.pos == "verb" or a in c.forms for c in cands):
                 skip.add(fam + ":" + key)
         if skip:
@@ -3408,28 +3611,40 @@ class Origin:
         """
         cog, orig = set(), set()
         for kind, code, term, _, _, role, _ in mentions:
-            if term.startswith("*"):
+            if not term or term.startswith("*"):
                 continue
             (cog if role == "cognate" else orig).update(self.term_keys(code, term))
         return cog - orig
 
     # -- attachment ----------------------------------------------------------
 
-    def expand(self, mentions, depth, seen):
+    def expand(self, mentions, depth, seen, settled=None):
         """The mentions with every pass-through page walked.
 
         A walked page's mentions come after the page's own, in walk order,
         and carry position -2: the page's own statement is read first, and
-        the French page only continues the chain past it.
+        the French page only continues the chain past it. `settled` maps a
+        pass-through term to the terms the page's own clause continues to
+        past it (page_mentions).
         """
         own = list(mentions) if depth == 3 else [m[:6] + (-2,) for m in mentions]
         walked = []
         for m in mentions:
             kind, code, term, gloss, rom, role, _ = m
-            if kind == "part" or role != "origin" or term.startswith("*"):
+            if kind == "part" or role not in ("origin", "alt") or term.startswith("*"):
                 continue
             ex = PASS_EXTRACT.get(code)
             if not ex or depth <= 0:
+                continue
+            # The page's own statement decides first (SPEC, phase one note):
+            # a French term the page's own clause continues past to an
+            # attested origin that exists is not walked, so the French
+            # page's Latin never outranks the page's own "from Italian
+            # razza, of uncertain origin" (race, review finding 8). A Latin
+            # term Wiktionary never wrote (quaesta) settles nothing, and
+            # the walk goes on.
+            later = (settled or {}).get((code, term)) or ()
+            if any(self.attested(c, t) for c, t in later):
                 continue
             k = norm_for(ex, self.g["la"].clean_term(term))
             if (ex, k) in seen:
@@ -3437,8 +3652,18 @@ class Origin:
             page = self.pages.get(ex, {}).get(k)
             if page:
                 self.stats["walked_" + ex] += 1
-                walked.extend(self.expand(page[0], depth - 1, seen | {(ex, k)}))
+                walked.extend(self.expand(page[0], depth - 1, seen | {(ex, k)},
+                                          page[2] if len(page) > 2 else None))
         return own + walked
+
+    def attested(self, code, term):
+        """True when a term settles the page's own chain: a row-only term,
+        or a root-language term that is a page of its graph."""
+        r = lang_role(code)
+        if r in ("row", ""):
+            return True
+        fam = ROOT_LANGS.get(code)
+        return bool(fam) and self.g[fam].lookup(term, alt_ok=True)[0] is not None
 
     def english_parts(self, ms, chains):
         """fam -> (parts, pos, heads, before): the parts the English page
@@ -3528,7 +3753,7 @@ class Origin:
                     parts_by[fam] = (res, pos, heads, None)
         return parts_by
 
-    def attach(self, mentions, chains, word="", ctx=None):
+    def attach(self, mentions, chains, word="", ctx=None, settled=None):
         """The attachment of one English page.
 
         Returns {"lang", "key", "first", "extra"} for a root-language
@@ -3540,12 +3765,12 @@ class Origin:
         """
         self.ctx = ctx
         try:
-            return self._attach(mentions, chains, word)
+            return self._attach(mentions, chains, word, settled)
         finally:
             self.ctx = None
 
-    def _attach(self, mentions, chains, word):
-        ms = self.expand(mentions, 3, set())
+    def _attach(self, mentions, chains, word, settled=None):
+        ms = self.expand(mentions, 3, set(), settled)
         # A term the page itself calls a cognate is vetoed wherever a walked
         # page names it as an origin (flat names French plat, whose page
         # continues to Greek πλατύς, which flat lists as a cognate).
@@ -3575,7 +3800,7 @@ class Origin:
                 continue
             best = None
             for kind, code, term, gloss, rom, role, mpos in ms:
-                if kind == "part" or role != "origin" or mpos < 0 or mpos >= pos:
+                if kind == "part" or role not in ("origin", "alt") or mpos < 0 or mpos >= pos:
                     continue
                 if strip_marks(term) in hs:
                     continue
@@ -3614,8 +3839,11 @@ class Origin:
         own = []
         named = []
         skip = (self.ctx or {}).get("skip") or ()
+        # An alternative spelling or an alternative source at the same depth
+        # ("Hindi गोरा / Urdu گورا") is a term of the run as well, tried
+        # when the first fails.
         for kind, code, term, gloss, rom, role, pos in ms:
-            if kind == "part" or role != "origin" or term.startswith("*"):
+            if kind == "part" or role not in ("origin", "alt") or term.startswith("*"):
                 continue
             fam = ROOT_LANGS.get(code)
             if fam:
@@ -3626,10 +3854,10 @@ class Origin:
                     own.append(named[-1])
         if not named:
             for kind, code, term, gloss, rom, role, pos in ms:
-                if kind == "part" or role != "origin" or term.startswith("*"):
+                if kind == "part" or role not in ("origin", "alt") or term.startswith("*"):
                     continue
                 r = lang_role(code)
-                if r in ("row", "pass"):
+                if r in ("row", "pass", ""):
                     named.append((None, term, gloss))
             if not named and not owner:
                 return None
@@ -3696,21 +3924,51 @@ class Origin:
                         "extra": parts_by[fam][0], "fam": fam}
         # ---- row-only: the deepest named origin is not a root language ----
         if not any(fam for fam, _, _ in named):
+            # The row is the deepest term of the page's own origin clause
+            # (review finding 7, 2026-09-05): read in order, a reconstruction
+            # ends the walk, an alternative at the same depth is skipped,
+            # and an aside (a comparison, a descendant, a "see also") was
+            # never an origin. A walked French page is read only when the
+            # page itself settles nothing. A code in no role is a row too;
+            # verify then fails until ROW_ONLY_LANGS names it, so a language
+            # under the census threshold is never a silent skip.
             row = None
             stop = ""
-            for kind, code, term, gloss, rom, role, _ in ms:
-                if kind == "part" or role != "origin" or term.startswith("*"):
+
+            def as_row(code, term, gloss, rom):
+                r = {"lang": code, "f": self.g["la"].clean_term(term)}
+                if gloss:
+                    r["gloss"] = gloss
+                if rom:
+                    r["rom"] = rom
+                return r
+
+            for kind, code, term, gloss, rom, role, pos in ms:
+                if pos == -2 or kind == "part" or role != "origin":
                     continue
                 r = lang_role(code)
-                if r == "row":
-                    row = {"lang": code, "f": self.g["la"].clean_term(term)}
-                    if gloss:
-                        row["gloss"] = gloss
-                    if rom:
-                        row["rom"] = rom
+                if term.startswith("*"):
+                    # A reconstruction in a proto language ends the walk; an
+                    # unattested form in an attested language (*bangen in
+                    # Middle English) is a step the chain continues past.
+                    if r == "ignored":
+                        break
+                    continue
+                if r in ("row", ""):
+                    row = as_row(code, term, gloss, rom)
                     stop = ""
                 elif r == "pass":
                     stop = code + ":" + term
+            if row is None:
+                for kind, code, term, gloss, rom, role, pos in ms:
+                    if pos != -2 or kind == "part" or role != "origin" or term.startswith("*"):
+                        continue
+                    r = lang_role(code)
+                    if r in ("row", ""):
+                        row = as_row(code, term, gloss, rom)
+                        stop = ""
+                    elif r == "pass":
+                        stop = code + ":" + term
             if row:
                 return {"row": row}
             if stop:

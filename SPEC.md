@@ -1501,6 +1501,41 @@ pinned it; the gold set carries a row for each.
   after this rule alone (the review's measure over its sampled entries,
   rows lacking rom though the expansion carries one: 371 to 64). aarti,
   avatar, assassin, bolshevik and cotton all print their reading.
+- The row-only origin (finding 7). The row is the deepest term of the
+  page's own origin clause, read in template order: a reconstruction in
+  a proto language ends the walk (an unattested form in an attested
+  language, *bangen in Middle English, is a step the chain continues
+  past); a term with no step cue between it and the term before it in
+  the same sentence, or joined to it by "or" or "/", is an alternative
+  at the same depth and the first is shown ("Hindi गोरा / Urdu گورا",
+  "from Middle Dutch scoep ... and Middle Dutch schoppe"); a "via" term
+  after a "from" term is a stage between the borrower and that term,
+  not a deeper one (mango reads Malayalam, not Malay); a term after an
+  aside cue in its sentence was never an origin ("influenced also by
+  Punjabi X", "whence also", "reinforced by"; the one-object cues
+  "compare", "see also", "replaced" and "doublet of" mark the next term
+  only, and the chain resumes at the next "from", so contrary keeps
+  contrārius and ambulance keeps ambulō; "both from" and "all from"
+  resume the chain after any cue, so rose keeps rosa). A comma-joined
+  spelling list gives its first form, the rest being alternatives. A
+  walked French page is read only when the page itself settles nothing,
+  and a French term the page's own clause continues past to an attested
+  origin that exists is not walked at all (race reads "From Italian
+  razza", the page's own statement, not the French page's Latin
+  generātiō; a semicolon starts a new clause, so gin still walks engin
+  to ingenium). A term after a doubt cue ("a connection has also been
+  suggested with", "this suggests a derivation from", "disputedly") is a
+  proposal and no origin; "suggested by Berzelius" is a coinage and a
+  hedged origin ("of uncertain origin, but probably from") stands. A
+  code under CENSUS_MIN in no role is a row like any other, and the
+  build fails until ROW_ONLY_LANGS and the extension name it: 131 codes
+  surfaced (Old Turkic for cossack among them), read off the template
+  expansions; la-eme and la-ren joined the Latin period codes; fr-CA,
+  fr-aca, frc and xno-law joined the pass-through group. scoop reads
+  Middle Dutch scoep, swamp Old English swamm, creek Old Norse kriki,
+  avant-garde Middle English advaunte-garde, cossack Old Turkic
+  𐰴𐰔𐰍𐰸, gora Hindi गोरा, steppe Russian степь with its gloss and
+  reading; comma-joined forms 18 to 0.
 
 ## Naming (Jesse decision 2026-08-25)
 

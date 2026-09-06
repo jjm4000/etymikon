@@ -536,9 +536,9 @@ threshold at 2026-09-05, all in a role.
 
 | role | codes | what happens |
 |------|-------|--------------|
-| root | Latin period codes (`la`, `la-lat`, `la-med`, `la-ecc`, `la-new`, `la-vul`, `la-cla`, `ML`, `LL`, `NL`, `VL`); `grc`, `grc-koi`, `gkm` | nodes ship as root cards with families |
-| pass-through | `fro`, `fro-nor`, `xno`, `frm`, `fr` | pages are walked to continue a chain toward a root language; never a card, never a row |
-| row-only | every other attested language, `ROW_ONLY_LANGS`, about 180 codes with the name the row prints | one inert origin row, no card, no family |
+| root | Latin period codes (`la`, `la-lat`, `la-med`, `la-ecc`, `la-new`, `la-vul`, `la-cla`, `la-eme`, `la-ren`, `ML`, `LL`, `NL`, `VL`); `grc`, `grc-koi`, `gkm` | nodes ship as root cards with families |
+| pass-through | `fro`, `fro-nor`, `xno`, `xno-law`, `frm`, `fr`, `fr-CA`, `fr-aca`, `frc` | pages are walked to continue a chain toward a root language; never a card, never a row |
+| row-only | every other attested language, `ROW_ONLY_LANGS`, about 300 codes with the name the row prints (131 under the census threshold surfaced by review finding 7, named off the template expansions) | one inert origin row, no card, no family |
 | ignored | `en`, `mul`, the Chinese romanization schemes, undetermined and substrate codes, proto-language codes, a comma-joined list of codes | no origin language |
 
 A reconstructed term (starting with `*`) ends the walk whatever its code.
@@ -601,10 +601,23 @@ no chain. When a French word owns the parts and its own page continues
 to a Latin lemma that decomposes, that lemma is the row (ancestor reads
 antecessor through ancessor's page).
 
-When no root-language term resolves, the word's deepest row-only mention
-renders the row-only row. A word whose chain ends in a pass-through
-language with nothing deeper renders no row and goes to the misses file
-with that reason (410 words at 2026-09-05, dessert at Middle French,
+When no root-language term resolves, the deepest term of the page's own
+origin clause renders the row-only row (review finding 7, 2026-09-05):
+read in template order, a reconstruction in a proto language ends the
+walk, an alternative at the same depth (no step cue between two terms,
+or "or" between them, or a "via" term after a "from" term) is skipped in
+favour of the first, a term after an aside cue in its sentence
+("influenced by", "whence also", "compare X", "see also X") or after a
+doubt cue ("a connection has been suggested with") was never an origin,
+and a comma-joined spelling list gives its first form. A walked French
+page is read only when the page itself settles nothing, and a French
+term the page's own clause continues past to an attested origin is not
+walked at all (the page's own "from Italian razza, of uncertain origin"
+stands over the French page's Latin). A code under the census threshold
+in no role renders a row like any other; the build fails until
+ROW_ONLY_LANGS and the extension's LANG_NAME name it. A word whose chain
+ends in a pass-through language with nothing deeper renders no row and
+goes to the misses file with that reason (dessert at Middle French,
 quite at Anglo-Norman). A root-language term that is no page at all is a
 miss too, with the term in the reason (madam names mea domina).
 
