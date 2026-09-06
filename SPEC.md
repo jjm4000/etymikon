@@ -2258,6 +2258,47 @@ after it. The page is not silent: it says which page has the sense.
   adverb trop "excessively" where English troop wants the noun "herd".
   The count and the reason are in pipeline/cache/gloss-gap-report.txt.
 
+### Measured after the leading-section round (2026-09-06)
+
+Two --offline builds byte-identical, verify 110 spot checks 0 failed (the
+104 the earlier notes give is stale; the build printed 110 before this
+round too), gold 284 of 284 (40 rows added and 5 amended: deal and ah
+state the new rule, found's reason is corrected to the one it is actually
+withheld for, and coming and release pin the gloss their step supplies),
+Node 170, index harness 246, embed harness 181, 8 screenshots regenerated
+with their scene checks passing and byte-identical to the ones before.
+Data: 84,321 words (84,306 before), 6,743 roots (6,723), 14,730 origin
+rows (14,506): 7,130 decomposed (7,098), 2,248 single (2,218), 5,352
+row-only (5,190); 24.0 MB. Breakdown coverage of the top 10,000 ranks
+38.3% (38.2%). The 1,752 misses of 2026-09-01 render 552 decomposed,
+1,017 single, 183 nothing (top 10,000: 173 / 339 / 41), against 551 /
+1,004 / 197 before.
+
+Row-only rows with no gloss: 2,098 of 5,190 before, 40%, and 2,052 of
+5,352 after, 38%. Inside the top 3,000 ranks, 222 before and 194 after;
+inside the top 10,000, 569 and 516. By language: Middle English 344 to
+327, Old English 228 to 165, Old French 126 to 121, Italian 130 to 131,
+Spanish 115 to 122, Japanese 95 to 100, German 85 to 87. The languages
+that rise are the ones with no extract here, and they rise because 209
+words gained a row.
+
+The regression check against the build before this round: 0 rows lost a
+row, 0 lost a gloss, 0 lost a romanization and no gloss was reworded. One
+row moved, spree, to the proposal rule.
+
+What is left is characterised in pipeline/cache/gloss-gap-report.txt,
+written once on this date rather than by the build. Of the 2,052 rows
+with no gloss, 1,266 are in a language with no extract here, which is the
+owner's 352 MB decision and the two extracts kaikki does not publish, and
+786 are in one that has an extract: 577 name a spelling the extract has
+no entry for at all, 156 name one it carries only in another page's forms
+table, 26 sit on a spelling the row will not guess between, and 27 end at
+a page the extract never glossed. Of the 183 words rendering nothing, 160
+name a lemma Wiktionary never wrote, 13 open with a section that states
+no origin, and 10 are withheld by the section rule above.
+
+No curation entry was added in this round. Every change is a rule.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
