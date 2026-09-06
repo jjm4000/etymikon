@@ -1894,6 +1894,56 @@ praedīcō "to foretell". Degraded: bipennis carries an inert -is chip,
 officīna reads -īna as the female-noun suffix, perdita reads per- as the
 intensive prefix where its page says "through".
 
+### The silent section stays silent (measured 2026-09-06)
+
+The section rule withholds a row when the section supplying the card's
+first senses names no origin. Eleven words were reported as losing a
+correct row that way (bowl, gang, mass, robin, row, oh, sam, ya, eating,
+billy, ben). The fall-through was built and measured: a section that names
+no origin passes the row to the next section of the same sense list that
+does.
+
+It restores none of the eleven. They are withheld for a different reason:
+two sections name DIFFERENT origins and neither supplies most of the sense
+list, which is the clash rule, not the silent-section rule (bowl opens
+with the vessel senses from Old English bolla and the lawn-bowls senses
+from Latin bulla). The change gains 171 rows elsewhere, and a hand read of
+the twenty highest-ranked finds about half of them wrong: a reads the
+Latin letter, ok a Mandarin karaoke compound, bike Old English būc
+"belly", bars a Russian acronym. It also breaks two gold rows that state
+the rule deliberately (found, a). It is not kept, and the eleven stay
+withheld.
+
+### Measured after the third pass (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 189
+of 189 (59 rows added), Node 170, index harness 246, embed harness 181, 8
+screenshots regenerated with their scene checks passing and byte-identical
+to the ones before. Data: 84,300 words (84,283 before), 6,713 roots
+(6,704), 14,488 origin rows (14,020): 7,078 decomposed (7,034), 2,209
+single (2,200), 5,201 row-only (4,786); 23.9 MB. Breakdown coverage of the
+top 10,000 ranks 38.1% (37.9%). The 1,752 misses of 2026-09-01 render 547
+decomposed, 1,004 single, 201 nothing (top 10,000: 171 / 338 / 44),
+against 547 / 1,002 / 203 before.
+
+40 random decomposed rows read against the extracts (seed 20260906): 33
+right, 5 degraded, 2 wrong (5.0%; the two passes before measured 3.3% over
+150 and 60 rows). Wrong: diamante ships the derivation its Greek page
+leans against (already recorded 2026-09-06), and volatile reads volō "to
+wish" where the volātilis page writes "supine stem of volō (to fly)". The
+degraded rows are all one shape, a suffix chip carrying the sense a
+sibling entry of the suffix page has: assumptive and gelati read -tus as
+the action-noun suffix where the parent is a participle, conventicle reads
+-culum as the instrument suffix where the page says diminutive, sagittary
+reads -ārius as the adjective suffix where the word is an agent noun,
+phantasia reads a chip gloss that is a relation note. Both the wrong row
+and the degraded ones are the same gap: the part-sense rule of 2026-09-06
+reads the sense a PROSE split states beside a part, and a TEMPLATE split
+states its parts' senses in the prose around it, which nothing reads.
+
+Of the 106 rows the second review left wrong or degraded and no fix round
+had moved, 60 moved and 46 did not; none was newly withheld.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
