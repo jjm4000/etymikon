@@ -258,6 +258,15 @@ const roots = {
       gloss: "word, reason",
       kind: "root",
     },
+    // An English affix whose source lemma is Greek: the src row carries the
+    // source root's romanization (review finding 12, 2026-09-05).
+    "en:logo-": {
+      form: "logo-",
+      lang: "en",
+      src: "grc:λόγος",
+      gloss: "word, speech",
+      kind: "prefix",
+    },
     // The Latin affix and base an org decomposition lands on.
     "la:memor": { form: "memor", lang: "la", gloss: "mindful", kind: "root" },
     "la:re-": { form: "re-", lang: "la", gloss: "back, again", kind: "prefix" },
@@ -1327,6 +1336,9 @@ test("an affix card joins its source lemma, and a Greek card its romanization", 
   const logos = buildRoot("grc:λόγος", data, familyIndex);
   assert.equal(logos.rom, "logos");
   assert.deepEqual(logos.family.map((r) => r.word), ["logic", "dialogue"]);
+  const logo = buildRoot("en:logo-", data, familyIndex);
+  assert.deepEqual(logo.src, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos" },
+    "a Greek source under an English affix carries its romanization");
 });
 
 test("a root nothing references still builds, with an empty family", () => {

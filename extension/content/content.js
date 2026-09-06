@@ -2281,7 +2281,7 @@
     if (!key || !form) return;
 
     var row = el("div", "entry-row origin-row nav");
-    row.appendChild(buildOriginText(parts.lang, form, src.gloss));
+    row.appendChild(buildOriginText(parts.lang, form, src.gloss, src.rom));
     makeNavRow(row, function () { navigateToRoot(key); });
     card.appendChild(row);
   }

@@ -297,8 +297,13 @@ RE_LEAD_LABEL = re.compile(r"^\((?:[^()]{0,40})\)\s*")
 RE_TAIL_PAREN = re.compile(r"\s*\([^()]*\)\s*$")
 
 
+# kaikki writes the square brackets of a gloss as private-use characters
+# ("servant \U0010203fof\U00102040" on Abdul); no source wording lives there.
+RE_PRIVATE_USE = re.compile("[\ue000-\uf8ff\U000f0000-\U0010ffff]")
+
+
 def clean_text(s) -> str:
-    return RE_WS.sub(" ", (s or "").replace("\n", " ")).strip()
+    return RE_WS.sub(" ", RE_PRIVATE_USE.sub("", (s or "").replace("\n", " "))).strip()
 
 
 def clean_def(s) -> str:
@@ -1188,7 +1193,14 @@ def best_gloss(e) -> str:
     """
     lines = []
     for s in e.get("senses") or []:
-        for raw in s.get("glosses") or []:
+        gl = s.get("glosses") or []
+        for i, raw in enumerate(gl):
+            # A sense written as a heading and a child ("a foot, in its
+            # senses as:", "the body part") glosses with the child; the
+            # heading cut at its colon read "a foot, in its senses as" on
+            # la:pes (review finding 11, 2026-09-05).
+            if i < len(gl) - 1 and (raw or "").rstrip().endswith(":"):
+                continue
             g = gloss_line(raw)
             if g:
                 lines.append(g)
@@ -2280,6 +2292,17 @@ def clean_gloss_arg(s) -> str:
     return clean_text(s).strip("“”\"' ")
 
 
+def short_gloss(s) -> str:
+    """A template gloss inside the card budget: whole when it fits, else
+    its first clause, else nothing (review finding 10, 2026-09-05: moloch's
+    gloss was two sentences). Nothing is cut inside a clause."""
+    g = clean_gloss_arg(s)
+    if len(g) <= ROOT_GLOSS_CARD:
+        return g
+    head = first_clause(g)
+    return head if head and len(head) <= ROOT_GLOSS_MAX else ""
+
+
 RE_STEP_AFTER = re.compile(r"^[,;]?\s*(?:\(|the\s+)?(?:perfect |present |past |passive |active )*"
                            r"(participle|ablative|genitive|dative|accusative|nominative|"
                            r"vocative|infinitive|supine|plural|singular)\b[^()]{0,30}?"
@@ -2417,7 +2440,7 @@ def page_mentions(templates, text, page_lang, key):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
                 continue
-            gloss = clean_gloss_arg(args.get("t") or args.get("5") or args.get("gloss") or "")
+            gloss = short_gloss(args.get("t") or args.get("5") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
             exp = t.get("expansion") or ""
             if not rom and non_latin_script(term):
@@ -2460,7 +2483,7 @@ def page_mentions(templates, text, page_lang, key):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
                 continue
-            gloss = clean_gloss_arg(args.get("t") or args.get("4") or args.get("gloss") or "")
+            gloss = short_gloss(args.get("t") or args.get("4") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
             role = "cognate" if name in COGNATE_NAMES else "origin"
             exp = t.get("expansion") or ""
@@ -3352,13 +3375,25 @@ def display_form(e, word, lang, key):
         return word
     c = tagged_form(e, "canonical")
     if c and norm_key(lang, c) == key:
-        return c
+        return unstack(c)
     for h in e.get("head_templates") or []:
         a = ((h.get("args") or {}).get("1") or "").strip()
         a = RE_HEAD_MOD.sub("", a).strip()
         if a and norm_key(lang, a) == key:
-            return a
+            return unstack(a)
     return word
+
+
+RE_STACKED_BREVE = re.compile("\u0304\u0306")
+
+
+def unstack(form: str) -> str:
+    """A breve stacked on a macron (citō̆: a vowel of either length) is
+    dropped; the card prints the macron alone (review finding 11)."""
+    d = unicodedata.normalize("NFD", form)
+    if "\u0306" not in d:
+        return form
+    return unicodedata.normalize("NFC", RE_STACKED_BREVE.sub("\u0304", d))
 
 
 # ---------------------------------------------------------------- assembly

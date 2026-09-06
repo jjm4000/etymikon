@@ -745,6 +745,10 @@ export function buildRoot(key, data, familyIndex) {
     root.src = { r: src, f: str(roots[src].form) };
     const gloss = str(roots[src].gloss);
     if (gloss !== "") root.src.gloss = gloss;
+    // A Greek source prints its reading like any other form in another
+    // script (review finding 12, 2026-09-05).
+    const srom = str(roots[src].rom);
+    if (srom !== "") root.src.rom = srom;
   }
   return root;
 }
