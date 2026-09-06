@@ -1739,6 +1739,28 @@ jar)". The review measured 451 words of this shape, 99 inside the top
   at the foot of the card, under the senses, so the rule cannot read it as
   what the reader sees first.
 
+### Measured after the second review's three fixes (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 130
+of 130 (59 rows added, found and race rewritten to follow the section
+rule), Node 170, index harness 246, embed harness 181, 8 screenshots
+regenerated with their scene checks passing and byte-identical to the
+ones before. Data: 84,283 words (84,307 before), 6,704 roots (6,737),
+14,020 origin rows (14,247): 7,034 decomposed, 2,200 single, 4,786
+row-only; 23.9 MB. Breakdown coverage of the top 10,000 ranks 37.9%,
+unchanged. The 1,752 misses of 2026-09-01 render 547 decomposed, 1,002
+single, 203 nothing (top 10,000: 171 / 337 / 45), against 552 / 1,029 /
+171 before: the 32 that stopped rendering are rows the section rule
+withheld.
+
+60 random decomposed rows read against the extracts (seed 20260906): 55
+right, 3 degraded, 2 wrong (3.3%, the same rate the first pass measured).
+Wrong: endue reads indūcō where its first sense comes from induō, and
+predict reads praedicō "to proclaim" where English took the homograph
+praedīcō "to foretell". Degraded: bipennis carries an inert -is chip,
+officīna reads -īna as the female-noun suffix, perdita reads per- as the
+intensive prefix where its page says "through".
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
