@@ -1944,6 +1944,60 @@ states its parts' senses in the prose around it, which nothing reads.
 Of the 106 rows the second review left wrong or degraded and no fix round
 had moved, 60 moved and 46 did not; none was newly withheld.
 
+### A row looks its own term up (dated note, 2026-09-06, source glosses)
+
+A census on 2026-09-06 of the 5,201 row-only rows found 3,281 of them, 63%,
+carrying no gloss at all, 526 inside the top 3,000 ranks. The card read "From
+Old English tō" and stopped. By language: Old English 887, Middle English 526,
+Old French 210, French 210, Italian 130, Spanish 115, Japanese 95, German 85,
+Old Norse 81, Arabic 57, and a tail.
+
+The cause was a rule gap, not only a missing extract. The French group's three
+extracts were already downloaded and 420 of their rows still had no gloss.
+Nothing ever looked a row-only term up in its own source extract. A gloss
+reached a row only where the English page happened to write one into a mention
+template.
+
+- A row-only row looks its term up in the extract of its own language and
+  takes the gloss written there. An explicit gloss from the English page keeps
+  priority: it is what that page says the word meant when English took it, and
+  the extract's is the source page's own headline sense. A form outside the
+  Latin script takes its romanization the same way, after the row's own.
+- The gloss is chosen the way a root card's is. One page, one gloss: the
+  entry with the most senses wins, a name entry is weighted last, and
+  `best_gloss` picks the line inside the card budget. A page that is only a
+  form-of entry holds no gloss of its own, since "past tense of wesan" is a
+  statement rather than a sense, so it is not in the table.
+- The lookup is the graph's lookup. The term is cleaned of inline modifiers,
+  a section suffix and trailing punctuation, the strict key is tried first,
+  and the loose key with every combining mark stripped answers when the strict
+  key is no page. Where two pages share one loose key the source is marking a
+  distinction the row cannot choose between (Old English god and gōd), so the
+  row stays silent. The table is not a graph: no edges, no cards, no splits.
+- `ROW_EXTRACT` names the extract a row's language is looked up in, and
+  `PASS_EXTRACT` already named the French group's. A code in neither table
+  takes whatever gloss the English page wrote and nothing more.
+
+Outcome on the French group, with nothing downloaded: 287 rows gained a gloss
+(fr 189, fro 83, frm 10, and 5 across the French variant codes), none lost
+one, none was reworded, and no row changed language. The French group's rows
+without a gloss fall from 485 to 203. Row-only rows without a gloss overall:
+3,281 to 2,994, and 526 to 515 inside the top 3,000. Lookups: 1,148 strict,
+4 loose, 0 ambiguous, 598 no page.
+
+Fifteen rows hand read against the extracts, all right: hurt (fro hurter "to
+crash into; to clatter into"), view (veue "sight"), attorney (atorner),
+jacket (jaque), button (bouter), guarantee (guarantie), supper (soper),
+random (randon), piss (pissier), perfume (frm parfum), swiss (Suisse, the
+noun over the country name), fiance (fiancer), colin (fr colin, the fish over
+the given name), chauffeur (the first sense, "stoker; fireman"), gadget
+(gâchette "latch"). Each is a gold row with its gloss pinned.
+
+Two rows read a gloss that is a derivational note, because the source page
+writes one as its only sense: bracelet reads fro bracelet "diminutive of
+bras" and tartare reads fr tartare "ellipsis of steak tartare". Both are what
+the page says, so no rule refuses them.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

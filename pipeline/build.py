@@ -288,6 +288,20 @@ def norm_key(lang: str, s: str) -> str:
     return la_key(s) if lang == "la" else grc_key(s)
 
 
+def clean_term(s) -> str:
+    """A template's term argument as the lookups compare it: inline
+    modifiers, a section suffix and trailing punctuation off, and one of
+    a//b kept. Graph.lookup and the row-gloss lookup share it, so a row
+    and a card resolve the same spelling the same way."""
+    t = (s or "").strip()
+    t = RE_PART_MOD.sub("", t)
+    t = RE_PART_SECT.sub("", t).strip()
+    t = t.rstrip(",.;:")
+    if "//" in t:
+        t = t.split("//", 1)[0].strip()
+    return t
+
+
 # ---------------------------------------------------------------- text
 
 RE_WS = re.compile(r"\s+")
@@ -450,6 +464,13 @@ PASS_LANGS = {"fro": "Old French", "fro-nor": "Old French", "xno": "Anglo-Norman
               "frc": "Cajun French", "xno-law": "Law French"}
 PASS_EXTRACT = {"fro": "fro", "fro-nor": "fro", "frm": "frm", "fr": "fr",
                 "fr-CA": "fr", "fr-aca": "fr", "frc": "fr"}
+# The extract a row's own language is looked up in for its gloss (rule of
+# 2026-09-06). A code with no extract here takes whatever gloss the English
+# page wrote and nothing more; kaikki publishes no Anglo-Norman and no
+# Middle Low German extract, so xno and gml stay as they are.
+ROW_EXTRACT = {"ang": "ang", "ang-ang": "ang", "ang-nor": "ang",
+               "enm": "enm", "enm-nor": "enm", "non": "non",
+               "dum": "dum", "goh": "goh", "odt": "odt", "osx": "osx"}
 # Row-only languages with the name the row prints, read off the language
 # census of the English extract (2026-09-05, every code down to about 60
 # uses). The name is what Wiktionary prints for the code; the extension's
@@ -3181,13 +3202,7 @@ class Graph:
         return key in self.gloss
 
     def clean_term(self, s):
-        t = (s or "").strip()
-        t = RE_PART_MOD.sub("", t)
-        t = RE_PART_SECT.sub("", t).strip()
-        t = t.rstrip(",.;:")
-        if "//" in t:
-            t = t.split("//", 1)[0].strip()
-        return t
+        return clean_term(s)
 
     def loose(self, key):
         """A page sharing the key's loose spelling, glossed ones first."""
@@ -3781,10 +3796,99 @@ def resolve_chain(g, chain, page_lang, tl, key):
     return out
 
 
+class RowGlosses:
+    """The gloss a row-only row prints, read off the source extract.
+
+    A row-only row names a source language and a term and ships no card, so
+    until 2026-09-06 its gloss existed only where the English page happened
+    to write one into a mention template. 3,281 of 5,201 rows read "From Old
+    English tō" and stopped. This table answers the term from its own
+    language's extract instead.
+
+    It is not a graph: no edges, no cards, no splits. One gloss and one
+    romanization per page key, from the page's best lemma entry, chosen the
+    way a root card's is (best_gloss over the entry with the most senses,
+    name entries last). A page that is only a form-of entry holds no gloss
+    of its own ("past tense of wesan" is a statement, not a sense), so it is
+    not in the table.
+
+    The lookup is the graph's: clean the term, take the strict key, and fall
+    back to the loose key with every combining mark stripped when the strict
+    key is no page. The loose pass is what reaches a page title that carries
+    no macron from a template that does, and the other way round.
+    """
+
+    def __init__(self, code):
+        self.code = code
+        self.gloss = {}          # key -> (weight, gloss, rom)
+        self.loose_idx = {}      # loose key -> [key], glossed pages only
+        self.stats = collections.Counter()
+
+    def add(self, word, e):
+        k = norm_for(self.code, word)
+        if not k:
+            return
+        if pure_form_of(e):
+            return
+        g = best_gloss(e)
+        if not g:
+            return
+        pos = e.get("pos") or ""
+        ns = len(e.get("senses") or [])
+        weight = ns if pos != "name" else -1000 + ns
+        rom = ""
+        if non_latin_script(word):
+            rom = tagged_form(e, "romanization")
+        have = self.gloss.get(k)
+        if have is None or weight > have[0]:
+            self.gloss[k] = (weight, g, rom or (have[2] if have else ""))
+        elif rom and not have[2]:
+            self.gloss[k] = (have[0], have[1], rom)
+
+    def finish(self):
+        for k in sorted(self.gloss):
+            self.loose_idx.setdefault(strip_marks(k), []).append(k)
+        self.stats["pages"] = len(self.gloss)
+        return self
+
+    def look(self, term, count=True):
+        """(gloss, rom) for a term, or ("", "")."""
+        t = clean_term(term)
+        if not t or t.startswith("*"):
+            return "", ""
+        k = norm_for(self.code, t)
+        hit = self.gloss.get(k)
+        if hit is not None:
+            if count:
+                self.stats["strict"] += 1
+            return hit[1], hit[2]
+        cands = self.loose_idx.get(strip_marks(k))
+        if not cands:
+            if count:
+                self.stats["missed"] += 1
+            return "", ""
+        # Several pages share a loose spelling only where the source marks a
+        # real distinction (Old English god and gōd). The row would be
+        # guessing between them, so it stays silent.
+        if len(cands) > 1:
+            if count:
+                self.stats["ambiguous"] += 1
+            return "", ""
+        if count:
+            self.stats["loose"] += 1
+        hit = self.gloss[cands[0]]
+        return hit[1], hit[2]
+
+
 def read_passthrough(path, code):
     """key -> (mentions, chains) for every page of a pass-through extract that
-    says anything about its origin. Pages with no etymology are skipped."""
+    says anything about its origin, and the gloss table of the same extract.
+
+    One pass produces both. Pages with no etymology are skipped for the
+    mentions and still read for their gloss: a row names a term whether or
+    not that term's own page says where it came from."""
     pages = {}
+    rg = RowGlosses(code)
     n = 0
     with gzip.open(path, "rb") as f:
         for line in f:
@@ -3793,6 +3897,7 @@ def read_passthrough(path, code):
             w = e.get("word")
             if not w:
                 continue
+            rg.add(w, e)
             k = norm_for(code, w)
             if k in pages:
                 continue
@@ -3803,7 +3908,7 @@ def read_passthrough(path, code):
             mentions, chains, settled = page_mentions(templates, text, code, k)
             if mentions or chains:
                 pages[k] = (mentions, chains, settled)
-    return pages, n
+    return pages, n, rg.finish()
 
 
 def tagged_form(e, tag):
@@ -3931,9 +4036,10 @@ class Origin:
     skips honoured at every level.
     """
 
-    def __init__(self, graphs, pages):
+    def __init__(self, graphs, pages, rowg=None):
         self.g = graphs
         self.pages = pages
+        self.rowg = rowg or {}   # extract code -> RowGlosses, for row glosses
         self.alias = {}          # inflected or variant spelling -> root key
         self.anchors = set()
         self.carry = set()       # non-anchors kept whole by the chip cap; cards carry parts
@@ -4993,6 +5099,40 @@ class Origin:
             return {p["r"] for p in org["parts"] if p.get("r")}
         return {org["r"]} if org.get("r") else ()
 
+    def row_gloss(self, row, count=True):
+        """Fill a row's gloss, and its romanization, from its own language's
+        extract (rule of 2026-09-06).
+
+        A row-only row names a source language and a term. Nothing looked
+        that term up in its own extract, so the gloss appeared only where the
+        English page happened to write one into a mention template and 3,281
+        of 5,201 rows read "From Old English tō" and stopped.
+
+        A gloss the English page states keeps priority: it is what that page
+        says the word meant when English took it, and the extract's is the
+        page's own headline sense. The extract answers only where the page
+        said nothing. The romanization follows the same order and only for a
+        form outside the Latin script.
+        """
+        code = row.get("lang") or ""
+        rg = self.rowg.get(ROW_EXTRACT.get(code) or PASS_EXTRACT.get(code) or "")
+        if rg is None:
+            return row
+        want_rom = non_latin_script(row.get("f") or "")
+        if row.get("gloss") and (row.get("rom") or not want_rom):
+            return row
+        gloss, rom = rg.look(row.get("f") or "", count)
+        if gloss and not row.get("gloss"):
+            row["gloss"] = gloss
+            if count:
+                self.stats["rowgloss"] += 1
+                self.stats["rowgloss_" + code] += 1
+        if rom and want_rom and not row.get("rom"):
+            row["rom"] = rom
+            if count:
+                self.stats["rowrom"] += 1
+        return row
+
     def resolve(self, att, count=True):
         """The `org` value for an attachment: decomposed, single, row-only."""
         if not att:
@@ -5000,7 +5140,7 @@ class Origin:
         if "row" in att:
             if count:
                 self.stats["rowonly"] += 1
-            return dict(att["row"])
+            return self.row_gloss(dict(att["row"]), count)
         if "key" not in att:
             return None
         lang, key = att["lang"], att["key"]
@@ -6526,11 +6666,13 @@ def main(argv):
                format(st["refused_etymon"], ","), format(st["refused_cycle"], ","),
                format(st["prose_unread"], ",")))
     pages = {}
+    rowg = {}
     for code in ("fro", "frm", "fr"):
-        pages[code], n_lines = read_passthrough(PASS_FILES[code][1], code)
-        log("  %-3s %s lines, %s pages with an origin" % (
-            code, format(n_lines, ","), format(len(pages[code]), ",")))
-    origin = Origin(graphs, pages)
+        pages[code], n_lines, rowg[code] = read_passthrough(PASS_FILES[code][1], code)
+        log("  %-3s %s lines, %s pages with an origin, %s glossed pages" % (
+            code, format(n_lines, ","), format(len(pages[code]), ","),
+            format(rowg[code].stats["pages"], ",")))
+    origin = Origin(graphs, pages, rowg)
     origin.ranks = ranks
 
     log("[5/7] harvesting senses, splits and attachments")
@@ -6615,6 +6757,14 @@ def main(argv):
         % (format(origin.stats["decomposed"], ","),
            format(origin.stats["single"], ","),
            format(origin.stats["rowonly"], ",")))
+    log("  row glosses read from a source extract: %s (%s romanizations); "
+        "lookups %s strict, %s loose, %s ambiguous, %s no page"
+        % (format(origin.stats["rowgloss"], ","),
+           format(origin.stats["rowrom"], ","),
+           format(sum(r.stats["strict"] for r in rowg.values()), ","),
+           format(sum(r.stats["loose"] for r in rowg.values()), ","),
+           format(sum(r.stats["ambiguous"] for r in rowg.values()), ","),
+           format(sum(r.stats["missed"] for r in rowg.values()), ",")))
 
     # ---- the chain-only rule, and the linking it feeds -------------------
     # A chain-only candidate earns its card with a DECOMPOSED org row and
