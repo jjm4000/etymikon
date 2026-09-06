@@ -295,6 +295,9 @@ RE_WS = re.compile(r"\s+")
 RE_LEAD_LABEL = re.compile(r"^\((?:[^()]{0,40})\)\s*")
 # A trailing clarifier: "music (art form)", "territory (particularly, ...)".
 RE_TAIL_PAREN = re.compile(r"\s*\([^()]*\)\s*$")
+# A whole line in square brackets is a grammatical note, not a gloss:
+# "[with genitive]" heads the case senses of the Greek preposition pages.
+RE_GRAM_NOTE = re.compile(r"^\[[^\[\]]*\]$")
 
 
 # kaikki writes the square brackets of a gloss as private-use characters
@@ -324,6 +327,12 @@ def gloss_line(s) -> str:
     clarifier, and wiktextract sometimes leaves a usage label in front.
     Dropping both is selection, not truncation: what survives is a whole
     clause from the source.
+
+    A line that is only a grammatical note is not a gloss (review 2, cause
+    1, 2026-09-06). The Greek preposition pages write their case headings
+    as senses of their own, so period read "περί ([with genitive])" and
+    episode read the same of ἐπί. The note is refused here and the next
+    sense carries the card.
     """
     g = clean_text(s)
     if not g:
@@ -333,7 +342,8 @@ def gloss_line(s) -> str:
     while prev != g:
         prev = g
         g = RE_TAIL_PAREN.sub("", g).strip()
-    return g.rstrip(":").strip()
+    g = g.rstrip(":").strip()
+    return "" if RE_GRAM_NOTE.match(g) else g
 
 
 def abbrev_dot(g: str, i: int) -> bool:
@@ -1191,6 +1201,23 @@ def best_gloss(e) -> str:
     contradicts the pinned la:terra anchor, whose gloss is sense 1 ("dry
     land", 8 characters) while the shortest is sense 5 ("earth").
     """
+    for g in gloss_lines(e):
+        if len(g) <= ROOT_GLOSS_CARD:
+            return g
+    for g in gloss_lines(e):
+        head = first_clause(g)
+        if head and len(head) <= ROOT_GLOSS_MAX:
+            return head
+    return ""
+
+
+def gloss_lines(e):
+    """Every sense of one entry as a normalised card line, in source order.
+
+    best_gloss picks the card's line from here, and the part-sense rule
+    (review 2, cause 1, 2026-09-06) picks a chip's line from the same list,
+    so a chip never shows wording a card could not show.
+    """
     lines = []
     for s in e.get("senses") or []:
         gl = s.get("glosses") or []
@@ -1204,14 +1231,90 @@ def best_gloss(e) -> str:
             g = gloss_line(raw)
             if g:
                 lines.append(g)
-    for g in lines:
-        if len(g) <= ROOT_GLOSS_CARD:
-            return g
-    for g in lines:
-        head = first_clause(g)
-        if head and len(head) <= ROOT_GLOSS_MAX:
-            return head
-    return ""
+    return lines
+
+
+def card_lines(e):
+    """The lines of an entry that fit a card, for the part-sense rule."""
+    lines = [g for g in gloss_lines(e) if len(g) <= ROOT_GLOSS_CARD]
+    if lines:
+        return lines
+    g = best_gloss(e)
+    return [g] if g else []
+
+
+# ------------------------------------------------- the sense a parent names
+#
+# A part chip's gloss is the sense the PARENT'S split names for it, not the
+# sense that won the part's own card (review 2, cause 1, 2026-09-06). la:in-
+# carries three prefixes and its card reads "un-, non-, not", so incident,
+# intend, insist and noise all read the negative prefix though incidō writes
+# in-<t:into>. Matching one stated gloss against a page's senses needs a
+# looser test than equality: "adjective" has to reach "Used to form
+# adjectives from nouns", and "in" has to reach the sense "in" inside
+# "in, within, inside".
+
+RE_SENSE_PIECE = re.compile(r"[,;:]")
+RE_SENSE_LEAD = re.compile(r"^(?:to |a |an |the )")
+# The words every affix gloss carries, which say nothing about which sense
+# is meant. Kept small on purpose: a stated gloss is short, so dropping a
+# content word costs more than keeping a common one.
+SENSE_STOP = frozenset("""
+the and with from for that this used use form forms forming formed other
+such some its into out upon onto denoting indicating something someone
+""".split())
+
+
+def sense_pieces(text):
+    """The comma-joined senses one gloss line states, lowercased."""
+    out = []
+    for p in RE_SENSE_PIECE.split((text or "").lower()):
+        p = RE_SENSE_LEAD.sub("", p.strip().strip(".")).strip()
+        if p:
+            out.append(p)
+    return out
+
+
+def sense_words(text):
+    return {w for w in RE_GLOSS_WORD.findall((text or "").lower())
+            if w not in SENSE_STOP}
+
+
+def word_match(a, b):
+    """Two gloss words name the same thing.
+
+    Equal, equal once a plural -s comes off ("noun" and "nouns"), or
+    sharing a five-letter prefix ("adjectival" and "adjectives"). Five,
+    not four: four makes "action" match "active" and "past" match "pastor".
+    """
+    if a == b:
+        return True
+    if a.rstrip("s") == b.rstrip("s"):
+        return True
+    return len(os.path.commonprefix((a, b))) >= 5
+
+
+def sense_score(stated, line):
+    """How well one candidate sense line answers a stated gloss.
+
+    (matches, share): how many of the stated senses the line names, and
+    what share of the line is taken up by them. The share breaks the tie
+    that matches alone leaves: κρίνω states "to decide" and both "to have
+    a contest decided" and "to decide or judge" name it once, so the
+    tighter line wins.
+    """
+    lp = set(sense_pieces(line))
+    lw = sense_words(line)
+    hits = 0
+    for p in sense_pieces(stated):
+        if p in lp:
+            hits += 1
+            continue
+        if any(any(word_match(w, x) for x in lw) for w in sense_words(p)):
+            hits += 1
+    if not hits:
+        return (0, 0.0)
+    return (hits, hits / float(max(len(lw), 1)))
 
 
 # ---------------------------------------------------------------- frequency
@@ -2730,6 +2833,8 @@ class Graph:
         self.gloss = {}          # key -> gloss (the card's)
         self.cands = {}          # key -> [Entry], the lemma entries of the page
         self.esplit = {}         # key -> [split or None], one per entry
+        self.esense = {}         # key -> [{part key: stated gloss}], one per entry
+        self.psense = {}         # key -> the chosen entry's {part key: stated gloss}
         self.part_hints = {}     # key -> Counter of gloss words pages give it as a part
         self.form = {}
         self.pos = {}
@@ -2832,11 +2937,12 @@ class Entry:
     supine) a mention can name, "fundāre" against "fundere".
     """
     __slots__ = ("weight", "gloss", "form", "pos", "rom", "words", "forms",
-                 "parts", "src", "prose", "pglosses", "order")
+                 "parts", "src", "prose", "pglosses", "order", "lines")
 
     def __init__(self, weight, gloss, form, pos, rom, words, forms, parts, src,
-                 prose, pglosses, order):
+                 prose, pglosses, order, lines=()):
         self.weight = weight
+        self.lines = lines
         self.gloss = gloss
         self.form = form
         self.pos = pos
@@ -2986,7 +3092,8 @@ def parse_classical(path, lang):
                     entry_forms(e), parts if parts and len(parts) >= 2 else None,
                     src, (e.get("etymology_templates") or [], text)
                     if " + " in prose or (parts and len(parts) >= 2) else None,
-                    entry_part_glosses(e, lang) if parts else [], order))
+                    entry_part_glosses(e, lang) if parts else [], order,
+                    card_lines(e)))
             # A participle page with a gloss of its own is a lemma page to
             # the parser; its step comes from the etymon's ":from" text or
             # from the prose ("Present active participle of dēpōnō").
@@ -3129,10 +3236,12 @@ def build_graph(g, part_steps):
         return ""
 
     def prose_split(k, templates, text):
-        """(split or None, refusal reason) from one entry's prose."""
+        """(split or None, refusal reason, stated part senses) from prose."""
         names = {t.get("name") or "" for t in templates}
         if names & UNCERTAIN_NAMES:
-            return None, "uncertain origin (%s template)" % sorted(names & UNCERTAIN_NAMES)[0]
+            return (None,
+                    "uncertain origin (%s template)" % sorted(names & UNCERTAIN_NAMES)[0],
+                    {})
         mentions, chains, _ = page_mentions(templates, text, lang, k)
         tl = {}
         for kind, code, term, _, _, _, _ in mentions:
@@ -3151,12 +3260,15 @@ def build_graph(g, part_steps):
                 continue
             # A part's gloss in the prose ("manu (ablative of manus)" says
             # nothing, "iūs (“law, right”) + -tus" does) is evidence about
-            # which homograph the part names.
+            # which homograph the part names, and it is the sense this
+            # split gives the part (review 2, cause 1).
+            stated = {}
             for term, (_, pk) in zip(chain, res):
                 if term.gloss:
                     add_hint(g.part_hints, pk, term.gloss)
-            return res, ""
-        return None, why
+                    stated[pk] = term.gloss
+            return res, "", stated
+        return None, why, {}
 
     # Every entry of every node resolves its own split, template first and
     # prose after, so the entry the node picks later carries its split with
@@ -3166,10 +3278,12 @@ def build_graph(g, part_steps):
             continue
         cands = g.cands[k]
         splits = []
+        senses = []
         for i, c in enumerate(cands):
             res = None
             why = ""
             src = c.src
+            stated = {}
             if c.parts:
                 r = template_stance(k, c.prose[0], c.prose[1]) if c.prose else ""
                 r = r or resolve_parts(k, c.parts)
@@ -3180,14 +3294,17 @@ def build_graph(g, part_steps):
                     for (p, gl), (_, pk) in zip(c.pglosses, r):
                         if gl:
                             add_hint(g.part_hints, pk, gl)
+                            stated[pk] = gl
             if res is None and c.prose:
-                r, w2 = prose_split(k, c.prose[0], c.prose[1])
+                r, w2, st = prose_split(k, c.prose[0], c.prose[1])
                 if r:
                     res = r
                     src = "prose"
+                    stated = st
                 else:
                     why = why or (("prose: " + w2) if w2 else "")
             splits.append(res)
+            senses.append(stated)
             if i == 0:
                 if res:
                     g.split[k] = res
@@ -3202,6 +3319,9 @@ def build_graph(g, part_steps):
                         if why:
                             g.refused.setdefault(k, why)
         g.esplit[k] = splits
+        g.esense[k] = senses
+        if senses[0]:
+            g.psense[k] = senses[0]
 
     # ---- verification: no cycles, no dangling edge -------------------------
     dangling = [(k, pk) for k, ps in g.split.items() for _, pk in ps
@@ -3431,6 +3551,21 @@ ORG_DEPTH = 3           # levels of source-language splitting, SPEC cap
 # ship a card, is also enough to keep it from flattening away. la:laxō and
 # la:ēligō needed ROOT_STOPS entries for exactly that gap at 3.
 ORG_ANCHOR_MIN = 2
+
+
+def org_part(form, rkey, gloss=""):
+    """One chip of a decomposed row: the form, its card, its own gloss.
+
+    `g` is present only when the parent's split names a sense the part's
+    own card does not carry (review 2, cause 1, 2026-09-06); link_and_prune
+    drops it again wherever it repeats the card's gloss.
+    """
+    part = {"f": form}
+    if rkey:
+        part["r"] = rkey
+        if gloss:
+            part["g"] = gloss
+    return part
 
 
 class Origin:
@@ -3698,13 +3833,21 @@ class Origin:
                     g.rom.pop(key, None)
                 sp = g.esplit.get(key) or ()
                 s = sp[i] if i < len(sp) else None
+                se = g.esense.get(key) or ()
                 if s:
                     g.split[key] = s
                     g.split_src[key] = c.src if c.parts else "prose"
                     g.refused.pop(key, None)
+                    # The part senses follow the split: the chip's gloss is
+                    # the sense THIS entry's split names (review 2, cause 1).
+                    if i < len(se) and se[i]:
+                        g.psense[key] = se[i]
+                    else:
+                        g.psense.pop(key, None)
                 else:
                     g.split.pop(key, None)
                     g.split_src.pop(key, None)
+                    g.psense.pop(key, None)
             refuse_cycles(g)
             g.stats["decomposed"] = len(g.split)
 
@@ -3792,8 +3935,12 @@ class Origin:
         return bool(fam) and self.g[fam].lookup(term, alt_ok=True)[0] is not None
 
     def english_parts(self, ms, chains):
-        """fam -> (parts, pos, heads, before): the parts the English page
-        supplies itself.
+        """fam -> (parts, pos, heads, before, senses): the parts the English
+        page supplies itself.
+
+        `senses` is {part key: the gloss the page states beside that part},
+        which gives the chip its own wording the way a source page's split
+        does (review 2, cause 1, 2026-09-06).
 
         From a decomposition template whose language is a root language,
         from the parts of an etymon analysis, and from the prose parser,
@@ -3828,15 +3975,19 @@ class Origin:
                     g = self.g[fam]
                     resolved = []
                     heads = set()
-                    for _, code, term, _, _, _, _ in run:
+                    senses = {}
+                    for _, code, term, gloss, _, _, _ in run:
                         pk, _ = g.lookup(term, alt_ok=True)
                         if pk is None or lang_family(code) != fam:
                             resolved = None
                             break
                         resolved.append((g.form.get(pk) or g.clean_term(term), pk))
                         heads.add(strip_marks(term))
+                        if gloss:
+                            senses[pk] = gloss
                     if resolved:
-                        parts_by[fam] = (resolved, run[0][6], heads, before[0])
+                        parts_by[fam] = (resolved, run[0][6], heads, before[0],
+                                         senses)
             del run[:]
 
         for m in ms:
@@ -3872,11 +4023,15 @@ class Origin:
                 res = resolve_chain(self.g[fam], chain, "en", tl, None)
                 if not isinstance(res, str):
                     heads = set()
+                    senses = {}
                     for t in chain:
                         heads.add(strip_marks(t.head))
                         if t.target:
                             heads.add(strip_marks(t.target))
-                    parts_by[fam] = (res, pos, heads, None)
+                    for t, (_, pk) in zip(chain, res):
+                        if t.gloss:
+                            senses[pk] = t.gloss
+                    parts_by[fam] = (res, pos, heads, None, senses)
         return parts_by
 
     def attach(self, mentions, chains, word="", ctx=None, settled=None):
@@ -3912,7 +4067,7 @@ class Origin:
         # sorprendre, from super- + prendere" splits the French verb. That
         # owner labels the row when it is no node of the graph.
         owner = {}
-        for fam, (parts, pos, hs, before) in list(parts_by.items()):
+        for fam, (parts, pos, hs, before, _) in list(parts_by.items()):
             if pos < 0:
                 # No prose position: the parts belong to the term the
                 # template itself names (the etymon head, or the origin
@@ -3952,7 +4107,7 @@ class Origin:
         # position is where its expansion starts, which puts the language
         # name ("Latin dis-") a few characters ahead of the chain's head.
         head_pos = {}
-        for parts, pos, hs, _ in parts_by.values():
+        for parts, pos, hs, _, _ in parts_by.values():
             if pos >= 0:
                 for h in hs:
                     head_pos[h] = min(head_pos.get(h, pos), pos)
@@ -4006,7 +4161,8 @@ class Origin:
             if ROOT_LANGS.get(code) == fam and term.startswith("*"):
                 return {"lang": fam, "key": None, "first": "", "hint": "",
                         "label": "*" + self.g[fam].clean_term(term[1:]),
-                        "extra": parts_by[fam][0]}
+                        "extra": parts_by[fam][0],
+                        "esense": parts_by[fam][4]}
             if lang_role(code) == "pass" and not term.startswith("*"):
                 # The French word owns the parts, but when its own page
                 # continues to a Latin lemma that decomposes, that lemma is
@@ -4016,7 +4172,8 @@ class Origin:
                     return deeper
                 return {"lang": code, "key": None, "first": "", "hint": "",
                         "label": self.g[fam].clean_term(term),
-                        "extra": parts_by[fam][0], "fam": fam}
+                        "extra": parts_by[fam][0], "fam": fam,
+                        "esense": parts_by[fam][4]}
             other = ROOT_LANGS.get(code)
             if other and other != fam and not term.startswith("*") \
                     and self.g[other].lookup(term, True)[0] is None:
@@ -4024,7 +4181,8 @@ class Origin:
                 # unwritten Latin term labels the row and the chips are Greek.
                 return {"lang": other, "key": None, "first": "", "hint": "",
                         "label": self.g[other].clean_term(term),
-                        "extra": parts_by[fam][0], "fam": fam}
+                        "extra": parts_by[fam][0], "fam": fam,
+                        "esense": parts_by[fam][4]}
         hit = self.pick_both(named, parts_by, owner)
         if hit is not None:
             return hit
@@ -4040,14 +4198,16 @@ class Origin:
                 # spike judged right on manage).
                 return {"lang": fam, "key": None, "first": "", "hint": "",
                         "label": "*" + self.g[fam].clean_term(term[1:]),
-                        "extra": parts_by[fam][0]}
+                        "extra": parts_by[fam][0],
+                        "esense": parts_by[fam][4]}
             if lang_role(code) == "pass" and not term.startswith("*"):
                 # The parts assemble a pass-through word and the page names
                 # no lemma of their language: the French verb labels the
                 # row and the chips stay Latin.
                 return {"lang": code, "key": None, "first": "", "hint": "",
                         "label": self.g[fam].clean_term(term),
-                        "extra": parts_by[fam][0], "fam": fam}
+                        "extra": parts_by[fam][0], "fam": fam,
+                        "esense": parts_by[fam][4]}
         # ---- row-only: the deepest named origin is not a root language ----
         if not any(fam for fam, _, _ in named):
             # The row is the deepest term of the page's own origin clause
@@ -4147,11 +4307,11 @@ class Origin:
             else:
                 runs.append([c])
 
-        def found(c, extra):
+        def found(c, extra, senses=None):
             fam, key, term, gloss = c
             return {"lang": fam, "key": key,
                     "first": norm_for(fam, self.g[fam].clean_term(term)),
-                    "hint": gloss, "extra": extra}
+                    "hint": gloss, "extra": extra, "esense": senses}
 
         best = None
         for run in reversed(runs):
@@ -4170,19 +4330,20 @@ class Origin:
                     # decomposed from English prose.
                     return {"lang": fam, "key": None, "first": "", "hint": "",
                             "label": self.g[fam].clean_term(c[2]),
-                            "extra": parts_by[fam][0]}
+                            "extra": parts_by[fam][0],
+                            "esense": parts_by[fam][4]}
             if entry is None:
                 continue
             fam, key = entry[0], entry[1]
             if self.decomposes(fam, key):
                 return found(entry, None)
             if fam in parts_by and owns(fam, entry[2]) and not self.is_affix(fam, key):
-                return found(entry, parts_by[fam][0])
+                return found(entry, parts_by[fam][0], parts_by[fam][4])
             for c in run[run.index(entry) + 1:]:
                 if c[1] is not None and self.decomposes(c[0], c[1]):
                     return found(c, None)
                 if c[1] is not None and fam in parts_by and owns(fam, c[2]):
-                    return found(c, parts_by[fam][0])
+                    return found(c, parts_by[fam][0], parts_by[fam][4])
             if best is None:
                 best = entry
         return found(best, None) if best else None
@@ -4262,8 +4423,46 @@ class Origin:
         self.anchors = {k for k, n in seen.items() if n >= ORG_ANCHOR_MIN}
         return len(self.anchors)
 
-    def flatten(self, lang, key, depth, seen, extra=None):
-        """[(display form, root key or None)] for a lemma, or None.
+    def part_sense(self, lang, pk, stated):
+        """The sense of a part page that the parent's split names, or "".
+
+        Every card line of every entry of the page is a candidate, so one
+        test reaches a homograph entry (la:in- "in, within, inside" under
+        incidō's in-<t:into>) and a further sense of a single entry
+        (grc:κρίνω "to decide or judge" under κρίσις's κρίνω<t:to decide>)
+        alike. Ties keep source order, which is the card's own preference.
+        """
+        if not stated or pk is None:
+            return ""
+        g = self.g[lang]
+        # The gloss the card will really show, curation included.
+        card = curation.ROOT_GLOSSES.get(lang + ":" + pk) or g.gloss.get(pk) or ""
+        floor = sense_score(stated, card)[0]
+        best = ""
+        top = (floor, 0.0)
+        for c in g.cands.get(pk) or ():
+            if c.pos == "name":
+                # A name entry never wins on evidence: its gloss is the name
+                # (the homograph rule of finding 2, 2026-09-05).
+                continue
+            for line in c.lines:
+                s = sense_score(stated, line)
+                if s[0] > top[0] or (s[0] == top[0] and best and s[1] > top[1]):
+                    top, best = s, line
+        # A line only wins by naming MORE of the stated sense than the card
+        # does. Sharing a word with it is not enough: ūnus states "one" and
+        # its card already says "one, single", so the chip stays as it is,
+        # while la:-iō states "abstract noun" against a card about
+        # fourth-conjugation verbs and the chip carries the noun suffix.
+        return best
+
+    def flatten(self, lang, key, depth, seen, extra=None, esense=None):
+        """[(display form, root key or None, chip gloss)] for a lemma, or None.
+
+        The chip gloss is "" unless the parent's split states a sense for
+        that part and the sense is not the one the part's own card carries
+        (review 2, cause 1, 2026-09-06). One card serves every parent, so
+        the parent supplies the chip's wording where the two differ.
 
         None means the lemma does not decompose and stays whole. A part in
         ROOT_SKIPS keeps its form and loses its link. Affixes are terminal
@@ -4285,8 +4484,10 @@ class Origin:
             return None
         g = self.g[lang]
         parts = g.split.get(key)
+        senses = g.psense.get(key) or {}
         if parts is None and extra and depth == ORG_DEPTH and not g.rejects(key):
             parts = extra
+            senses = esense or {}
         if not parts or len(parts) < 2 or depth <= 0:
             return None
         pieces = []
@@ -4297,21 +4498,22 @@ class Origin:
                  or curation.ROOT_ALIASES.get(form)
                  or curation.ROOT_ALIASES.get(pk))
             if a:
-                pieces.append((form, a, None))
+                pieces.append((form, a, None, ""))
                 continue
-            pieces.append((g.form.get(pk) or form, lang + ":" + pk, pk))
-        whole = [(form, None if rkey in curation.ROOT_SKIPS else rkey)
-                 for form, rkey, pk in pieces]
-        linked = [r for _, r in whole if r]
+            pieces.append((g.form.get(pk) or form, lang + ":" + pk, pk,
+                           self.part_sense(lang, pk, senses.get(pk))))
+        whole = [(form, None if rkey in curation.ROOT_SKIPS else rkey, gl)
+                 for form, rkey, pk, gl in pieces]
+        linked = [r for _, r, _ in whole if r]
         if len(set(linked)) < len(linked):
             # The page's own split names a part twice: no row may carry a
             # duplicate part (review finding 4), so the lemma stays whole.
             return None
         out = []
         expanded = []
-        for form, rkey, pk in pieces:
+        for form, rkey, pk, gl in pieces:
             if rkey in curation.ROOT_SKIPS:
-                out.append((form, None))
+                out.append((form, None, ""))
                 continue
             sub = None
             if (pk is not None
@@ -4322,9 +4524,9 @@ class Origin:
                 out.extend(sub)
                 expanded.append(rkey)
             else:
-                out.append((form, rkey))
+                out.append((form, rkey, gl))
         if expanded:
-            linked = [r for _, r in out if r]
+            linked = [r for _, r, _ in out if r]
             if len(set(linked)) < len(linked) or len(out) >= 4:
                 # Expanding a part duplicated a root or ran the row to four
                 # chips or more (review finding 4: ossuārium read ōs + ōs,
@@ -4370,14 +4572,14 @@ class Origin:
         lang, key = att["lang"], att["key"]
         if key is None:
             flat = self.flatten(att.get("fam") or lang, None, ORG_DEPTH, set(),
-                                att.get("extra"))
+                                att.get("extra"), att.get("esense"))
             if not flat or len(flat) < 2:
                 return None
             if count:
                 self.stats["decomposed"] += 1
                 self.stats["unwritten"] += 1
             return {"l": att["label"], "lang": lang,
-                    "parts": [({"f": f, "r": r} if r else {"f": f}) for f, r in flat]}
+                    "parts": [org_part(f, r, gl) for f, r, gl in flat]}
         if att.get("first") and att["first"] != key:
             self.alias[att["first"]] = lang + ":" + key
         a = (curation.ROOT_ALIASES.get(lang + ":" + key)
@@ -4388,19 +4590,15 @@ class Origin:
             if count:
                 self.stats["single"] += 1
             return {"r": a}
-        flat = self.flatten(lang, key, ORG_DEPTH, {key}, att.get("extra"))
+        flat = self.flatten(lang, key, ORG_DEPTH, {key}, att.get("extra"),
+                            att.get("esense"))
         if flat and len(flat) >= 2:
             if count:
                 self.stats["decomposed"] += 1
                 self.stats["parts_%d" % min(len(flat), 6)] += 1
             disp = self.g[lang].form.get(key) or key
-            parts = []
-            for form, rkey in flat:
-                part = {"f": form}
-                if rkey:
-                    part["r"] = rkey
-                parts.append(part)
-            return {"l": disp, "lang": lang, "parts": parts}
+            return {"l": disp, "lang": lang,
+                    "parts": [org_part(f, r, gl) for f, r, gl in flat]}
         if count:
             self.stats["single"] += 1
         return {"r": lang + ":" + key}
@@ -4575,7 +4773,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
     card_parts = {k: v for k, v in card_parts.items() if v}
     origin.card_parts = card_parts
     through = root_closure({
-        k: {"parts": [{"f": f, "r": r} for f, r in flat if r]}
+        k: {"parts": [{"f": f, "r": r} for f, r, _ in flat if r]}
         for k, flat in card_parts.items()})
 
     # ---- resolve morphemes to roots, count references -------------------
@@ -4684,13 +4882,8 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
         flat = card_parts.get(key)
         if not flat:
             continue
-        parts = []
-        for form, rkey in flat:
-            part = {"f": form}
-            if rkey and rkey in roots:
-                part["r"] = rkey
-            parts.append(part)
-        r["parts"] = parts
+        r["parts"] = [org_part(form, rkey if rkey in roots else "", gl)
+                      for form, rkey, gl in flat]
         c["rootparts"] += 1
 
     # `src` on an English affix: the Latin or Greek lemma its own chain
@@ -4709,6 +4902,28 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
             r["src"] = s
             c["src"] += 1
 
+    # ---- a part gloss that repeats its card's says nothing -----------------
+    # The chip carries its own gloss only where the parent's split names a
+    # sense the card does not (review 2, cause 1).
+    def trim_parts(parts):
+        for p in parts:
+            key = p.get("r")
+            if not p.get("g"):
+                p.pop("g", None)
+            elif not key or key not in roots or p["g"] == roots[key]["gloss"]:
+                del p["g"]
+            else:
+                c["partgloss"] += 1
+
+    for r in roots.values():
+        if "parts" in r:
+            trim_parts(r["parts"])
+    for w in shipped.values():
+        org = w.get("org")
+        if org and "parts" in org:
+            trim_parts(org["parts"])
+            c["partgloss_rows"] += any("g" in p for p in org["parts"])
+
     # ---- references to keys that carry no card render inert ---------------
     for wl, w in shipped.items():
         for m in w.get("morphs") or ():
@@ -4720,6 +4935,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
             for p in org["parts"]:
                 if p.get("r") and p["r"] not in roots:
                     del p["r"]
+                    p.pop("g", None)
                     c["inertpart"] += 1
             if not any(p.get("r") for p in org["parts"]):
                 # Every part is a skip: the lemma stays whole instead.
@@ -5661,8 +5877,15 @@ def load_gold():
         return json.load(fh).get("rows") or []
 
 
-def gold_actual(word, words):
-    """What the shipped data says about a gold word, in the gold row shape."""
+def gold_actual(word, words, roots=None):
+    """What the shipped data says about a gold word, in the gold row shape.
+
+    `glosses` is the chip subtext a reader sees, joined the way lookup.js
+    joins it: the part's own gloss where it carries one, else the root
+    card's (review 2, cause 1, 2026-09-06). A gold row pins it only when
+    the row carries the field, so the older rows are unaffected.
+    """
+    roots = roots or {}
     w = words.get(word)
     if not w:
         return {"kind": "none"}
@@ -5675,11 +5898,15 @@ def gold_actual(word, words):
         return {"kind": "none"}
     if "parts" in org:
         return {"kind": "decomposed", "lang": org["lang"], "lemma": org["l"],
-                "parts": [p["f"] for p in org["parts"]]}
+                "parts": [p["f"] for p in org["parts"]],
+                "glosses": [p.get("g") or (roots.get(p.get("r")) or {}).get("gloss", "")
+                            for p in org["parts"]]}
     if org.get("r"):
         return {"kind": "single", "lang": org["r"].split(":", 1)[0],
-                "lemma": org.get("f") or org["r"].split(":", 1)[1]}
-    return {"kind": "rowonly", "lang": org.get("lang"), "lemma": org.get("f")}
+                "lemma": org.get("f") or org["r"].split(":", 1)[1],
+                "glosses": [(roots.get(org["r"]) or {}).get("gloss", "")]}
+    return {"kind": "rowonly", "lang": org.get("lang"), "lemma": org.get("f"),
+            "glosses": [org.get("gloss") or ""]}
 
 
 def gold_match(row, actual):
@@ -5694,12 +5921,15 @@ def gold_match(row, actual):
                 and sorted(row.get("inert") or []) == sorted(actual.get("inert") or []))
     if row.get("lang") != actual.get("lang") or row.get("lemma") != actual.get("lemma"):
         return False
-    if kind == "decomposed":
-        return list(row.get("parts") or []) == list(actual.get("parts") or [])
+    if kind == "decomposed" and \
+            list(row.get("parts") or []) != list(actual.get("parts") or []):
+        return False
+    if "glosses" in row:
+        return list(row["glosses"]) == list(actual.get("glosses") or [])
     return True
 
 
-def score_gold(words):
+def score_gold(words, roots=None):
     """(matched, total, per-class table, failures) against pipeline/gold.json."""
     rows = load_gold()
     per = collections.OrderedDict()
@@ -5707,7 +5937,7 @@ def score_gold(words):
     matched = 0
     for row in rows:
         kind = row.get("kind", "?")
-        actual = gold_actual(row["word"], words)
+        actual = gold_actual(row["word"], words, roots)
         ok = gold_match(row, actual)
         n, m = per.get(kind, (0, 0))
         per[kind] = (n + 1, m + (1 if ok else 0))
@@ -5725,9 +5955,9 @@ def committed_gold_score():
         return json.load(fh)
 
 
-def gold_report(words):
+def gold_report(words, roots=None):
     """Print the gold score and return the number of failed gates (0 or 1)."""
-    matched, total, per, failures = score_gold(words)
+    matched, total, per, failures = score_gold(words, roots)
     committed = committed_gold_score()
     log("================ GOLD SET ==================")
     if not total:
@@ -6234,7 +6464,7 @@ def main(argv):
     splits = set(origin.card_parts)
     failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits,
                     harvest=harvest, carry=origin.carry)
-    failed += gold_report(shipped)
+    failed += gold_report(shipped, roots)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     write_report()

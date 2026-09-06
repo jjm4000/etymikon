@@ -137,8 +137,10 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
     { "f": "-tōrium", "r": "la:-torium" } ] }`. `l` is the source lemma's
     display form, macrons kept. `parts` (2 or more) follow the morphs
     chip contract: `f` display form, `r` root key when that root
-    ships, absent for an inert chip. Parts come from the recursive
-    flattening rule below.
+    ships, absent for an inert chip. A part may also carry `g`, the
+    gloss the parent's own split gives it, which the worker joins
+    over the root card's (see "Part senses", 2026-09-06). Parts come
+    from the recursive flattening rule below.
   - Single, when the lemma does not decompose:
     `"org": { "r": "la:terra", "f": "terra" }` as before.
   A word never carries both `morphs` and `org`.
@@ -1600,6 +1602,63 @@ pinned it; the gold set carries a row for each.
   MB; breakdown coverage of the top 10,000 ranks 37.9%; the 1,752
   misses of 2026-09-01 render 552 decomposed, 1,029 single, 171
   nothing (top 10,000: 171 / 343 / 39).
+
+### Part senses (dated note, 2026-09-06, second review, cause 1)
+
+The second adversarial pass measured that findings 2 and 3 fixed which
+entry supplies a NODE's split, label and gloss, and that nothing applied
+the same rule to the PARTS of a split. A chip showed whatever gloss won
+its own root card, so la:in- read "un-, non-, not" on incident, intend,
+insist and noise, and la:-tus read the action-noun entry on defense and
+expert. Fourteen roots of that shape touched 847 shipped words.
+
+- A part chip carries its own gloss, chosen from the sense the PARENT's
+  split states for it: the `t`, `tN` or `glossN` argument of the parent's
+  decomposition template, its inline `<t:...>` and `<id:...>` modifiers,
+  or the parenthetical beside the term in the parent's prose chain. The
+  same evidence already fed the homograph vote as a hint; now it also
+  picks the wording.
+- The candidates are every card-sized sense line of every lemma entry of
+  the part's page, name entries excluded, so one rule reaches a homograph
+  entry (la:in-) and a further sense of a single entry (grc:κρίνω "to
+  decide or judge" under κρίσις) alike.
+- A stated sense matches a line when a comma-joined piece of the two is
+  the same, or when a content word of the two is: equal, equal once a
+  plural -s comes off, or sharing a five-letter prefix ("adjectival" and
+  "adjectives"). Five, not four: four makes "action" match "active".
+- A line wins only by naming MORE of the stated sense than the card's own
+  gloss does, curated ROOT_GLOSSES included. Sharing a word with it is not
+  enough, which keeps the rule to the homographs it is about: ūnus states
+  "one" and its card already says "one, single", so nothing changes, while
+  la:-iō states "abstract noun" against a card about fourth-conjugation
+  verbs and the chip carries the noun suffix (union).
+- The winning line ships as `g` on the part and the worker joins it over
+  the root card's gloss. The card keeps its own gloss for its own page.
+  A `g` equal to the card's is dropped at emit.
+- A gloss that is only a grammatical note is not a gloss. The Greek
+  preposition pages write their case headings as senses of their own, so
+  period read "περί ([with genitive])" and episode the same of ἐπί. A
+  whole line in square brackets is refused and the next sense carries the
+  card.
+- A gold row may now pin `glosses`, the chip subtext a reader sees, joined
+  the way lookup.js joins it. Rows without the field are unaffected.
+- Five curated entries cover parts no evidence on the page reaches:
+  LEMMA_STEPS la:strictus to la:stringō and la:visus to la:videō (both
+  participles written as lemma pages, so district stopped at strictus and
+  vision at the noun vīsus); SOURCE_SPLITS la:mentālis = mēns + -ālis (the
+  page's two adjective entries both gloss "mental" and the node followed
+  the anatomical mentum) and la:diurnus = diēs + -nus (the page writes
+  diūs, which steps through dīus to dīvus "god, deity", so journey read a
+  deity); ROOT_GLOSSES la:-ēnus (the page's only entry glosses the
+  distributive numerals, while the family is adjectives).
+- Outcome: 1,088 word rows and 216 root cards carry an explicit part
+  gloss (1,136 and 223 parts), 1,119 rows changed wording, no row changed
+  its parts except the five curated ones. Not reached, with the reason:
+  suggest and county read what their pages state (suggestus writes
+  -tus<t:action noun>, comitātus writes comitor + -tus); command reads
+  la:commandō, whose only entry is "to chew"; suspicious states no sense
+  for suspiciō; divorce reads the la:di- page, whose only entry is the
+  Greek-derived "two".
 
 ## Naming (Jesse decision 2026-08-25)
 

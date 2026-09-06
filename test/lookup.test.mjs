@@ -659,6 +659,35 @@ test("a decomposed org part with no link at all renders inert", () => {
   });
 });
 
+test("a part's own gloss wins over its root card's", () => {
+  // One card serves every parent and follows one sense, so the parent
+  // supplies the chip's wording where the two differ (SPEC "Origin
+  // subsystem", 2026-09-06). A part with no `g` still reads the card.
+  const wordish = {
+    words: {
+      v: 1,
+      words: {
+        x: {
+          senses: [{ pos: "noun", defs: ["A thing."] }],
+          org: {
+            l: "rememorārī",
+            lang: "la",
+            parts: [
+              { f: "re-", r: "la:re-", g: "again, once more" },
+              { f: "memor", r: "la:memor" },
+            ],
+          },
+        },
+      },
+    },
+    roots,
+  };
+  assert.deepEqual(buildMatches("x", wordish)[0].org.parts, [
+    { f: "re-", r: "la:re-", gloss: "again, once more" },
+    { f: "memor", r: "la:memor", gloss: "mindful" },
+  ]);
+});
+
 test("an org part never comes back as a word chip", () => {
   // "memor" is not a shipped word here, but even when a part names one, parts
   // join against no word table: the org chip contract is `f` and at most `r`.

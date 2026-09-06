@@ -638,7 +638,9 @@ mockups 2026-09-05), 14,247 rows at 2026-09-06:
 
 * **decomposed**, `{l, lang, parts}`: the attached node decomposes, or the
   page supplied parts for it. `parts` follow the morphs chip contract, `f`
-  to display and `r` when that root ships. 7,073 rows.
+  to display and `r` when that root ships, plus `g` where the parent's own
+  split names a sense the root card does not carry (see "Part senses").
+  7,073 rows.
 * **single**, `{r, f}`: the node does not decompose ("From Latin soccus").
   2,218 rows. The worker joins the root's gloss and romanization.
 * **row-only**, `{lang, f, gloss?, rom?}` with no `r`: the deepest named
@@ -714,6 +716,30 @@ decided. One card still serves every word that reaches the key, so a
 family split across two homographs (legacy on lēgō "to bequeath" beside
 college on legō "to gather") follows the majority. `ROOT_GLOSSES` still
 overrides the gloss.
+
+**Part senses.** One card serves every parent and follows one entry, so a
+chip used to show whatever gloss won the part's own card whatever sense the
+parent's split meant: la:in- read "un-, non-, not" on incident, intend,
+insist and noise, and la:-tus read the action-noun entry on defense and
+expert (second review, cause 1, 2026-09-06). A chip now carries its own
+gloss, `g` on the part, chosen from the sense the parent's split states for
+it: the parent's `t`, `tN` or `glossN` argument, its inline `<t:...>` and
+`<id:...>` modifiers, or the parenthetical beside the term in the parent's
+prose. The candidates are every card-sized sense line of every lemma entry
+of the part's page, name entries excluded, so the rule reaches a homograph
+entry and a further sense of a single entry (grc:κρίνω "to decide or judge"
+under κρίσις) alike. A stated sense matches a line on an equal
+comma-joined piece or an equal content word (plural -s off, or a shared
+five-letter prefix), and a line wins only by naming MORE of the stated
+sense than the card's own gloss does, so ūnus under ūnus<t:one> keeps
+"one, single" and only a card that answers the parent's sense poorly is
+overridden. `Origin.part_sense` picks it, `link_and_prune` drops a `g`
+that repeats the card, and the worker joins `g` over the root gloss.
+1,088 word rows and 216 root cards carry one at 2026-09-06.
+
+A gloss that is only a grammatical note is not a gloss: a whole line in
+square brackets is refused in `gloss_line`, so period and episode stopped
+reading "[with genitive]" for περί and ἐπί.
 
 ### Keys and forms
 

@@ -204,6 +204,12 @@ ROOT_GLOSSES = {
     # fullest sense on the page reads as below.
     "la:-eus": "derives relational adjectives from nouns, used chiefly to "
                "indicate material composition",
+    # Harvested: "alternative form of -nus, used to form some distributive
+    # numerals", the page's only entry. Family: alien (alius + -ēnus),
+    # terrene, egregious: adjectives, not numerals. The -nus page it points
+    # at opens with the adjective-forming sense, which is the family's
+    # (review 2, cause 1, 2026-09-06).
+    "la:-enus": "adjective-forming suffix, an alternative form of -nus",
 }
 
 # ----------------------------------------------------------------- base routes
@@ -296,6 +302,18 @@ LEMMA_STEPS = {
     # source graph reads the same page's etymon now; the entry stays because
     # curation wins over the extract at every hop.
     "la:deponens": "la:depono",
+    # strictus is the past participle of stringō, written as a lemma page
+    # with an adjective's gloss ("tightened, compressed") and no form-of
+    # link, so district read dis- + strictus and stopped at the participle
+    # (review 2, cause 1, 2026-09-06). The page's own head calls it a
+    # participle; the step is the one the parser makes for every participle
+    # that carries a form-of link.
+    "la:strictus": "la:stringo",
+    # vīsus the participle of videō and vīsus the fourth-declension noun
+    # share a page, and the noun's senses carry it, so vision read vīsus +
+    # -tiō with the noun's gloss. vīsiō is built on the participle, so the
+    # page steps to videō the way any participle page does.
+    "la:visus": "la:video",
 }
 
 # --------------------------------------------------------------- source splits
@@ -313,4 +331,15 @@ SOURCE_SPLITS = {
     # click. The standard analysis, and the one the owner's mockup shows, is
     # cūra ("care") + -ōsus ("full of") (SPEC row shape 5, 2026-09-05).
     "la:curiosus": ["cūra", "-ōsus"],
+    # mentālis carries two adjective entries, both glossed "mental": one
+    # reads mēns + -ālis and one reads mentum ("the chin") + -ālis. The
+    # first is the word English took; the second belongs to the anatomical
+    # term. The node followed the second, so mental read "the chin"
+    # (review 2, cause 1, 2026-09-06).
+    "la:mentalis": ["mēns", "-ālis"],
+    # diurnus is written "diūs + -nus" on its page. diūs is no page of its
+    # own; the lookup steps it through dīus, an alternative form of dīvus,
+    # so journey read "god, deity". The standard analysis is diēs + -nus,
+    # which is the word the page's own gloss ("of the day") describes.
+    "la:diurnus": ["diēs", "-nus"],
 }

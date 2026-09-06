@@ -249,13 +249,19 @@ export function firstDef(entry) {
  * inert, which is also what a morph with no link field at all gets. `r` is
  * checked first: the data never carries both, and a bundle that does gets the
  * root card rather than two link fields on one chip.
+ *
+ * A part carrying `g` states its own gloss and that gloss wins over the
+ * root's (SPEC "Origin subsystem", 2026-09-06). One card serves every parent
+ * and can follow only one sense, so the parent supplies the chip's wording
+ * where the two differ: incidō writes in- as "in, on, into" though the la:in-
+ * card reads "un-, non-, not". The card keeps its own gloss for its own page.
  */
 function morphRow(morph, roots, wordTable) {
   const row = { f: str(morph.f) };
   const rootKey = str(morph.r);
   if (rootKey !== "" && hasOwn(roots, rootKey)) {
     row.r = rootKey;
-    const gloss = str(roots[rootKey].gloss);
+    const gloss = str(morph.g) || str(roots[rootKey].gloss);
     if (gloss !== "") row.gloss = gloss;
     // The root's romanization rides on the chip too, so a Greek part can
     // carry its reading between the form and the gloss (SPEC 2026-09-05).
