@@ -427,11 +427,13 @@ standalone graph before any English page is read, in `parse_classical` and
   macrons from the canonical form; Greek as the page title, never the
   canonical form with its vowel-length marks), the card gloss, the entry
   pos that decides `kind`, and for Greek the romanization. A page with
-  several lemma entries keeps every candidate gloss; the entry with the
-  most senses is the default, and a homograph is told apart later (see
-  "Gloss support"). The split and the prose of a key come from that same
-  entry, never from a homograph beside it: cēdō ("to go") shares its page
-  with cedo ("hand it over!"), and only the second is ce- + dō.
+  several lemma entries keeps every entry as a candidate, each with its
+  own split, forms and sense words; the entry with the most senses is the
+  default until the English pages have attached, and then the node is
+  fixed on one entry by evidence (see "Homographs"). The split, the
+  label and the gloss of a node all come from that one entry, never from
+  a homograph beside it: cēdō ("to go") shares its page with cedo ("hand
+  it over!"), and only the second is ce- + dō.
 * A **decomposition edge** comes from the decomposition templates, from
   the `etymon` tree, or from the etymology prose, in that order, and one
   edge per node. Every part is resolved through the lookup rules below and
@@ -626,13 +628,37 @@ carried over). 1,353 anchors at 2026-09-05. `ROOT_ALIASES` and
 `ROOT_SKIPS` apply at every level, and a curated alias stops the recursion
 where it lands.
 
-**Gloss support.** A key with several lemma entries takes the entry with
-the most senses by default. When the English pages that attach to it gloss
-the term themselves ("Latin cava (“cavity”)"), or the English word is a
-word of an entry's senses (cave), the entry whose senses share a content
-word with those wins instead, since the words that attach are the card's
-family. A name entry never wins on support. 55 cards at 2026-09-05.
-`ROOT_GLOSSES` still overrides the whole ladder.
+**Homographs.** A key with several lemma entries (fundō "to pour" and
+fundō "to found", dēcidō "to fall" and dēcīdō "to cut off") is fixed on
+one entry after the harvest, in `Origin.choose_homographs`, and the
+split, the label and the gloss follow that entry (review findings 2 and
+3, 2026-09-05). Every English page that names the key votes, weighted
+by the word's rank (a rank 1,000 word counts as seven words at the cap,
+since one card serves the whole family and the words a reader meets
+most decide), and the rules are read in order:
+
+1. a form, pos or gloss the English page states beside the term: the
+   `t=`, `gloss=` and `pos=` args, the alt form (`fundāre` against
+   `fundere`, matched against the entries' canonical, infinitive and
+   supine forms), and the quoted parenthesis the prose writes after the
+   term ("iūs (“right”)"), with or without a template;
+2. the glosses source pages give the term as a part of their own lemma
+   (iūsculum = iūs<t:broth> + -culum), one vote per page;
+3. a part of the entry's own split the English page names (decide names
+   caedō);
+4. a content word the English word's first definition shares with the
+   entry's senses (impact: "collision");
+5. the entry with the most senses.
+
+Only a distinguishing match counts: a form or gloss word every entry
+shares says nothing, and a name entry never wins on evidence. A written
+verb form no entry of the node carries, on a node with no verb entry,
+skips the node for that page (catch writes Late Latin captiāre under the
+noun page captio). The build report prints how many nodes each rule
+decided. One card still serves every word that reaches the key, so a
+family split across two homographs (legacy on lēgō "to bequeath" beside
+college on legō "to gather") follows the majority. `ROOT_GLOSSES` still
+overrides the gloss.
 
 ### Keys and forms
 

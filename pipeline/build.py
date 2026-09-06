@@ -30,6 +30,7 @@ See pipeline/README.md.
 from __future__ import annotations
 
 import collections
+import math
 import copy
 import gzip
 import io
@@ -1376,7 +1377,13 @@ def harvest_english(path, cand, origin):
                 mentions, chains = page_mentions(
                     e.get("etymology_templates") or [],
                     e.get("etymology_text") or "", "en", wl)
-                rec["att"] = origin.attach(mentions, chains, wl)
+                # The page's homograph evidence: read once, used for this
+                # attachment now and merged for the node's pick later.
+                terms = page_evidence(e.get("etymology_templates") or [],
+                                      e.get("etymology_text") or "", "en", wl)
+                ev = origin.evidence_of(terms, mentions, def_words(defs[0]))
+                origin.merge_evidence(ev, origin.ranks.get(wl))
+                rec["att"] = origin.attach(mentions, chains, wl, ev)
                 rec["cogonly"] = origin.cognate_only(mentions)
                 if rec["att"] is not None:
                     stats["attached" if "key" in rec["att"] else
@@ -1813,8 +1820,9 @@ def recent_lang(items, i):
 
 
 class Term:
-    """One term of a prose plus-chain: its head, language and step target."""
-    __slots__ = ("head", "lang", "explicit", "step", "target")
+    """One term of a prose plus-chain: its head, language, step target and
+    the gloss its parenthesis carries."""
+    __slots__ = ("head", "lang", "explicit", "step", "target", "gloss")
 
     def __init__(self, head):
         self.head = head
@@ -1822,6 +1830,16 @@ class Term:
         self.explicit = False
         self.step = None
         self.target = None
+        self.gloss = ""
+
+
+RE_QUOTED_GLOSS = re.compile(r"[“\"]([^”\"]{1,120})[”\"]")
+
+
+def quoted_gloss(inner):
+    """The quoted gloss inside a parenthesis, or ""."""
+    m = RE_QUOTED_GLOSS.search(inner or "")
+    return m.group(1).strip() if m else ""
 
 
 def read_parens(term, items, i):
@@ -1838,6 +1856,8 @@ def read_parens(term, items, i):
             if tgt and not tgt.startswith("*"):
                 term.step = m.group(1)
                 term.target = tgt
+        if not term.gloss:
+            term.gloss = quoted_gloss(inner)
         i += 1
     return i
 
@@ -2212,6 +2232,107 @@ def page_mentions(templates, text, page_lang, key):
     return mentions, chains
 
 
+# ---- homograph evidence on an English page --------------------------------
+#
+# What an English page says about WHICH homograph of a source lemma it means
+# (review findings 2 and 3, 2026-09-05). Four kinds of evidence, in the
+# order the rules read them: the gloss, pos or alt form a template or the
+# prose writes beside the term (rule a); the parts the page itself names
+# (rule b); the word's first definition (rule c). Sense count decides only
+# when none of these does (rule d).
+
+RE_AFTER_GLOSS = re.compile(r"^\s*\((?:[^()“\"]{0,40}[,;]\s*)?[“\"]([^”\"]{1,120})[”\"]")
+RE_LA_INFINITIVE = re.compile(r"(āre|ēre|ere|īre|ārī|ērī|īrī|ī)$")
+POS_NAMES = {"adjective": "adj", "adj": "adj", "noun": "noun", "verb": "verb",
+             "adverb": "adv", "adv": "adv", "participle": "verb", "pronoun": "pron",
+             "proper noun": "name", "name": "name", "numeral": "num", "particle": "particle",
+             "preposition": "prep", "conjunction": "conj", "interjection": "intj"}
+
+
+def gloss_after(prose, pos, exp):
+    """The quoted gloss the prose writes right after a template's expansion,
+    when the template itself carries none ("Latin iūstus (“just, lawful”)")."""
+    if pos < 0 or not exp:
+        return ""
+    m = RE_AFTER_GLOSS.match(prose[pos + len(exp):pos + len(exp) + 160])
+    return m.group(1).strip() if m else ""
+
+
+def page_evidence(templates, text, page_lang, key):
+    """[(code, term, alt, gloss, pos)] for every term a page names with a
+    root-language code, plus [(code, term)] for the plain-prose terms the
+    page glosses ("from iūs (“right”)" with no template)."""
+    prose = strip_tree(text or "", page_lang, key)
+    out = []
+    cursor = 0
+    for t in templates or ():
+        name = t.get("name") or ""
+        args = t.get("args") or {}
+        exp = t.get("expansion") or ""
+        if name in ORIGIN_NAMES:
+            code, term, alt = args.get("2") or "", args.get("3") or "", args.get("4") or ""
+            gloss = args.get("t") or args.get("5") or args.get("gloss") or ""
+        elif name in MENTION_NAMES:
+            code, term, alt = args.get("1") or "", args.get("2") or "", args.get("3") or ""
+            gloss = args.get("t") or args.get("4") or args.get("gloss") or ""
+        else:
+            u = unwrap(t)
+            if u is not None:
+                kind, tlang, targs, base, prefer = u
+                if tlang in ROOT_LANGS:
+                    i = base
+                    n = 1
+                    while str(i) in targs:
+                        raw = targs[str(i)] or ""
+                        if raw.strip().startswith(":"):
+                            break
+                        p = clean_part(raw)
+                        if p:
+                            out.append((tlang, p, "", part_gloss(raw, targs, n), ""))
+                            n += 1
+                        i += 1
+            continue
+        if code not in ROOT_LANGS:
+            continue
+        term = clean_part(term)
+        if not term or term == "-" or term.startswith("*"):
+            continue
+        pos = -1
+        if exp:
+            at = prose.find(exp, cursor)
+            if at >= 0:
+                cursor = at
+                pos = at
+        gloss = clean_gloss_arg(gloss) or gloss_after(prose, pos, exp)
+        out.append((code, term, clean_part(alt), gloss, (args.get("pos") or "").strip().lower()))
+    # Plain-prose terms with a gloss: a word token followed by a quoted
+    # parenthesis, its language the name before it or the last name at
+    # depth zero ("from Latin iūstitia (“righteousness”), from iūstus
+    # (“just”), from iūs (“right”)" glosses all three).
+    if "(“" in prose or '("' in prose:
+        for a, b, _ in sentence_spans(prose):
+            items = tokenize(prose[a:b])
+            for i in range(len(items) - 1):
+                if items[i][0] != "w" or items[i + 1][0] != "p":
+                    continue
+                head = clean_head(items[i][1])
+                if not head or head.lower() in STOP_HEADS or not any(c.isalpha() for c in head):
+                    continue
+                if head.startswith("*") or head[0].isupper() and not is_greek(head):
+                    continue
+                gl = quoted_gloss(items[i + 1][1])
+                if not gl:
+                    continue
+                code, _ = lang_phrase_before(items, i)
+                if code is None:
+                    code = recent_lang(items, i)
+                if code is None and is_greek(head):
+                    code = "grc"
+                if code in ROOT_LANGS:
+                    out.append((code, head, "", gl, ""))
+    return out
+
+
 # ---- the graph ------------------------------------------------------------
 
 class Graph:
@@ -2241,7 +2362,9 @@ class Graph:
     def __init__(self, lang):
         self.lang = lang
         self.gloss = {}          # key -> gloss (the card's)
-        self.cands = {}          # key -> [(weight, gloss, form, pos, rom, words)]
+        self.cands = {}          # key -> [Entry], the lemma entries of the page
+        self.esplit = {}         # key -> [split or None], one per entry
+        self.part_hints = {}     # key -> Counter of gloss words pages give it as a part
         self.form = {}
         self.pos = {}
         self.rom = {}
@@ -2322,6 +2445,106 @@ class Graph:
 
 
 RE_PARTICIPLE_HEAD = re.compile(r"^(la-part|grc-part)")
+DISTINCT_FORM_TAGS = frozenset({"canonical", "infinitive", "supine"})
+
+
+class Entry:
+    """One lemma entry of a source page, a candidate for the page's node.
+
+    A page with several lemma entries (fundō "to pour" and fundō "to
+    found") keeps every one, and the node picks one entry by evidence
+    after the English pages have attached (review findings 2 and 3,
+    2026-09-05): the split, the label and the gloss come from that one
+    entry. `forms` holds the distinguishing forms (canonical, infinitive,
+    supine) a mention can name, "fundāre" against "fundere".
+    """
+    __slots__ = ("weight", "gloss", "form", "pos", "rom", "words", "forms",
+                 "parts", "src", "prose", "pglosses", "order")
+
+    def __init__(self, weight, gloss, form, pos, rom, words, forms, parts, src,
+                 prose, pglosses, order):
+        self.weight = weight
+        self.gloss = gloss
+        self.form = form
+        self.pos = pos
+        self.rom = rom
+        self.words = words
+        self.forms = forms
+        self.parts = parts
+        self.src = src
+        self.prose = prose
+        self.pglosses = pglosses
+        self.order = order
+
+
+RE_INLINE_GLOSS = re.compile(r"<t:([^<>]*)>")
+RE_INLINE_ID = re.compile(r"<id:([^<>]*)>")
+
+
+def part_gloss(raw, args, n):
+    """The gloss a decomposition template gives its n-th part: the inline
+    <t:...> modifier, the tN or glossN arg, and the <id:...> sense id, which
+    names the sense in a word or two ("pure", "to collect")."""
+    bits = []
+    m = RE_INLINE_GLOSS.search(raw)
+    if m:
+        bits.append(m.group(1))
+    else:
+        bits.append(args.get("t%d" % n) or args.get("gloss%d" % n) or "")
+    m = RE_INLINE_ID.search(raw)
+    if m:
+        bits.append(m.group(1))
+    return clean_gloss_arg(" ".join(b for b in bits if b))
+
+
+def entry_part_glosses(e, lang, wrappers=ETY_NAMES):
+    """[(part, gloss)] of the decomposition template entry_split picks,
+    with the glosses the entry's other templates give the same parts
+    merged in (putō: the plain template says <t:clean>, the etymon
+    <id:pure>)."""
+    best = None
+    others = {}
+    for t in e.get("etymology_templates") or []:
+        u = unwrap(t, wrappers)
+        if u is None:
+            continue
+        kind, tlang, args, base, prefer = u
+        if tlang != lang:
+            continue
+        out = []
+        i = base
+        n = 1
+        while str(i) in args:
+            raw = args[str(i)] or ""
+            if raw.strip().startswith(":"):
+                break
+            p = clean_part(raw)
+            if p:
+                out.append((p, part_gloss(raw, args, n)))
+                n += 1
+            i += 1
+        if len(out) < 2:
+            continue
+        for p, gl in out:
+            if gl:
+                others[p] = (others.get(p, "") + " " + gl).strip()
+        if best is None or prefer > best[0]:
+            best = (prefer, out)
+    if not best:
+        return []
+    return [(p, others.get(p, gl)) for p, gl in best[1]]
+
+
+def entry_forms(e):
+    """The distinguishing forms of an entry, lowercased NFC."""
+    out = set()
+    for f in e.get("forms") or []:
+        tags = f.get("tags") or []
+        if any(t in DISTINCT_FORM_TAGS for t in tags):
+            v = (f.get("form") or "").strip()
+            if v and " " not in v and v != "-":
+                out.add(unicodedata.normalize("NFC", v).lower())
+    return out
 
 
 def parse_classical(path, lang):
@@ -2336,9 +2559,8 @@ def parse_classical(path, lang):
     every title is known and the lookup rules can resolve a part.
     """
     g = Graph(lang)
-    raw_split = {}
-    prose_pages = {}
     part_steps = {}
+    order = 0
     with gzip.open(path, "rb") as f:
         for line in f:
             g.stats["lines"] += 1
@@ -2370,13 +2592,28 @@ def parse_classical(path, lang):
             if gl:
                 # A proper-noun entry only supplies a gloss when nothing else
                 # does. Μοῦσα is a name page and the only gloss Greek has.
+                # Every entry keeps its own split and prose: the node picks
+                # one entry later, by evidence (review findings 2 and 3).
                 words = set()
                 for s in senses:
                     for raw in s.get("glosses") or []:
                         words.update(RE_GLOSS_WORD.findall((raw or "").lower()))
                 r = tagged_form(e, "romanization") if lang == "grc" else ""
-                g.cands.setdefault(k, []).append(
-                    (weight, gl, display_form(e, w, lang, k), pos, r, words))
+                parts = entry_split(e, lang)
+                src = "etymon"
+                for tt in e.get("etymology_templates") or ():
+                    if tt.get("name") in DECOMP_NAMES or tt.get("name") in SURF_NAMES:
+                        src = "template"
+                        break
+                text = e.get("etymology_text") or ""
+                prose = strip_tree(text, lang, k) if " + " in text else ""
+                order += 1
+                g.cands.setdefault(k, []).append(Entry(
+                    weight, gl, display_form(e, w, lang, k), pos, r, words,
+                    entry_forms(e), parts if parts and len(parts) >= 2 else None,
+                    src, (e.get("etymology_templates") or [], text)
+                    if " + " in prose else None,
+                    entry_part_glosses(e, lang) if parts else [], order))
             # A participle page with a gloss of its own is a lemma page to
             # the parser; its step comes from the etymon's ":from" text or
             # from the prose ("Present active participle of dēpōnō").
@@ -2386,32 +2623,7 @@ def parse_classical(path, lang):
                     tk = norm_key(lang, tgt)
                     if tk and tk != k:
                         part_steps[k] = tk
-            # The split and the prose of a key come from the entry that wins
-            # its card gloss, never from a homograph beside it: cēdō ("to
-            # go") shares its page with cedo ("hand it over!"), and only the
-            # second is ce- + dō. Entries are ranked by the gloss weight.
-            cur = raw_split.get(k)
-            if gl and (cur is None or weight > cur[0]):
-                parts = entry_split(e, lang)
-                src = "etymon"
-                for tt in e.get("etymology_templates") or ():
-                    if tt.get("name") in DECOMP_NAMES or tt.get("name") in SURF_NAMES:
-                        src = "template"
-                        break
-                text = e.get("etymology_text") or ""
-                prose = strip_tree(text, lang, k) if " + " in text else ""
-                raw_split[k] = (weight,
-                                parts if parts and len(parts) >= 2 else None, src,
-                                (e.get("etymology_templates") or [], text)
-                                if " + " in prose else None)
-    prose_pages = {}
-    splits = {}
-    for k, (weight, parts, src, prose) in raw_split.items():
-        if parts:
-            splits[k] = (parts, src)
-        elif prose:
-            prose_pages[k] = prose
-    build_graph(g, splits, prose_pages, part_steps)
+    build_graph(g, part_steps)
     return g
 
 
@@ -2440,18 +2652,20 @@ def participle_step(e):
     return ""
 
 
-def build_graph(g, raw_split, prose_pages, part_steps):
+def build_graph(g, part_steps):
     """Assemble and verify one graph from what the streaming pass collected."""
     lang = g.lang
-    # ---- nodes: the default gloss is the entry with the most senses -------
+    # ---- nodes: the default entry is the one with the most senses ---------
+    # Ties keep extract order. The default stands until the English pages
+    # have attached and apply_entry() picks an entry by evidence.
     for k, cands in g.cands.items():
-        cands.sort(key=lambda c: (-c[0], c[1]))
-        w, gl, form, pos, rom, _ = cands[0]
-        g.gloss[k] = gl
-        g.form[k] = form
-        g.pos[k] = pos
-        if rom:
-            g.rom[k] = rom
+        cands.sort(key=lambda c: (-c.weight, c.order))
+        c = cands[0]
+        g.gloss[k] = c.gloss
+        g.form[k] = c.form
+        g.pos[k] = c.pos
+        if c.rom:
+            g.rom[k] = c.rom
     # ---- the loose index ---------------------------------------------------
     idx = collections.defaultdict(list)
     for k in g.titles:
@@ -2491,6 +2705,7 @@ def build_graph(g, raw_split, prose_pages, part_steps):
     # A curated edge wins over the page (SOURCE_SPLITS, the root languages'
     # FORCED_SPLITS). It is resolved through the same lookup as a template
     # part, so a curated part that names no page is as loud as any other.
+    curated = set()
     for src_key, parts in curation.SOURCE_SPLITS.items():
         sl, sk = src_key.split(":", 1)
         if sl != lang:
@@ -2500,29 +2715,14 @@ def build_graph(g, raw_split, prose_pages, part_steps):
         res = resolve_parts(sk, parts)
         if isinstance(res, str):
             raise SystemExit("SOURCE_SPLITS %s: %s" % (src_key, res))
-        raw_split.pop(sk, None)
         g.split[sk] = res
         g.split_src[sk] = "template"
+        g.esplit[sk] = [res] * len(g.cands[sk])
+        curated.add(sk)
         g.stats["split_curated"] += 1
 
-    for k in sorted(raw_split):
-        parts, src = raw_split[k]
-        if k not in g.gloss:
-            continue          # a split on a page with no card never renders
-        res = resolve_parts(k, parts)
-        if isinstance(res, str):
-            g.refused[k] = res
-            g.stats["refused_" + src] += 1
-            continue
-        g.split[k] = res
-        g.split_src[k] = src
-        g.stats["split_" + src] += 1
-
-    # ---- decomposition edges from the prose --------------------------------
-    for k in sorted(prose_pages):
-        if k not in g.gloss or k in g.split:
-            continue
-        templates, text = prose_pages[k]
+    def prose_split(k, templates, text):
+        """(split or None, refusal reason) from one entry's prose."""
         mentions, chains = page_mentions(templates, text, lang, k)
         tl = {}
         for kind, code, term, _, _, _, _ in mentions:
@@ -2530,7 +2730,6 @@ def build_graph(g, raw_split, prose_pages, part_steps):
             tk = norm_for(lang, term)
             if tk:
                 tl.setdefault(tk, fam)
-        parsed = None
         why = ""
         for chain, stance, _ in chains:
             if stance == "reject":
@@ -2540,16 +2739,58 @@ def build_graph(g, raw_split, prose_pages, part_steps):
             if isinstance(res, str):
                 why = why or res
                 continue
-            parsed = res
-            break
-        if parsed:
-            g.split[k] = parsed
-            g.split_src[k] = "prose"
-            g.stats["split_prose"] += 1
-        else:
-            g.prose_unread.add(k)
-            if why:
-                g.refused.setdefault(k, "prose: " + why)
+            # A part's gloss in the prose ("manu (ablative of manus)" says
+            # nothing, "iūs (“law, right”) + -tus" does) is evidence about
+            # which homograph the part names.
+            for term, (_, pk) in zip(chain, res):
+                if term.gloss:
+                    add_hint(g.part_hints, pk, term.gloss)
+            return res, ""
+        return None, why
+
+    # Every entry of every node resolves its own split, template first and
+    # prose after, so the entry the node picks later carries its split with
+    # it. The default entry's outcome is the graph's until then.
+    for k in sorted(g.cands):
+        if k in curated:
+            continue
+        cands = g.cands[k]
+        splits = []
+        for i, c in enumerate(cands):
+            res = None
+            why = ""
+            src = c.src
+            if c.parts:
+                r = resolve_parts(k, c.parts)
+                if isinstance(r, str):
+                    why = r
+                else:
+                    res = r
+                    for (p, gl), (_, pk) in zip(c.pglosses, r):
+                        if gl:
+                            add_hint(g.part_hints, pk, gl)
+            if res is None and c.prose:
+                r, w2 = prose_split(k, c.prose[0], c.prose[1])
+                if r:
+                    res = r
+                    src = "prose"
+                else:
+                    why = why or (("prose: " + w2) if w2 else "")
+            splits.append(res)
+            if i == 0:
+                if res:
+                    g.split[k] = res
+                    g.split_src[k] = src
+                    g.stats["split_" + src] += 1
+                else:
+                    if c.parts:
+                        g.refused[k] = why
+                        g.stats["refused_" + c.src] += 1
+                    elif c.prose:
+                        g.prose_unread.add(k)
+                        if why:
+                            g.refused.setdefault(k, why)
+        g.esplit[k] = splits
 
     # ---- verification: no cycles, no dangling edge -------------------------
     dangling = [(k, pk) for k, ps in g.split.items() for _, pk in ps
@@ -2557,12 +2798,34 @@ def build_graph(g, raw_split, prose_pages, part_steps):
     if dangling:
         raise SystemExit("%s graph: %d dangling edges, e.g. %s"
                          % (lang, len(dangling), dangling[:3]))
+    refuse_cycles(g)
+    g.stats["nodes"] = len(g.gloss)
+    g.stats["decomposed"] = len(g.split)
+    g.stats["prose_unread"] = len(g.prose_unread)
+    return g
+
+
+def add_hint(table, key, gloss):
+    """Record one source page's gloss of `key` as a part: one vote, a set
+    of content words."""
+    words = {w for w in RE_GLOSS_WORD.findall((gloss or "").lower())
+             if w not in GLOSS_STOP}
+    if words:
+        table.setdefault(key, []).append(words)
+
+
+def def_words(d):
+    """The content words of a definition, for rule c."""
+    return {w for w in RE_GLOSS_WORD.findall((d or "").lower()) if w not in GLOSS_STOP}
+
+
+def refuse_cycles(g):
+    """Refuse the split that closes each cycle, depth first, and say so."""
     colour = {}
 
     def visit(start):
         stack = [(start, iter(g.split.get(start, ())))]
         colour[start] = 1
-        path = [start]
         while stack:
             node, it = stack[-1]
             nxt = None
@@ -2576,7 +2839,6 @@ def build_graph(g, raw_split, prose_pages, part_steps):
                     g.stats["refused_cycle"] += 1
                     stack.pop()
                     colour[node] = 2
-                    path.pop()
                     nxt = "cut"
                     break
                 if colour.get(pk, 0) == 0:
@@ -2587,19 +2849,31 @@ def build_graph(g, raw_split, prose_pages, part_steps):
             if nxt is None:
                 colour[node] = 2
                 stack.pop()
-                path.pop()
             else:
                 colour[nxt] = 1
-                path.append(nxt)
                 stack.append((nxt, iter(g.split.get(nxt, ()))))
 
     for k in sorted(g.split):
         if colour.get(k, 0) == 0:
             visit(k)
-    g.stats["nodes"] = len(g.gloss)
-    g.stats["decomposed"] = len(g.split)
-    g.stats["prose_unread"] = len(g.prose_unread)
-    return g
+
+
+# Words a gloss overlap never counts: function words and the framing nouns
+# Latin glosses share ("the act of", "state of", "a person who").
+GLOSS_STOP = frozenset("""
+the and with from for that this into out one who which used form sense also
+not any all its his her their they them are was were has have had being been
+upon over under off away down about after before between through something
+someone person thing things especially usually often act state quality manner
+way make made making give given take taken put set get let what when where
+while than then there here such very more most some other another each
+both either neither can could may might shall should will would does did
+doing done own same only just too also still yet ever never how why whose
+whom having become becoming came come coming going gone went cause causing
+caused against upon toward towards without within along among around above
+below across behind beside beyond during except near since until unto via per
+onto amid amidst besides throughout underneath
+""".split())
 
 
 def resolve_chain(g, chain, page_lang, tl, key):
@@ -2770,7 +3044,240 @@ class Origin:
         self.alias = {}          # inflected or variant spelling -> root key
         self.anchors = set()
         self.stats = collections.Counter()
-        self.hints = collections.defaultdict(list)   # root key -> gloss hints
+        self.ev = {}             # fam:key -> merged homograph evidence
+        self.ctx = None          # the attaching page's own evidence, during attach
+        self.ranks = {}          # word -> rank, for the weight of its vote
+
+    # -- homographs ----------------------------------------------------------
+    #
+    # A node with several lemma entries picks one, and the split, the label
+    # and the gloss all come from it (review findings 2 and 3, 2026-09-05).
+    # The pick is by evidence, in this order, sense count last:
+    #   a  a mention states the entry's gloss, pos or a distinguishing form
+    #      (fundāre against fundere), on the English page or as a glossed
+    #      part on a source page;
+    #   b  the English page names a part of the entry's own split (decide
+    #      names caedō, so dēcīdō "cut off" wins over dēcidō "fall");
+    #   c  the entry's senses share a content word with the English word's
+    #      first definition (impact: "collision");
+    #   d  the entry with the most senses.
+    # At attach time a page's own evidence answers whether the node it is
+    # about to attach to decomposes; after the harvest the merged evidence of
+    # every page fixes each node once, and the rows read the fixed split.
+
+    def evidence_of(self, terms, mentions, defwords):
+        """{fam:key -> one page's evidence} for the multi-entry keys the page
+        names: {"gloss": set, "pos": set, "forms": set, "named": set,
+        "defs": set}. One page is one vote, however much it says."""
+        ev = {}
+        named = {fam: set() for fam in self.g}
+        for code, term, alt, gloss, pos in terms:
+            fam = ROOT_LANGS.get(code)
+            if not fam:
+                continue
+            g = self.g[fam]
+            key, _ = g.lookup(term, alt_ok=True)
+            if key is None:
+                continue
+            named[fam].add(key)
+            if len(g.cands.get(key) or ()) < 2:
+                continue
+            k = fam + ":" + key
+            r = ev.get(k)
+            if r is None:
+                r = ev[k] = {"gloss": set(), "pos": set(), "forms": set(),
+                             "named": None, "defs": defwords}
+            if gloss:
+                r["gloss"].update(w for w in RE_GLOSS_WORD.findall(gloss.lower())
+                                  if w not in GLOSS_STOP)
+            if pos:
+                r["pos"].add(POS_NAMES.get(pos, pos))
+            for f in (term, alt):
+                if f:
+                    r["forms"].add(unicodedata.normalize("NFC", f).lower())
+        for kind, code, term, _, _, _, _ in mentions:
+            fam = ROOT_LANGS.get(code)
+            if not fam or term.startswith("*"):
+                continue
+            key, _ = self.g[fam].lookup(term, alt_ok=True)
+            if key:
+                named[fam].add(key)
+        for k, r in ev.items():
+            r["named"] = named[k.split(":", 1)[0]]
+        # A written verb form no entry of the node carries, on a node with no
+        # verb entry, names a lemma Wiktionary has no page for: catch writes
+        # Late Latin captiāre under the page captio, whose only entry is the
+        # noun "deception". The page is skipped for this attachment.
+        skip = set()
+        for code, term, alt, gloss, pos in terms:
+            fam = ROOT_LANGS.get(code)
+            if not fam or not alt or not RE_LA_INFINITIVE.search(alt):
+                continue
+            g = self.g[fam]
+            key, _ = g.lookup(term, alt_ok=True)
+            cands = g.cands.get(key) if key else None
+            if not cands:
+                continue
+            a = unicodedata.normalize("NFC", alt).lower()
+            if not any(c.pos == "verb" or a in c.forms for c in cands):
+                skip.add(fam + ":" + key)
+        if skip:
+            ev["skip"] = skip
+        return ev
+
+    @staticmethod
+    def vote_weight(rank):
+        """How much one page's vote counts.
+
+        One card serves every word that reaches the node and can follow
+        only one entry, so the words a reader meets most decide: a rank
+        1,000 word counts as seven words at the cap, and decide with
+        decision outvote decay, decadent and deciduous on dēcīdō. A word
+        past the cap or unranked counts a third of a word at the cap; a
+        source page's part gloss counts as one.
+        """
+        if not rank:
+            return 0.3
+        return max(0.3, math.sqrt(RANK_CAP / float(rank)))
+
+    def merge_evidence(self, ev, rank=None):
+        w = self.vote_weight(rank)
+        for k, r in ev.items():
+            if k != "skip":
+                self.ev.setdefault(k, []).append((r, w))
+
+    def choose(self, fam, key, votes):
+        """(entry index, rule) for a node, by the rules in the class note.
+
+        `votes` is [(evidence, weight)], one per page. Each page votes for
+        the entries its evidence matches, and only a distinguishing match
+        counts: a form, pos or gloss word every entry shares says nothing.
+        """
+        g = self.g[fam]
+        cands = g.cands[key]
+        n = len(cands)
+        if n < 2:
+            return 0, "d"
+        # A name entry never wins on evidence: its gloss is the name itself.
+        idx = [i for i in range(n) if cands[i].pos != "name"] or list(range(n))
+
+        def unique_max(scores):
+            best = max(scores[i] for i in idx)
+            if best <= 0:
+                return None
+            hits = [i for i in idx if scores[i] == best]
+            return hits[0] if len(hits) == 1 else None
+
+        def distinct(match):
+            """Per-entry 0/1 for a predicate, zeroed when every entry matches."""
+            flags = [1 if i in idx and match(cands[i]) else 0 for i in range(n)]
+            return flags if 0 < sum(flags) < len(idx) else [0] * n
+
+        def gloss_flags(words):
+            out = [0] * n
+            for w in words:
+                for i, f in enumerate(distinct(lambda c, w=w: w in c.words)):
+                    out[i] += f
+            return out
+
+        # rule a: a form, pos or gloss the English pages state
+        scores = [0.0] * n
+        for r, w in votes or ():
+            per = [0] * n
+            for f in r["forms"]:
+                flags = distinct(lambda c, f=f: f in c.forms)
+                if sum(flags) == 1:
+                    per = [p + 2 * x for p, x in zip(per, flags)]
+            for p in r["pos"]:
+                per = [q + x for q, x in zip(per, distinct(lambda c, p=p: c.pos == p))]
+            per = [q + min(x, 1) for q, x in zip(per, gloss_flags(r["gloss"]))]
+            for i, x in enumerate(per):
+                scores[i] += w * x
+        best = unique_max(scores)
+        if best is not None:
+            return best, "a"
+        # rule s: the source pages that gloss the term as a part of their
+        # own lemma (iūsculum = iūs<t:broth> + -culum), one vote per page
+        scores = [0.0] * n
+        for words in g.part_hints.get(key) or ():
+            for i, x in enumerate(gloss_flags(words)):
+                scores[i] += min(x, 1)
+        best = unique_max(scores)
+        if best is not None:
+            return best, "s"
+        if not votes:
+            return 0, "d"
+        # rule b: the page names a part of the entry's own split
+        splits = g.esplit.get(key) or []
+        partsets = [set(pk for _, pk in (splits[i] or ())) if i < len(splits) else set()
+                    for i in range(n)]
+        filled = [ps for ps in partsets if ps]
+        shared = set.intersection(*filled) if len(filled) > 1 else set()
+        scores = [0.0] * n
+        for r, w in votes:
+            for i in idx:
+                if (partsets[i] - shared) & r["named"]:
+                    scores[i] += w
+        best = unique_max(scores)
+        if best is not None:
+            return best, "b"
+        # rule c: the word's first definition shares a content word
+        scores = [0.0] * n
+        for r, w in votes:
+            flags = gloss_flags(r["defs"])
+            top = max(flags)
+            if top > 0 and flags.count(top) == 1:
+                scores[flags.index(top)] += w
+        best = unique_max(scores)
+        if best is not None:
+            return best, "c"
+        return 0, "d"
+
+    def decomposes(self, fam, key):
+        """Whether a node decomposes, under the attaching page's evidence."""
+        if key is None:
+            return False
+        g = self.g[fam]
+        if self.ctx is not None and len(g.cands.get(key) or ()) >= 2:
+            r = self.ctx.get(fam + ":" + key)
+            if r:
+                i, rule = self.choose(fam, key, [(r, 1.0)])
+                if rule != "d":
+                    sp = g.esplit.get(key) or ()
+                    return bool(i < len(sp) and sp[i])
+        return g.decomposes(key)
+
+    def choose_homographs(self):
+        """Fix every multi-entry node on one entry, after the harvest."""
+        for fam, g in self.g.items():
+            for key, cands in g.cands.items():
+                if len(cands) < 2:
+                    continue
+                r = self.ev.get(fam + ":" + key)
+                i, rule = self.choose(fam, key, r)
+                self.stats["homograph_" + rule] += 1
+                if i == 0:
+                    continue
+                self.stats["homograph_changed"] += 1
+                c = cands[i]
+                g.gloss[key] = c.gloss
+                g.form[key] = c.form
+                g.pos[key] = c.pos
+                if c.rom:
+                    g.rom[key] = c.rom
+                else:
+                    g.rom.pop(key, None)
+                sp = g.esplit.get(key) or ()
+                s = sp[i] if i < len(sp) else None
+                if s:
+                    g.split[key] = s
+                    g.split_src[key] = c.src if c.parts else "prose"
+                    g.refused.pop(key, None)
+                else:
+                    g.split.pop(key, None)
+                    g.split_src.pop(key, None)
+            refuse_cycles(g)
+            g.stats["decomposed"] = len(g.split)
 
     # -- lookups shared with the affix `src` path --------------------------
 
@@ -2890,14 +3397,23 @@ class Origin:
                     parts_by[fam] = (res, pos, heads)
         return parts_by
 
-    def attach(self, mentions, chains, word=""):
+    def attach(self, mentions, chains, word="", ctx=None):
         """The attachment of one English page.
 
-        Returns {"lang", "key", "first", "hint", "extra"} for a root-language
+        Returns {"lang", "key", "first", "extra"} for a root-language
         attachment, {"row": {...}} for a row-only origin, {"miss": reason}
         when a root or pass-through term was named and nothing attaches, and
         None when the page names no origin this dictionary classifies.
+        `ctx` is the page's own homograph evidence (evidence_of), read
+        whenever the attachment asks whether a node decomposes.
         """
+        self.ctx = ctx
+        try:
+            return self._attach(mentions, chains, word)
+        finally:
+            self.ctx = None
+
+    def _attach(self, mentions, chains, word):
         ms = self.expand(mentions, 3, set())
         # A term the page itself calls a cognate is vetoed wherever a walked
         # page names it as an origin (flat names French plat, whose page
@@ -2949,15 +3465,15 @@ class Origin:
 
         own = []
         named = []
+        skip = (self.ctx or {}).get("skip") or ()
         for kind, code, term, gloss, rom, role, pos in ms:
             if kind == "part" or role != "origin" or term.startswith("*"):
                 continue
             fam = ROOT_LANGS.get(code)
             if fam:
-                # The English word rides along as a gloss hint: the word
-                # that attaches is the surest sign of which homograph it
-                # attaches to (cave picks the hollow, not the jackdaw).
-                named.append((fam, term, (gloss + " " + word).strip()))
+                if skip and pos != -2 and (self.term_keys(code, term) & skip):
+                    continue
+                named.append((fam, term, gloss))
                 if pos != -2:
                     own.append(named[-1])
         if not named:
@@ -3060,7 +3576,7 @@ class Origin:
             return False
         if att.get("extra"):
             return True
-        return att["key"] is not None and self.g[att["lang"]].decomposes(att["key"])
+        return att["key"] is not None and self.decomposes(att["lang"], att["key"])
 
     def pick_both(self, named, parts_by, owner):
         """The strict pick, unless only the alternative-form pick splits."""
@@ -3120,12 +3636,12 @@ class Origin:
             if entry is None:
                 continue
             fam, key = entry[0], entry[1]
-            if self.g[fam].decomposes(key):
+            if self.decomposes(fam, key):
                 return found(entry, None)
             if fam in parts_by and owns(fam, entry[2]) and not self.is_affix(fam, key):
                 return found(entry, parts_by[fam][0])
             for c in run[run.index(entry) + 1:]:
-                if c[1] is not None and self.g[c[0]].decomposes(c[1]):
+                if c[1] is not None and self.decomposes(c[0], c[1]):
                     return found(c, None)
                 if c[1] is not None and fam in parts_by and owns(fam, c[2]):
                     return found(c, parts_by[fam][0])
@@ -3278,8 +3794,6 @@ class Origin:
                     "parts": [({"f": f, "r": r} if r else {"f": f}) for f, r in flat]}
         if att.get("first") and att["first"] != key:
             self.alias[att["first"]] = lang + ":" + key
-        if count and att.get("hint"):
-            self.hints[lang + ":" + key].append(att["hint"])
         a = (curation.ROOT_ALIASES.get(lang + ":" + key)
              or curation.ROOT_ALIASES.get(key))
         if a:
@@ -3429,39 +3943,6 @@ def rekey_us_primary(shipped, fmap, us_raw, ranks):
     return pairs
 
 
-def gloss_with_support(key, g, hints):
-    """The card gloss of a source node, its homographs told apart.
-
-    A key with several lemma entries (cava: a hollow, and a jackdaw) takes
-    the entry with the most senses by default. When the English pages that
-    attach to it gloss the term themselves ("Latin cava (“cavity”)"), the
-    entry whose senses share a content word with those glosses wins instead,
-    since the words that attach are the card's family. The default stands on
-    a tie.
-    """
-    cands = g.cands.get(key) or ()
-    if len(cands) < 2 or not hints:
-        return g.gloss.get(key), None
-    hint_words = set()
-    for h in hints:
-        hint_words.update(RE_GLOSS_WORD.findall(h.lower()))
-    if not hint_words:
-        return g.gloss.get(key), None
-    best = None
-    best_n = 0
-    for c in cands:
-        # A name entry never wins on support: its gloss is the name itself,
-        # and the English word (Terra) would vote for it every time.
-        if c[3] == "name":
-            continue
-        n = len(hint_words & c[5])
-        if n > best_n:
-            best, best_n = c, n
-    if best is None or best is cands[0]:
-        return g.gloss.get(key), None
-    return best[1], best
-
-
 def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
     """Resolve every chip, build the root set, link what ships.
 
@@ -3564,14 +4045,12 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
             gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
         else:
             g = graphs[lang]
-            gloss, picked = gloss_with_support(form, g, origin.hints.get(key))
+            # The node's entry was fixed by choose_homographs: gloss, form,
+            # pos and romanization all come from that one entry.
+            gloss = g.gloss.get(form)
             disp = g.form.get(form) or form
             rom = g.rom.get(form, "")
             pos = g.pos.get(form, "")
-            if picked is not None:
-                disp, pos = picked[2], picked[3]
-                rom = picked[4] or rom
-                c["homograph"] += 1
         # A hand gloss overrides the harvest and can carry a card on its own.
         gloss = curation.ROOT_GLOSSES.get(key) or gloss
         if not gloss:
@@ -4769,6 +5248,7 @@ def main(argv):
         log("  %-3s %s lines, %s pages with an origin" % (
             code, format(n_lines, ","), format(len(pages[code]), ",")))
     origin = Origin(graphs, pages)
+    origin.ranks = ranks
 
     log("[5/7] harvesting senses, splits and attachments")
     harvest, s2 = harvest_english(ENGLISH_FILE, cand, origin)
@@ -4781,6 +5261,15 @@ def main(argv):
     for code in ("fro", "frm", "fr"):
         log("  %s %s pass-through pages walked" % (
             format(origin.stats["walked_" + code], ","), code))
+    origin.choose_homographs()
+    st = origin.stats
+    log("  homograph nodes (two or more lemma entries): %s decided by a gloss, "
+        "pos or form an English page states, %s by a source page's part gloss, "
+        "%s by a named part, %s by the first definition, %s by sense count; "
+        "%s changed entry"
+        % (format(st["homograph_a"], ","), format(st["homograph_s"], ","),
+           format(st["homograph_b"], ","), format(st["homograph_c"], ","),
+           format(st["homograph_d"], ","), format(st["homograph_changed"], ",")))
 
     # ---- curate and cap -----------------------------------------------
     log("[6/7] curating, capping and resolving roots")
@@ -4872,13 +5361,12 @@ def main(argv):
         "for want of one (%d linking pass%s)"
         % (format(sum(1 for wl in chain_only if wl in shipped), ","),
            format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
-    log("  %s roots ship (%s src links, %s anchor cards carrying parts, %s "
-        "homograph glosses picked by the attaching words); %s word chips, "
-        "%s morph chips left inert, %s org parts inert, %s org rows kept "
-        "whole, %s org rows dropped, %s repeated morphs credited once, %s "
-        "base chips routed to a classical root"
+    log("  %s roots ship (%s src links, %s anchor cards carrying parts); "
+        "%s word chips, %s morph chips left inert, %s org parts inert, %s "
+        "org rows kept whole, %s org rows dropped, %s repeated morphs "
+        "credited once, %s base chips routed to a classical root"
         % (format(len(roots), ","), format(lp["src"], ","),
-           format(lp["rootparts"], ","), format(lp["homograph"], ","),
+           format(lp["rootparts"], ","),
            format(lp["wchip"], ","), format(lp["inert"], ","),
            format(lp["inertpart"], ","), format(lp["orgwhole"], ","),
            format(lp["orgdrop"], ","), format(lp["repeat"], ","),
