@@ -314,6 +314,12 @@ LEMMA_STEPS = {
     # -tiō with the noun's gloss. vīsiō is built on the participle, so the
     # page steps to videō the way any participle page does.
     "la:visus": "la:video",
+    # cocus carries two entries: an alternative form of coquus ("cook") and
+    # a New Latin noun for the coconut. The lemma entry makes the page a
+    # node, so the alternative-form step never runs and cook read
+    # "coconut" (second review, cause 3, 2026-09-06, after the row moved to
+    # the noun section that names cocus).
+    "la:cocus": "la:coquus",
 }
 
 # --------------------------------------------------------------- source splits

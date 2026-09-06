@@ -332,6 +332,8 @@ withdrew no split at all.
 **Split selection.** A word usually has several entries, one per part of
 speech and one per etymology, and they disagree. The split is taken from the
 dominant entry, meaning the non-name, non-form-of entry with the most senses.
+(The origin row follows a different entry, the one supplying the card's
+first senses; see "Attachment".)
 That is what keeps `number` a count noun: its 17-sense noun entry carries no
 split at all, while a separate one-sense entry analyses it as numb + -er.
 Among several templates on one entry the surface analysis wins, because a
@@ -564,7 +566,21 @@ mention is walked only through what the English page itself says.
 ### Attachment
 
 An English page contributes the ordered terms it names (SPEC Principle 3),
-read by `page_mentions` from the dominant entry: origin templates (`der`,
+read by `page_mentions` from the entry that supplies the card's first
+senses (second review, cause 3, 2026-09-06; it used to be the dominant
+entry, so can read "To know how to" over "From Old English canne (glass,
+container, cup, jar)"). A section owns those senses when it supplies the
+first one and more than half of the first sense list; below that no
+section supplies them and the row is withheld with that reason in the
+misses report (found opens with senses from three sections, deal with two
+from each of two). Only a section that names a DIFFERENT origin makes the
+list ambiguous, so cotton keeps its Hebrew row though "A liking." from
+another section fills a slot. A section that names no origin gives no row
+(shot opens with "Tired, weary", whose section names only English shoot).
+The split still follows the dominant entry, and the homograph vote follows
+the entry the row comes from. 728 rows changed: 268 moved section, 129
+words gained a row, 331 lost one, 268 of those withheld. The terms are
+read from: origin templates (`der`,
 `bor`, `inh` and their `+` variants), mention templates in a sentence whose
 role is origin, the nodes of the `etymon` tree in chain order, the parts of
 decomposition templates, and the prose parser's plus-chains. A term a

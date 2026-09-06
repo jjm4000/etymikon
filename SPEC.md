@@ -1697,6 +1697,48 @@ reached: wait, whose page names no attested term under Middle English
 waiten (Anglo-Norman waiter has no extract and the Frankish forms are
 reconstructions), and won, which is cause 3.
 
+### The English side's section (dated note, 2026-09-06, second review, cause 3)
+
+A card shows the senses of every part of speech a word has, and the origin
+row came from one etymology section: the entry with the most senses. can
+read "To know how to" over "From Old English canne (glass, container, cup,
+jar)". The review measured 451 words of this shape, 99 inside the top
+3,000.
+
+- The origin row follows the etymology section that supplies the card's
+  FIRST senses, meaning the first sense list the card prints. The split
+  still follows the entry with the most senses, which is what keeps number
+  a count noun rather than numb + -er.
+- A section owns those senses when it supplies the first one and more than
+  half of that list. Below that no section supplies them, the row is
+  withheld, and the reason goes to the misses report: found opens with
+  "Food and lodging" from one section, a furnace interval from another and
+  a comb-maker's file from a third; deal opens with two senses from ang
+  dǣl and two from ang dǣlan.
+- A second section only makes the list ambiguous when it names an origin
+  of its own that differs. A section with nothing to say leaves the first
+  one speaking alone (cotton keeps its Hebrew row though "A liking." from
+  another section fills the fourth slot).
+- A section that names no origin at all gives no row, so shot reads
+  nothing rather than the noun's Old English sceot: the card opens with
+  "Tired, weary", whose section names only English shoot.
+- The homograph vote follows the same entry, since the vote is about the
+  origin the row shows.
+- One curated entry followed: LEMMA_STEPS la:cocus to la:coquus. cocus
+  carries an alternative-form entry for coquus beside a New Latin noun for
+  the coconut, and the lemma entry makes the page a node, so cook read
+  "coconut" once its row moved to the noun section.
+- Outcome: 728 rows changed, 110 of them inside the top 3,000 ranks. 268
+  moved section, 129 words gained a row their dominant section never gave
+  them (please, own, live, account, support), and 331 lost one, 268 of
+  those withheld with the reason in the misses report. Rows: 7,034
+  decomposed, 4,980 single, 5,540 row-only.
+- Not reached: won. Its past-participle entry ships only a form-of sense,
+  so the archaic verb "to live, remain" supplies the card's first senses
+  and the row reads its Old English wunian. The lemma pointer to win sits
+  at the foot of the card, under the senses, so the rule cannot read it as
+  what the reader sees first.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

@@ -1481,15 +1481,33 @@ def survey_english(path, ranks):
 
 # ------------------------------------------------------- English pass 2
 
+def att_key(att):
+    """A comparable form of an attachment, for the section test."""
+    if not att:
+        return ""
+    return json.dumps(att, sort_keys=True, ensure_ascii=False, default=list)
+
+
 def harvest_english(path, cand, origin):
     """Second pass: senses, split and attachment for every candidate word.
 
-    The split and the attachment both come from the dominant entry, meaning
-    the non-name, non-form-of entry with the most senses. That is the rule
-    that keeps `number` a count noun instead of numb + -er: the 17-sense
-    entry wins and it carries no split at all. The attachment is computed
-    here, while the entry is in hand, so the harvest keeps one small record
-    per word rather than the entry's templates and prose.
+    The split comes from the dominant entry, meaning the non-name,
+    non-form-of entry with the most senses. That is the rule that keeps
+    `number` a count noun instead of numb + -er: the 17-sense entry wins
+    and it carries no split at all.
+
+    The ATTACHMENT comes from the entry that supplies the card's first
+    senses (second review, cause 3, 2026-09-06). A card shows every part
+    of speech of a word and the origin row came from one etymology
+    section, so can read "To know how to" over "From Old English canne
+    (glass, container, cup, jar)": the noun entry has the most senses and
+    the verb entry is what a reader sees first. When a second etymology
+    section also fills the first sense list, no section supplies it
+    unambiguously and the row is withheld with that reason.
+
+    Both are computed here, while the entry is in hand, so the harvest
+    keeps one small record per word rather than the entry's templates and
+    prose.
     """
     out = {}
     stats = collections.Counter()
@@ -1534,7 +1552,7 @@ def harvest_english(path, cand, origin):
             rec = out.get(wl)
             if rec is None:
                 rec = {"pos": [], "defs": {}, "ns": -1, "sp": None,
-                       "att": None}
+                       "att": None, "ety": None, "clash": False, "first_n": 0}
                 out[wl] = rec
             pos = e.get("pos") or "other"
             if pos not in rec["defs"]:
@@ -1543,6 +1561,7 @@ def harvest_english(path, cand, origin):
                 else:
                     rec["pos"].append(pos)
                     rec["defs"][pos] = []
+            added = 0
             if pos is not None:
                 bucket = rec["defs"][pos]
                 for d in defs:
@@ -1550,25 +1569,63 @@ def harvest_english(path, cand, origin):
                         break
                     if d not in bucket:
                         bucket.append(d)
+                        added += 1
 
             ns = len(e.get("senses") or [])
             if ns > rec["ns"]:
                 rec["ns"] = ns
                 rec["sp"] = entry_split(e, "en")
-                mentions, chains, settled = page_mentions(
-                    e.get("etymology_templates") or [],
-                    e.get("etymology_text") or "", "en", wl)
-                # The page's homograph evidence: read once, used for this
-                # attachment now and merged for the node's pick later.
-                terms = page_evidence(e.get("etymology_templates") or [],
-                                      e.get("etymology_text") or "", "en", wl)
-                ev = origin.evidence_of(terms, mentions, def_words(defs[0]))
-                origin.merge_evidence(ev, origin.ranks.get(wl))
-                rec["att"] = origin.attach(mentions, chains, wl, ev, settled)
-                rec["cogonly"] = origin.cognate_only(mentions)
-                if rec["att"] is not None:
-                    stats["attached" if "key" in rec["att"] else
-                          "rowonly" if "row" in rec["att"] else "missed"] += 1
+            # The senses a reader sees first are the first sense list's, and
+            # the origin row follows the etymology section that supplies
+            # them. A later entry that also fills that list from another
+            # section leaves no section supplying it unambiguously.
+            if not added or pos != rec["pos"][0]:
+                continue
+            text = e.get("etymology_text") or ""
+            if rec["ety"] is not None:
+                if text == rec["ety"]:
+                    rec["first_n"] += added
+                elif rec["att"] is not None:
+                    # Another section fills the same sense list. Only a
+                    # section that names an origin of its own makes the row
+                    # ambiguous; one with nothing to say leaves the first
+                    # section speaking alone.
+                    ms2, ch2, st2 = page_mentions(
+                        e.get("etymology_templates") or [], text, "en", wl)
+                    other = origin.attach(ms2, ch2, wl, None, st2)
+                    if other is not None and "miss" not in other \
+                            and att_key(other) != att_key(rec["att"]):
+                        rec["clash"] = True
+                continue
+            rec["ety"] = text
+            rec["first_n"] = added
+            mentions, chains, settled = page_mentions(
+                e.get("etymology_templates") or [], text, "en", wl)
+            # The page's homograph evidence: read once, used for this
+            # attachment now and merged for the node's pick later.
+            terms = page_evidence(e.get("etymology_templates") or [],
+                                  text, "en", wl)
+            ev = origin.evidence_of(terms, mentions, def_words(defs[0]))
+            origin.merge_evidence(ev, origin.ranks.get(wl))
+            rec["att"] = origin.attach(mentions, chains, wl, ev, settled)
+            rec["cogonly"] = origin.cognate_only(mentions)
+            if rec["att"] is not None:
+                stats["attached" if "key" in rec["att"] else
+                      "rowonly" if "row" in rec["att"] else "missed"] += 1
+    # A section owns the card's first senses when it supplies the first one
+    # and more than half of that sense list. Below that no section supplies
+    # them and the row is withheld: found opens with "Food and lodging" from
+    # one section, a furnace interval from another and a comb-maker's file
+    # from a third, and no origin speaks for the three.
+    for wl, rec in out.items():
+        if not rec["clash"] or rec["att"] is None:
+            continue
+        if rec["first_n"] * 2 > len(rec["defs"][rec["pos"][0]]):
+            continue
+        stats["clash"] += 1
+        rec["att"] = {"miss": "the card's first senses come from more than "
+                              "one etymology section and no section supplies "
+                              "most of them"}
     return out, stats
 
 
