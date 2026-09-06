@@ -1863,7 +1863,13 @@ def read_parens(term, items, i):
 
 
 def read_trailing_step(term, items, i):
-    """', accusative of mons' after a head: the appositive form of the step."""
+    """', accusative of mons' after a head: the appositive form of the step.
+
+    Only the inflectional shapes count here. An appositive after the last
+    term of a chain usually glosses the whole chain, not the term before
+    the comma: ossuārium reads "from ossua + -ārius, alternative form of os",
+    and stepping -ārius to os made the split ōs + ōs (review finding 4).
+    """
     if term.target or i >= len(items):
         return
     prev = items[i - 1]
@@ -1874,7 +1880,7 @@ def read_trailing_step(term, items, i):
         if t[0] != "w":
             break
         window.append(t[1])
-    m = RE_STEP.search(" ".join(window))
+    m = RE_STEP_INFLECTION.search(" ".join(window))
     if m and window and window[0].strip(STRIP_CHARS) in STEP_WORDS + ("the", "perfect", "present", "past"):
         tgt = clean_head(m.group(2))
         if tgt and not tgt.startswith("*"):
@@ -3043,6 +3049,8 @@ class Origin:
         self.pages = pages
         self.alias = {}          # inflected or variant spelling -> root key
         self.anchors = set()
+        self.carry = set()       # non-anchors kept whole by the chip cap; cards carry parts
+        self.card_parts = {}     # anchor or carried key -> its flattened split, from linking
         self.stats = collections.Counter()
         self.ev = {}             # fam:key -> merged homograph evidence
         self.ctx = None          # the attaching page's own evidence, during attach
@@ -3693,17 +3701,23 @@ class Origin:
     def find_anchors(self, attachments):
         """Mark the source lemmas ORG_ANCHOR_MIN or more words reach.
 
-        Reaching is counted through PARTS only, per word: the immediate
-        parts of the split belonging to the lemma the word attaches to
-        (owner decision 2026-09-01). The attached lemma itself is not a
-        reach, since a word flattens through it and never names it.
+        A word reaches the lemma it attaches to and the immediate parts of
+        that lemma's split, each once (review finding 4, 2026-09-05; the
+        2026-09-01 rule counted parts only, so a lemma two words attached
+        to was still expanded away under a third word: just attaches to
+        iūstus and justice flattened through it to iūs + -tus + -itia).
         """
         seen = collections.Counter()
         for att in attachments:
             if not att or "key" not in att or att["key"] is None:
                 continue
-            for r in set(self.top_reaches(att.get("fam") or att["lang"], att["key"],
-                                          att.get("extra"))):
+            lang = att.get("fam") or att["lang"]
+            reached = set(self.top_reaches(lang, att["key"], att.get("extra")))
+            aliased = (curation.ROOT_ALIASES.get(lang + ":" + att["key"])
+                       or curation.ROOT_ALIASES.get(att["key"]))
+            if not self.is_affix(lang, att["key"]) and not aliased:
+                reached.add(lang + ":" + att["key"])
+            for r in reached:
                 seen[r] += 1
         self.anchors = {k for k, n in seen.items() if n >= ORG_ANCHOR_MIN}
         return len(self.anchors)
@@ -3719,6 +3733,13 @@ class Origin:
         2026-09-01), which the graph's cycle check already guarantees for
         its own edges and `seen` guarantees for parts the English page
         supplied.
+
+        Two limits on the row (review finding 4, 2026-09-05). No row may
+        carry a duplicate root: a split that names one twice keeps the
+        lemma whole. A row that would run to four or more chips falls back
+        to the page's own parts, and every part that stayed whole because
+        of that goes into `carry`, so its card carries its own split the
+        way an anchor's does.
         """
         if self.is_affix(lang, key):
             return None
@@ -3739,7 +3760,15 @@ class Origin:
                 pieces.append((form, a, None))
                 continue
             pieces.append((g.form.get(pk) or form, lang + ":" + pk, pk))
+        whole = [(form, None if rkey in curation.ROOT_SKIPS else rkey)
+                 for form, rkey, pk in pieces]
+        linked = [r for _, r in whole if r]
+        if len(set(linked)) < len(linked):
+            # The page's own split names a part twice: no row may carry a
+            # duplicate part (review finding 4), so the lemma stays whole.
+            return None
         out = []
+        expanded = []
         for form, rkey, pk in pieces:
             if rkey in curation.ROOT_SKIPS:
                 out.append((form, None))
@@ -3751,8 +3780,19 @@ class Origin:
                 sub = self.flatten(lang, pk, depth - 1, seen | {pk})
             if sub:
                 out.extend(sub)
+                expanded.append(rkey)
             else:
                 out.append((form, rkey))
+        if expanded:
+            linked = [r for _, r in out if r]
+            if len(set(linked)) < len(linked) or len(out) >= 4:
+                # Expanding a part duplicated a root or ran the row to four
+                # chips or more (review finding 4: ossuārium read ōs + ōs,
+                # energy read five chips). The row falls back to the page's
+                # own parts, and each part kept whole carries its split on
+                # its card instead, like an anchor.
+                self.carry.update(expanded)
+                return whole
         return out
 
     def chain_roots(self, att):
@@ -3764,7 +3804,13 @@ class Origin:
         """
         if not att or "key" not in att:
             return ()
-        org = self.resolve(att, count=False)
+        # A morph word ships no org row, so the parts its chain would have
+        # kept whole are nobody's card: the carry set is left as it was.
+        carry = set(self.carry)
+        try:
+            org = self.resolve(att, count=False)
+        finally:
+            self.carry = carry
         if not org:
             return ()
         if "parts" in org:
@@ -3970,19 +4016,27 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
         else:
             w["org"] = copy.deepcopy(org)
 
-    # ---- the anchors' own splits, raw --------------------------------------
+    # ---- the card-carrying lemmas' own splits, raw --------------------------
     # Every anchor's split as flatten() names it, root keys and all, before
-    # anyone knows which of those roots ship. Two things read it: the credit
-    # count below, and the `parts` field the anchor's card carries.
-    anchor_parts = {}
-    for key in origin.anchors:
-        lang, pk = key.split(":", 1)
-        flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
-        if flat and len(flat) >= 2:
-            anchor_parts[key] = flat
+    # anyone knows which of those roots ship, and the same for every node
+    # the chip cap kept whole (Origin.carry, review finding 4). Two things
+    # read it: the credit count below, and the `parts` field the card
+    # carries. Flattening a carried node can keep further nodes whole, so
+    # the loop runs until the carry set stops growing.
+    card_parts = {}
+    while True:
+        want = (origin.anchors | origin.carry) - set(card_parts)
+        if not want:
+            break
+        for key in sorted(want):
+            lang, pk = key.split(":", 1)
+            flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
+            card_parts[key] = flat if flat and len(flat) >= 2 else None
+    card_parts = {k: v for k, v in card_parts.items() if v}
+    origin.card_parts = card_parts
     through = root_closure({
         k: {"parts": [{"f": f, "r": r} for f, r in flat if r]}
-        for k, flat in anchor_parts.items()})
+        for k, flat in card_parts.items()})
 
     # ---- resolve morphemes to roots, count references -------------------
     # One word credits a root once, however many of its morphs name it, and
@@ -4081,12 +4135,13 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
     # nowhere. The anchor's card carries that split itself, as `parts` in
     # the org.parts shape, produced by the same flatten() the word rows use:
     # recursion stops at other anchors, affixes stay terminal, and a part
-    # whose root does not ship stays inert with its form alone. Only anchors
-    # carry parts, and the runtime family index credits a root through the
-    # anchors that name it (lookup.js buildFamilyIndex), so cēdō still lists
-    # access.
+    # whose root does not ship stays inert with its form alone. A node the
+    # chip cap kept whole carries its parts the same way (review finding 4,
+    # 2026-09-05). Nothing else carries the field, and the runtime family
+    # index credits a root through the cards that name it (lookup.js
+    # buildFamilyIndex), so cēdō still lists access.
     for key, r in roots.items():
-        flat = anchor_parts.get(key)
+        flat = card_parts.get(key)
         if not flat:
             continue
         parts = []
@@ -4270,14 +4325,15 @@ def extension_lang_names():
 
 
 def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
-           harvest=None):
+           harvest=None, carry=None):
     """Spot-check the emitted data. Returns the number of failed checks.
 
-    `anchors` is the source-lemma anchor set the build computed and
-    `splits` the subset whose lemma decomposes in its own extract. A
-    `--verify` run reads the JSON and nothing else, so it has neither and
-    the anchor checks are not run there. `harvest` carries the attachments,
-    for the never-silent check.
+    `anchors` is the source-lemma anchor set the build computed, `carry`
+    the nodes the chip cap kept whole, and `splits` the subset of both
+    whose lemma decomposes in its own extract. A `--verify` run reads the
+    JSON and nothing else, so it has none of these and the anchor checks
+    are not run there. `harvest` carries the attachments, for the
+    never-silent check.
     """
     words = words_obj["words"]
     roots = roots_obj["roots"]
@@ -4443,13 +4499,29 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
     # stopping at a lemma that never ships is what left hesitation with a
     # dead haesitō chip.
     if anchors is not None:
+        # A word reaches the lemma it attaches to as well as that lemma's
+        # parts (review finding 4, 2026-09-05), so an anchor two words
+        # attach to and no row names as a part (basilica and basilic on
+        # βασιλικός, whose rows read βασιλεύς + -ικός) gates nothing and
+        # needs no card. The invariant is on the anchors a row or a card
+        # names.
         skipped = set(curation.ROOT_SKIPS)
+        named_parts = set()
+        for w in words.values():
+            org = w.get("org") or {}
+            for p in org.get("parts") or ():
+                named_parts.add(p.get("r") or
+                                (org.get("lang") + ":" + norm_key(org["lang"], p["f"])))
+        for r in roots.values():
+            for p in r.get("parts") or ():
+                named_parts.add(p.get("r") or (r["lang"] + ":" + norm_key(r["lang"], p["f"])))
         want = sorted(k for k in anchors if k not in skipped
-                      and k not in curation.ROOT_ALIASES)
+                      and k not in curation.ROOT_ALIASES and k in named_parts)
         unshipped = [k for k in want if k not in roots]
-        add("every anchor lemma ships as a root card", not unshipped,
-            "%d anchors, %d unshipped%s"
-            % (len(want), len(unshipped),
+        add("every anchor lemma a row or a card names as a part ships as a "
+            "root card", not unshipped,
+            "%d anchors, %d named as a part, %d unshipped%s"
+            % (len(anchors), len(want), len(unshipped),
                (": " + ", ".join(unshipped[:8])) if unshipped else ""))
 
         # Only an org part can name an anchor by spelling: it carries the
@@ -4478,9 +4550,10 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
     # ---- anchor root cards carry their own breakdown -------------------
     # (owner decision 2026-09-01.) `parts` on a root is the org.parts shape
     # and follows its contract: every `r` is a shipped root, and only an
-    # anchor carries the field, since only an anchor stops recursion and
-    # hides a split from the rows above it. Most anchors are base lemmas
-    # with no split of their own (cēdō, θεός), and those carry no parts.
+    # anchor or a node the chip cap kept whole carries the field (review
+    # finding 4, 2026-09-05), since only those stop recursion and hide a
+    # split from the rows above them. Most anchors are base lemmas with no
+    # split of their own (cēdō, θεός), and those carry no parts.
     badpart = sorted(
         k for k, r in roots.items()
         for p in r.get("parts") or ()
@@ -4493,18 +4566,21 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         % (len(withparts), len(badpart),
            (": " + ", ".join(badpart[:5])) if badpart else ""))
     if anchors is not None:
-        stray = sorted(k for k in withparts if k not in anchors)
-        add("only anchors carry parts", not stray,
-            "%d non-anchor roots with parts%s"
-            % (len(stray), (": " + ", ".join(stray[:5])) if stray else ""))
+        carriers = set(anchors) | set(carry or ())
+        stray = sorted(k for k in withparts if k not in carriers)
+        add("only anchors and nodes the chip cap kept whole carry parts", not stray,
+            "%d anchors, %d carried; %d other roots with parts%s"
+            % (len(anchors), len(carry or ()), len(stray),
+               (": " + ", ".join(stray[:5])) if stray else ""))
         want = sorted(k for k in (splits or ()) if k in roots)
         bare = [k for k in want if not roots[k].get("parts")]
         extra = sorted(k for k in withparts if k not in (splits or ()))
-        add("every anchor whose lemma decomposes carries parts, and no other",
+        add("every anchor or carried node whose lemma decomposes carries "
+            "parts, and no other",
             not bare and not extra,
-            "%d anchors, %d decompose, %d of those bare, %d carry parts "
-            "without a split%s"
-            % (len(anchors), len(want), len(bare), len(extra),
+            "%d anchors and carried nodes, %d decompose, %d of those bare, "
+            "%d carry parts without a split%s"
+            % (len(carriers), len(want), len(bare), len(extra),
                (": " + ", ".join((bare + extra)[:5])) if bare or extra else ""))
 
     acc = roots.get("la:accedo") or {}
@@ -5314,7 +5390,12 @@ def main(argv):
            format(n_blocked, ","), format(n_infl, ",")))
 
     # ---- which source lemmas are anchors in their own right --------------
-    n_anchor = origin.find_anchors(pending.values())
+    # A chain-only candidate whose row will not decompose is dropped below,
+    # so its attachment is no reach: counting it made 863 anchors that no
+    # shipped word names (review finding 4 rebuild, 2026-09-05).
+    n_anchor = origin.find_anchors(
+        att for wl, att in pending.items()
+        if wl not in chain_only or origin.splits(att))
     log("  %s source lemmas are anchors (reached by %d or more words), so "
         "recursion stops at them" % (format(n_anchor, ","), ORG_ANCHOR_MIN))
 
@@ -5483,11 +5564,11 @@ def main(argv):
         % (format(n_org, ","), 100.0 * n_org / max(1, len(shipped)),
            format(n_dec, ","), format(n_org - n_dec - n_row, ","),
            format(n_row, ",")))
-    log("roots         : %s (en=%s la=%s grc=%s); %s anchors; %s one-word "
-        "families"
+    log("roots         : %s (en=%s la=%s grc=%s); %s anchors; %s nodes the "
+        "chip cap kept whole; %s one-word families"
         % (format(len(roots), ","), format(langs["en"], ","),
            format(langs["la"], ","), format(langs["grc"], ","),
-           format(len(origin.anchors), ","),
+           format(len(origin.anchors), ","), format(len(origin.carry), ","),
            format(sum(1 for k in roots if len(idx.get(k) or ()) == 1), ",")))
     kinds = collections.Counter(r["kind"] for r in roots.values())
     log("  by kind     : %s"
@@ -5606,17 +5687,13 @@ def main(argv):
                 % (k, w.get("fr", "-"), show_org(w.get("org")), bits,
                    w["senses"][0]["defs"][0][:70]))
 
-    # The anchors whose lemma decomposes, for the root-parts check. The same
+    # The anchors and carried nodes whose lemma decomposes, for the
+    # root-parts check: the splits the linking pass computed with the same
     # flatten() the emit used, so the check asks the build what it should
     # have written.
-    splits = set()
-    for k in origin.anchors:
-        lang, pk = k.split(":", 1)
-        flat = origin.flatten(lang, pk, ORG_DEPTH, {pk})
-        if flat and len(flat) >= 2:
-            splits.add(k)
+    splits = set(origin.card_parts)
     failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits,
-                    harvest=harvest)
+                    harvest=harvest, carry=origin.carry)
     failed += gold_report(shipped)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))

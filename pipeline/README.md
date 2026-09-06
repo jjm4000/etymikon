@@ -401,9 +401,10 @@ Anchor cards carry their own split (owner decision 2026-09-01). Every anchor
 whose lemma decomposes gets `parts` in roots.json, the org.parts shape,
 from the same flatten() the word rows use: recursion stops at other
 anchors, affixes stay terminal, a part whose root did not ship stays inert
-with its form alone. 437 of 1,353 anchors decompose; the rest are base
-lemmas (cēdō, θεός) with no split in their graph and carry no field. The
-card renders the row under MADE OF.
+with its form alone. A node the chip cap kept whole carries `parts` the
+same way (review finding 4, 2026-09-05). 1,150 cards carry parts at
+2026-09-05; the other anchors are base lemmas (cēdō, θεός) with no split
+in their graph and carry no field. The card renders the row under MADE OF.
 
 `kind` comes from the harvested entry `pos`, never from the shape of the form.
 An `interfix` page becomes kind `infix`, because the SPEC enum has no
@@ -621,12 +622,24 @@ graphs.
 decomposed recursively inside its language, capped at `ORG_DEPTH` (3), so
 memoriālis reads memor + -ia + -ālis. Affixes are terminal (a reader
 drilling a suffix wants the suffix, not the case ending inside it). Anchors
-are terminal: a lemma `ORG_ANCHOR_MIN` (2) or more words reach through the
-parts of the lemma they attach to is a card the reader wants, so recursion
-stops at it and its card carries the split (owner decisions 2026-09-01,
-carried over). 1,353 anchors at 2026-09-05. `ROOT_ALIASES` and
+are terminal: a word reaches the lemma it attaches to and the immediate
+parts of that lemma's split, each once, and a lemma `ORG_ANCHOR_MIN` (2)
+or more words reach is a card the reader wants, so recursion stops at it
+and its card carries the split (owner decisions 2026-09-01; the reach
+rule widened to the attached lemma under review finding 4, 2026-09-05,
+after justice flattened through iūstus while just attached to it).
+3,082 anchors at 2026-09-05. A chain-only tail word whose row will not
+decompose is dropped, so its attachment is no reach. `ROOT_ALIASES` and
 `ROOT_SKIPS` apply at every level, and a curated alias stops the recursion
 where it lands.
+
+Two limits on a row (review finding 4). No row may carry a duplicate
+root: a split naming one twice keeps the lemma whole. A row that would run
+to four or more chips falls back to the page's own parts, and every part
+that stayed whole because of that (`Origin.carry`, 117 nodes at
+2026-09-05) ships a root card carrying its own `parts`, exactly as an
+anchor's does: energy reads ἐνέργεια = ἐνεργός + -ης + -ια rather than
+five chips, and the ἐνεργός card reads ἐν- + ἔργον + -ος.
 
 **Homographs.** A key with several lemma entries (fundō "to pour" and
 fundō "to found", dēcidō "to fall" and dēcīdō "to cut off") is fixed on
@@ -875,14 +888,17 @@ Origin anchors: memory carries a decomposed org reading memoria = memor +
 as a prefix node and la:-tōrium as a suffix node; every decomposed org row
 keeps at least one navigable part.
 
-Anchor anchors (2026-09-01): every anchor lemma ships as a root card, and no
+Anchor anchors (2026-09-01, restated 2026-09-05): every anchor lemma a row
+or a card names as a part ships as a root card (an anchor two words attach
+to and nothing names as a part gates nothing and needs no card), and no
 org part naming an anchor is inert. Both are skipped on a `--verify` run,
 which reads the JSON and has no anchor set to check against.
 
-Root-parts anchors (2026-09-01): every `r` inside a root's `parts` exists in
-roots.json and every part has a form; only anchors carry `parts`; every
-anchor whose lemma decomposes carries `parts` and no other root does (the
-last two need the anchor set, so `--verify` skips them); la:accedo carries
+Root-parts anchors (2026-09-01, widened 2026-09-05): every `r` inside a
+root's `parts` exists in roots.json and every part has a form; only
+anchors and the nodes the chip cap kept whole carry `parts`; every anchor
+or carried node whose lemma decomposes carries `parts` and no other root
+does (the last two need the anchor set, so `--verify` skips them); la:accedo carries
 parts reading ad- + cēdō, both linked; la:cedo's family reaches access,
 concede and precede through their anchors; deponent carries dēpōnō = dē- +
 pōnō; fornicate links its fornix part and tactic its τάσσω part; no org row

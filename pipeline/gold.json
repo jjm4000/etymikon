@@ -8,8 +8,8 @@
      "why": "bor la-med manūscrīptum, an inflection of manūscrīptus, whose prose reads manu (ablative of manus) + scriptus (past participle of scribere)"},
     {"word": "absolute", "kind": "decomposed", "lang": "la", "lemma": "absolvō", "parts": ["ab-", "solvō"],
      "why": "der la absolūtus, the participle of absolvō, whose etymon reads ab- + solvō"},
-    {"word": "absolution", "kind": "decomposed", "lang": "la", "lemma": "absolūtiō", "parts": ["ab-", "solvō", "-tiō"],
-     "why": "der la absolūtiōnem, an inflection of absolūtiō = absolvō + -tiō; absolvō is no anchor and flattens to ab- + solvō"},
+    {"word": "absolution", "kind": "decomposed", "lang": "la", "lemma": "absolūtiō", "parts": ["absolvō", "-tiō"],
+     "why": "der la absolūtiōnem, an inflection of absolūtiō = absolvō + -tiō; absolute attaches to absolvō and absolution reaches it as a part, so it is an anchor under the 2026-09-05 reach rule (review finding 4) and its card carries ab- + solvō"},
     {"word": "press", "kind": "decomposed", "lang": "la", "lemma": "pressō", "parts": ["premō", "-tō"],
      "why": "der la pressāre, the infinitive of pressō, whose ety reads premō + -tō"},
     {"word": "impress", "kind": "decomposed", "lang": "la", "lemma": "imprimō", "parts": ["in-", "premō"],
@@ -76,8 +76,8 @@
      "why": "der la fundō with the form fundāre, the first-conjugation entry (to found) = fundus + -ō; the pour entry is fundere (review finding 3)"},
     {"word": "site", "kind": "decomposed", "lang": "la", "lemma": "situs", "parts": ["sinō", "-tus"],
      "why": "der la situs (position, place, site): the noun entry = sinō + -tus wins on the gloss over the participle (review finding 3)"},
-    {"word": "impact", "kind": "decomposed", "lang": "la", "lemma": "impāctus", "parts": ["in-", "pangō", "-tus"],
-     "why": "der la impāctus: the noun entry (collision, hit) = impingō + -tus wins on the first definition (collision), impingō flattens to in- + pangō (review finding 3)"},
+    {"word": "impact", "kind": "decomposed", "lang": "la", "lemma": "impāctus", "parts": ["impingō", "-tus"],
+     "why": "der la impāctus: the noun entry (collision, hit) = impingō + -tus wins on the first definition (collision) (review finding 3); impinge attaches to impingō and impact reaches it as a part, so it is an anchor under the 2026-09-05 reach rule (review finding 4) and its card carries in- + pangō"},
     {"word": "liquor", "kind": "decomposed", "lang": "la", "lemma": "liquor", "parts": ["liqueō", "-or"],
      "why": "der la liquor (fluidity, liquidness): the noun entry = liqueō + -or wins on the gloss over the deponent verb (review finding 3)"}
   ]

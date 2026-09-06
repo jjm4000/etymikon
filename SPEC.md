@@ -931,6 +931,9 @@ Three verify checks pin the field: every `r` inside a root's `parts`
 exists in roots.json; only anchors carry `parts`; every anchor whose
 lemma decomposes carries `parts`, and no other root does. The last two
 run only on a full build, since a `--verify` run has no anchor set.
+(Widened 2026-09-05, review finding 4: a node the chip cap kept whole
+carries `parts` the same way, so both checks read "anchors and carried
+nodes"; see the review notes under "Origin subsystem, source graphs".)
 Anchor: la:accedo carries parts reading ad- + cēdō, both linked.
 
 ### Root families credit through anchors (2026-09-01)
@@ -1115,7 +1118,9 @@ silently diverged from):
   dē- + pōnō; fornicate links its fornix part and tactic its τάσσω
   part; no org row names its own lemma as a part; every `r` inside a
   root's `parts` exists in roots.json; only anchors carry `parts`;
-  every anchor whose lemma decomposes carries `parts`, and no other.
+  every anchor whose lemma decomposes carries `parts`, and no other
+  (both widened 2026-09-05 to anchors and the nodes the chip cap kept
+  whole, review finding 4).
 - Distribution sanity, printed in the build report: total words around
   83k (29k ranked lemma pages inside the top 50,000, since inflection
   pages live in forms.json, plus the attested tail that carries a split
@@ -1417,6 +1422,47 @@ owner rules on each.
   nothing (the spike sized 488, 1,039 and 225); inside the top 10,000,
   172, 340 and 41 (141, 359 and 53). The build report prints the line
   every run, from pipeline/misses-2026-09-01.txt.
+
+### Review fixes as built (dated notes, 2026-09-05, fix agent)
+
+The adversarial review of the branch (findings 1 to 16) forced these
+corrections. Each note records the rule as built and the words that
+pinned it; the gold set carries a row for each.
+
+- Reach and anchors (finding 4). A word reaches the lemma it attaches to
+  and the immediate parts of that lemma's split, each once; a lemma
+  reached by ORG_ANCHOR_MIN or more words is an anchor. The 2026-09-01
+  wording counted parts only, so a lemma two words attached to was
+  still expanded away under a third: just attached to iūstus and
+  justice flattened through it to iūs + -tus + -itia. Now justice reads
+  iūstus + -itia and the iūstus card carries iūs + -tus. An anchor that
+  two words attach to and no row names as a part (βασιλικός under
+  basilica and basilic, whose rows read βασιλεύς + -ικός) gates nothing
+  and needs no card; the "every anchor ships" check is stated on the
+  anchors a row or a card names. A chain-only tail word whose row will
+  not decompose is dropped, so its attachment is no reach. Rows the
+  rule changed against the 2026-09-05 gold set: absolution reads
+  absolvō + -tiō (absolute attaches to absolvō) and impact reads
+  impingō + -tus (impinge attaches to impingō); both cards carry the
+  split the row no longer shows. Anchors 1,353 to 3,082.
+- Row limits (finding 4). No row may carry a duplicate root: a split
+  that names one twice keeps the lemma whole (ossuārium read ōs + ōs;
+  the cause was the trailing appositive ", alternative form of os"
+  read as a step on -ārius, and the trailing-appositive step now takes
+  the inflectional shapes only, so ossuary reads ōs + -ārius). A row
+  that would run to four or more chips falls back to the page's own
+  parts, and every part that stayed whole because of that ships a root
+  card carrying its own `parts`, exactly as an anchor's does (energy
+  read five chips; it reads ἐνεργός + -ης + -ια with the ἐνεργός card
+  carrying ἐν- + ἔργον + -ος). The verify checks "only anchors carry
+  parts" and "every anchor whose lemma decomposes carries parts" are
+  widened to anchors and carried nodes. Rows with four or more chips
+  211 to 2 (both the page's own four-part split), rows with two or more
+  suffix chips 552 to 204, duplicate parts 6 to 0, root cards lost
+  against main 81 to 45. automatic reads αὐτόματον = αὐτός + μέμαα,
+  identity reads identitās = īdem + -tās (the Greek ταὐτότης is a
+  calque on that page, rejected under finding 1), access still reads
+  accēdō + -tus with accēdō carrying ad- + cēdō.
 
 ## Naming (Jesse decision 2026-08-25)
 
