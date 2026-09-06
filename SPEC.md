@@ -1567,6 +1567,39 @@ pinned it; the gold set carries a row for each.
   saliō card glossed "to leap", legacy the shared legō card glossed "to
   gather"; both are the one-card-per-key majority rule of finding 2).
   The review counted 16, 14 and 10.
+- Minors (findings 10 to 15). A row-only gloss is one short line like
+  a root gloss: whole when it fits the card budget, else its first
+  clause, else nothing (moloch); the private-use characters kaikki
+  writes for a gloss's square brackets are stripped (Abdul "servant
+  [of]"); a sense written as a heading and a child glosses with the
+  child (la:pes "a foot"); a breve stacked on a macron prints the
+  macron alone (citō); the English affix src row carries the source
+  root's romanization; grk-pro left the row-only table, since no proto
+  language is one. Left as they were, with the reason: the breadcrumb
+  cycle guard (finding 13) is the carried-over Okpyeon crumb rule and
+  changing it is a shell decision, not a data fix; the etymon tree's
+  nested ancestry (finding 15: dinero, pray, violence, violin, shower)
+  lives only in the rendered tree lines, a graph flattened one node per
+  line with marker suffixes, and reading it needs a parser of its own.
+- Measured after the fixes (2026-09-06, seed 20260906). 150 random
+  decomposed rows read against the extracts: 135 right, 10 degraded
+  (right parts, a shallow or odd gloss), 5 wrong (3.3%; the review
+  measured 3.3%): diamante and facete ship an etymology their source
+  page leans against, percolate, aureola and iode land on the wrong
+  homograph card. The 100 highest-ranked rows that differ from main:
+  84 right, 6 degraded, 3 questionable (blue, risk, notice), 7 wrong
+  (7%; the review measured 11%): are (the verb page is a form-of entry,
+  so the noun "are" wins and reads Latin ārea), mine and fell (the
+  card picks the wrong homograph), list (the Latin extract carries the
+  city Lista only), park (the enclosure entry is an alternative form),
+  camera (labelled camera obscūra), doubt (a stated theory shipped).
+  Determinism holds (two builds byte-identical), verify 0 failed, gold
+  71 of 71, Node 169, index harness 246, embed harness 181, 8
+  screenshots regenerated. Data: 84,307 words, 6,737 roots, 14,247
+  origin rows (7,073 decomposed, 2,218 single, 4,956 row-only), 23.9
+  MB; breakdown coverage of the top 10,000 ranks 37.9%; the 1,752
+  misses of 2026-09-01 render 552 decomposed, 1,029 single, 171
+  nothing (top 10,000: 171 / 343 / 39).
 
 ## Naming (Jesse decision 2026-08-25)
 

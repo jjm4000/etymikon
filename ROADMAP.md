@@ -24,7 +24,7 @@ checks).
 - **Lemmatization.** Inflected selections resolve to their lemma, and
   shipped inflections that shadow one (ran, appreciated) carry an "Also
   a form of" row plus their lemma's origin row.
-- **A general dictionary under the etymology.** 84,253 words with the
+- **A general dictionary under the etymology.** 84,307 words with the
   hybrid cap: everything attested in the top 50,000 ranks, plus every
   rarer word carrying a breakdown, whether that breakdown is an English
   split or a classical origin chain that decomposes. American spellings
@@ -45,11 +45,12 @@ attaching by any classical mention, the French group walked as
 pass-through, no origin ever silenced, a gold set scoring every build.
 A feasibility spike (pipeline/spike-origin.md) sized the prose parser
 first. Phase one is built on the `origin-graphs` branch (2026-09-05,
-awaiting review): 6,020 root cards, 14,147 origin rows of which 7,005
-decompose and 4,847 name a row-only language, and of the 1,752 words
-that stated a classical origin and showed nothing, 546 now decompose
-and 1,027 show a single row. Phase two adds Old English as a root
-language with Middle English as pass-through.
+reviewed and fixed 2026-09-06): 6,737 root cards, 14,247 origin rows of
+which 7,073 decompose and 4,956 name a row-only language, and of the
+1,752 words that stated a classical origin and showed nothing, 552 now
+decompose and 1,029 show a single row. The review's 16 findings are
+answered in SPEC.md under "Review fixes as built". Phase two adds Old
+English as a root language with Middle English as pass-through.
 
 ## Then: store release
 

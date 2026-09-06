@@ -35,8 +35,8 @@ any card saves it into folders; folders export to Anki or CSV.
 Words whose source is neither Latin nor Greek still say where they
 came from: sky reads "From Old Norse ský (cloud)" on one quiet row, and
 a Greek form prints its romanization beside it. The shipped dictionary
-holds 84,253 words, 6,020 roots (English affixes beside Latin and Greek
-lemmas), and 110,612 inflection mappings, built from Wiktionary at build
+holds 84,307 words, 6,737 roots (English affixes beside Latin and Greek
+lemmas), and 110,676 inflection mappings, built from Wiktionary at build
 time. Lookups work offline. The extension makes no network requests of
 any kind.
 

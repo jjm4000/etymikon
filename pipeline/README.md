@@ -402,8 +402,8 @@ whose lemma decomposes gets `parts` in roots.json, the org.parts shape,
 from the same flatten() the word rows use: recursion stops at other
 anchors, affixes stay terminal, a part whose root did not ship stays inert
 with its form alone. A node the chip cap kept whole carries `parts` the
-same way (review finding 4, 2026-09-05). 1,150 cards carry parts at
-2026-09-05; the other anchors are base lemmas (cēdō, θεός) with no split
+same way (review finding 4, 2026-09-05). 1,172 cards carry parts at
+2026-09-06; the other anchors are base lemmas (cēdō, θεός) with no split
 in their graph and carry no field. The card renders the row under MADE OF.
 
 `kind` comes from the harvested entry `pos`, never from the shape of the form.
@@ -440,8 +440,9 @@ standalone graph before any English page is read, in `parse_classical` and
   edge per node. Every part is resolved through the lookup rules below and
   has to be a node; a split with a reconstructed part, a part that is no
   page, a part with no usable gloss, or a part naming the lemma itself is
-  refused whole, and the refusal carries its reason (la 624, grc 697
-  refused splits at 2026-09-05). `SOURCE_SPLITS` in curation.py is a hand
+  refused whole, and the refusal carries its reason (la 1,939, grc 1,040
+  refused splits at 2026-09-06, prose chains the parser could not accept
+  included). `SOURCE_SPLITS` in curation.py is a hand
   edge that overrides the page.
 * A **step edge** takes an inflection or participle page to its lemma:
   from `form_of` links (every sense a form-of sense), from a participle
@@ -458,8 +459,8 @@ the report:
 
 | lang | nodes | decomposed | template | etymon | prose | prose unread | neither |
 |------|-------|------------|----------|--------|-------|--------------|---------|
-| la   | 46,012 | 17,985 | 3,311 | 13,876 | 797 | 1,363 | 26,664 |
-| grc  | 20,182 | 9,210 | 8,946 | 48 | 217 | 431 | 10,541 |
+| la   | 46,012 | 18,016 | 3,272 | 13,876 | 853 | 1,376 | 26,620 |
+| grc  | 20,182 | 9,290 | 8,909 | 48 | 335 | 437 | 10,455 |
 
 "prose unread" is a node whose etymology carries a plus the parser could
 not read into an accepted split. The table is tracked build over build.
@@ -570,7 +571,8 @@ decomposition templates, and the prose parser's plus-chains. A term a
 sentence steps ("Latin appreciātus, past participle of appretiō") names the
 stepped lemma as the next term. A pass-through mention is walked: the
 French page's own terms come after the English page's, in walk order, up
-to three pages deep and cycle-safe (8,245 pages walked at 2026-09-05).
+to three pages deep and cycle-safe (3,220 pages walked at 2026-09-06, since
+a French term the page's own clause continues past is not walked).
 
 The root-language terms fall into **runs** by language. The first term of a
 run is the lemma English borrowed; the rest of the run is that lemma's own
@@ -632,13 +634,13 @@ miss too, with the term in the reason (madam names mea domina).
 ### Origin rows
 
 An `org` row takes one of three shapes (SPEC "Row shapes", ratified from
-mockups 2026-09-05), 14,147 rows at 2026-09-05:
+mockups 2026-09-05), 14,247 rows at 2026-09-06:
 
 * **decomposed**, `{l, lang, parts}`: the attached node decomposes, or the
   page supplied parts for it. `parts` follow the morphs chip contract, `f`
-  to display and `r` when that root ships. 7,005 rows.
+  to display and `r` when that root ships. 7,073 rows.
 * **single**, `{r, f}`: the node does not decompose ("From Latin soccus").
-  2,295 rows. The worker joins the root's gloss and romanization.
+  2,218 rows. The worker joins the root's gloss and romanization.
 * **row-only**, `{lang, f, gloss?, rom?}` with no `r`: the deepest named
   origin is a row-only language ("From Old Norse ský (cloud)"). The gloss
   comes from the template's own `t` arg; the romanization from `tr`, else
@@ -646,8 +648,8 @@ mockups 2026-09-05), 14,147 rows at 2026-09-05:
   else from the parenthesis the prose writes right after it (review
   finding 6, 2026-09-05; 472 of 740 non-Latin rows lacked one before,
   122 after). The worker passes it through unjoined and the card renders
-  it inert. 4,847
-  rows, Old English 1,611 and Middle English 987 the largest groups until
+  it inert. 4,956
+  rows, Old English 1,686 and Middle English 1,023 the largest groups until
   phase two makes Old English a root language.
 
 A word never carries both morphs and org. Nothing is dropped for a
@@ -668,7 +670,7 @@ or more words reach is a card the reader wants, so recursion stops at it
 and its card carries the split (owner decisions 2026-09-01; the reach
 rule widened to the attached lemma under review finding 4, 2026-09-05,
 after justice flattened through iūstus while just attached to it).
-3,082 anchors at 2026-09-05. A chain-only tail word whose row will not
+3,158 anchors at 2026-09-06. A chain-only tail word whose row will not
 decompose is dropped, so its attachment is no reach. `ROOT_ALIASES` and
 `ROOT_SKIPS` apply at every level, and a curated alias stops the recursion
 where it lands.
@@ -676,8 +678,8 @@ where it lands.
 Two limits on a row (review finding 4). No row may carry a duplicate
 root: a split naming one twice keeps the lemma whole. A row that would run
 to four or more chips falls back to the page's own parts, and every part
-that stayed whole because of that (`Origin.carry`, 117 nodes at
-2026-09-05) ships a root card carrying its own `parts`, exactly as an
+that stayed whole because of that (`Origin.carry`, 116 nodes at
+2026-09-06) ships a root card carrying its own `parts`, exactly as an
 anchor's does: energy reads ἐνέργεια = ἐνεργός + -ης + -ια rather than
 five chips, and the ἐνεργός card reads ἐν- + ἔργον + -ος.
 
@@ -738,15 +740,15 @@ language, the lemma, the ordered part forms, and the reason the row is a
 fact, read off the extract pages. The build scores every run as an exact
 match of kind, language, lemma and ordered part forms, prints precision per
 kind, and fails when the score drops under the number in
-`gold-score.json` (24 of 24 at 2026-09-05). The Node suite applies the same
+`gold-score.json` (71 of 71 at 2026-09-06). The Node suite applies the same
 rule to the shipped data. A field report becomes a row here before it
 becomes a fix.
 
 `misses-2026-09-01.txt` is the list of 1,752 words that stated a classical
 origin and shipped nothing before the source graphs. The report counts what
 each renders now, so the outcome the SPEC expects is checked, not assumed:
-546 decomposed, 1,027 single, 179 nothing at 2026-09-05 (the spike sized
-488, 1,039 and 225); inside the top 10,000 ranks, 172, 340 and 41.
+552 decomposed, 1,029 single, 171 nothing at 2026-09-06 (the spike sized
+488, 1,039 and 225); inside the top 10,000 ranks, 171, 343 and 39.
 
 ### Frequency ranks
 
@@ -839,7 +841,7 @@ carries about 270,000 English words with an affix split. Nearly all of them
 are unattested technical coinages: nanovoltmeter, nonradiometric,
 bigluconate, extremistical. Shipping them measured 289,811 words and a 53 MB
 `words.json` at bring-up (2026-08-24, before the rank charset fix). Requiring
-a frequency rank produces 84,253 words and a 20.6 MB `words.json`. The tail
+a frequency rank produces 84,307 words and a 20.6 MB `words.json`. The tail
 that survives is the readable half: snarkiness, ringbearer,
 parapsychological, glucoside.
 
