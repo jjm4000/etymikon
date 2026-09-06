@@ -1998,6 +1998,100 @@ writes one as its only sense: bracelet reads fro bracelet "diminutive of
 bras" and tartare reads fr tartare "ellipsis of steak tartare". Both are what
 the page says, so no rule refuses them.
 
+### The Germanic extracts (dated note, 2026-09-06, owner decision)
+
+Seven extracts joined the download list, all verified present at kaikki on
+2026-09-06: Old English 13.2 MB, Middle English 7.1 MB, Old Norse 4.0 MB,
+Middle Dutch 0.6 MB, Old High German 0.9 MB, Old Dutch 0.7 MB, Old Saxon
+0.7 MB. They go through the existing download machinery, honouring --offline
+and the .part resume, and pipeline/README.md carries their URLs and sizes.
+Middle Low German and Anglo-Norman return 404 and no extract exists; the 104
+gml and xno rows they would have covered are unreachable and keep whatever
+gloss the English page wrote.
+
+Old English does NOT become a root language in this round. It stays row-only,
+gains glosses, and ships no card and no family. No ang: root key exists. The
+root role is phase two of this section and is not built here.
+
+Six of the seven are read for glosses alone, by the rule above. Middle English
+is also read as a pass-through language, since 643 rows stopped there and the
+Middle English page usually names the word behind them.
+
+- Middle English left ROW_ONLY_LANGS for PASS_LANGS. The pass-through role
+  governs cards, so a chain that reaches nothing deeper still renders its
+  Middle English row, as the 2026-09-06 note on pass-through rows says.
+- A row whose chain ends at a Middle English term continues through that
+  page to the term it names, one page at a time. The English page's own
+  statement still decides first: a page is walked only where the English
+  page's own clause does not continue past the term to something attested.
+- ROW_PASS_LANGS names the pass-through languages a ROW is read through as
+  well as a card. Middle English is the only member. The two spelling rules
+  a row-only language gets, the comma-joined list and the attested form
+  beside a reconstruction, are read for it too, since a chain ends at Middle
+  English as often as in a row-only language: print reads "Middle English
+  *printen, prenten, preenten" and shows prenten.
+- Three guards keep the walk on the word English took, each pinned by the
+  word that found it. A spelling that STATES two etymologies is two words and
+  is not walked or glossed (the Middle English male is masculine, a bag and
+  an apple, and mail read Latin masculus = mās + -culus off the first). Two
+  stated accounts, not two entries: counting a silent participle beside a
+  lemma page cost crude, duty, git and gage their Latin. A page whose own
+  etymology carries an unk or unc template states a proposal, not an origin
+  (core writes "Unknown; derivation from either Old French cuer or cors has
+  been suggested, though both possibilities pose serious problems", and walet
+  the same shape). And a term the English page names only as a cognate is
+  refused in the walk as it is on the page itself.
+- The guards are on Middle English alone. Applying the ambiguity test to the
+  French extracts, walked since 2026-09-05, shallows 36 rows and drops 17
+  (menu, coupe, ville and sac would read a French word glossed with itself).
+  Walking French rows the way Middle English ones are walked moved 108 rows
+  and read most of them worse, since a French page's own chain runs on past
+  the word English borrowed (swiss read Old High German Suittes over Middle
+  French Suisse, department read Old French departement with no gloss over
+  French département with one).
+- A row is a word and never an affix. A page that says where its suffix came
+  from is explaining a component: the Middle English burned page names Old
+  English -ed, fidget's page -ettan and thrice's -es. The chain stops at the
+  last whole word instead, so thrice reads þriwa, and where nothing is left
+  the word goes to the misses report with that reason (fidget).
+- A walked page settles nothing with a root lemma Wiktionary never wrote.
+  Such a term used to outrank the English page's own row and leave the card
+  silent. The row-only chain is read instead, and the word still goes to the
+  misses report when the chain has nothing either. The test is on a page that
+  names no root term of its own, so madam keeps its "la:mea domina never
+  written" drop. 13 words gained a row: tan, pot, patent, marla, gurgle,
+  madeleine, encore, putty, cabernet, decapitation, bisque, compote, valise.
+
+Outcome of the extracts and the walk together, against the French-group build:
+1,181 rows carry a gloss they did not have, 53 rows moved to a different term,
+21 gained a row and 1 lost one (fidget, to the affix rule). Rows without a
+gloss: 3,281 before this round, 2,098 after, and 526 to 222 inside the top
+3,000. By language the remainder is Middle English 341, Old English 205,
+Italian 130, Old French 125, Spanish 115, Japanese 95, German 85 and a tail.
+
+The 53 moved rows, read against the extracts: 12 continue to Latin (married
+reads marītō, launch lanceō, jelly gelāta, duty dēbeō, perversion perversiō,
+conceit concipiō), 8 to Old English (rid geryd, hearing gehēring, buck bucca,
+peek cēpan, snort fnora, building bytling), 5 to Old Norse (gasp geispa, slug
+slókr, clint klettr, lad ladd, gun Gunnhildr), and the rest to Old French,
+Anglo-Norman or a Middle English step. Twenty hand read: 18 right, 1 degraded
+(building reads Old English bytling where its page offers it as one of two
+accounts, "either formed anew or a continuation of"), 1 questionable (tore and
+bound now read a Middle English word because the Old Norse and Old English
+terms the page named are bare stems ending in a hyphen).
+
+Two known misses left, with the reason. poll reads Old English pōl "pool":
+the Middle English extract has no page for the head sense of pol, and nothing
+distinguishes the two. tick loses its row to the section rule, because its
+second etymology section now names an attested Middle English form and the
+two sections state different origins; the same shape was recorded on 2026-09-06
+for the spelling-beside-a-reconstruction rule.
+
+Not reached, with the reason: 584 rows still stop at Middle English. 360 name
+a spelling the Middle English extract has no page for (abandoned, awakenen,
+babelen), 55 name a page with no etymology at all, and 22 name a page whose
+etymology the reader could not use. That is a source gap, not a rule gap.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

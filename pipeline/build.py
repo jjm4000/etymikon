@@ -103,7 +103,64 @@ PASS_FILES = {
     "fr": ("https://kaikki.org/dictionary/French/"
            "kaikki.org-dictionary-French.jsonl.gz",
            os.path.join(CACHE, "kaikki-French.jsonl.gz")),
+    # Middle English joins the pass-through group (owner decision
+    # 2026-09-06). 643 rows stopped at Middle English and the Middle
+    # English page usually names its own origin, so the walk continues
+    # through it toward Old English, Old French, Old Norse and Latin
+    # exactly as the French group is walked.
+    "enm": ("https://kaikki.org/dictionary/Middle%20English/"
+            "kaikki.org-dictionary-MiddleEnglish.jsonl.gz",
+            os.path.join(CACHE, "kaikki-MiddleEnglish.jsonl.gz")),
 }
+# The Germanic extracts (owner decision 2026-09-06). They are read for the
+# gloss a row-only row prints and for nothing else; Old English stays a
+# row-only language in this round and ships no card and no family, which is
+# phase two of the origin subsystem and is not built here. Middle English is
+# in PASS_FILES above, since it is walked as well as glossed.
+# kaikki publishes no Middle Low German and no Anglo-Norman extract (both
+# 404, checked 2026-09-06), so gml and xno rows keep whatever gloss the
+# English page wrote.
+ROW_FILES = {
+    "ang": ("https://kaikki.org/dictionary/Old%20English/"
+            "kaikki.org-dictionary-OldEnglish.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldEnglish.jsonl.gz")),
+    "non": ("https://kaikki.org/dictionary/Old%20Norse/"
+            "kaikki.org-dictionary-OldNorse.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldNorse.jsonl.gz")),
+    "dum": ("https://kaikki.org/dictionary/Middle%20Dutch/"
+            "kaikki.org-dictionary-MiddleDutch.jsonl.gz",
+            os.path.join(CACHE, "kaikki-MiddleDutch.jsonl.gz")),
+    "goh": ("https://kaikki.org/dictionary/Old%20High%20German/"
+            "kaikki.org-dictionary-OldHighGerman.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldHighGerman.jsonl.gz")),
+    "odt": ("https://kaikki.org/dictionary/Old%20Dutch/"
+            "kaikki.org-dictionary-OldDutch.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldDutch.jsonl.gz")),
+    "osx": ("https://kaikki.org/dictionary/Old%20Saxon/"
+            "kaikki.org-dictionary-OldSaxon.jsonl.gz",
+            os.path.join(CACHE, "kaikki-OldSaxon.jsonl.gz")),
+}
+# Fixed order, so the download list, the report and the build are the same
+# on every run.
+PASS_ORDER = ("fro", "frm", "fr", "enm")
+ROW_ORDER = ("ang", "non", "dum", "goh", "odt", "osx")
+# The pass-through languages a ROW is read through as well as a card (owner
+# decision 2026-09-06). Middle English alone: 643 rows stopped there and the
+# Middle English page usually names the Old English, Old Norse or Old French
+# word behind them. Two rules follow the membership. The walk continues
+# through such a page to the term it names. And the spelling rules a row-only
+# language gets, the comma-joined list and the attested form beside a
+# reconstruction, are read for it too, since a chain ends at Middle English
+# as often as in a row-only language.
+#
+# The French group is walked for cards only. Measured on 2026-09-06: walking
+# French rows the same way moved 108 rows and read most of them worse,
+# because a French page's own chain runs on past the word English borrowed
+# (swiss read Old High German Suittes over Middle French Suisse, department
+# read Old French departement with no gloss over French département with
+# one), and reading French spellings that way moved havoc off Old French
+# havok onto hef and lost tick its Old English row.
+ROW_PASS_LANGS = frozenset({"enm"})
 # The gold set and its committed score (SPEC "Principle 5"). The build scores
 # itself against the rows on every run and fails when it scores under the
 # committed number.
@@ -458,12 +515,19 @@ for _c in GREEK_CODES:
 # terms live on the Old French pages.
 PASS_LANGS = {"fro": "Old French", "fro-nor": "Old French", "xno": "Anglo-Norman",
               "frm": "Middle French", "fr": "French",
+              # Middle English (owner decision 2026-09-06). 643 rows stopped
+              # there and the Middle English page usually names its own
+              # origin, so the walk continues through it toward Old English,
+              # Old French, Old Norse and Latin. The role governs cards, not
+              # rows: a chain that reaches nothing deeper still renders its
+              # Middle English row (2026-09-06).
+              "enm": "Middle English",
               # French variants (review finding 7): their pages, when any,
               # live in the French extract; Law French has none, like xno.
               "fr-CA": "Canadian French", "fr-aca": "Acadian French",
               "frc": "Cajun French", "xno-law": "Law French"}
 PASS_EXTRACT = {"fro": "fro", "fro-nor": "fro", "frm": "frm", "fr": "fr",
-                "fr-CA": "fr", "fr-aca": "fr", "frc": "fr"}
+                "fr-CA": "fr", "fr-aca": "fr", "frc": "fr", "enm": "enm"}
 # The extract a row's own language is looked up in for its gloss (rule of
 # 2026-09-06). A code with no extract here takes whatever gloss the English
 # page wrote and nothing more; kaikki publishes no Anglo-Norman and no
@@ -477,7 +541,8 @@ ROW_EXTRACT = {"ang": "ang", "ang-ang": "ang", "ang-nor": "ang",
 # LANG_NAME table has to carry every code that reaches a row, and verify
 # checks it does.
 ROW_ONLY_LANGS = {
-    "enm": "Middle English", "ang": "Old English", "de": "German",
+    # Middle English left this table for PASS_LANGS on 2026-09-06.
+    "ang": "Old English", "de": "German",
     "nl": "Dutch", "es": "Spanish", "it": "Italian", "sv": "Swedish",
     "cmn": "Mandarin", "non": "Old Norse", "da": "Danish", "ja": "Japanese",
     "sa": "Sanskrit", "is": "Icelandic", "ar": "Arabic", "ru": "Russian",
@@ -904,7 +969,7 @@ def entry_chain(e):
     return hit
 
 
-RE_ETY_ROOT_CODE = re.compile(r"(?:^|[<:\s|])(la|la-[a-z]+|grc|grc-koi|gkm|fro|fro-nor|frm|fr|xno):")
+RE_ETY_ROOT_CODE = re.compile(r"(?:^|[<:\s|])(la|la-[a-z]+|grc|grc-koi|gkm|fro|fro-nor|frm|fr|xno|enm):")
 
 
 def names_classical(e):
@@ -1642,9 +1707,16 @@ def harvest_english(path, cand, origin):
             # attachment now and merged for the node's pick later.
             terms = page_evidence(e.get("etymology_templates") or [],
                                   text, "en", wl)
-            ev = origin.evidence_of(terms, mentions, def_words(defs[0]))
+            dw = def_words(defs[0])
+            ev = origin.evidence_of(terms, mentions, dw)
             origin.merge_evidence(ev, origin.ranks.get(wl))
-            rec["att"] = origin.attach(mentions, chains, wl, ev, settled)
+            # The row gloss votes on the word itself as well as its
+            # first definition: an inherited word usually glosses its
+            # own ancestor (good reads Old English gōd "good", love
+            # lufu "love"). The root homograph vote above keeps the
+            # definition alone, as it has since 2026-09-05.
+            rec["att"] = origin.attach(mentions, chains, wl, ev, settled,
+                                       dw | def_words(wl))
             rec["cogonly"] = origin.cognate_only(mentions)
             if rec["att"] is not None:
                 stats["attached" if "key" in rec["att"] else
@@ -2878,9 +2950,14 @@ def page_mentions(templates, text, page_lang, key):
                 mentions.append(("origin", code, f, gloss, rom,
                                  "alt" if role == "origin" else role, pos))
             if (term.startswith("*") and pos >= 0 and role == "origin"
-                    and lang_role(code) in ("row", "")):
+                    and (lang_role(code) in ("row", "")
+                         or code in ROW_PASS_LANGS)):
                 # The attested spellings the prose lists beside a
                 # reconstruction, which carry no template of their own.
+                # Middle English is read this way too, since a chain ends
+                # there as often as in a row-only language (2026-09-06):
+                # print writes "From Middle English *printen, prenten,
+                # preenten" and hacking "*hackynge, hackande, hakand".
                 for f in prose_alts(prose, pos, exp):
                     mentions.append(("origin", code, f, "", "", "alt", pos))
             stepped = prose_step(prose, pos, exp) if role == "origin" else ""
@@ -3820,14 +3897,24 @@ class RowGlosses:
 
     def __init__(self, code):
         self.code = code
-        self.gloss = {}          # key -> (weight, gloss, rom)
+        self.cands = {}          # key -> [(weight, order, gloss, rom, words)]
         self.loose_idx = {}      # loose key -> [key], glossed pages only
+        self.stated = {}         # key -> the distinct etymologies it states
+        self.order = 0
         self.stats = collections.Counter()
 
     def add(self, word, e):
         k = norm_for(self.code, word)
         if not k:
             return
+        text = clean_text(e.get("etymology_text") or "")
+        if text:
+            # How many words the spelling is. A spelling that states two
+            # etymologies is two words, and a row that cannot tell them
+            # apart carries no gloss (2026-09-06). Old English is is the
+            # noun ice beside the verb form of wesan, and the row on
+            # English is read "ice".
+            self.stated.setdefault(k, set()).add(text)
         if pure_form_of(e):
             return
         g = best_gloss(e)
@@ -3836,48 +3923,104 @@ class RowGlosses:
         pos = e.get("pos") or ""
         ns = len(e.get("senses") or [])
         weight = ns if pos != "name" else -1000 + ns
-        rom = ""
-        if non_latin_script(word):
-            rom = tagged_form(e, "romanization")
-        have = self.gloss.get(k)
-        if have is None or weight > have[0]:
-            self.gloss[k] = (weight, g, rom or (have[2] if have else ""))
-        elif rom and not have[2]:
-            self.gloss[k] = (have[0], have[1], rom)
+        rom = tagged_form(e, "romanization") if non_latin_script(word) else ""
+        words = set()
+        for s in e.get("senses") or []:
+            for raw in s.get("glosses") or []:
+                words.update(w for w in RE_GLOSS_WORD.findall((raw or "").lower())
+                             if w not in GLOSS_STOP)
+        self.order += 1
+        self.cands.setdefault(k, []).append(
+            (weight, self.order, g, rom, words))
 
     def finish(self):
-        for k in sorted(self.gloss):
+        for k, cs in self.cands.items():
+            cs.sort(key=lambda c: (-c[0], c[1]))
+        for k in sorted(self.cands):
             self.loose_idx.setdefault(strip_marks(k), []).append(k)
-        self.stats["pages"] = len(self.gloss)
+        self.stats["pages"] = len(self.cands)
+        self.stats["homographs"] = sum(
+            1 for k, s in self.stated.items() if len(s) > 1 and k in self.cands)
         return self
 
-    def look(self, term, count=True):
+    def pick(self, key, defwords, count):
+        """The entry a row reads, or None.
+
+        One entry answers on its own. Where a page has several, the English
+        word's own first definition decides, the way the homograph vote
+        decides a root card's entry (review findings 2 and 3, 2026-09-05):
+        the entry whose senses share the most content words with it wins,
+        so good reads Old English gōd "good" and god reads god "god" off
+        one page title. With no overlap and two stated etymologies the row
+        cannot tell the words apart and carries no gloss.
+        """
+        cs = self.cands.get(key) or ()
+        if not cs:
+            return None
+        if len(cs) == 1 and len(self.stated.get(key) or ()) < 2:
+            return cs[0]
+        best, score = None, 0
+        for c in cs:
+            n = len(c[4] & defwords) if defwords else 0
+            if n > score:
+                best, score = c, n
+        if best is not None:
+            if count:
+                self.stats["voted"] += 1
+            return best
+        if len(self.stated.get(key) or ()) > 1:
+            if count:
+                self.stats["homograph_silent"] += 1
+            return None
+        return cs[0]
+
+    def look(self, term, defwords=(), count=True):
         """(gloss, rom) for a term, or ("", "")."""
         t = clean_term(term)
         if not t or t.startswith("*"):
             return "", ""
         k = norm_for(self.code, t)
-        hit = self.gloss.get(k)
-        if hit is not None:
+        if k not in self.cands:
+            cands = self.loose_idx.get(strip_marks(k))
+            if not cands:
+                if count:
+                    self.stats["missed"] += 1
+                return "", ""
+            # Several pages share a loose spelling only where the source
+            # marks a real distinction (Old English god and gōd). The row
+            # would be guessing between them, so it stays silent.
+            if len(cands) > 1:
+                if count:
+                    self.stats["ambiguous"] += 1
+                return "", ""
+            k = cands[0]
             if count:
-                self.stats["strict"] += 1
-            return hit[1], hit[2]
-        cands = self.loose_idx.get(strip_marks(k))
-        if not cands:
-            if count:
-                self.stats["missed"] += 1
-            return "", ""
-        # Several pages share a loose spelling only where the source marks a
-        # real distinction (Old English god and gōd). The row would be
-        # guessing between them, so it stays silent.
-        if len(cands) > 1:
-            if count:
-                self.stats["ambiguous"] += 1
-            return "", ""
-        if count:
-            self.stats["loose"] += 1
-        hit = self.gloss[cands[0]]
-        return hit[1], hit[2]
+                self.stats["loose"] += 1
+        elif count:
+            self.stats["strict"] += 1
+        hit = self.pick(k, set(defwords or ()), count)
+        return (hit[2], hit[3]) if hit else ("", "")
+
+
+def read_row_glosses(path, code):
+    """The gloss table of an extract that is read for its glosses alone.
+
+    A row-only language ships no card and its pages are never walked, so
+    nothing but the gloss and the romanization is taken off them. Old
+    English is the largest of these and stays row-only in this round: it
+    gains glosses and no cards (SPEC phase two is not built here).
+    """
+    rg = RowGlosses(code)
+    n = 0
+    with gzip.open(path, "rb") as f:
+        for line in f:
+            n += 1
+            e = loads(line)
+            w = e.get("word")
+            if w:
+                rg.add(w, e)
+    rg.stats["lines"] = n
+    return rg.finish()
 
 
 def read_passthrough(path, code):
@@ -3888,6 +4031,9 @@ def read_passthrough(path, code):
     mentions and still read for their gloss: a row names a term whether or
     not that term's own page says where it came from."""
     pages = {}
+    etys = {}
+    stated = {}
+    unsure = set()
     rg = RowGlosses(code)
     n = 0
     with gzip.open(path, "rb") as f:
@@ -3899,15 +4045,41 @@ def read_passthrough(path, code):
                 continue
             rg.add(w, e)
             k = norm_for(code, w)
+            text = e.get("etymology_text") or ""
+            # How many accounts of itself the spelling carries. Entries that
+            # repeat one etymology are one word (a Middle English noun and
+            # its verb usually share theirs); entries that give two
+            # different accounts, or one account and one entry with none,
+            # are two words sharing a spelling. The row walk refuses those
+            # (2026-09-06): the Middle English do is a fallow deer with an
+            # Old English etymology beside a spelling of the verb don with
+            # none, and ado read Old English dā.
+            etys.setdefault(k, set()).add(clean_text(text))
+            if text:
+                # The accounts the spelling actually STATES. An entry
+                # with none is silent rather than contradicting: a lemma
+                # page beside its own participle is one word.
+                stated.setdefault(k, set()).add(clean_text(text))
+            templates = e.get("etymology_templates") or []
+            if any((t.get("name") or "") in UNCERTAIN_NAMES for t in templates):
+                # The page says its own etymology is unknown, and the term
+                # beside it is a proposal (review finding 8, carried to the
+                # walk 2026-09-06). The Middle English core writes "Unknown;
+                # derivation from either Old French cuer or cors has been
+                # suggested, though both possibilities pose serious
+                # problems", and walet "Unknown; possibly Anglo-Norman walet
+                # if that is not a borrowing from English".
+                unsure.add(k)
             if k in pages:
                 continue
-            templates = e.get("etymology_templates") or []
-            text = e.get("etymology_text") or ""
             if not templates and " + " not in text:
                 continue
             mentions, chains, settled = page_mentions(templates, text, code, k)
             if mentions or chains:
                 pages[k] = (mentions, chains, settled)
+    for k, v in pages.items():
+        pages[k] = v + (len(etys.get(k) or ()), k in unsure,
+                        len(stated.get(k) or ()))
     return pages, n, rg.finish()
 
 
@@ -3993,6 +4165,25 @@ ORG_DEPTH = 3           # levels of source-language splitting, SPEC cap
 ORG_ANCHOR_MIN = 2
 
 
+def is_affix_form(term) -> str:
+    """True when a term is written as an affix: a prefix, a suffix or an
+    interfix. Wiktionary writes the hyphen into the page title itself."""
+    t = clean_term(term).strip()
+    return len(t) > 1 and (t.startswith("-") or t.endswith("-"))
+
+
+def make_row(code, term, gloss, rom):
+    """One row-only origin row: the language, the form, and what the page
+    said about it. The gloss and the romanization are filled from the
+    source extract later, where the page said nothing (2026-09-06)."""
+    r = {"lang": code, "f": clean_term(term)}
+    if gloss:
+        r["gloss"] = gloss
+    if rom:
+        r["rom"] = rom
+    return r
+
+
 def org_part(form, rkey, gloss=""):
     """One chip of a decomposed row: the form, its card, its own gloss.
 
@@ -4045,6 +4236,8 @@ class Origin:
         self.carry = set()       # non-anchors kept whole by the chip cap; cards carry parts
         self.card_parts = {}     # anchor or carried key -> its flattened split, from linking
         self.stats = collections.Counter()
+        self.walked_pages = {}   # (code, term) -> that page's own mentions
+        self.last_refusal = ""   # why the last row chain refused its term
         self.ev = {}             # fam:key -> merged homograph evidence
         self.ctx = None          # the attaching page's own evidence, during attach
         self.ranks = {}          # word -> rank, for the weight of its vote
@@ -4339,6 +4532,8 @@ class Origin:
         """
         own = list(mentions) if depth == 3 else [m[:6] + (-2,) for m in mentions]
         walked = []
+        if depth == 3:
+            self.walked_pages = {}
         for m in mentions:
             kind, code, term, gloss, rom, role, _ = m
             if kind == "part" or role not in ("origin", "alt") or term.startswith("*"):
@@ -4360,11 +4555,126 @@ class Origin:
             if (ex, k) in seen:
                 continue
             page = self.pages.get(ex, {}).get(k)
+            if (code in ROW_PASS_LANGS and page
+                    and len(page) > 5 and page[5] > 1):
+                # A Middle English spelling that STATES two etymologies is
+                # two words, and the walk cannot tell which one English took
+                # (2026-09-06). The Middle English male is masculine, a bag
+                # and an apple, each with its own account, and mail read
+                # Latin masculus = mās + -culus off the first of them. The
+                # English page's own statement stands instead.
+                # Two stated accounts, not two entries: a lemma page beside
+                # a participle that says nothing is one word, and counting
+                # the silent entry cost crude, duty, git and gage their
+                # Latin. The test is on Middle English alone: the French
+                # extracts have been walked since 2026-09-05, and applying
+                # it there shallows 36 rows and drops 17 (menu, coupe,
+                # ville and sac would read a French word glossed with
+                # itself).
+                self.stats["walk_ambiguous_" + ex] += 1
+                continue
             if page:
                 self.stats["walked_" + ex] += 1
+                # The walked page's own chain, positions kept, so the row
+                # walk can continue through it (2026-09-06). The flattened
+                # copy below loses the positions, because the root-language
+                # attachment reads every walked term as one list.
+                self.walked_pages.setdefault((code, clean_term(term)), page)
                 walked.extend(self.expand(page[0], depth - 1, seen | {(ex, k)},
                                           page[2] if len(page) > 2 else None))
         return own + walked
+
+    def any_written(self, named):
+        """True when any root term the page names is a page of its graph."""
+        for fam, term, _ in named:
+            if not fam:
+                continue
+            if term.startswith("*") or self.g[fam].lookup(term, alt_ok=True)[0]:
+                return True
+        return False
+
+    def row_chain(self, ms, veto=()):
+        """The deepest attested term of ONE page's own chain, as a row.
+
+        `veto` holds the keys the English page names only as a cognate. A
+        walked page states a chain of its own and knows nothing of what the
+        English page called a cognate, so the veto is carried into the walk
+        (review finding 1, kept here 2026-09-06).
+
+        Read in order (review finding 7, 2026-09-05): a reconstruction ends
+        the walk, an alternative at the same depth is skipped, and an aside
+        was never an origin. Mentions at position -2 belong to a walked
+        page, not to this chain, and are skipped here; the caller follows
+        the walk itself, one page at a time.
+
+        Returns (row, (code, term)) or (None, None).
+        """
+        row = None
+        pair = None
+        self.last_refusal = ""
+        # The languages the walk has passed, in order. A term in a language
+        # the walk left behind starts a second chain rather than going a
+        # step deeper (review 2, cause 2, 2026-09-06): about ends "Middle
+        # English about (adverb)" after its Old English, and or reads "Old
+        # English āþor ... Middle English oththe, from Old English oþþe".
+        # The first chain is the word's own.
+        walked = []
+        unattested = -1          # the position of a starred form just skipped
+        for kind, code, term, gloss, rom, role, pos in ms:
+            if pos == -2 or kind == "part":
+                continue
+            r = lang_role(code)
+            if role != "origin":
+                # A comma-joined list gives its first form, unless that form
+                # is a reconstruction: not writes Old English "*nōht, nāht"
+                # and the attested spelling is the row.
+                if (role == "alt" and pos >= 0 and pos == unattested
+                        and (r in ("row", "") or code in ROW_PASS_LANGS)
+                        and not term.startswith("*")):
+                    row, pair = make_row(code, term, gloss, rom), (code, clean_term(term))
+                    unattested = -1
+                continue
+            if term.startswith("*"):
+                # A reconstruction in a proto language ends the walk; an
+                # unattested form in an attested language (*bangen in Middle
+                # English) is a step the chain continues past.
+                if r == "ignored":
+                    break
+                unattested = pos
+                continue
+            unattested = -1
+            if pos >= 0 and r in ("row", "", "pass"):
+                # Positioned terms only: the etymon tree repeats the chain's
+                # head with no position of its own, and a repeat is not a
+                # step back.
+                if walked and walked[-1] != code and code in walked:
+                    break
+                walked.append(code)
+            if r in ("row", "", "pass"):
+                # A pass-through language ships no CARD, and its term is
+                # still an attested origin: when the walk reaches no root
+                # language, the deepest term of the chain is the row, inert
+                # like any other (2026-09-06). try read Middle English trien
+                # over the Anglo-Norman trier the same sentence names, and
+                # hurt read hurten over Old Northern French hurter.
+                #
+                # A row is a word and never an affix (2026-09-06). A page
+                # that states where its suffix came from is explaining a
+                # component, not the word: the Middle English burned page
+                # names Old English -ed, fidget's page -ettan and thrice's
+                # -es. The chain stops at the last whole word instead.
+                if is_affix_form(term):
+                    self.stats["row_affix_refused"] += 1
+                    self.last_refusal = ("%s:%s is an affix, not a word"
+                                         % (code, clean_term(term)))
+                    continue
+                if veto and (self.term_keys(code, term) & veto):
+                    self.stats["row_cognate_refused"] += 1
+                    self.last_refusal = ("%s:%s is named only as a cognate"
+                                         % (code, clean_term(term)))
+                    continue
+                row, pair = make_row(code, term, gloss, rom), (code, clean_term(term))
+        return row, pair
 
     def attested(self, code, term):
         """True when a term settles the page's own chain: a row-only term,
@@ -4475,7 +4785,8 @@ class Origin:
                     parts_by[fam] = (res, pos, heads, None, senses)
         return parts_by
 
-    def attach(self, mentions, chains, word="", ctx=None, settled=None):
+    def attach(self, mentions, chains, word="", ctx=None, settled=None,
+               defwords=()):
         """The attachment of one English page.
 
         Returns {"lang", "key", "first", "extra"} for a root-language
@@ -4487,9 +4798,14 @@ class Origin:
         """
         self.ctx = ctx
         try:
-            return self._attach(mentions, chains, word, settled)
+            att = self._attach(mentions, chains, word, settled)
         finally:
             self.ctx = None
+        if att and "row" in att and defwords:
+            # The word's own first definition, kept for the row gloss:
+            # a source page with several entries picks one by it.
+            att["dw"] = tuple(sorted(defwords))
+        return att
 
     def _attach(self, mentions, chains, word, settled=None):
         ms = self.expand(mentions, 3, set(), settled)
@@ -4629,6 +4945,7 @@ class Origin:
         # node that decomposes (μονάρχης is a spelling of μόναρχος, which
         # splits; σύκχος is a spelling of συγχίς, which does not, so sock
         # stays on Latin soccus).
+        page_own = list(own)
         hit = self.pick_both(own, parts_by, owner)
         if hit is not None:
             return hit
@@ -4690,7 +5007,14 @@ class Origin:
                         "extra": parts_by[fam][0], "fam": fam,
                         "esense": parts_by[fam][4]}
         # ---- row-only: the deepest named origin is not a root language ----
-        if not any(fam for fam, _, _ in named):
+        # A named root term that is a lemma Wiktionary never wrote settles
+        # nothing (2026-09-06). The row-only chain is read instead of
+        # returning a miss, so a card shows the deepest term the page states
+        # rather than nothing: tan names Latin tannum, which is no page, and
+        # read nothing over its own Old French tan. The word still goes to
+        # the misses report when the chain has nothing either.
+        if (not any(fam for fam, _, _ in named)
+                or (not page_own and not self.any_written(named))):
             # The row is the deepest term of the page's own origin clause
             # (review finding 7, 2026-09-05): read in order, a reconstruction
             # ends the walk, an alternative at the same depth is skipped,
@@ -4699,73 +5023,47 @@ class Origin:
             # page itself settles nothing. A code in no role is a row too;
             # verify then fails until ROW_ONLY_LANGS names it, so a language
             # under the census threshold is never a silent skip.
-            row = None
             stop = ""
-
-            def as_row(code, term, gloss, rom):
-                r = {"lang": code, "f": self.g["la"].clean_term(term)}
-                if gloss:
-                    r["gloss"] = gloss
-                if rom:
-                    r["rom"] = rom
-                return r
-
-            # The languages the walk has passed, in order. A term in a
-            # language the walk left behind starts a second chain rather
-            # than going deeper (review 2, cause 2, 2026-09-06): about ends
-            # "Middle English about (adverb)" after its Old English, and or
-            # reads "Old English āþor ... Middle English oththe, from Old
-            # English oþþe". The first chain is the word's own.
-            walked = []
-            unattested = -1      # the position of a starred form just skipped
-
-            for kind, code, term, gloss, rom, role, pos in ms:
-                if pos == -2 or kind == "part":
-                    continue
-                r = lang_role(code)
-                if role != "origin":
-                    # A comma-joined list gives its first form, unless that
-                    # form is a reconstruction: not writes Old English
-                    # "*nōht, nāht" and the attested spelling is the row.
-                    if (role == "alt" and pos >= 0 and pos == unattested
-                            and r in ("row", "") and not term.startswith("*")):
-                        row = as_row(code, term, gloss, rom)
-                        stop = ""
-                        unattested = -1
-                    continue
-                if term.startswith("*"):
-                    # A reconstruction in a proto language ends the walk; an
-                    # unattested form in an attested language (*bangen in
-                    # Middle English) is a step the chain continues past.
-                    if r == "ignored":
-                        break
-                    unattested = pos
-                    continue
-                unattested = -1
-                if pos >= 0 and r in ("row", "", "pass"):
-                    # Positioned terms only: the etymon tree repeats the
-                    # chain's head with no position of its own, and a
-                    # repeat is not a step back.
-                    if walked and walked[-1] != code and code in walked:
-                        break
-                    walked.append(code)
-                if r in ("row", "", "pass"):
-                    # A pass-through language ships no CARD, and its term is
-                    # still an attested origin: when the walk reaches no root
-                    # language, the deepest term of the chain is the row,
-                    # inert like any other (2026-09-06). try read Middle
-                    # English trien over the Anglo-Norman trier the same
-                    # sentence names, and hurt read hurten over Old Northern
-                    # French hurter.
-                    row = as_row(code, term, gloss, rom)
-                    stop = ""
+            row, pair = self.row_chain(ms)
+            # A walked pass-through page continues the chain past its own
+            # term (2026-09-06). The page's own statement still decides
+            # first: expand() refuses to walk a term the page itself
+            # continues past to something attested, so a page is read here
+            # only where the English page stopped at it. This is what makes
+            # Middle English a pass-through for rows as well as for cards:
+            # the chain goes on toward Old English, Old French, Old Norse
+            # and Latin instead of stopping at the Middle English word.
+            seen_rows = set()
+            while row is not None and row["lang"] in ROW_PASS_LANGS:
+                if pair in seen_rows:
+                    break
+                seen_rows.add(pair)
+                nxt = self.walked_pages.get(pair)
+                if not nxt:
+                    break
+                # A spelling with two accounts of itself is two words, and
+                # the walk cannot tell which one English took: the Middle
+                # English pol is a head and a pool, hey is hay and a shout,
+                # do is a deed and the verb. The row stops at the Middle
+                # English word rather than guess (2026-09-06).
+                if len(nxt) > 3 and nxt[3] > 1:
+                    self.stats["row_walk_ambiguous"] += 1
+                    break
+                if len(nxt) > 4 and nxt[4]:
+                    self.stats["row_walk_uncertain"] += 1
+                    break
+                deeper, dpair = self.row_chain(nxt[0], veto)
+                if deeper is None or dpair == pair:
+                    break
+                row, pair = deeper, dpair
+                self.stats["row_walked_on"] += 1
             if row is None:
                 for kind, code, term, gloss, rom, role, pos in ms:
                     if pos != -2 or kind == "part" or role != "origin" or term.startswith("*"):
                         continue
                     r = lang_role(code)
                     if r in ("row", ""):
-                        row = as_row(code, term, gloss, rom)
+                        row = make_row(code, term, gloss, rom)
                         stop = ""
                     elif r == "pass":
                         stop = code + ":" + term
@@ -4773,7 +5071,13 @@ class Origin:
                 return {"row": row}
             if stop:
                 return {"miss": "chain stops in a pass-through language (%s)" % stop}
-            return None
+            if self.last_refusal:
+                return {"miss": "the only term named is no origin (%s)"
+                                % self.last_refusal}
+            if not any(fam for fam, _, _ in named):
+                return None
+            # The page named a root term after all, and it is a lemma
+            # nothing was written for: the reason below is the drop.
         reasons = []
         for fam, term, _ in named:
             if fam:
@@ -5099,7 +5403,7 @@ class Origin:
             return {p["r"] for p in org["parts"] if p.get("r")}
         return {org["r"]} if org.get("r") else ()
 
-    def row_gloss(self, row, count=True):
+    def row_gloss(self, row, count=True, defwords=()):
         """Fill a row's gloss, and its romanization, from its own language's
         extract (rule of 2026-09-06).
 
@@ -5121,7 +5425,7 @@ class Origin:
         want_rom = non_latin_script(row.get("f") or "")
         if row.get("gloss") and (row.get("rom") or not want_rom):
             return row
-        gloss, rom = rg.look(row.get("f") or "", count)
+        gloss, rom = rg.look(row.get("f") or "", defwords, count)
         if gloss and not row.get("gloss"):
             row["gloss"] = gloss
             if count:
@@ -5140,7 +5444,7 @@ class Origin:
         if "row" in att:
             if count:
                 self.stats["rowonly"] += 1
-            return self.row_gloss(dict(att["row"]), count)
+            return self.row_gloss(dict(att["row"]), count, att.get("dw"))
         if "key" not in att:
             return None
         lang, key = att["lang"], att["key"]
@@ -6615,8 +6919,10 @@ def main(argv):
     download(ENGLISH_URL, ENGLISH_FILE, force, offline)
     download(LATIN_URL, LATIN_FILE, force, offline)
     download(GREEK_URL, GREEK_FILE, force, offline)
-    for code in ("fro", "frm", "fr"):
+    for code in PASS_ORDER:
         download(PASS_FILES[code][0], PASS_FILES[code][1], force, offline)
+    for code in ROW_ORDER:
+        download(ROW_FILES[code][0], ROW_FILES[code][1], force, offline)
     download(EXTFREQ_URL, EXTFREQ_FILE, force, offline)
 
     log("[2/7] reading the frequency list")
@@ -6667,11 +6973,20 @@ def main(argv):
                format(st["prose_unread"], ",")))
     pages = {}
     rowg = {}
-    for code in ("fro", "frm", "fr"):
+    for code in PASS_ORDER:
         pages[code], n_lines, rowg[code] = read_passthrough(PASS_FILES[code][1], code)
-        log("  %-3s %s lines, %s pages with an origin, %s glossed pages" % (
-            code, format(n_lines, ","), format(len(pages[code]), ","),
-            format(rowg[code].stats["pages"], ",")))
+        log("  %-3s %s lines, %s pages with an origin, %s glossed pages, "
+            "%s homograph spellings left unglossed" % (
+                code, format(n_lines, ","), format(len(pages[code]), ","),
+                format(rowg[code].stats["pages"], ","),
+                format(rowg[code].stats["homographs"], ",")))
+    for code in ROW_ORDER:
+        rowg[code] = read_row_glosses(ROW_FILES[code][1], code)
+        log("  %-3s %s lines, %s glossed pages, %s homograph spellings "
+            "left unglossed (glosses only, no walk)" % (
+                code, format(rowg[code].stats["lines"], ","),
+                format(rowg[code].stats["pages"], ","),
+                format(rowg[code].stats["homographs"], ",")))
     origin = Origin(graphs, pages, rowg)
     origin.ranks = ranks
 
@@ -6683,7 +6998,7 @@ def main(argv):
         % (format(len(harvest), ","), format(s2["dropped_long"], ","),
            DEF_MAX_CHARS, format(s2["attached"], ","),
            format(s2["rowonly"], ","), format(s2["missed"], ",")))
-    for code in ("fro", "frm", "fr"):
+    for code in PASS_ORDER:
         log("  %s %s pass-through pages walked" % (
             format(origin.stats["walked_" + code], ","), code))
     origin.choose_homographs()

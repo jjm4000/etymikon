@@ -68,6 +68,13 @@ schedule, and a refresh mid-task moves every number in the report.
 | `cache/kaikki-OldFrench.jsonl.gz`   | `https://kaikki.org/dictionary/Old%20French/kaikki.org-dictionary-OldFrench.jsonl.gz`              | ~3.3 MB |
 | `cache/kaikki-MiddleFrench.jsonl.gz`| `https://kaikki.org/dictionary/Middle%20French/kaikki.org-dictionary-MiddleFrench.jsonl.gz`        | ~1.3 MB |
 | `cache/kaikki-French.jsonl.gz`      | `https://kaikki.org/dictionary/French/kaikki.org-dictionary-French.jsonl.gz`                      | ~54 MB  |
+| `cache/kaikki-MiddleEnglish.jsonl.gz`| `https://kaikki.org/dictionary/Middle%20English/kaikki.org-dictionary-MiddleEnglish.jsonl.gz`    | ~7.1 MB |
+| `cache/kaikki-OldEnglish.jsonl.gz`  | `https://kaikki.org/dictionary/Old%20English/kaikki.org-dictionary-OldEnglish.jsonl.gz`           | ~13.2 MB|
+| `cache/kaikki-OldNorse.jsonl.gz`    | `https://kaikki.org/dictionary/Old%20Norse/kaikki.org-dictionary-OldNorse.jsonl.gz`               | ~4.0 MB |
+| `cache/kaikki-MiddleDutch.jsonl.gz` | `https://kaikki.org/dictionary/Middle%20Dutch/kaikki.org-dictionary-MiddleDutch.jsonl.gz`         | ~0.6 MB |
+| `cache/kaikki-OldHighGerman.jsonl.gz`| `https://kaikki.org/dictionary/Old%20High%20German/kaikki.org-dictionary-OldHighGerman.jsonl.gz` | ~0.9 MB |
+| `cache/kaikki-OldDutch.jsonl.gz`    | `https://kaikki.org/dictionary/Old%20Dutch/kaikki.org-dictionary-OldDutch.jsonl.gz`               | ~0.7 MB |
+| `cache/kaikki-OldSaxon.jsonl.gz`    | `https://kaikki.org/dictionary/Old%20Saxon/kaikki.org-dictionary-OldSaxon.jsonl.gz`               | ~0.7 MB |
 | `cache/en_full_opensubtitles.txt`   | `https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_full.txt`   | ~19 MB  |
 
 The English extract is the only source of definitions, morpheme splits and
@@ -79,6 +86,18 @@ the terms they name so a chain that stops at Old French can continue to
 Latin, and they never ship a card. The frequency list supplies the `fr`
 rank and nothing else; no wording from it reaches the output. Licences and attribution are in
 `../extension/data/DATA-LICENSE.md`.
+
+The seven Germanic extracts were added 2026-09-06 (sizes are that day's
+publication). They supply the gloss a row-only row prints, looked up in the
+extract of the row's own language, and Middle English is walked as well: it
+joined the pass-through group so a chain that stops there continues toward
+Old English, Old French, Old Norse and Latin. Old English does NOT become a
+root language in this round: it stays row-only, gains glosses, and ships no
+card and no family. kaikki publishes no Middle Low German and no Anglo-Norman
+extract (both 404, checked 2026-09-06), so the 104 `gml` and `xno` rows keep
+whatever gloss the English page wrote. The modern languages (Italian,
+Spanish, German, Japanese, Arabic and the rest) have no extract here: they
+cost 352 MB for 482 glosses, which the owner declined 2026-09-06.
 
 Files are read straight from gzip and never decompressed to disk. `cache/` is
 gitignored.
@@ -548,8 +567,8 @@ threshold at 2026-09-05, all in a role.
 | role | codes | what happens |
 |------|-------|--------------|
 | root | Latin period codes (`la`, `la-lat`, `la-med`, `la-ecc`, `la-new`, `la-vul`, `la-cla`, `la-eme`, `la-ren`, `ML`, `LL`, `NL`, `VL`); `grc`, `grc-koi`, `gkm` | nodes ship as root cards with families |
-| pass-through | `fro`, `fro-nor`, `xno`, `xno-law`, `frm`, `fr`, `fr-CA`, `fr-aca`, `frc` | pages are walked to continue a chain toward a root language; never a card, never a row |
-| row-only | every other attested language, `ROW_ONLY_LANGS`, about 300 codes with the name the row prints (131 under the census threshold surfaced by review finding 7, named off the template expansions) | one inert origin row, no card, no family |
+| pass-through | `fro`, `fro-nor`, `xno`, `xno-law`, `frm`, `fr`, `fr-CA`, `fr-aca`, `frc`, `enm` | pages are walked to continue a chain toward a root language; never a card, and a row only where the walk reaches nothing deeper |
+| row-only | every other attested language, `ROW_ONLY_LANGS`, about 300 codes (Middle English left the table for the pass-through group 2026-09-06) with the name the row prints (131 under the census threshold surfaced by review finding 7, named off the template expansions) | one inert origin row, no card, no family |
 | ignored | `en`, `mul`, the Chinese romanization schemes, undetermined and substrate codes, proto-language codes, a comma-joined list of codes | no origin language |
 
 A reconstructed term (starting with `*`) ends the walk whatever its code.
@@ -558,10 +577,45 @@ print; verify reads it out of content.js and fails when the build emits a
 code it lacks (the loud-failure pattern of the census gate), and the Node
 suite checks the same thing from the other side.
 
-The pass-through extracts (Old French, Middle French, French) are read for
-their mentions only, into a per-page table of the terms each page names.
-kaikki publishes no Anglo-Norman extract (checked 2026-09-05), so an `xno`
-mention is walked only through what the English page itself says.
+The pass-through extracts (Old French, Middle French, French, and Middle
+English since 2026-09-06) are read for their mentions, into a per-page table
+of the terms each page names, and for their glosses. kaikki publishes no
+Anglo-Norman extract (checked 2026-09-05), so an `xno` mention is walked only
+through what the English page itself says.
+
+Middle English joined the group on 2026-09-06 (owner decision): 643 rows
+stopped there and the Middle English page usually names the Old English, Old
+Norse or Old French word behind them. `ROW_PASS_LANGS` holds the pass-through
+languages a ROW is read through as well as a card, and Middle English is the
+only member. Two rules follow the membership. A row whose chain ends at a
+Middle English term continues through that page to the term it names. And the
+two spelling rules a row-only language gets, the comma-joined list and the
+attested form beside a reconstruction, are read for it too, since a chain
+ends at Middle English as often as in a row-only language (print reads "Middle
+English *printen, prenten" and shows prenten).
+
+Three guards keep the Middle English walk on the word English took. A
+spelling that STATES two etymologies is two words, and neither the walk nor
+the row reads it: the Middle English male is masculine, a bag and an apple,
+and mail read Latin masculus off the first of them. Two stated accounts, not
+two entries, since a lemma page beside a silent participle is one word. A
+page whose own etymology carries an `unk` or `unc` template states a proposal
+rather than an origin (core writes "Unknown; derivation from either Old French
+cuer or cors has been suggested, though both possibilities pose serious
+problems"). And a term the English page names only as a cognate is refused in
+the walk as it is on the page itself.
+
+The three guards are on Middle English alone. Applying the ambiguity test to
+the French extracts, which have been walked since 2026-09-05, shallows 36 rows
+and drops 17: menu, coupe, ville and sac would read a French word glossed with
+itself. Walking French rows the way Middle English ones are walked moved 108
+rows and read most of them worse, since a French page's own chain runs on past
+the word English borrowed (swiss read Old High German Suittes over Middle
+French Suisse).
+
+Old English does NOT become a root language in this round. It stays row-only
+and gains glosses; the root role with cards and families is phase two of the
+SPEC and is not built here.
 
 ### Attachment
 
@@ -683,10 +737,51 @@ mockups 2026-09-05), 14,247 rows at 2026-09-06:
   from the transliteration kaikki writes into the template's expansion,
   else from the parenthesis the prose writes right after it (review
   finding 6, 2026-09-05; 472 of 740 non-Latin rows lacked one before,
-  122 after). The worker passes it through unjoined and the card renders
-  it inert. 4,956
-  rows, Old English 1,686 and Middle English 1,023 the largest groups until
+  122 after). Where the English page wrote no gloss, the row looks its own
+  term up in the extract of its own language and takes the gloss there
+  (2026-09-06, see "Row glosses"). The worker passes it through unjoined
+  and the card renders it inert. 5,190
+  rows, Old English 1,703 and Middle English 578 the largest groups until
   phase two makes Old English a root language.
+
+### Row glosses
+
+A row-only row names a source language and a term and ships no card, so
+until 2026-09-06 its gloss existed only where the English page happened to
+write one into a mention template: 3,281 of 5,201 rows, 63%, read "From Old
+English tō" and stopped, 526 of them inside the top 3,000 ranks. The row now
+looks its term up in the extract of its own language and takes the gloss
+written there, and the romanization for a form outside the Latin script. A
+gloss the English page states keeps priority, since that is what the page
+says the word meant when English took it.
+
+`ROW_EXTRACT` names the extract a row's language is looked up in and
+`PASS_EXTRACT` the French group's; a code in neither takes whatever the
+English page wrote. The lookup is the graph's: the term is cleaned of inline
+modifiers, a section suffix and trailing punctuation, the strict key is
+tried, and the loose key with every combining mark stripped answers when the
+strict key is no page. That loose pass is what reaches an Old English page
+title, which carries no macron, from a template that writes one. Where two
+page titles share one loose key the row stays silent.
+
+The gloss is chosen the way a root card's is: `best_gloss` over the page's
+lemma entries, name entries weighted last, form-of pages left out. Where a
+page has several lemma entries the English word decides between them, the way
+the homograph vote decides a root card's entry: the entry whose senses share
+the most content words with the English word and its first definition wins,
+so good reads Old English gōd "good" and god reads god "god" off one page
+title, and loathe reads lāþian "to loathe" over the same page's "to invite".
+With no overlap and two stated etymologies the row carries no gloss rather
+than guess: Old English is is the noun "ice" beside the verb form of wesan,
+and the row on English is stays bare.
+
+Outcome (2026-09-06): rows without a gloss 3,281 to 2,098, and 526 to 222
+inside the top 3,000. 1,181 rows gained one: Old English 674, French 197,
+Middle English 145, Old French 83, Old Norse 45, Middle French 10, Middle
+Dutch 6, and a tail across the Old Dutch, Old High German and Old Saxon
+extracts. A hand read of twenty at random: 18 right, 2 degraded (bracelet
+reads fro bracelet "diminutive of bras", the page's only sense; erie reads
+fr Érié "Lake Erie" where the English sense is the tribe), 0 wrong.
 
 A word never carries both morphs and org. Nothing is dropped for a
 threshold. What is dropped carries a stated reason: a refused split in the
