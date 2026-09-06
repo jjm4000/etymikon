@@ -2219,6 +2219,45 @@ whose Greek row is right. Two rows moved: ah reads Middle English ah, and
 spree moves off the Scots-to-Latin chain of "Watkins proposes a possible
 origin" onto the French esprit of the page's own first guess.
 
+### A glossless page steps to the page it names (2026-09-06)
+
+A row-only row looks its term up in its own extract (2026-09-06). A page
+that is only a form-of entry holds no gloss of its own, so the lookup
+stopped there and the row read "From Old English cumende" with nothing
+after it. The page is not silent: it says which page has the sense.
+
+- A page with no gloss of its own steps to the page it names, and the
+  step repeats, exactly as the source graph's lookup steps through a
+  form-of page and an alternative-form one. An alternative spelling is
+  read the way `alt_spelling_of` reads one, so an abbreviation or a
+  pronunciation spelling is refused here as it is for English; any other
+  form-of page names its lemma in the link of its first form-of sense.
+- A spelling that names two different pages is two words and steps
+  nowhere. The Middle English fond is an alternative form of fend, of
+  fonned and of fonden, and the row cannot choose.
+- The step is only taken where the spelling is no glossed page of its
+  own, so nothing that already had a gloss changed.
+- Outcome: 234 lookups stepped and 122 rows gained a gloss, none lost or
+  reworded one and no row moved. right reads Old English reht "right"
+  through riht, coming cumende "to come" through cuman, had hæfde "to
+  have, possess" through habban, waste Old Northern French wast
+  "destruction" through gast, quiche Old High German kuocho "cake; pie"
+  through kuohho, thwart Old Norse þvert through þverr.
+- The thirty highest ranked, read against the extracts: 27 right, 2
+  degraded, 1 wrong. Degraded: worse and worst read wiersa and wierrest
+  glossed "bad", which is the positive degree their pages step to. Wrong:
+  tiny reads Middle English tine glossed "thine, your", because the only
+  tine page the extract carries is a spelling of þin. Four more of that
+  shape are in the full 122: tore (tor, a spelling of tour "tower"),
+  munch (monchen, a spelling of mynchene "nun"), jakes (Jake, a spelling
+  of jakke "a padded coat") and peat (pete, a spelling of pety). Where
+  the extract carries one word under a spelling and the English page
+  means another, no evidence on either page separates them.
+- Not built: following the forms table of a page that never states
+  anything. It would reach 87 more rows and read Old French trope as the
+  adverb trop "excessively" where English troop wants the noun "herd".
+  The count and the reason are in pipeline/cache/gloss-gap-report.txt.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

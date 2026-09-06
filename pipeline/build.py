@@ -3959,7 +3959,10 @@ class RowGlosses:
     The lookup is the graph's: clean the term, take the strict key, and fall
     back to the loose key with every combining mark stripped when the strict
     key is no page. The loose pass is what reaches a page title that carries
-    no macron from a template that does, and the other way round.
+    no macron from a template that does, and the other way round. A page
+    that holds no gloss of its own steps to the page it names, as the
+    graph's lookup steps through a form-of page and an alternative-form one
+    (rule of 2026-09-06, the glossless page steps).
     """
 
     def __init__(self, code):
@@ -3967,6 +3970,7 @@ class RowGlosses:
         self.cands = {}          # key -> [(weight, order, gloss, rom, words)]
         self.loose_idx = {}      # loose key -> [key], glossed pages only
         self.stated = {}         # key -> the distinct etymologies it states
+        self.step = {}           # key -> the page a glossless page names
         self.order = 0
         self.stats = collections.Counter()
 
@@ -3983,6 +3987,11 @@ class RowGlosses:
             # English is read "ice".
             self.stated.setdefault(k, set()).add(text)
         if pure_form_of(e):
+            # The page defines nothing of its own and says which page does.
+            # "Alternative form of frēond" and "nominative plural of dæġ"
+            # are both statements about another page, and the row shows the
+            # spelling English named with that page's gloss.
+            self.note_step(k, e)
             return
         g = best_gloss(e)
         if not g:
@@ -3999,6 +4008,29 @@ class RowGlosses:
         self.order += 1
         self.cands.setdefault(k, []).append(
             (weight, self.order, g, rom, words))
+
+    def note_step(self, k, e):
+        """Record where a page with no gloss of its own sends the reader.
+
+        An alternative spelling is read the way `alt_spelling_of` reads one,
+        so an abbreviation or a pronunciation spelling is refused here as it
+        is for English. Any other form-of page names its lemma in the link
+        of its first form-of sense. A spelling that names two different
+        pages is two words and the row cannot choose between them: the
+        Middle English fond is an alternative form of fend, of fonned and
+        of fonden, so it steps nowhere.
+        """
+        alt = alt_spelling_of(e)
+        tgt = alt[0] if alt else ""
+        if not tgt:
+            for s in e.get("senses") or ():
+                links = s.get("form_of") or s.get("alt_of") or ()
+                if links and (links[0] or {}).get("word"):
+                    tgt = links[0]["word"]
+                    break
+        tk = norm_for(self.code, clean_term(tgt))
+        if tk and tk != k:
+            self.step.setdefault(k, set()).add(tk)
 
     def finish(self):
         for k, cs in self.cands.items():
@@ -4041,6 +4073,26 @@ class RowGlosses:
             return None
         return cs[0]
 
+    def follow(self, key):
+        """The glossed page a glossless one names, or None.
+
+        The step repeats, since a spelling of a spelling is written that
+        way, and stops at the first page that holds a gloss.
+        """
+        seen = {key}
+        for _ in range(4):
+            nxt = self.step.get(key)
+            if not nxt or len(nxt) > 1:
+                return None
+            nxt = next(iter(nxt))
+            if nxt in seen:
+                return None
+            seen.add(nxt)
+            key = nxt
+            if key in self.cands:
+                return key
+        return None
+
     def look(self, term, defwords=(), count=True):
         """(gloss, rom) for a term, or ("", "")."""
         t = clean_term(term)
@@ -4048,6 +4100,12 @@ class RowGlosses:
             return "", ""
         k = norm_for(self.code, t)
         if k not in self.cands:
+            stepped = self.follow(k)
+            if stepped is not None:
+                if count:
+                    self.stats["stepped"] += 1
+                hit = self.pick(stepped, set(defwords or ()), count)
+                return (hit[2], hit[3]) if hit else ("", "")
             cands = self.loose_idx.get(strip_marks(k))
             if not cands:
                 if count:
@@ -7140,11 +7198,13 @@ def main(argv):
            format(origin.stats["single"], ","),
            format(origin.stats["rowonly"], ",")))
     log("  row glosses read from a source extract: %s (%s romanizations); "
-        "lookups %s strict, %s loose, %s ambiguous, %s no page"
+        "lookups %s strict, %s loose, %s stepped off a glossless page, "
+        "%s ambiguous, %s no page"
         % (format(origin.stats["rowgloss"], ","),
            format(origin.stats["rowrom"], ","),
            format(sum(r.stats["strict"] for r in rowg.values()), ","),
            format(sum(r.stats["loose"] for r in rowg.values()), ","),
+           format(sum(r.stats["stepped"] for r in rowg.values()), ","),
            format(sum(r.stats["ambiguous"] for r in rowg.values()), ","),
            format(sum(r.stats["missed"] for r in rowg.values()), ",")))
 

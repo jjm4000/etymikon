@@ -123,7 +123,7 @@
     {"word": "touch", "kind": "rowonly", "lang": "fro", "lemma": "tochier", "glosses": ["to touch"], "why": "der enm touchen, der fro tochier; the Vulgar Latin *tuccō after it is a reconstruction"},
     {"word": "dance", "kind": "rowonly", "lang": "xno", "lemma": "dauncer", "why": "der enm dauncen, der xno dauncer; the Vulgar Latin *dantiāre after it is a reconstruction"},
     {"word": "view", "kind": "rowonly", "lang": "fro", "lemma": "veue", "glosses": ["sight"], "why": "the gloss is the fro veue noun's first sense, sight (ability to see), with the clarifier off; der enm vewe, der xno vewe, der fro veue"},
-    {"word": "release", "kind": "rowonly", "lang": "fro", "lemma": "relaisser", "why": "der enm relesen, der fro relaisser"},
+    {"word": "release", "kind": "rowonly", "lang": "fro", "lemma": "relaisser", "glosses": ["to relax"], "why": "der enm relesen, der fro relaisser; the fro relaisser page is an alternative form of relaschier and holds no sense of its own, so the row reads relaschier's"},
     {"word": "avoid", "kind": "rowonly", "lang": "xno", "lemma": "avoider", "why": "der enm avoiden, der xno avoider, with Old French esvuidier after it"},
     {"word": "trial", "kind": "rowonly", "lang": "xno", "lemma": "trial", "why": "der enm trial, der xno trial"},
     {"word": "attorney", "kind": "rowonly", "lang": "fro", "lemma": "atorner", "glosses": ["to prepare; to ready"], "why": "the gloss is the first of the fro atorner verb's two senses; der enm attourne, der fro atorner"},
@@ -286,7 +286,8 @@
      "glosses": ["part, share, portion"],
      "why": "two noun sections each supply two of the card's first four senses; the card opens with ang dǣl (a division, a portion) and the later ang dǣlan supplies no more of the list, so the first section keeps the row"},
     {"word": "coming", "kind": "rowonly", "lang": "ang", "lemma": "cumende",
-     "why": "the card opens with the interjection sense, whose section reads enm cominge, ang cumende"},
+     "glosses": ["to come"],
+     "why": "the card opens with the interjection sense, whose section reads enm cominge, ang cumende; the cumende page is the present participle of cuman and holds no gloss of its own, so the row reads cuman's"},
     {"word": "ah", "kind": "rowonly", "lang": "enm", "lemma": "ah",
      "why": "three interjection sections fill the card's first sense list and the first supplies two of the four, more than either of the others, so it keeps the row: inh enm ah, with the Old English ēa an alternative. The Old French a of \"Some propose that the Middle English is borrowed from Old French a\" is a proposal and gives no row"},
     {"word": "chance", "kind": "single", "lang": "la", "lemma": "cadō",
@@ -407,6 +408,17 @@
     {"word": "robot", "kind": "none", "why": "the card opens with the Central European serfdom from German Robot, one sense, and the machine section supplies the other three; a later section supplies more of the first sense list than the first, so the row is withheld and reported"},
     {"word": "seal", "kind": "none", "why": "the card opens with the animal from ang seolh, one sense, and the stamp section supplies the other three, so the row is withheld and reported"},
     {"word": "ben", "kind": "none", "why": "the card's first sense list runs one sense from ang bēn, one from ang binnan and two from Arabic بَان, so a later section supplies more of it than the first"},
-    {"word": "groom", "kind": "none", "why": "the card opens with the bridegroom, one sense, and the horse-keeper section supplies the other three"}
+    {"word": "groom", "kind": "none", "why": "the card opens with the bridegroom, one sense, and the horse-keeper section supplies the other three"},
+    {"word": "right", "kind": "rowonly", "lang": "ang", "lemma": "reht", "glosses": ["right"], "why": "the ang reht page is an alternative form of riht and holds no gloss of its own, so the row reads riht's (2026-09-06, the glossless page steps)"},
+    {"word": "had", "kind": "rowonly", "lang": "ang", "lemma": "hæfde", "glosses": ["to have, possess"], "why": "the ang hæfde page is an inflection of habban and states no sense of its own"},
+    {"word": "than", "kind": "rowonly", "lang": "ang", "lemma": "þanne", "glosses": ["then, at that time"], "why": "the ang þanne page is an alternative form of þonne in both its adverb and its conjunction entry, one target, so the step is unambiguous"},
+    {"word": "king", "kind": "rowonly", "lang": "ang", "lemma": "cening", "glosses": ["king"], "why": "the ang cening page is an alternative form of cyning"},
+    {"word": "girl", "kind": "rowonly", "lang": "enm", "lemma": "gerle", "glosses": ["A child; a young person of either sex."], "why": "the enm gerle page is an alternative form of girle, whose first sense is the child"},
+    {"word": "waste", "kind": "rowonly", "lang": "fro-nor", "lemma": "wast", "glosses": ["destruction"], "why": "der fro-nor wast, whose Old French page is an alternative form of gast"},
+    {"word": "tennis", "kind": "rowonly", "lang": "fro", "lemma": "tenez", "glosses": ["to possess; to have"], "why": "the fro tenez page is the second-person plural of tenir, so the row reads tenir's gloss"},
+    {"word": "quiche", "kind": "rowonly", "lang": "goh", "lemma": "kuocho", "glosses": ["cake; pie"], "why": "the goh kuocho page is an alternative spelling of kuohho"},
+    {"word": "thwart", "kind": "rowonly", "lang": "non", "lemma": "þvert", "glosses": ["athwart, transverse"], "why": "the non þvert page is the strong neuter singular of þverr"},
+    {"word": "masseuse", "kind": "rowonly", "lang": "fr", "lemma": "masseuse", "glosses": ["masseur"], "why": "the fr masseuse page is the female equivalent of masseur and states no sense of its own"},
+    {"word": "blister", "kind": "rowonly", "lang": "fro", "lemma": "blestre", "glosses": ["blister"], "why": "the fro blestre page is an alternative form of blostre"}
   ]
 }

@@ -772,6 +772,20 @@ strict key is no page. That loose pass is what reaches an Old English page
 title, which carries no macron, from a template that writes one. Where two
 page titles share one loose key the row stays silent.
 
+A page that holds no gloss of its own steps to the page it names, and the
+step repeats, the way the graph's lookup steps through a form-of page and an
+alternative-form one (2026-09-06). Old English cumende is the present
+participle of cuman and reht an alternative form of riht, so coming reads
+"to come" and right reads "right". An alternative spelling is read the way
+`alt_spelling_of` reads one, so an abbreviation or a pronunciation spelling
+is refused here as it is for English. A spelling that names two different
+pages is two words and steps nowhere: the Middle English fond is an
+alternative form of fend, of fonned and of fonden. The step is taken only
+where the spelling is no glossed page of its own, so nothing that already
+carried a gloss moves. Not built: following the forms table of a page that
+states nothing, which would reach 87 more rows and read Old French trope as
+the adverb trop "excessively" where English troop wants the noun "herd".
+
 The gloss is chosen the way a root card's is: `best_gloss` over the page's
 lemma entries, name entries weighted last, form-of pages left out. Where a
 page has several lemma entries the English word decides between them, the way
@@ -799,6 +813,17 @@ Dutch 6, and a tail across the Old Dutch, Old High German and Old Saxon
 extracts. A hand read of twenty at random: 18 right, 2 degraded (bracelet
 reads fro bracelet "diminutive of bras", the page's only sense; erie reads
 fr Érié "Lake Erie" where the English sense is the tribe), 0 wrong.
+
+Outcome of the glossless-page step (2026-09-06): 234 lookups stepped and 122
+rows gained a gloss, none lost or reworded one. The thirty highest ranked
+read against the extracts: 27 right, 2 degraded (worse and worst read wiersa
+and wierrest glossed "bad", the positive degree their pages step to), 1
+wrong (tiny reads Middle English tine glossed "thine, your", the only tine
+page the extract carries). Rows without a gloss overall: 2,098 to 2,052 and
+222 to 194 inside the top 3,000, against a base that gained 209 rows in the
+same build. The causes of what is left, with counts and examples and each
+one marked a rule gap or a source gap, are in `cache/gloss-gap-report.txt`,
+written once on 2026-09-06 rather than by the build.
 
 A word never carries both morphs and org. Nothing is dropped for a
 threshold. What is dropped carries a stated reason: a refused split in the
