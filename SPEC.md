@@ -2092,6 +2092,41 @@ a spelling the Middle English extract has no page for (abandoned, awakenen,
 babelen), 55 name a page with no etymology at all, and 22 name a page whose
 etymology the reader could not use. That is a source gap, not a rule gap.
 
+### Reading the English page harder (dated note, 2026-09-06)
+
+Italian, Spanish, German, Japanese, Arabic and the rest are terminal
+row-only origins with no extract here: they cost 352 MB for 482 glosses,
+which the owner declined on 2026-09-06. 1,039 rows without a gloss are in
+one of those languages, 39 of them inside the top 3,000. The question was
+whether the English page's own templates, read harder, close any of it.
+
+Measured over those rows, the page still carries two things a row was not
+taking: a `tr` argument on another template naming the same term, and a
+transliteration the prose writes after the term with no expansion to anchor
+it. Both are readings of the FORM, so a page that names one spelling twice
+reads it the same way both times and no homograph can spoil it.
+
+- Kept: the romanization. A row-only row with no romanization takes it from
+  another template of its own section that names the same term in the same
+  language, else from the prose after the term. 8 rows gained one, none lost
+  or changed one, and all 8 are right: magazine مَخْزَن (maḵzan), muslim
+  أَسْلَمَ (ʔaslama), buddha बोधति (bodhati), macabre مَقْبَرَة (maqbara),
+  nawab نَائِب (nāʔib), masala مصلحت (maṣlaḥat), schmooze שְׁמוּעָה
+  (sh'mu'á), boyar боя́рин (bojárin). Non-Latin row-only rows without a
+  reading: 83 to 75.
+- Dropped: the gloss. A gloss is a reading of the SENSE, and a second
+  template naming the same spelling is often about another word. Inside one
+  etymology section, which is all the section rule of 2026-09-06 allows, it
+  reaches 2 rows and rewords 3 (freak, bird, fun, each to a longer wording of
+  the same sense). Pooling the sections of a page would reach 19 and read 3
+  of them wrong, and the wrong ones are the commonest words of the set: been
+  would read Old English bēon "bees", which is the plural of bēo, and over
+  would read ofer "riverbank, seashore, brink", which is the other ofer. bak
+  would read a hanja as its gloss. Two rows do not pay for that, and pooling
+  sections contradicts the section rule, so the gloss half is not built. The
+  extract lookup is what closes this gap, and for these languages there is no
+  extract.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

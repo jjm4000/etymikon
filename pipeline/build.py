@@ -2806,6 +2806,61 @@ def paren_role(prose, at):
     return ""
 
 
+def read_harder(mentions, templates, prose):
+    """A second read of an English page for a row's romanization.
+
+    A row-only row takes its romanization from its own template's `tr`, from
+    the transliteration kaikki writes into the expansion, or from the
+    parenthesis the prose writes right after it (review finding 6,
+    2026-09-05). Where none of those lands, the page often still carries the
+    reading: another template names the same term with a `tr`, or the prose
+    writes it after the term with no expansion to anchor it. magazine reads
+    Arabic مَخْزَن (maḵzan), muslim أَسْلَمَ (ʔaslama), czar царь (carʹ).
+
+    A romanization is a reading of the FORM, so a page naming the same term
+    twice reads it the same way both times and no homograph can spoil it.
+    The gloss is NOT filled the same way (owner decision 2026-09-06, measured
+    below in the SPEC note "Reading the English page harder"). A gloss is a
+    reading of the SENSE, and a second template naming the same spelling is
+    often about another word: pooling the sections of a page would read been
+    as Old English bēon "bees" and over as ofer "riverbank, seashore". Inside
+    one section, which is all the section rule of 2026-09-06 allows, the
+    harder gloss read reaches two rows and rewords three. It is not kept.
+    """
+    reading = {}
+    for t in templates or ():
+        name = t.get("name") or ""
+        args = t.get("args") or {}
+        if name in ORIGIN_NAMES:
+            code, term = args.get("2") or "", args.get("3") or ""
+        elif name in MENTION_NAMES:
+            code, term = args.get("1") or "", args.get("2") or ""
+        else:
+            continue
+        for raw in (term, args.get("4") or ""):
+            k = (code, strip_marks(clean_term(raw)))
+            if not k[0] or not k[1]:
+                continue
+            tr = clean_text(args.get("tr") or "")
+            if tr and is_rom(tr) and k not in reading:
+                reading[k] = tr
+    out = []
+    for m in mentions:
+        kind, code, term, gloss, rom, role, pos = m
+        if kind == "part" or role not in ("origin", "alt"):
+            out.append(m)
+            continue
+        k = (code, strip_marks(clean_term(term)))
+        if not rom and non_latin_script(term):
+            rom = reading.get(k) or ""
+            if not rom and pos >= 0:
+                at = prose.find(term, pos)
+                if at >= 0:
+                    rom = rom_after(prose, at, term)
+        out.append((kind, code, term, gloss, rom, role, pos))
+    return out
+
+
 def page_mentions(templates, text, page_lang, key):
     """(mentions, chains) for one page. See the banner above for the shapes.
 
@@ -3107,6 +3162,9 @@ def page_mentions(templates, text, page_lang, key):
             if a <= pos < b:
                 return i
         return -1
+
+    if page_lang == "en":
+        mentions = read_harder(mentions, templates, prose)
 
     positioned = [m for m in mentions
                   if m[6] >= 0 and m[0] != "part" and m[5] in ("origin", "alt")]

@@ -775,6 +775,15 @@ With no overlap and two stated etymologies the row carries no gloss rather
 than guess: Old English is is the noun "ice" beside the verb form of wesan,
 and the row on English is stays bare.
 
+A row-only row with no romanization takes one from another template of its
+own etymology section that names the same term in the same language, else
+from the prose written after the term (2026-09-06). A romanization is a
+reading of the form, so a page that names one spelling twice reads it the
+same way both times. The gloss is not filled that way: a gloss is a reading
+of the sense and the second template is often about another word (pooling a
+page's sections would read been as Old English bēon "bees" and over as ofer
+"riverbank, seashore"). Non-Latin row-only rows without a reading: 83 to 75.
+
 Outcome (2026-09-06): rows without a gloss 3,281 to 2,098, and 526 to 222
 inside the top 3,000. 1,181 rows gained one: Old English 674, French 197,
 Middle English 145, Old French 83, Old Norse 45, Middle French 10, Middle
