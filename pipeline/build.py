@@ -2644,6 +2644,52 @@ def prose_ancestry(prose, covered, span, heads):
     return out
 
 
+RE_ALT_PAREN = re.compile(r"\s*\((?:[^()]|\([^()]*\))*\)")
+RE_ALT_JOIN = re.compile(
+    r"\s*(?:,\s+and|,|\s+and)\s+(\*?[^\s,;:()\[\]“”\"]+)")
+
+
+RE_ALT_TAIL = re.compile(r"[,;.)]|\s*\(")
+
+
+def prose_alts(prose, pos, exp):
+    """The spellings the prose lists beside a reconstruction, in its own
+    language.
+
+    A page that reconstructs a form often writes the attested one beside it
+    and gives neither a template of its own: shit reads "from Old English
+    *scite (dung) and scitte (diarrhoea)" and pick "from Old English
+    *piccian, *pician (attested in picung), and pican, pycan". Each is an
+    alternative at the same depth, which is what the comma-joined rule of
+    2026-09-06 already says of a template's own argument list; the walk
+    shows the first attested one. A parenthetical between two forms is
+    skipped, and the first word that is no form ends the list.
+    """
+    out = []
+    i = pos + len(exp)
+    for _ in range(6):
+        m = RE_ALT_PAREN.match(prose, i)
+        if m:
+            i = m.end()
+        m = RE_ALT_JOIN.match(prose, i)
+        if not m:
+            break
+        i = m.end()
+        raw = m.group(1)
+        if not RE_ALT_TAIL.match(prose, i):
+            # A form ends the way a list item does, with a comma, a full
+            # stop or its own parenthesis. An ordinary English word follows
+            # another word, and that is where the list stopped being one
+            # ("and cognate with", "and derivative of", "and akin to").
+            break
+        star = raw.startswith("*")
+        f = clean_part(raw[1:] if star else raw)
+        if not f or f.lower() in STOP_HEADS:
+            break
+        out.append("*" + f if star else f)
+    return out
+
+
 def paren_role(prose, at):
     """The stance of the parenthesis a position sits in, or ""."""
     depth = 0
@@ -2810,6 +2856,12 @@ def page_mentions(templates, text, page_lang, key):
             for f in comma_forms(raw):
                 mentions.append(("origin", code, f, gloss, rom,
                                  "alt" if role == "origin" else role, pos))
+            if (term.startswith("*") and pos >= 0 and role == "origin"
+                    and lang_role(code) in ("row", "")):
+                # The attested spellings the prose lists beside a
+                # reconstruction, which carry no template of their own.
+                for f in prose_alts(prose, pos, exp):
+                    mentions.append(("origin", code, f, "", "", "alt", pos))
             stepped = prose_step(prose, pos, exp) if role == "origin" else ""
             if stepped:
                 mentions.append(("mention", code, stepped, "", "", "origin", pos + 1))

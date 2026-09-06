@@ -1840,6 +1840,27 @@ is the deepest attested origin the page states.
   that now names an origin of its own). wait, which the Germanic-walk note
   recorded as not reached, reads Anglo-Norman waiter.
 
+### The spelling beside a reconstruction (dated note, 2026-09-06)
+
+The comma-joined rule of the Germanic walk reads a template's own argument
+list ("*nōht, nāht" on not) and shows the attested spelling. A page often
+writes the attested form in the prose instead, with no template of its own:
+shit reads "from Old English *sċite (“dung”) and sċitte (“diarrhoea”)",
+pick "from Old English *piccian, *pīcian (attested in pīcung), and pīcan,
+pȳcan", tall "*tæl, ġetæl", mix "*mixian, miscian", hey "*hē, ēa".
+
+The forms a page lists after a reconstruction, joined by a comma or by
+"and", are alternatives at the same depth, and the walk shows the first
+attested one. Two limits keep the reader inside the list: a parenthetical
+between two forms is skipped, and a form ends the way a list item does,
+with a comma, a full stop or its own parenthesis. An ordinary English word
+is followed by another word, which is where the list stopped being one
+("and cognate with", "and derivative of", "and akin to"). Only a row-only
+language is read this way, since the rule is the row's.
+
+Outcome: 20 rows changed, 2 words gained a row, 1 lost one to the section
+rule (tick, whose second section now names an origin of its own).
+
 ### Glosses carry no markup and end in no separator (2026-09-06)
 
 Two shapes the source writes into a template's gloss argument reached the
