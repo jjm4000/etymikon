@@ -1377,6 +1377,7 @@ def harvest_english(path, cand, origin):
                     e.get("etymology_templates") or [],
                     e.get("etymology_text") or "", "en", wl)
                 rec["att"] = origin.attach(mentions, chains, wl)
+                rec["cogonly"] = origin.cognate_only(mentions)
                 if rec["att"] is not None:
                     stats["attached" if "key" in rec["att"] else
                           "rowonly" if "row" in rec["att"] else "missed"] += 1
@@ -1398,13 +1399,17 @@ def harvest_english(path, cand, origin):
 # and pass-through pages, and the graph builder with its own verification.
 
 # The mention-shaped templates: a language code in arg 1 and a term in arg 2.
-# `noncog` and `cog` are here on purpose. Wiktionary editors use them for
-# ordinary mentions as well ("equivalent to Latin manū + Latin scrīptus" on
-# manuscript is written with {{noncog}}), so the template name is never what
-# decides whether a term is an origin; the sentence it sits in is (SPEC
-# Principle 3).
+# `noncog` and `cog` are here so their terms are read at all: a cognate is
+# still evidence about which homograph a page means, and Wiktionary editors
+# write the odd ordinary mention with {{noncog}} ("equivalent to Latin manū +
+# Latin scrīptus" on manuscript). The template's own name states its role
+# (review finding 1, 2026-09-05): a term in one of COGNATE_NAMES is a
+# cognate unless the prose writes "from" or "via" right before it and the
+# sentence is an origin sentence. know, ride, straight, bush, soap and nut
+# shipped a Latin or Greek row off their cognate lists before this rule.
 MENTION_NAMES = frozenset({"m", "m+", "l", "l+", "mention", "link",
                            "cog", "ncog", "noncog", "cognate"})
+COGNATE_NAMES = frozenset({"cog", "ncog", "noncog", "cognate"})
 
 # A sentence that names a term as a relative rather than a source. The role
 # of a mention is read off the sentence around it, never off the template
@@ -1415,7 +1420,28 @@ RE_STANCE_COGNATE = re.compile(
     r"influenc\w*|confus\w*|contaminat\w*|analog\w*|parallel\w*|"
     r"same source|correspond\w*|descendants?|also the source|"
     r"semantic loan|calque\w*|loan translation|eclips\w*|also from|"
+    r"conflat\w*|associat\w*|modell?ed (?:after|on)|interpretation of|"
+    r"translat(?:ion|ing) of|imitation of|rendering of|"
     r"equivalent to (?:the )?(?:modern|later|earlier))\b", re.I)
+# A cue that rejects the term named AFTER it in the same sentence: "not from
+# X", "rather than X", "by folk etymology from X", "a calque of X". Read
+# positionally, because the sentence usually carries the real origin before
+# the cue ("from Old Norse kaka, of disputed origin"; "from Latin commūnis,
+# reinforced as a calque of ..."). Parentheses are blanked before the search,
+# so a cue inside a gloss never fires (doubt: "to be uncertain").
+RE_STANCE_HARD = re.compile(
+    r"\b(not\s+from|not\s+derived\s+from|not\s+related\s+to|unrelated\s+to|"
+    r"rather\s+than|instead\s+of|(?:by\s+|a\s+|the\s+)?folk[-\s]etymolog\w*|"
+    r"false\s+etymolog\w*|mistaken\w*|erroneous\w*|incorrect\w*|wrongly|"
+    r"corruption\s+of|no\s+relation\s+to|calque\w*\s+of|loan\s+translation\s+of|"
+    r"semantic\s+loan\s+of|modell?ed\s+(?:after|on)|translation\s+of|"
+    r"interpretation\s+of|imitation\s+of|rendering\s+of)\b", re.I)
+# A short heading paragraph followed by bullets. "Cognates" keeps every
+# bullet under it a cognate list however the bullets are worded ("from
+# Proto-Germanic: Scots knaw"), and "theories" or "etymology" makes every
+# bullet a rejected proposal rather than a stated origin (race).
+RE_HEADING_REJECT = re.compile(r"\b(theor\w*|hypothes\w*|propos\w*|suggest\w*|"
+                               r"etymolog\w*|origin\w*)\b", re.I)
 # A sentence that states a source, which ends a cognate list's reach.
 RE_STANCE_ORIGIN = re.compile(
     r"\b(from|borrow\w*|inherit\w*|deriv\w*|via|ultimately|calque\w*|"
@@ -1480,6 +1506,24 @@ LANG_FIRST = {n.split(" ")[0] for n in LANG_NAMES}
 def lang_family(code: str) -> str:
     """The graph a code belongs to (la, grc) or the code itself."""
     return ROOT_LANGS.get(code) or code
+
+
+def row_key(code: str, term: str) -> str:
+    """The key a term is compared under: the graph key for a root language,
+    the lowercased form under its own code for any other."""
+    fam = ROOT_LANGS.get(code)
+    if fam:
+        return fam + ":" + norm_for(fam, term)
+    return code + ":" + (term or "").strip().lower()
+
+
+def org_row_key(org) -> str:
+    """The lemma key an emitted org row names, in the row_key shape."""
+    if "parts" in org:
+        return row_key(org["lang"], org["l"])
+    if org.get("r"):
+        return org["r"]
+    return row_key(org.get("lang") or "", org.get("f") or "")
 
 
 def norm_for(lang: str, s: str) -> str:
@@ -1581,13 +1625,28 @@ def sentence_roles(prose, spans):
     roles = []
     prev = "origin"
     last_end = 0
+    heading = ""            # the role a heading fixes for the bullets under it
     for a, b, bullet in spans:
         new_para = prose[last_end:a].count("\n") > 0 if roles else False
         if new_para and not bullet:
             prev = "origin"
+            heading = ""
         sent = prose[a:b]
+        if not bullet and new_para or not roles:
+            # A heading is a short paragraph with no full stop whose next
+            # paragraph is a bullet.
+            para_end = prose.find("\n", a)
+            para = prose[a:para_end if para_end >= 0 else len(prose)].strip()
+            nxt = prose[para_end + 1:para_end + 3] if para_end >= 0 else ""
+            if len(para) <= 40 and "." not in para and nxt.lstrip().startswith("*"):
+                if RE_STANCE_COGNATE.search(para):
+                    heading = "cognate"
+                elif RE_HEADING_REJECT.search(para):
+                    heading = "reject"
         if RE_STANCE_REJECT.search(sent):
             r = "reject"
+        elif bullet and heading:
+            r = heading
         elif RE_STANCE_COGNATE.search(sent):
             r = "cognate"
         elif RE_STANCE_ORIGIN.search(sent):
@@ -1598,6 +1657,35 @@ def sentence_roles(prose, spans):
         prev = r
         last_end = b
     return roles
+
+
+RE_PAREN_SPAN = re.compile(r"\([^()]*\)")
+
+
+def blank_parens(s):
+    """The text with every parenthesis group replaced by spaces, positions kept."""
+    prev = None
+    while prev != s:
+        prev = s
+        s = RE_PAREN_SPAN.sub(lambda m: " " * len(m.group(0)), s)
+    return s
+
+
+def hard_cue_before(sent, at):
+    """True when a rejection or calque cue sits before offset `at` in the
+    sentence, outside any parenthesis."""
+    flat = blank_parens(sent[:at])
+    return RE_STANCE_HARD.search(flat) is not None
+
+
+RE_ORIGIN_CUE = re.compile(r"(?:\bfrom|\bvia|<|\bof|\bborrow(?:ed|ing) from|"
+                           r"\bderived from|\bultimately from)\s*$", re.I)
+
+
+def origin_cue_before(prose, at):
+    """True when the text right before `at` is an origin cue ("from ", "via ")."""
+    head = prose[max(0, at - 24):at]
+    return RE_ORIGIN_CUE.search(head) is not None
 
 
 # ---- the prose decomposition parser --------------------------------------
@@ -2009,8 +2097,26 @@ def page_mentions(templates, text, page_lang, key):
                 inner = paren_role(prose, pos)
                 if inner:
                     return inner
+                if hard_cue_before(prose[a:b], pos - a):
+                    return "reject"
                 return r
         return "origin"
+
+    def rejected_at(pos):
+        """The positional stance only: a hard cue before the term in its
+        sentence, or a rejection or cognate paren around it. This is what an
+        origin template answers to, since the template itself is the claim
+        and only an explicit rejection or calque cue can undo it."""
+        for (a, b, bullet), r in zip(spans, roles):
+            if a <= pos < b:
+                if paren_role(prose, pos):
+                    return True
+                if bullet and r == "reject":
+                    # A bullet that rejects, or sits under a "theories"
+                    # heading, is a listed proposal, not a stated origin.
+                    return True
+                return hard_cue_before(prose[a:b], pos - a)
+        return False
 
     mentions = []
     cursor = 0
@@ -2025,17 +2131,20 @@ def page_mentions(templates, text, page_lang, key):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
                 continue
-            gloss = clean_gloss_arg(args.get("t") or args.get("5") or "")
+            gloss = clean_gloss_arg(args.get("t") or args.get("5") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
             exp = t.get("expansion") or ""
             pos = -1
+            role = "origin"
             if exp:
                 at = prose.find(exp, cursor)
                 if at >= 0:
                     cursor = at
                     pos = at
-            mentions.append(("origin", code, term, gloss, rom, "origin", pos))
-            stepped = prose_step(prose, pos, exp)
+                    if rejected_at(at):
+                        role = "reject"
+            mentions.append(("origin", code, term, gloss, rom, role, pos))
+            stepped = prose_step(prose, pos, exp) if role == "origin" else ""
             if stepped:
                 mentions.append(("mention", code, stepped, "", "", "origin", pos + 1))
             continue
@@ -2047,9 +2156,9 @@ def page_mentions(templates, text, page_lang, key):
                 term = "*" + (clean_part(raw[1:]) or "")
             if not code or not term or term == "-":
                 continue
-            gloss = clean_gloss_arg(args.get("t") or args.get("4") or "")
+            gloss = clean_gloss_arg(args.get("t") or args.get("4") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
-            role = "cognate" if name in ("cog", "ncog", "noncog", "cognate") else "origin"
+            role = "cognate" if name in COGNATE_NAMES else "origin"
             exp = t.get("expansion") or ""
             pos = -1
             if exp:
@@ -2057,9 +2166,17 @@ def page_mentions(templates, text, page_lang, key):
                 if at < 0:
                     at = prose.find(exp)
                 if at >= 0:
-                    role = role_at(at)
                     cursor = at
                     pos = at
+                    if name in COGNATE_NAMES:
+                        # The template name is the role. The one exception is
+                        # a cognate-family template written where the prose
+                        # states a source ("from Latin strictus"), and only
+                        # in a sentence that is itself an origin sentence.
+                        if origin_cue_before(prose, at) and role_at(at) == "origin":
+                            role = "origin"
+                    else:
+                        role = role_at(at)
             mentions.append(("mention", code, term, gloss, rom, role, pos))
             if role == "origin":
                 stepped = prose_step(prose, pos, exp)
@@ -2664,6 +2781,31 @@ class Origin:
             self.alias[first] = lang + ":" + key
         return key
 
+    def term_keys(self, code, term):
+        """The keys a term is known under: as written, and settled."""
+        keys = {row_key(code, term)}
+        fam = ROOT_LANGS.get(code)
+        if fam and not term.startswith("*"):
+            k, _ = self.g[fam].lookup(term, alt_ok=True)
+            if k:
+                keys.add(fam + ":" + k)
+        return keys
+
+    def cognate_only(self, mentions):
+        """The keys a page names only in a cognate role (review finding 1).
+
+        A term the page states as a cognate is not its origin, whatever a
+        walked pass-through page says about it, and no row may name it. A
+        term the page also names in an origin role (or settles on through
+        one, fruitus to fruor) is not in the set.
+        """
+        cog, orig = set(), set()
+        for kind, code, term, _, _, role, _ in mentions:
+            if term.startswith("*"):
+                continue
+            (cog if role == "cognate" else orig).update(self.term_keys(code, term))
+        return cog - orig
+
     # -- attachment ----------------------------------------------------------
 
     def expand(self, mentions, depth, seen):
@@ -2757,6 +2899,13 @@ class Origin:
         None when the page names no origin this dictionary classifies.
         """
         ms = self.expand(mentions, 3, set())
+        # A term the page itself calls a cognate is vetoed wherever a walked
+        # page names it as an origin (flat names French plat, whose page
+        # continues to Greek πλατύς, which flat lists as a cognate).
+        veto = self.cognate_only(mentions)
+        if veto:
+            ms = [m if m[6] != -2 or not (self.term_keys(m[1], m[2]) & veto)
+                  else m[:5] + ("cognate", -2) for m in ms]
         parts_by = self.english_parts(ms, chains)
         # The parts the page supplies belong to the last term named before
         # the plus-chain, whatever its language: "from Latin dīvortium, from
@@ -4225,6 +4374,21 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
             "org, except through a drop reported in the misses file",
             not silent,
             "%d silent%s" % (len(silent), (": " + ", ".join(silent[:8])) if silent else ""))
+
+        # A term the page names only in a cognate-family template is never
+        # the row (review finding 1, 2026-09-05): know read cognōscō off
+        # its cognate list.
+        cogrows = []
+        for k, w in words.items():
+            org = w.get("org")
+            if not org:
+                continue
+            only = harvest.get(w.get("wik") or k, {}).get("cogonly") or ()
+            if only and org_row_key(org) in only:
+                cogrows.append("%s (%s)" % (k, org_row_key(org)))
+        add("no shipped row names a lemma the page carries only in a cognate "
+            "template", not cogrows,
+            "%d rows%s" % (len(cogrows), (": " + ", ".join(cogrows[:8])) if cogrows else ""))
 
     KINDS = ("prefix", "suffix", "infix", "circumfix", "root")
     badkind = sorted(k for k, r in roots.items() if r.get("kind") not in KINDS)

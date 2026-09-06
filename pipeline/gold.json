@@ -49,6 +49,12 @@
     {"word": "pepper", "kind": "single", "lang": "la", "lemma": "piper",
      "why": "inh ang piper, der la piper: the Latin run is the deepest root language and piper has no split"},
     {"word": "madam", "kind": "none",
-     "why": "der la mea domina, a two-word lemma Wiktionary never wrote; the misses report says so"}
+     "why": "der la mea domina, a two-word lemma Wiktionary never wrote; the misses report says so"},
+    {"word": "know", "kind": "rowonly", "lang": "ang", "lemma": "cnāwan",
+     "why": "inh enm knowen, inh ang cnāwan; Latin cognoscō sits only in a cog template under the Cognates heading, so no classical row (review finding 1)"},
+    {"word": "ride", "kind": "rowonly", "lang": "ang", "lemma": "rīdan",
+     "why": "inh enm riden, inh ang rīdan; Greek ὀρίνω is a cog template in the cognate list, so no classical row (review finding 1)"},
+    {"word": "straight", "kind": "rowonly", "lang": "ang", "lemma": "streċċan",
+     "why": "inh enm streight, der ang streċċan; Latin strictus is a noncog mention in the conflation note about strait, so no classical row (review finding 1)"}
   ]
 }
