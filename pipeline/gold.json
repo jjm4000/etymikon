@@ -178,6 +178,19 @@
      "why": "der grc ἐπεισόδιον = ἐπί + εἰς + ὁδός; the ἐπί page writes its case headings as senses, so the card read \"[with genitive]\" until a bracketed note stopped being a gloss"},
     {"word": "assure", "kind": "decomposed", "lang": "fro", "lemma": "asseurer", "parts": ["ad-", "sēcūrus"],
      "glosses": ["to", "free from danger, safe, secure"],
-     "why": "der fro asseurer = ad- + sēcūrus, the French word owning the parts; the la:sēcūrus card reads \"careless, negligent\""}
+     "why": "der fro asseurer = ad- + sēcūrus, the French word owning the parts; the la:sēcūrus card reads \"careless, negligent\""},
+    {"word": "about", "kind": "rowonly", "lang": "ang", "lemma": "abūtan",
+     "why": "inh enm aboute, inh ang abūtan, then a second inh enm about (adverb) that starts the adverb's own chain: a term in a language the walk left behind is no step deeper"},
+    {"word": "not", "kind": "rowonly", "lang": "ang", "lemma": "nāht",
+     "glosses": ["nought, nothing"],
+     "why": "inh enm not, inh ang \"*nōht, nāht\": the first form of the comma-joined list is a reconstruction, so the attested spelling beside it is the row"},
+    {"word": "they", "kind": "rowonly", "lang": "non", "lemma": "þeir",
+     "why": "inh enm þei, der non þeir; the prose reads \"plural of the demonstrative sá\" and the step rule took \"demonstrative\", which is a grammatical label and no term"},
+    {"word": "ever", "kind": "rowonly", "lang": "ang", "lemma": "ǣfre",
+     "why": "inh enm ever, inh ang ǣfre, then the page's own chain ā + in + feore: a term of an accepted plus-chain is a component of the word before it, not an origin"},
+    {"word": "do", "kind": "rowonly", "lang": "ang", "lemma": "dōn",
+     "why": "inh enm don, inh ang don with the display argument dōn: a row-only row is inert text and prints the form the page prints, macrons kept"},
+    {"word": "or", "kind": "rowonly", "lang": "ang", "lemma": "āþor",
+     "why": "inh enm or, inh ang āþor, then a second enm oththe with its own ang oþþe: the first chain is the word's own and the walk does not step back into Middle English"}
   ]
 }

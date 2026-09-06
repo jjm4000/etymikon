@@ -631,6 +631,24 @@ goes to the misses file with that reason (dessert at Middle French,
 quite at Anglo-Norman). A root-language term that is no page at all is a
 miss too, with the term in the reason (madam names mea domina).
 
+Five more rules keep the walk from stopping short or stepping sideways
+(second review, cause 2, 2026-09-06). A term in a language the walk has
+already left starts a second chain rather than going deeper, tested on
+positioned terms only since the etymon tree repeats a chain's head with
+no position: about ends "Middle English about (adverb)" after its Old
+English abūtan and now stops at abūtan, and or stops at āþor. A
+comma-joined list whose first form is a reconstruction gives the first
+attested spelling beside it (not writes "*nōht, nāht"). A grammatical
+label is no term: `STOP_HEADS` refuses "demonstrative" and its kin as
+prose step targets, so they reads Old Norse þeir. A term of an accepted
+plus-chain is a component of the word before it in any language, not only
+in Latin and Greek, when the chain explains a word of its own language
+named before it: ever stops at ǣfre rather than the ā of "ǣfre, from ā +
+in feore", while caffeine keeps Italian caffè, which no earlier Italian
+word owns. A row-only row prints the template's display argument when it
+has one (`{{inh|en|ang|don|dōn}}` reads dōn), since the row is inert text;
+a root or pass-through term is looked up and keeps the page title.
+
 ### Origin rows
 
 An `org` row takes one of three shapes (SPEC "Row shapes", ratified from

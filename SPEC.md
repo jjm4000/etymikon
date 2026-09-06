@@ -1660,6 +1660,43 @@ expert. Fourteen roots of that shape touched 847 shipped words.
   for suspiciō; divorce reads the la:di- page, whose only entry is the
   Greek-derived "two".
 
+### The Germanic walk (dated note, 2026-09-06, second review, cause 2)
+
+The row-only walk of finding 7 took the last row-language origin term in
+template order. That stopped one step short or stepped sideways on the
+commonest Germanic words. Five rules, each pinned by the word that found
+it:
+
+- A term in a language the walk has already left starts a second chain
+  rather than going a step deeper. The test is on positioned terms only,
+  since the etymon tree repeats a chain's head with no position of its
+  own. about ends "Middle English about (adverb)" after its Old English
+  abūtan, and or reads "Old English āþor ... Middle English oththe, from
+  Old English oþþe"; both now stop at the Old English of the first chain.
+- A comma-joined spelling list whose first form is a reconstruction gives
+  the first attested spelling beside it. not writes Old English "*nōht,
+  nāht" and reads nāht.
+- A grammatical label is no term. STOP_HEADS, which already refused
+  "participle" and "genitive" as prose step targets, now refuses
+  "demonstrative", "pronoun", "determiner" and their kin: they read "Old
+  Norse demonstrative" off "þeir, plural of the demonstrative sá", and
+  pulley read a Latin row assembled out of "the feminine of neuter
+  polidium".
+- A term of an accepted plus-chain is a component of the word before it,
+  not an origin, in any language rather than only in Latin and Greek. The
+  chain must explain a word of its own language named before it, so ever
+  stops at ǣfre rather than the ā of "ǣfre, from ā + in feore", while
+  caffeine keeps Italian caffè, which no earlier Italian word owns.
+- A row-only row prints the template's display argument when it has one
+  ({{inh|en|ang|don|dōn}}), since the row is inert text and shows the form
+  the page shows. A root or pass-through term is looked up and keeps the
+  page title. do reads dōn, a and an read ān.
+
+Outcome: 47 rows changed, 15 of them inside the top 1,000 ranks. Not
+reached: wait, whose page names no attested term under Middle English
+waiten (Anglo-Norman waiter has no extract and the Frankish forms are
+reconstructions), and won, which is cause 3.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

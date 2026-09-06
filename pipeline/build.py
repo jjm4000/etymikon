@@ -2071,6 +2071,14 @@ STOP_HEADS = {"the", "a", "an", "of", "from", "and", "or", "suffix", "prefix", "
               "both", "same", "second", "first", "element", "elements", "words", "word",
               "verb", "noun", "adjective", "participle", "ending", "sense", "meaning",
               "reduplication", "prefixed", "suffixed", "plus", "genitive", "ablative",
+              # A grammatical label is not a term (review 2, cause 2,
+              # 2026-09-06): they read "Old Norse demonstrative" off "þeir,
+              # plural of the demonstrative sá".
+              "demonstrative", "pronoun", "determiner", "definite", "indefinite",
+              "masculine", "feminine", "neuter", "adverb", "preposition",
+              "conjunction", "interjection", "numeral", "gerund", "comparative",
+              "superlative", "diminutive", "personal", "relative", "reflexive",
+              "possessive", "collective", "cardinal", "ordinal",
               "accusative", "dative", "nominative", "plural", "singular", "perhaps",
               "possibly", "probably", "later", "earlier", "originally", "ultimately",
               "then", "i.e.", "e.g.", "literally", "roughly", "so", "thus", "hence"}
@@ -2525,10 +2533,21 @@ def page_mentions(templates, text, page_lang, key):
 
     def comma_forms(raw):
         """The spellings a comma-joined term lists after the first: an
-        alternative each, shown only when the first fails."""
-        if raw.startswith("*") or "," not in raw:
+        alternative each, shown only when the first fails.
+
+        A list whose first form is a reconstruction lists them too (review
+        2, cause 2, 2026-09-06): not writes Old English "*nōht, nāht", and
+        the attested spelling beside the unattested one is the row."""
+        if "," not in raw:
             return []
-        return [f for f in (clean_part(x) for x in raw.split(",")[1:]) if f]
+        out = []
+        for x in raw.split(",")[1:]:
+            x = x.strip()
+            star = x.startswith("*")
+            f = clean_part(x[1:] if star else x)
+            if f:
+                out.append("*" + f if star else f)
+        return out
 
     mentions = []
     cursor = 0
@@ -2538,11 +2557,21 @@ def page_mentions(templates, text, page_lang, key):
         if name in ORIGIN_NAMES:
             code = args.get("2") or ""
             raw = (args.get("3") or "").strip()
-            term = clean_part(raw.split(",", 1)[0] if not raw.startswith("*") else raw)
-            if raw.startswith("*"):
-                term = "*" + (clean_part(raw[1:]) or "")
+            head = raw.split(",", 1)[0].strip()
+            term = ("*" + (clean_part(head[1:]) or "") if head.startswith("*")
+                    else clean_part(head))
             if not code or not term or term == "-":
                 continue
+            # The template's display argument is the form the prose prints,
+            # macrons and all ({{inh|en|ang|don|dōn}}), while arg 3 is the
+            # page title. A row-only row is inert text and shows the form
+            # the page shows; a root or pass-through term is looked up, so
+            # it keeps the title (review 2, cause 2, 2026-09-06).
+            disp = clean_part(args.get("4") or "")
+            if (disp and not term.startswith("*")
+                    and lang_role(code) not in ("root", "pass")
+                    and strip_marks(disp) == strip_marks(term)):
+                term = disp
             gloss = short_gloss(args.get("t") or args.get("5") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
             exp = t.get("expansion") or ""
@@ -2581,9 +2610,9 @@ def page_mentions(templates, text, page_lang, key):
         if name in MENTION_NAMES:
             code = args.get("1") or ""
             raw = (args.get("2") or "").strip()
-            term = clean_part(raw.split(",", 1)[0] if not raw.startswith("*") else raw)
-            if raw.startswith("*"):
-                term = "*" + (clean_part(raw[1:]) or "")
+            head = raw.split(",", 1)[0].strip()
+            term = ("*" + (clean_part(head[1:]) or "") if head.startswith("*")
+                    else clean_part(head))
             if not code or not term or term == "-":
                 continue
             gloss = short_gloss(args.get("t") or args.get("4") or args.get("gloss") or "")
@@ -4111,6 +4140,42 @@ class Origin:
             if pos >= 0:
                 for h in hs:
                     head_pos[h] = min(head_pos.get(h, pos), pos)
+        # The same rule for a plus-chain in a language no graph holds: its
+        # terms are the components of the word before it, not origins of
+        # their own (review 2, cause 2, 2026-09-06). ever writes "from Old
+        # English ǣfre, probably from ā (“ever”) + in feore", and the row
+        # read ā. Only a term outside the root languages is marked, so the
+        # Latin and Greek attachments read exactly as they did.
+        chain_heads = {}
+        for chain, stance, pos in chains:
+            if stance == "reject" or pos < 0:
+                continue
+            hs = set()
+            for t in chain:
+                for h in (t.head, t.target):
+                    if h:
+                        hs.add(strip_marks(h))
+            # A term is a part only when the chain explains a word of ITS
+            # OWN language named before it: ǣfre is Old English and so is
+            # the ā the page splits it into. "From French caféine ... from
+            # Italian caffè + -ine" names no earlier Italian word, so caffè
+            # is the row's own term and no part of anything.
+            owns = {m[1] for m in ms
+                    if m[0] != "part" and m[5] in ("origin", "alt")
+                    and 0 <= m[6] < pos and strip_marks(m[2]) not in hs
+                    and lang_role(m[1]) in ("row", "pass", "root")}
+            for k in hs:
+                chain_heads.setdefault(k, (pos, owns))
+        if chain_heads:
+            def chain_part(m):
+                if m[0] not in ("mention", "origin") or lang_family(m[1]) in self.g:
+                    return False
+                hit = chain_heads.get(strip_marks(m[2]))
+                if hit is None or m[1] not in hit[1]:
+                    return False
+                return m[6] < 0 or m[6] + LANG_NAME_SPAN >= hit[0]
+
+            ms = [(("part",) + m[1:]) if chain_part(m) else m for m in ms]
         if head_pos:
             ms = [(("part",) + m[1:]) if m[0] in ("mention", "origin")
                   and strip_marks(m[2]) in head_pos
@@ -4229,17 +4294,45 @@ class Origin:
                     r["rom"] = rom
                 return r
 
+            # The languages the walk has passed, in order. A term in a
+            # language the walk left behind starts a second chain rather
+            # than going deeper (review 2, cause 2, 2026-09-06): about ends
+            # "Middle English about (adverb)" after its Old English, and or
+            # reads "Old English āþor ... Middle English oththe, from Old
+            # English oþþe". The first chain is the word's own.
+            walked = []
+            unattested = -1      # the position of a starred form just skipped
+
             for kind, code, term, gloss, rom, role, pos in ms:
-                if pos == -2 or kind == "part" or role != "origin":
+                if pos == -2 or kind == "part":
                     continue
                 r = lang_role(code)
+                if role != "origin":
+                    # A comma-joined list gives its first form, unless that
+                    # form is a reconstruction: not writes Old English
+                    # "*nōht, nāht" and the attested spelling is the row.
+                    if (role == "alt" and pos >= 0 and pos == unattested
+                            and r in ("row", "") and not term.startswith("*")):
+                        row = as_row(code, term, gloss, rom)
+                        stop = ""
+                        unattested = -1
+                    continue
                 if term.startswith("*"):
                     # A reconstruction in a proto language ends the walk; an
                     # unattested form in an attested language (*bangen in
                     # Middle English) is a step the chain continues past.
                     if r == "ignored":
                         break
+                    unattested = pos
                     continue
+                unattested = -1
+                if pos >= 0 and r in ("row", "", "pass"):
+                    # Positioned terms only: the etymon tree repeats the
+                    # chain's head with no position of its own, and a
+                    # repeat is not a step back.
+                    if walked and walked[-1] != code and code in walked:
+                        break
+                    walked.append(code)
                 if r in ("row", ""):
                     row = as_row(code, term, gloss, rom)
                     stop = ""
