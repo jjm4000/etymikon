@@ -624,16 +624,21 @@ read by `page_mentions` from the entry that supplies the card's first
 senses (second review, cause 3, 2026-09-06; it used to be the dominant
 entry, so can read "To know how to" over "From Old English canne (glass,
 container, cup, jar)"). A section owns those senses when it supplies the
-first one and more than half of the first sense list; below that no
-section supplies them and the row is withheld with that reason in the
-misses report (found opens with senses from three sections, deal with two
-from each of two). Only a section that names a DIFFERENT origin makes the
-list ambiguous, so cotton keeps its Hebrew row though "A liking." from
-another section fills a slot. A section that names no origin gives no row
-(shot opens with "Tired, weary", whose section names only English shoot).
-The split still follows the dominant entry, and the homograph vote follows
-the entry the row comes from. 728 rows changed: 268 moved section, 129
-words gained a row, 331 lost one, 268 of those withheld. The terms are
+first one and no disagreeing section supplies more of the first sense list
+than it does (2026-09-06; the test used to ask for more than half, which
+two sections of two senses each can never meet, and 268 words showed no
+row for it). A tie goes to the section the card opens with, so bowl reads
+Old English bolla over the lawn-bowls Latin and row reads rǣw over the
+rowing rōwan. The row is withheld with that reason in the misses report
+only where a LATER section supplies more of the list: robot opens with the
+Central European serfdom from German Robot and fills the other three slots
+with the machine from Czech robot. Only a section that names a DIFFERENT
+origin makes the list ambiguous, so cotton keeps its Hebrew row though
+"A liking." from another section fills a slot. A section that names no
+origin gives no row (shot opens with "Tired, weary", whose section names
+only English shoot; found reads "See find."), and nothing falls through to
+the next section. The split still follows the dominant entry, and the
+homograph vote follows the entry the row comes from. The terms are
 read from: origin templates (`der`,
 `bor`, `inh` and their `+` variants), mention templates in a sentence whose
 role is origin, the nodes of the `etymon` tree in chain order, the parts of
@@ -688,8 +693,11 @@ walk, an alternative at the same depth (no step cue between two terms,
 or "or" between them, or a "via" term after a "from" term) is skipped in
 favour of the first, a term after an aside cue in its sentence
 ("influenced by", "whence also", "compare X", "see also X") or after a
-doubt cue ("a connection has been suggested with") was never an origin,
-and a comma-joined spelling list gives its first form. A walked French
+doubt cue ("a connection has been suggested with", and since 2026-09-06
+"Watkins proposes" and "Some propose that") was never an origin, and a
+comma-joined spelling list gives its first form. A bare "propose" counts
+only where it takes a clause, since euro writes "a contest open to the
+general public to propose names" and its Greek row is right. A walked French
 page is read only when the page itself settles nothing, and a French
 term the page's own clause continues past to an attested origin is not
 walked at all (the page's own "from Italian razza, of uncertain origin"

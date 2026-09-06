@@ -1914,6 +1914,13 @@ Latin letter, ok a Mandarin karaoke compound, bike Old English būc
 the rule deliberately (found, a). It is not kept, and the eleven stay
 withheld.
 
+The silent half of this note stands: a section that names no origin still
+passes the row to nobody, and found, a, bike and bars are still silent.
+The clash half is superseded by "The leading section keeps the row" below,
+which withholds only where a later section supplies MORE of the first
+sense list than the section the card opens with. bowl, gang, mass, robin,
+row, ya and ben are read there.
+
 ### Measured after the third pass (2026-09-06)
 
 Two --offline builds byte-identical, verify 104 checks 0 failed, gold 189
@@ -2163,6 +2170,54 @@ sunder moved off a bare stem ending in a hyphen to the Middle English word.
 accounted for in the Germanic note above.
 
 No curation entry was added in this round. Every change is a rule.
+
+### The leading section keeps the row (dated note, 2026-09-06)
+
+268 shipped words showed no origin row because two etymology sections
+disagreed and neither supplied more than half of the card's first sense
+list. bowl opens with the vessel senses from Old English bolla and fills
+the rest of the list with the lawn-bowls senses from Latin bulla, so both
+sections held two of four and the row was withheld. A held-out audit read
+eleven of thirteen sampled words as a coverage loss: the page does state
+an origin for the section the card leads with.
+
+- A section owns the card's first senses when it supplies the first one
+  and no disagreeing section supplies more of that list than it does. The
+  old test asked for more than half, which two sections of two senses each
+  can never meet. A tie goes to the section the card opens with, since
+  that is the one the reader is looking at.
+- The row is withheld where a later section supplies MORE of the list.
+  robot opens with the Central European serfdom from German Robot and
+  fills the other three slots with the machine from Czech robot; seal
+  opens with the animal and fills the rest with the stamp; ben, groom,
+  gum, coma and drake are the same shape.
+- Nothing falls through to a section the reader is not looking at. A
+  section that names no origin still passes the row to nobody, so found,
+  a, bike and bars stay silent. The 2026-09-06 fall-through experiment
+  stays refused.
+- Outcome: 209 of the 268 render a row, 56 stay withheld with the reason,
+  and 3 now report the reason their own section carries (san, bay and
+  macon name a lemma Wiktionary never wrote). 15 more words past the rank
+  cap ship a card, because their row now decomposes. No word lost a row.
+- The thirty highest-ranked words that gained a row, read against the
+  extracts: 26 right, 3 degraded, 1 wrong. Degraded: robin takes the
+  "Also from Middle English robynet" of a page whose headline is "short
+  for robin redbreast"; li takes the Korean 리 of the second clause where
+  the first names Mandarin 里; lit takes līhtte, which its own page calls
+  the preterite of līhtan. The wrong one was ah, and it is fixed below.
+
+### A proposal is not a statement, in the present tense too (2026-09-06)
+
+Unmasking the withheld rows showed ah reading Latin ad. Its page writes
+"Some propose that the Middle English is borrowed from Old French a", and
+the walk went through that French page to Latin. RE_STANCE_HARD already
+refuses a term after "suggested", "proposed" and "suggests", so the gap
+was the plural present tense alone. It now refuses "proposes" and a bare
+"propose" that takes a clause. The clause test is what keeps euro, whose
+page writes "a contest open to the general public to propose names" and
+whose Greek row is right. Two rows moved: ah reads Middle English ah, and
+spree moves off the Scots-to-Latin chain of "Watkins proposes a possible
+origin" onto the French esprit of the page's own first guess.
 
 ## Naming (Jesse decision 2026-08-25)
 

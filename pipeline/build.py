@@ -1604,8 +1604,9 @@ def harvest_english(path, cand, origin):
     section, so can read "To know how to" over "From Old English canne
     (glass, container, cup, jar)": the noun entry has the most senses and
     the verb entry is what a reader sees first. When a second etymology
-    section also fills the first sense list, no section supplies it
-    unambiguously and the row is withheld with that reason.
+    section names a different origin and fills more of that first sense
+    list than the section the card opens with, the row is withheld with
+    that reason.
 
     Both are computed here, while the entry is in hand, so the harvest
     keeps one small record per word rather than the entry's templates and
@@ -1654,7 +1655,8 @@ def harvest_english(path, cand, origin):
             rec = out.get(wl)
             if rec is None:
                 rec = {"pos": [], "defs": {}, "ns": -1, "sp": None,
-                       "att": None, "ety": None, "clash": False, "first_n": 0}
+                       "att": None, "ety": None, "clash": False,
+                       "first_n": 0, "other_n": collections.Counter()}
                 out[wl] = rec
             pos = e.get("pos") or "other"
             if pos not in rec["defs"]:
@@ -1679,8 +1681,8 @@ def harvest_english(path, cand, origin):
                 rec["sp"] = entry_split(e, "en")
             # The senses a reader sees first are the first sense list's, and
             # the origin row follows the etymology section that supplies
-            # them. A later entry that also fills that list from another
-            # section leaves no section supplying it unambiguously.
+            # them. A later entry that fills more of that list from another
+            # section takes the list away from the first one.
             if not added or pos != rec["pos"][0]:
                 continue
             text = e.get("etymology_text") or ""
@@ -1698,6 +1700,7 @@ def harvest_english(path, cand, origin):
                     if other is not None and "miss" not in other \
                             and att_key(other) != att_key(rec["att"]):
                         rec["clash"] = True
+                        rec["other_n"][text] += added
                 continue
             rec["ety"] = text
             rec["first_n"] = added
@@ -1722,19 +1725,20 @@ def harvest_english(path, cand, origin):
                 stats["attached" if "key" in rec["att"] else
                       "rowonly" if "row" in rec["att"] else "missed"] += 1
     # A section owns the card's first senses when it supplies the first one
-    # and more than half of that sense list. Below that no section supplies
-    # them and the row is withheld: found opens with "Food and lodging" from
-    # one section, a furnace interval from another and a comb-maker's file
-    # from a third, and no origin speaks for the three.
+    # and no disagreeing section supplies more of that list than it does.
+    # The row is withheld where a later section supplies more, because the
+    # senses the card leads with are then the other section's: robot opens
+    # with the Central European serfdom from German Robot and fills the
+    # rest of the list with the machine from Czech robot.
     for wl, rec in out.items():
         if not rec["clash"] or rec["att"] is None:
             continue
-        if rec["first_n"] * 2 > len(rec["defs"][rec["pos"][0]]):
+        if rec["first_n"] >= max(rec["other_n"].values()):
             continue
         stats["clash"] += 1
         rec["att"] = {"miss": "the card's first senses come from more than "
-                              "one etymology section and no section supplies "
-                              "most of them"}
+                              "one etymology section and a later section "
+                              "supplies more of them than the first"}
     return out, stats
 
 
@@ -1795,8 +1799,13 @@ RE_STANCE_HARD = re.compile(
     # with Old Norse glámr", "this suggests a derivation from", "disputedly".
     # "Suggested by Berzelius" and "proposed by Mulder" are coinages and do
     # not count; a hedged origin ("of uncertain origin, but probably from")
-    # stands, since the hedge is not a rejection.
-    r"(?:suggested|proposed|hypothesi[sz]ed|conjectured|speculated|"
+    # stands, since the hedge is not a rejection. The present tense counts
+    # too, and a bare "propose" only where it takes a clause: ah writes
+    # "Some propose that the Middle English is borrowed from Old French a"
+    # and read Latin ad off that French page, while euro writes "a contest
+    # open to the general public to propose names" and keeps its Greek row.
+    r"(?:suggested|propose(?:[sd]|(?=\s+that\b))|hypothesi[sz]ed|"
+    r"conjectured|speculated|"
     r"connected|linked)(?!\s+by\b)|suggests?(?!\s+by\b)|"
     r"(?:a|the)\s+connection|disput\w*|doubtful|dubious|"
     r"unlikely|resembl\w*|superficial\w*|corruption)\b", re.I)
