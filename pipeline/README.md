@@ -620,8 +620,12 @@ mockups 2026-09-05), 14,147 rows at 2026-09-05:
   2,295 rows. The worker joins the root's gloss and romanization.
 * **row-only**, `{lang, f, gloss?, rom?}` with no `r`: the deepest named
   origin is a row-only language ("From Old Norse ský (cloud)"). The gloss
-  and romanization come from the template's own `t` and `tr` args. The
-  worker passes it through unjoined and the card renders it inert. 4,847
+  comes from the template's own `t` arg; the romanization from `tr`, else
+  from the transliteration kaikki writes into the template's expansion,
+  else from the parenthesis the prose writes right after it (review
+  finding 6, 2026-09-05; 472 of 740 non-Latin rows lacked one before,
+  122 after). The worker passes it through unjoined and the card renders
+  it inert. 4,847
   rows, Old English 1,611 and Middle English 987 the largest groups until
   phase two makes Old English a root language.
 

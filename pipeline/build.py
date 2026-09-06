@@ -1563,6 +1563,48 @@ def non_latin_script(s: str) -> bool:
     return bool(RE_NON_LATIN.search(s or ""))
 
 
+# A term in another script followed by its parenthesis, whose first item is
+# the transliteration: "Sanskrit आरात्रिक (ārātrika)", "Arabic حَشَّاشِين
+# (ḥaššāšīn, “hashish users”)".
+RE_EXP_ROM = re.compile(r"(\S+)\s*\(([^()“”\"]{1,60}?)\s*(?:,|\))")
+
+
+# The same parenthesis written in the prose right after an expansion that
+# carries none: "Hebrew כֻּתֹּנֶת (kuttṓnĕṯ)" on cotton.
+RE_AFTER_ROM = re.compile(r"\s*\(([^()“”\",]{1,60}?)\s*(?:,|\))")
+
+
+# A transliteration is Latin letters with diacritics, IPA letters (ʔ, ʕ)
+# included.
+RE_NON_ROM = re.compile("[^\u0020-\u02ff\u1e00-\u1eff\u2000-\u206f\u0300-\u036f]")
+
+
+def is_rom(s: str) -> bool:
+    return bool(s) and RE_NON_ROM.search(s) is None and any(c.isalpha() for c in s)
+
+
+def rom_after(prose: str, pos: int, exp: str) -> str:
+    """The transliteration the prose writes right after a template's
+    expansion, or ""."""
+    if pos < 0 or not exp or "(" in exp:
+        return ""
+    m = RE_AFTER_ROM.match(prose, pos + len(exp))
+    if not m:
+        return ""
+    r = m.group(1).strip()
+    return r if is_rom(r) else ""
+
+
+def rom_from_expansion(exp: str) -> str:
+    """The transliteration a template expansion writes after a term in a
+    non-Latin script, or "". kaikki puts the automatic transliteration in
+    the expansion and not in `tr` (review finding 6, 2026-09-05)."""
+    for m in RE_EXP_ROM.finditer(exp or ""):
+        if non_latin_script(m.group(1)) and is_rom(m.group(2).strip()):
+            return m.group(2).strip()
+    return ""
+
+
 # ---- the etymology prose, with a rendered etymology tree removed ----------
 
 RE_TREE_LINE = re.compile(r"^([A-Z][\w\-]*(?: [A-Z][\w\-]*)*) (\S.*)$")
@@ -2180,6 +2222,8 @@ def page_mentions(templates, text, page_lang, key):
             gloss = clean_gloss_arg(args.get("t") or args.get("5") or args.get("gloss") or "")
             rom = clean_text(args.get("tr") or "")
             exp = t.get("expansion") or ""
+            if not rom and non_latin_script(term):
+                rom = rom_from_expansion(exp)
             pos = -1
             role = "origin"
             if exp:
@@ -2198,6 +2242,8 @@ def page_mentions(templates, text, page_lang, key):
                     pos = at
                     if rejected_at(at):
                         role = "reject"
+                    if not rom and non_latin_script(term):
+                        rom = rom_after(prose, pos, exp)
             mentions.append(("origin", code, term, gloss, rom, role, pos))
             stepped = prose_step(prose, pos, exp) if role == "origin" else ""
             if stepped:
@@ -2215,6 +2261,8 @@ def page_mentions(templates, text, page_lang, key):
             rom = clean_text(args.get("tr") or "")
             role = "cognate" if name in COGNATE_NAMES else "origin"
             exp = t.get("expansion") or ""
+            if not rom and non_latin_script(term):
+                rom = rom_from_expansion(exp)
             pos = -1
             if exp:
                 at = prose.find(exp, cursor)
@@ -2232,6 +2280,8 @@ def page_mentions(templates, text, page_lang, key):
                             role = "origin"
                     else:
                         role = role_at(at)
+                    if not rom and non_latin_script(term):
+                        rom = rom_after(prose, pos, exp)
             mentions.append(("mention", code, term, gloss, rom, role, pos))
             if role == "origin":
                 stepped = prose_step(prose, pos, exp)

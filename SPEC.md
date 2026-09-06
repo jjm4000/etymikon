@@ -1490,6 +1490,17 @@ pinned it; the gold set carries a row for each.
   byssinus = byssus + -ōsis (the page writes "byssinum via byssus +
   -osis", a chain no positional rule separates from the legitimate
   "from X, from Y + Z"); both are left as the page states them.
+- Row-only romanization (finding 6). kaikki writes the automatic
+  transliteration into the template's expansion ("Sanskrit आरात्रिक
+  (ārātrika)") and not into `tr`, and a hand-written one sometimes sits
+  in the prose right after the expansion ("Hebrew כֻּתֹּנֶת (kuttṓnĕṯ)").
+  A row-only row (and any mention in another script) takes its `rom`
+  from `tr`, else from the expansion, else from the prose after it; a
+  transliteration is Latin letters with diacritics, IPA letters (ʔ, ʕ)
+  included. Non-Latin row-only rows without rom: 472 of 740 before, 122
+  after this rule alone (the review's measure over its sampled entries,
+  rows lacking rom though the expansion carries one: 371 to 64). aarti,
+  avatar, assassin, bolshevik and cotton all print their reading.
 
 ## Naming (Jesse decision 2026-08-25)
 
