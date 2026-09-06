@@ -2127,6 +2127,43 @@ reads it the same way both times and no homograph can spoil it.
   extract lookup is what closes this gap, and for these languages there is no
   extract.
 
+### Measured after the source-gloss round (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 244 of
+244 (55 rows added, 7 amended to pin a gloss the extract supplies), Node 170,
+index harness 246, embed harness 181, 8 screenshots regenerated with their
+scene checks passing and byte-identical to the ones before. Data: 84,306
+words (84,300 before), 6,723 roots (6,713), 14,506 origin rows (14,488):
+7,098 decomposed (7,078), 2,218 single (2,209), 5,190 row-only (5,201); 24.0
+MB (23.9). Breakdown coverage of the top 10,000 ranks 38.2% (38.1%). The
+1,752 misses of 2026-09-01 render 551 decomposed, 1,004 single, 197 nothing
+(top 10,000: 173 / 337 / 43), against 547 / 1,004 / 201 before.
+
+The headline. Row-only rows with no gloss at all: 3,281 of 5,201 before, 63%,
+and 2,098 of 5,190 after, 40%. Inside the top 3,000 ranks, 526 before and 222
+after. Inside the top 10,000, 1,173 and 569. 1,172 rows gained a gloss and 8
+gained a romanization.
+
+By language, rows without a gloss before and after: Old English 887 to 228,
+Middle English 526 to 344, Old French 210 to 126, French 210 to 21, Italian
+130 to 130, Spanish 115 to 115, Japanese 95 to 95, German 85 to 85, Old Norse
+81 to 34, Middle French 65 to 55, Anglo-Norman 61 to 64, Arabic 57 to 57,
+Sanskrit 54 to 54, Middle Dutch 49 to 44. The languages that do not move are
+the ones with no extract here, which is the owner's 352 MB decision.
+
+The regression check against the build before this round: 0 rows lost a
+romanization, 1 row lost its row (fidget, to the affix rule, with the reason
+in the misses report), and 9 rows lost a row gloss, each because the row
+itself moved. Every one of the nine is listed: married, launch and git now
+link a Latin card and read its gloss; nick reads Old French niche and the Old
+French extract glosses no such page; bacon reads Anglo-Norman, which has no
+extract; subpoena and twill became decomposed rows with Latin chips; tore and
+sunder moved off a bare stem ending in a hyphen to the Middle English word.
+50 rows changed language or shape, 9 of them inside the top 3,000, all
+accounted for in the Germanic note above.
+
+No curation entry was added in this round. Every change is a rule.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
