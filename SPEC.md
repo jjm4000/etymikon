@@ -1659,6 +1659,15 @@ expert. Fourteen roots of that shape touched 847 shipped words.
   la:commandō, whose only entry is "to chew"; suspicious states no sense
   for suspiciō; divorce reads the la:di- page, whose only entry is the
   Greek-derived "two".
+- series was reported as a regression of this rule, reading serō "to sow,
+  plant". It does not: the Latin seriēs page writes serō<id:link><t:to
+  bind>, the rule reads it, and the chip carries "to link together; to
+  entwine; to interlace". The report describes the build before this rule
+  landed, when the chip fell back to the la:serō card. desert reads the
+  same homograph for the same reason (the dēserō page writes serō#Etymology
+  2 2<t:to bind, join>), and season keeps "to sow, plant" from satiō's
+  serō<id:sow><t:to sow>. All three are gold rows with their glosses
+  pinned, so the wording cannot move without the gate saying so.
 
 ### The Germanic walk (dated note, 2026-09-06, second review, cause 2)
 
