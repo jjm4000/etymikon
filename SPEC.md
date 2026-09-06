@@ -1536,6 +1536,37 @@ pinned it; the gold set carries a row for each.
   avant-garde Middle English advaunte-garde, cossack Old Turkic
   𐰴𐰔𐰍𐰸, gora Hindi गोरा, steppe Russian степь with its gloss and
   reading; comma-joined forms 18 to 0.
+- The stance rule on template splits and calques (finding 8). A
+  decomposition template on a source page is refused like a prose chain
+  when a rejection cue sits before its expansion in the sentence, and
+  whole when the entry carries an `unk` or `unc` template: the page's
+  own etymology is unknown or uncertain and the split beside it is a
+  proposal (ἀνθόλοψ "the word superficially resembles ἄνθος + ὤψ ...
+  a corruption", λύσσα "disputedly", μηχανή "Unknown. Traditionally
+  derived from", vehemēns "Disputed"). A cue after the split says
+  nothing against it (sōbrius "instead of sēbrius"), and a stance
+  inside a parenthesis is an aside, not the sentence's (rebellis). A
+  node whose own page refused its split for stance takes no parts from
+  an English page that repeats them as fact (squirrel: the Greek page
+  calls σκιά + οὐρά a folk etymology, so σκίουρος stays whole). A
+  calque-type cue names the model, and the word's own chain resumes at
+  the next "from" ("Coined by Cicero as a calque of Greek ποιότης, from
+  quālis + -tās" keeps quālitās split; "a calque of Latin diēs
+  Mercuriī" still rejects the Latin). Outcomes: antelope and squirrel
+  read a single Greek row; lyssa, a tail word whose only split is
+  refused, ships no card; race reads "From Italian razza", the page's
+  own statement (the walk rule of finding 7); tuesday reads Old English
+  tīwesdæġ and wednesday Middle English Wednesday (its Old English is
+  unattested). Refused template splits la 205 to 238, grc 575 to 608;
+  49 rows changed.
+- The 40 shape regressions of the review (finding 9), re-read against
+  the extracts: 17 better than main (serious, control, difficult,
+  decide, criminal, funeral, material, attitude, reverse, intellectual,
+  demonstrate, sally, sport, minor, genuine, minus, vent), 21 the same
+  or an anchor-shallowed equivalent, 2 worse (salad reads the shared
+  saliō card glossed "to leap", legacy the shared legō card glossed "to
+  gather"; both are the one-card-per-key majority rule of finding 2).
+  The review counted 16, 14 and 10.
 
 ## Naming (Jesse decision 2026-08-25)
 

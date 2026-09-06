@@ -510,7 +510,15 @@ transliteration is skipped.
 On a source page the parse is accepted only when every part resolves to a
 node of the same graph (the same-extract rule), none is reconstructed, none
 is the page itself, and the sentence carries no rejection stance ("not
-from", "rather than", "unrelated to", "folk etymology", "problematic").
+from", "rather than", "unrelated to", "folk etymology", "problematic"),
+parentheses aside. A decomposition template answers to the same stance
+(review finding 8, 2026-09-05): it is refused when a rejection cue sits
+before its expansion in the sentence, and whole when the entry carries an
+`unk` or `unc` template, since the page's own etymology is then unknown or
+uncertain and the split beside it a proposal. A calque-type cue names a
+model, and the word's own chain resumes at the next "from". A node whose
+own page refused its split for stance takes no parts from an English
+page that repeats them (squirrel).
 manuscript's row is the shape of it: the Latin page manūscrīptus reads
 "From manu (ablative of manus) + scriptus (past participle of scribere)",
 and the chips are manus and scrībō.

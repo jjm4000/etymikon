@@ -634,6 +634,10 @@ def clean_part(raw) -> str:
 # report 2026-08-25). Both are read on every pass, English included (owner
 # ruling 2026-08-25).
 ETY_NAMES = frozenset({"ety", "etymon"})
+# The templates a page writes to say its own etymology is unknown or
+# uncertain. A split beside one is a proposal, not a stated origin (review
+# finding 8, 2026-09-05).
+UNCERTAIN_NAMES = frozenset({"unk", "unc", "unknown", "uncertain"})
 
 # ------------------------------------------------------- the census gate
 #
@@ -1487,10 +1491,10 @@ RE_STANCE_COGNATE = re.compile(
     r"\b(cognate\w*|compar\w*|cf\.?|akin|related|see also|more at|"
     r"whence|doublet\w*|displac\w*|replac\w*|supersed\w*|reinforc\w*|"
     r"influenc\w*|confus\w*|contaminat\w*|analog\w*|parallel\w*|"
-    r"same source|correspond\w*|descendants?|also the source|"
+    r"same source|source of|correspond\w*|descendants?|also the source|"
     r"semantic loan|calque\w*|loan translation|eclips\w*|also from|"
     r"conflat\w*|associat\w*|modell?ed (?:after|on)|interpretation of|"
-    r"translat(?:ion|ing) of|imitation of|rendering of|"
+    r"translat(?:ion|ing) of|imitation of|rendering of|note|notice|"
     r"equivalent to (?:the )?(?:modern|later|earlier))\b", re.I)
 # A cue that rejects the term named AFTER it in the same sentence: "not from
 # X", "rather than X", "by folk etymology from X", "a calque of X". Read
@@ -1790,24 +1794,34 @@ def sentence_roles(prose, spans):
             prev = "origin"
             heading = ""
         sent = prose[a:b]
-        if not bullet and new_para or not roles:
-            # A heading is a short paragraph with no full stop whose next
-            # paragraph is a bullet.
+        if not bullet:
+            # A heading is a short sentence with no full stop that ends its
+            # paragraph, whose next paragraph is a bullet: a paragraph of
+            # its own ("Cognates") or the tail of one ("of uncertain
+            # origin. Theories include:" on rum).
             para_end = prose.find("\n", a)
-            para = prose[a:para_end if para_end >= 0 else len(prose)].strip()
-            nxt = prose[para_end + 1:para_end + 3] if para_end >= 0 else ""
-            if len(para) <= 40 and "." not in para and nxt.lstrip().startswith("*"):
-                if RE_STANCE_COGNATE.search(para):
+            if para_end < 0:
+                para_end = len(prose)
+            tail = prose[a:para_end].strip()
+            nxt = prose[para_end + 1:para_end + 3]
+            if (b >= para_end or not prose[b:para_end].strip()) \
+                    and len(tail) <= 40 and "." not in tail \
+                    and nxt.lstrip().startswith("*"):
+                if RE_STANCE_COGNATE.search(tail):
                     heading = "cognate"
-                elif RE_HEADING_REJECT.search(para):
+                elif RE_HEADING_REJECT.search(tail):
                     heading = "reject"
-        if RE_STANCE_REJECT.search(sent):
+        # A parenthesis is an aside: "(although this usually forms adjectives
+        # from nouns, not from verbs)" on rebellis says nothing about the
+        # sentence's own stance. Mentions inside one answer to paren_role.
+        flat = blank_parens(sent)
+        if RE_STANCE_REJECT.search(flat):
             r = "reject"
         elif bullet and heading:
             r = heading
-        elif RE_STANCE_COGNATE.search(sent):
+        elif RE_STANCE_COGNATE.search(flat):
             r = "cognate"
-        elif RE_STANCE_ORIGIN.search(sent):
+        elif RE_STANCE_ORIGIN.search(flat):
             r = "origin"
         else:
             r = prev
@@ -1829,11 +1843,30 @@ def blank_parens(s):
     return s
 
 
+# The cues of RE_STANCE_HARD that name a model the word was shaped after
+# ("a calque of Greek ποιότης"): the term right after one is the model,
+# and the word's own chain resumes at the next "from" ("Coined by Cicero as
+# a calque of Ancient Greek ποιότης, from quālis + -tās"). A rejection cue
+# ("not from", "folk etymology", "corruption of") never resumes.
+RE_STANCE_MODEL = re.compile(
+    r"\b(calque\w*\s+of|loan\s+translation\s+of|semantic\s+loan\s+of|"
+    r"modell?ed\s+(?:after|on)|translation\s+of|interpretation\s+of|"
+    r"imitation\s+of|rendering\s+of)\b", re.I)
+
+
 def hard_cue_before(sent, at):
     """True when a rejection or calque cue sits before offset `at` in the
-    sentence, outside any parenthesis."""
+    sentence, outside any parenthesis, and no "from" resumes the chain
+    after a calque-type cue."""
     flat = blank_parens(sent[:at])
-    return RE_STANCE_HARD.search(flat) is not None
+    last = None
+    for m in RE_STANCE_HARD.finditer(flat):
+        last = m
+    if last is None:
+        return False
+    if RE_STANCE_MODEL.match(flat, last.start()):
+        return RE_RESUME_CUE.search(flat, last.end()) is None
+    return True
 
 
 def aside_cue_before(sent, at):
@@ -1861,10 +1894,23 @@ def origin_cue_before(prose, at):
     return RE_ORIGIN_CUE.search(head) is not None
 
 
+def find_exp(prose, exp, start):
+    """Where a template's expansion sits in the prose from `start` on, as a
+    whole: "Old Norse ang" is not found inside "Old Norse angr" (anger,
+    review finding 7). Returns -1 when it is nowhere."""
+    at = prose.find(exp, start)
+    while at >= 0:
+        end = at + len(exp)
+        if end >= len(prose) or not (prose[end].isalnum() or prose[end] in "\u0300\u0301\u0304\u0306\u0308"):
+            return at
+        at = prose.find(exp, at + 1)
+    return -1
+
+
 def find_term(prose, raw, cursor):
     """Where a template's term sits in the prose as a whole word, from
     `cursor` on, or -1. The arg is taken as written, modifiers off."""
-    t = RE_PART_MOD.sub("", (raw or "").strip()).strip()
+    t = RE_PART_MOD.sub("", (raw or "").strip()).strip().split(",", 1)[0].strip()
     if len(t) < 3:
         return -1
     m = re.compile(r"(?<![\w\-])" + re.escape(t) + r"(?![\w\-])").search(prose, cursor)
@@ -2263,7 +2309,7 @@ def paren_role(prose, at):
     """The stance of the parenthesis a position sits in, or ""."""
     depth = 0
     j = at - 1
-    while j >= 0 and at - j < 400:
+    while j >= 0 and at - j < 1500:
         c = prose[j]
         if c == ")":
             depth += 1
@@ -2379,7 +2425,7 @@ def page_mentions(templates, text, page_lang, key):
             pos = -1
             role = "origin"
             if exp:
-                at = prose.find(exp, cursor)
+                at = find_exp(prose, exp, cursor)
                 if at < 0:
                     # The expansion misses when the gloss quotes differ
                     # from the prose (mediocris) or the alt form carries a
@@ -2422,9 +2468,9 @@ def page_mentions(templates, text, page_lang, key):
                 rom = rom_from_expansion(exp)
             pos = -1
             if exp:
-                at = prose.find(exp, cursor)
+                at = find_exp(prose, exp, cursor)
                 if at < 0:
-                    at = prose.find(exp)
+                    at = find_exp(prose, exp, 0)
                 if at >= 0:
                     cursor = at
                     pos = at
@@ -2460,9 +2506,9 @@ def page_mentions(templates, text, page_lang, key):
             exp = t.get("expansion") or ""
             pos = -1
             if exp and not exp.startswith("Etymology tree"):
-                at = prose.find(exp, cursor)
+                at = find_exp(prose, exp, cursor)
                 if at < 0:
-                    at = prose.find(exp)
+                    at = find_exp(prose, exp, 0)
                 if at >= 0:
                     cursor = at
                     pos = at
@@ -2740,6 +2786,13 @@ class Graph:
     def decomposes(self, key):
         return key in self.split
 
+    def rejects(self, key):
+        """True when the page's own account refused its split for stance:
+        the parts an English page repeats as fact are not shown either
+        (squirrel: the Greek page calls σκιά + οὐρά a folk etymology)."""
+        why = self.refused.get(key) or ""
+        return "stance" in why or "uncertain origin" in why
+
 
 RE_PARTICIPLE_HEAD = re.compile(r"^(la-part|grc-part)")
 DISTINCT_FORM_TAGS = frozenset({"canonical", "infinitive", "supine"})
@@ -2909,7 +2962,7 @@ def parse_classical(path, lang):
                     weight, gl, display_form(e, w, lang, k), pos, r, words,
                     entry_forms(e), parts if parts and len(parts) >= 2 else None,
                     src, (e.get("etymology_templates") or [], text)
-                    if " + " in prose else None,
+                    if " + " in prose or (parts and len(parts) >= 2) else None,
                     entry_part_glosses(e, lang) if parts else [], order))
             # A participle page with a gloss of its own is a lemma page to
             # the parser; its step comes from the etymon's ":from" text or
@@ -3018,8 +3071,45 @@ def build_graph(g, part_steps):
         curated.add(sk)
         g.stats["split_curated"] += 1
 
+    def template_stance(k, templates, text):
+        """The reason a template split on this entry is no stated origin,
+        or "" (review finding 8, 2026-09-05). An `unk` or `unc` template
+        says the page's own etymology is unknown or uncertain, so a split
+        beside it is a proposal (ἀνθόλοψ, λύσσα); a decomposition template
+        whose expansion sits in a rejecting sentence, or after a rejection
+        cue, is refused the way a prose chain is."""
+        names = {t.get("name") or "" for t in templates}
+        if names & UNCERTAIN_NAMES:
+            return "uncertain origin (%s template)" % sorted(names & UNCERTAIN_NAMES)[0]
+        prose = strip_tree(text or "", lang, k)
+        if not prose:
+            return ""
+        spans = sentence_spans(prose)
+        roles = [None] * len(spans)
+        for t in templates:
+            if unwrap(t) is None:
+                continue
+            exp = t.get("expansion") or ""
+            if not exp or exp.startswith("Etymology tree"):
+                continue
+            at = prose.find(exp)
+            if at < 0:
+                continue
+            for (a, b, _), r in zip(spans, roles):
+                if a <= at < b:
+                    # Positional only: a cue after the split ("sōbrius
+                    # instead of sēbrius") says nothing against it, and a
+                    # page whose doubt is stated is caught by its template.
+                    if hard_cue_before(prose[a:b], at - a):
+                        return "rejection stance (template)"
+                    break
+        return ""
+
     def prose_split(k, templates, text):
         """(split or None, refusal reason) from one entry's prose."""
+        names = {t.get("name") or "" for t in templates}
+        if names & UNCERTAIN_NAMES:
+            return None, "uncertain origin (%s template)" % sorted(names & UNCERTAIN_NAMES)[0]
         mentions, chains, _ = page_mentions(templates, text, lang, k)
         tl = {}
         for kind, code, term, _, _, _, _ in mentions:
@@ -3058,7 +3148,8 @@ def build_graph(g, part_steps):
             why = ""
             src = c.src
             if c.parts:
-                r = resolve_parts(k, c.parts)
+                r = template_stance(k, c.prose[0], c.prose[1]) if c.prose else ""
+                r = r or resolve_parts(k, c.parts)
                 if isinstance(r, str):
                     why = r
                 else:
@@ -3987,7 +4078,7 @@ class Origin:
         if not att or "key" not in att:
             return False
         if att.get("extra"):
-            return True
+            return att["key"] is None or not self.g[att["lang"]].rejects(att["key"])
         return att["key"] is not None and self.decomposes(att["lang"], att["key"])
 
     def pick_both(self, named, parts_by, owner):
@@ -4073,8 +4164,12 @@ class Origin:
 
     def parts_of(self, lang, key, extra=None):
         """The top-level parts a lemma splits into: the graph's edge, else
-        the parts the English page supplied for it."""
-        return self.g[lang].split.get(key) or extra
+        the parts the English page supplied for it, unless the lemma's own
+        page rejected them."""
+        g = self.g[lang]
+        if key is not None and g.rejects(key):
+            return g.split.get(key)
+        return g.split.get(key) or extra
 
     def top_reaches(self, lang, key, extra=None):
         """The root keys one lemma's own split credits at its top level.
@@ -4155,7 +4250,7 @@ class Origin:
             return None
         g = self.g[lang]
         parts = g.split.get(key)
-        if parts is None and extra and depth == ORG_DEPTH:
+        if parts is None and extra and depth == ORG_DEPTH and not g.rejects(key):
             parts = extra
         if not parts or len(parts) < 2 or depth <= 0:
             return None
