@@ -320,6 +320,13 @@ LEMMA_STEPS = {
     # "coconut" (second review, cause 3, 2026-09-06, after the row moved to
     # the noun section that names cocus).
     "la:cocus": "la:coquus",
+    # precāre is an inflection page kaikki left untagged: its one sense
+    # reads "second-person singular present active imperative/indicative of
+    # precor" with no form-of link, so the page counted as a lemma with that
+    # statement for a gloss and pray printed it. The step is the one the
+    # parser makes for every inflection page that carries the link
+    # (2026-09-06, the prose-ancestry pass, which first reached the page).
+    "la:precare": "la:precor",
 }
 
 # --------------------------------------------------------------- source splits

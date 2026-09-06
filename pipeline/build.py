@@ -932,6 +932,10 @@ def language_codes(e, counts):
             counts[code] += 1
 
 
+# The gender or number letters kaikki appends to a form-of link's word.
+RE_GENDER_TAIL = re.compile(r"\s+(?:m|f|n|c|mf|pl|sg|m pl|f pl|n pl)$")
+
+
 def pure_form_of(e):
     """The lemma this entry points at, when every sense is a form-of sense.
 
@@ -1482,9 +1486,21 @@ def survey_english(path, ranks):
 # ------------------------------------------------------- English pass 2
 
 def att_key(att):
-    """A comparable form of an attachment, for the section test."""
+    """A comparable form of an attachment, for the section test.
+
+    The ORIGIN it names, without the wording. Two sections that name the
+    same lemma and gloss it differently name the same origin and leave the
+    row alone: vega reads "Borrowed from Spanish vega (meadow, fertile
+    lowland)" in one section and "From Spanish vega" in another.
+    """
     if not att:
         return ""
+    if "row" in att:
+        return "row:%s:%s" % (att["row"].get("lang"), att["row"].get("f"))
+    if "key" in att:
+        return "att:%s:%s:%s:%s" % (
+            att.get("lang"), att.get("key"), att.get("label"),
+            [p for _, p in (att.get("extra") or ())])
     return json.dumps(att, sort_keys=True, ensure_ascii=False, default=list)
 
 
@@ -2496,6 +2512,114 @@ def prose_step(prose, pos, exp):
     return tgt
 
 
+# Language names longest first, so "Old Northern French" is never read as
+# "French" and "Ancient Greek" never as "Greek".
+RE_PROSE_MENTION = re.compile(
+    r"(?<![\w-])(" + "|".join(re.escape(n) for n in
+                              sorted(LANG_NAMES, key=len, reverse=True)) + r")(?=\s)")
+# The words the table's language names are built out of. A prose term that
+# is one of them, or one followed by one, sits inside a longer language name
+# the table does not carry.
+LANG_WORDS = frozenset(w for n in LANG_NAMES for w in re.split(r"[\s-]", n)) | {
+    # Words of language names the table does not carry, so a match on the
+    # part of the name it does carry is refused: "Latin American Spanish
+    # avocado" and "the Mandarin pronunciation of Chinese 吳".
+    "American", "Chinese", "Pronunciation", "pronunciation",
+}
+# The grammatical labels a prose chain writes between a language name and
+# its term ("from Latin future passive participle reverendus"). STOP_HEADS
+# already refuses the ones the Germanic walk found; these are the rest of
+# the inflection vocabulary, which only this reader steps over.
+RE_TERM_MARKUP = re.compile(r"[()\[\]{}“”\"]")
+PROSE_LABELS = STOP_HEADS | frozenset({
+    "future", "passive", "active", "present", "past", "perfect", "imperfect",
+    "supine", "infinitive", "indicative", "subjunctive", "imperative",
+    "deponent", "attested", "unattested", "unrecorded", "hypothetical",
+    "obsolete", "dialectal", "archaic", "rare", "late", "early", "root",
+})
+
+
+def prose_ancestry(prose, covered, span, heads):
+    """The origin terms an English page names in its prose alone.
+
+    kaikki writes many pages as one etymon template whose expansion is the
+    rendered tree, and the template's arguments carry the first step only:
+    the rest of the chain is spelled out in the prose and belongs to no
+    template. father reads "Inherited from Middle English fader, from Old
+    English fæder, from Proto-West Germanic *fader" with one template naming
+    fader, and country reads "borrowed from Old French contree, from Vulgar
+    Latin *(terra) contrāta, from Latin contrā + -āta" with none at all.
+
+    A "<Language name> <term>" written after an origin cue is a step of that
+    chain (SPEC Principle 3: the page contributes the terms it names, from
+    the templates and from the prose parser). What is NOT such a step, each
+    line with the word that found it:
+
+    - anything outside `span`, the sentence that states the page's own
+      origin. Every later sentence is a note about it, and a "from" in one
+      of those is about another word: she ends "similar to the derivation
+      of sure from Old French seur" and read the Latin behind that French
+      word, luck ends a paragraph on a Latin phrase and read fortūna;
+    - anything a template expansion already covers, so a fully templated
+      page gains nothing here and no term is counted twice;
+    - a longer language name the table does not carry: the term itself is
+      a word of a language name, or the word after it is (avocado writes
+      "Latin American Spanish avocado" and wu "Mandarin pronunciation of
+      Chinese 吳");
+    - a term with a capitalised word straight after it and no punctuation
+      between, which is the same shape one line down (einstein writes
+      "German ein Stein");
+    - a head of a plus-chain in the prose, which the chain parser owns
+      (madonna writes "Italian madonna, from Old Italian ma + donna").
+
+    A grammatical label between the language name and the term is stepped
+    over, the STOP_HEADS rule of the Germanic walk: reverend writes "from
+    Latin future passive participle reverendus".
+
+    Returns [(start, end, code, term)].
+    """
+    if span is None:
+        return []
+    out = []
+    at = span[0]
+    while at < span[1]:
+        m = RE_PROSE_MENTION.search(prose, at, span[1])
+        if not m:
+            break
+        at = m.end()
+        if any(a <= m.start() < b for a, b in covered):
+            continue
+        if not origin_cue_before(prose, m.start()):
+            continue
+        toks = prose[m.start() + len(m.group(1)):span[1]].split()
+        i = 0
+        while i < len(toks) and i < 4 and toks[i].strip(STRIP_CHARS).lower() in PROSE_LABELS:
+            i += 1
+        if i >= len(toks):
+            continue
+        raw = toks[i].strip(",;:")
+        if RE_TERM_MARKUP.search(raw):
+            # A bracket or a quote is markup, not a term: drinking writes
+            # "Middle English [Term?]" and country "Vulgar Latin *(terra)
+            # contrāta".
+            continue
+        nxt = toks[i + 1] if i + 1 < len(toks) else ""
+        if raw in LANG_WORDS or nxt.strip(STRIP_CHARS) in LANG_WORDS:
+            continue
+        if nxt[:1].isupper() and raw == raw.rstrip(STRIP_CHARS):
+            continue
+        star = raw.startswith("*")
+        term = clean_part(raw.rstrip(STRIP_CHARS)[1:] if star
+                          else raw.rstrip(STRIP_CHARS))
+        if not term or term.lower() in PROSE_LABELS or strip_marks(term) in heads:
+            continue
+        end = prose.find(raw, m.start()) + len(raw)
+        out.append((m.start(), end, LANG_NAMES[m.group(1)],
+                    "*" + term if star else term))
+        at = max(at, end)
+    return out
+
+
 def paren_role(prose, at):
     """The stance of the parenthesis a position sits in, or ""."""
     depth = 0
@@ -2607,6 +2731,7 @@ def page_mentions(templates, text, page_lang, key):
         return out
 
     mentions = []
+    covered = []            # the prose a template expansion already claims
     cursor = 0
     for t in templates or ():
         name = t.get("name") or ""
@@ -2650,6 +2775,7 @@ def page_mentions(templates, text, page_lang, key):
                 if at >= 0:
                     cursor = at
                     pos = at
+                    covered.append((at, at + len(exp)))
                     if rejected_at(at):
                         role = "reject"
                     elif alternative(at, exp):
@@ -2686,6 +2812,7 @@ def page_mentions(templates, text, page_lang, key):
                 if at >= 0:
                     cursor = at
                     pos = at
+                    covered.append((at, at + len(exp)))
                     if name in COGNATE_NAMES:
                         # The template name is the role. The one exception is
                         # a cognate-family template written where the prose
@@ -2724,6 +2851,7 @@ def page_mentions(templates, text, page_lang, key):
                 if at >= 0:
                     cursor = at
                     pos = at
+                    covered.append((at, at + len(exp)))
             for p in template_parts(kind, targs, base):
                 mentions.append(("part", tlang, p, "", "", "origin", pos))
             continue
@@ -2750,6 +2878,41 @@ def page_mentions(templates, text, page_lang, key):
                     m = re.search(r"(?<!\w)" + re.escape(chain[0].head) + r"(?!\w)", sent)
                     at = m.start() if m else sent.find(chain[0].head)
                     chains.append((chain, r, a + (at if at >= 0 else 0)))
+
+    # The chain the prose states and no template carries (SPEC "Prose
+    # ancestry", 2026-09-06). Only the English page is read this way: a
+    # source page's prose is the graph's own business, and a walked
+    # pass-through page states one chain the walk already reads. The terms
+    # go in at their prose position, so a walk that reads the list in order
+    # sees the order a reader sees.
+    if page_lang == "en":
+        own = None
+        for (a, b, _), r in zip(spans, roles):
+            if r == "origin" and RE_STANCE_ORIGIN.search(blank_parens(prose[a:b])):
+                own = (a, b)
+                break
+        heads = {strip_marks(t.head) for chain, _, _ in chains for t in chain}
+        extra = []
+        for at, end, code, term in prose_ancestry(prose, covered, own, heads):
+            exp = prose[at:end]
+            role = role_at(at)
+            rom = rom_after(prose, at, exp) if non_latin_script(term) else ""
+            extra.append(("mention", code, term, gloss_after(prose, at, exp),
+                          rom, role, at))
+            if role == "origin":
+                stepped = prose_step(prose, at, exp)
+                if stepped:
+                    extra.append(("mention", code, stepped, "", "", "origin", at + 1))
+        if extra:
+            merged = []
+            i = 0
+            for m in mentions:
+                while i < len(extra) and m[6] >= 0 and extra[i][6] < m[6]:
+                    merged.append(extra[i])
+                    i += 1
+                merged.append(m)
+            merged.extend(extra[i:])
+            mentions = merged
 
     # The terms the page's own clause continues to past each pass-through
     # term: "via Middle French race from Italian razza" settles race on the
@@ -3189,6 +3352,16 @@ def parse_classical(path, lang):
                     tk = norm_key(lang, tgt)
                     if tk and tk != k:
                         part_steps[k] = tk
+    # kaikki writes the gender letter into a form-of link's word ("Late
+    # Latin form of caput n"), and a target that is no page title is no
+    # step: chief runs through capus, whose alt-of entry names caput.
+    for tbl in (g.fo, g.alt):
+        for k, tk in list(tbl.items()):
+            if tk in g.titles:
+                continue
+            bare = norm_key(lang, RE_GENDER_TAIL.sub("", tk))
+            if bare and bare != k and bare in g.titles:
+                tbl[k] = bare
     build_graph(g, part_steps)
     return g
 
@@ -4436,6 +4609,24 @@ class Origin:
             return loose
         return strict if strict is not None else loose
 
+    def spelling_of(self, fam, term, later):
+        """True when the page says `term` is a SPELLING of a lemma the same
+        run names after it.
+
+        A spelling only, never an inflection: a participle noun English
+        really borrowed is the lemma of its run whatever it inflects
+        (strātus under street, respectus under respect, agēntia under
+        agency), while a page that only records how another lemma is
+        written is a step. Both sides are resolved, so an inflection of the
+        target counts as the target.
+        """
+        g = self.g[fam]
+        tgt = g.alt.get(norm_for(fam, g.clean_term(term)))
+        if not tgt:
+            return False
+        tk, _ = g.lookup(tgt, True)
+        return tk is not None and any(c[1] == tk for c in later)
+
     def pick(self, named, parts_by, alt_ok, owner):
         """The attachment among the named root-language terms, or None."""
         def owns(fam, term):
@@ -4469,7 +4660,15 @@ class Origin:
             if run[0][1] is None and not alt_ok:
                 continue
             entry = None
-            for c in run:
+            for i, c in enumerate(run):
+                if c[1] is not None and self.spelling_of(fam, c[2], run[i + 1:]):
+                    # The page says it is a spelling of the term the chain
+                    # names next, so it is a step and not the lemma English
+                    # borrowed: chief runs "Old French chief, from Vulgar
+                    # Latin capus, from Latin caput", and the capus page
+                    # carries "Late Latin form of caput" beside an unrelated
+                    # bird of prey, which is the entry that won its card.
+                    continue
                 if c[1] is not None:
                     entry = c
                     break

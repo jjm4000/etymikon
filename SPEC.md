@@ -1748,6 +1748,70 @@ jar)". The review measured 451 words of this shape, 99 inside the top
   at the foot of the card, under the senses, so the rule cannot read it as
   what the reader sees first.
 
+### Prose ancestry (dated note, 2026-09-06, third pass)
+
+The second review left 106 rows wrong or degraded whose row no fix round
+had moved. The largest cause is one gap: kaikki writes many pages as a
+single etymon template whose expansion is the rendered tree, and that
+template's arguments carry the first step only. The rest of the chain is
+spelled out in the prose and belongs to no template, so the mention reader
+never saw it. father read Middle English fader with "from Old English
+fæder" in the prose beside it; country, store and jail named Latin in
+prose and shipped a Middle English row.
+
+- An English page's prose contributes its origin terms. A "<Language name>
+  <term>" written after an origin cue is a step of the chain, positioned
+  where the prose writes it, and the sentence's role decides it exactly as
+  a template's does. Only the English page is read this way: a source
+  page's prose is the graph's own business and a walked pass-through page
+  states one chain the walk already reads.
+- Five limits keep the reader on the page's own chain, each pinned by the
+  word that found it: only inside the sentence that states the page's own
+  origin (she ends "similar to the derivation of sure from Old French
+  seur" and read the Latin behind that French word; luck read fortūna out
+  of a closing paragraph); only where no template expansion covers the
+  text; never a term that is a word of a language name or is followed by
+  one (avocado writes "Latin American Spanish avocado", wu "the Mandarin
+  pronunciation of Chinese 吳"); never a term with a capitalised word
+  straight after it and no punctuation between (einstein writes "German
+  ein Stein"); never a head of a plus-chain, which the chain parser owns
+  (madonna writes "Italian madonna, from Old Italian ma + donna"). A
+  bracket or a quote in the term is markup and ends the match (drinking
+  writes "Middle English [Term?]"). A grammatical label between the name
+  and the term is stepped over (reverend writes "from Latin future passive
+  participle reverendus").
+- A term the page says is a SPELLING of a lemma the same run names after
+  it is a step, not the lemma English borrowed. chief runs "Old French
+  chief, from Vulgar Latin capus, from Latin caput" and the capus page
+  carries "Late Latin form of caput" beside an unrelated bird of prey,
+  which is the entry that won its card. An inflection is not a spelling:
+  a participle noun English really borrowed stays the lemma of its run
+  (strātus under street, respectus under respect, agēntia under agency).
+  kaikki writes the gender letter into the link's word ("form of caput n"),
+  so a form-of target that is no page title is retried without it.
+- The section test compares the ORIGIN two sections name, not the wording.
+  vega reads "Borrowed from Spanish vega (meadow, fertile lowland)" in one
+  section and "From Spanish vega" in another, and the row was withheld for
+  a difference of gloss.
+- One curated entry followed: LEMMA_STEPS la:precare to la:precor. The
+  page's one sense reads "second-person singular present active
+  imperative/indicative of precor" with no form-of link, so it counted as a
+  lemma and pray printed the statement as its gloss.
+- Outcome: 203 rows changed, 87 words gained a row and 4 lost one (each of
+  the four to the section rule, a second section that now names an origin
+  of its own). father reads Old English fæder, sister sweostor, town tūn,
+  red rēad, brain bræġn, steal stelan, meat mete, pride prūd, mouse mūs,
+  tide tīd, shade sċeadu; store reads Latin īnstaurō, jail caveola = cavea
+  + -ulus, popular populāris = populus + -āris, violence violentia =
+  violēns + -ia, authority auctōritās = auctor + -tās, chief and chef
+  caput, pray precor, command commendō = con- + mandō "to order, command"
+  (the "to chew" homograph the part-sense note could not reach), secretary
+  sēcrētārius = sēcernō + -ārius, theory Greek θεωρία, suicide suīcīdium =
+  suī + -cīdium. country reads Old French contree = contrā + -āta: the
+  Latin chips are right and the label is the French word, because the term
+  the prose names between them is written "*(terra) contrāta" and the
+  bracket rule refuses it.
+
 ### Measured after the second review's three fixes (2026-09-06)
 
 Two --offline builds byte-identical, verify 104 checks 0 failed, gold 130
