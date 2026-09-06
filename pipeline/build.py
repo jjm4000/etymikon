@@ -342,7 +342,7 @@ def gloss_line(s) -> str:
     while prev != g:
         prev = g
         g = RE_TAIL_PAREN.sub("", g).strip()
-    g = g.rstrip(":").strip()
+    g = g.rstrip(",;:").strip()
     return "" if RE_GRAM_NOTE.match(g) else g
 
 
@@ -1816,6 +1816,15 @@ def lang_family(code: str) -> str:
     return ROOT_LANGS.get(code) or code
 
 
+def chain_group(code: str) -> str:
+    """The language a plus-chain's ownership test compares by: the graph for
+    a root language, one group for the whole pass-through set, the code
+    itself otherwise."""
+    if code in PASS_LANGS:
+        return "pass"
+    return ROOT_LANGS.get(code) or code
+
+
 def row_key(code: str, term: str) -> str:
     """The key a term is compared under: the graph key for a root language,
     the lowercased form under its own code for any other."""
@@ -2473,7 +2482,18 @@ def tree_mentions(eterm, out, kind="tree"):
 
 
 def clean_gloss_arg(s) -> str:
-    return clean_text(s).strip("“”\"' ")
+    """A template's gloss argument as it ships.
+
+    The straight double quotes some source glosses carry are markup that
+    survived the templating, not wording: black reads Old English blæc
+    glossed 'black, dark", also "ink' and learn reads leornian glossed
+    'to learn", rarely also, "to teach'. A gloss never ends in a separator
+    either: win reads winnan glossed "to labour, swink, toil," and range
+    rengier glossed "to range, to rank, to order," (2026-09-06).
+    """
+    g = clean_text(s).strip("“”\"' ")
+    g = RE_WS.sub(" ", g.replace('"', "").replace("“", "").replace("”", ""))
+    return g.strip().rstrip(",;:").strip()
 
 
 def short_gloss(s) -> str:
@@ -2536,6 +2556,10 @@ PROSE_LABELS = STOP_HEADS | frozenset({
     "supine", "infinitive", "indicative", "subjunctive", "imperative",
     "deponent", "attested", "unattested", "unrecorded", "hypothetical",
     "obsolete", "dialectal", "archaic", "rare", "late", "early", "root",
+    # A collective noun for the terms, not a term: reward writes "derived
+    # from Old Northern French variants of Old French".
+    "variants", "forms", "spelling", "spellings", "cognate", "cognates",
+    "derivative", "derivatives", "descendant", "descendants", "equivalent",
 })
 
 
@@ -4390,7 +4414,11 @@ class Origin:
             # the ā the page splits it into. "From French caféine ... from
             # Italian caffè + -ine" names no earlier Italian word, so caffè
             # is the row's own term and no part of anything.
-            owns = {m[1] for m in ms
+            # The pass-through group is one language for this test: a chain
+            # in Old French explains the Anglo-Norman word named before it
+            # (lieutenant reads "Anglo-Norman lieutenant ... from Old French
+            # lieu + tenant" and the row read lieu).
+            owns = {chain_group(m[1]) for m in ms
                     if m[0] != "part" and m[5] in ("origin", "alt")
                     and 0 <= m[6] < pos and strip_marks(m[2]) not in hs
                     and lang_role(m[1]) in ("row", "pass", "root")}
@@ -4401,7 +4429,7 @@ class Origin:
                 if m[0] not in ("mention", "origin") or lang_family(m[1]) in self.g:
                     return False
                 hit = chain_heads.get(strip_marks(m[2]))
-                if hit is None or m[1] not in hit[1]:
+                if hit is None or chain_group(m[1]) not in hit[1]:
                     return False
                 return m[6] < 0 or m[6] + LANG_NAME_SPAN >= hit[0]
 
@@ -4563,11 +4591,16 @@ class Origin:
                     if walked and walked[-1] != code and code in walked:
                         break
                     walked.append(code)
-                if r in ("row", ""):
+                if r in ("row", "", "pass"):
+                    # A pass-through language ships no CARD, and its term is
+                    # still an attested origin: when the walk reaches no root
+                    # language, the deepest term of the chain is the row,
+                    # inert like any other (2026-09-06). try read Middle
+                    # English trien over the Anglo-Norman trier the same
+                    # sentence names, and hurt read hurten over Old Northern
+                    # French hurter.
                     row = as_row(code, term, gloss, rom)
                     stop = ""
-                elif r == "pass":
-                    stop = code + ":" + term
             if row is None:
                 for kind, code, term, gloss, rom, role, pos in ms:
                     if pos != -2 or kind == "part" or role != "origin" or term.startswith("*"):
@@ -6006,8 +6039,11 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         "%d row-only rows, %d malformed%s"
         % (len(rowonly), len(badrow), (": " + ", ".join(badrow[:5])) if badrow else ""))
     rowcodes = sorted({o["lang"] for o in rowonly.values() if o.get("lang")})
-    notrow = [c for c in rowcodes if c not in ROW_ONLY_LANGS]
-    add("every row-only code is in the ROW_ONLY_LANGS table", not notrow,
+    # A pass-through code reaches a row when the chain stops in it with
+    # nothing deeper (2026-09-06), so its name comes from PASS_LANGS.
+    notrow = [c for c in rowcodes
+              if c not in ROW_ONLY_LANGS and c not in PASS_LANGS]
+    add("every row-only code is named by ROW_ONLY_LANGS or PASS_LANGS", not notrow,
         "%d codes emitted%s" % (len(rowcodes),
                                 (", not in the table: " + ", ".join(notrow)) if notrow else ""))
     ext = extension_lang_names()

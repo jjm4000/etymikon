@@ -1812,6 +1812,45 @@ prose and shipped a Middle English row.
   the prose names between them is written "*(terra) contrāta" and the
   bracket rule refuses it.
 
+### A pass-through term is still a row (dated note, 2026-09-06, third pass)
+
+Phase one's pass-through group exists so a chain that stops at Old French
+continues to Latin when the French page names it. Where no root language
+is ever reached, the walk fell back to the Middle English term above the
+French one, or reported "chain stops in a pass-through language" and
+showed nothing. Both are wrong about what the page says: the French term
+is the deepest attested origin the page states.
+
+- The pass-through role governs CARDS, not rows. A word whose walk reaches
+  no root language renders the deepest term of its chain, in whatever
+  language the chain ends, inert like any other row-only row. try reads
+  Anglo-Norman trier, hurt Old Northern French hurter, touch Old French
+  tochier, department French département. The 2026-09-05 statement that
+  such a word renders no row and goes to the misses file is superseded;
+  dessert and quite render their French rows now.
+- ROW_ONLY_LANGS does not name the French codes, so verify accepts a row
+  code named by either table and the extension's LANG_NAME table gains
+  fr-CA, fr-aca and frc.
+- A plus-chain's ownership test treats the whole pass-through group as one
+  language, since a chain in Old French explains the Anglo-Norman word
+  named before it: lieutenant reads "Anglo-Norman lieutenant ... from Old
+  French lieu + tenant" and the row read lieu.
+- Outcome: 766 rows changed against the prose-ancestry build, 398 words
+  gained a row, 12 lost one (each to the section rule, a second section
+  that now names an origin of its own). wait, which the Germanic-walk note
+  recorded as not reached, reads Anglo-Norman waiter.
+
+### Glosses carry no markup and end in no separator (2026-09-06)
+
+Two shapes the source writes into a template's gloss argument reached the
+card as they were. Straight double quotes that survived the templating:
+black read Old English blæc glossed 'black, dark", also "ink' and learn
+read leornian glossed 'to learn", rarely also, "to teach'. And a trailing
+separator: win read winnan glossed "to labour, swink, toil," and range
+read rengier glossed "to range, to rank, to order,". The quotes come off
+a template gloss and a trailing comma, semicolon or colon comes off every
+gloss, template or card. Nothing else is cut.
+
 ### Measured after the second review's three fixes (2026-09-06)
 
 Two --offline builds byte-identical, verify 104 checks 0 failed, gold 130
