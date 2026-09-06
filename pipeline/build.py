@@ -726,9 +726,14 @@ def template_parts(kind, args, base):
     form has to be rebuilt here.
     """
     parts = []
+    at = []
     i = base
-    while str(i) in args:
-        raw = args[str(i)] or ""
+    # A suffix template may leave the base out ({{suffix|en|3=al}} on
+    # funereal renders "+ -al"): the affix arg still sits at its own index,
+    # so the walk continues past a missing position (review finding 5).
+    last = max((int(k) for k in args if k.isdigit()), default=0)
+    while i <= last:
+        raw = args.get(str(i)) or ""
         # An arg opening with a colon is a template selector (":af", ":der",
         # ":calque"), which means a nested etymon starts here: what follows
         # is a SECOND analysis of the word, not more parts of this one.
@@ -741,12 +746,15 @@ def template_parts(kind, args, base):
         p = clean_part(raw)
         if p:
             parts.append(p)
+            at.append(i)
         i += 1
     if not parts:
         return parts
     if kind in ("prefix", "pre", "confix") and not parts[0].endswith("-"):
         parts[0] = parts[0] + "-"
-    if kind in ("suffix", "suf", "confix") and len(parts) >= 2:
+    # The suffix is any part past the base position, so an omitted base
+    # still yields "-al" rather than "al".
+    if kind in ("suffix", "suf", "confix") and at[-1] > base:
         if not parts[-1].startswith("-"):
             parts[-1] = "-" + parts[-1]
     return parts
@@ -1504,6 +1512,8 @@ OTHER_NAMES = {"Greek": "el", "Modern Greek": "el", "Old French": "fro", "Middle
                "Old Frisian": "ofs", "West Frisian": "fy", "Icelandic": "is",
                "Norwegian": "no", "Yiddish": "yi", "Polish": "pl", "Czech": "cs"}
 LANG_NAMES = {}
+# The longest language name a template expansion writes ahead of its term.
+LANG_NAME_SPAN = 32
 LANG_NAMES.update(OTHER_NAMES)
 LANG_NAMES.update(LATIN_NAMES)
 LANG_NAMES.update(GREEK_NAMES)
@@ -1693,6 +1703,16 @@ def origin_cue_before(prose, at):
     """True when the text right before `at` is an origin cue ("from ", "via ")."""
     head = prose[max(0, at - 24):at]
     return RE_ORIGIN_CUE.search(head) is not None
+
+
+def find_term(prose, raw, cursor):
+    """Where a template's term sits in the prose as a whole word, from
+    `cursor` on, or -1. The arg is taken as written, modifiers off."""
+    t = RE_PART_MOD.sub("", (raw or "").strip()).strip()
+    if len(t) < 3:
+        return -1
+    m = re.compile(r"(?<![\w\-])" + re.escape(t) + r"(?![\w\-])").search(prose, cursor)
+    return m.start() if m else -1
 
 
 # ---- the prose decomposition parser --------------------------------------
@@ -2164,6 +2184,15 @@ def page_mentions(templates, text, page_lang, key):
             role = "origin"
             if exp:
                 at = prose.find(exp, cursor)
+                if at < 0:
+                    # The expansion misses when the gloss quotes differ
+                    # from the prose (mediocris) or the alt form carries a
+                    # hyphen (compāniōn-); the term itself, as written, is
+                    # still there, and its position is what decides which
+                    # chain it owns (review finding 5).
+                    at = find_term(prose, args.get("4") or raw, cursor)
+                    if at < 0:
+                        at = find_term(prose, args.get("4") or raw, 0)
                 if at >= 0:
                     cursor = at
                     pos = at
@@ -2212,8 +2241,21 @@ def page_mentions(templates, text, page_lang, key):
         u = unwrap(t)
         if u is not None:
             kind, tlang, targs, base, prefer = u
+            # The template's expansion ("de- + portāre") sits in the prose
+            # like any other, and the position is what says which term the
+            # parts belong to (review finding 5, 2026-09-05): sport writes
+            # "from Latin deportāre, from de- + portāre".
+            exp = t.get("expansion") or ""
+            pos = -1
+            if exp and not exp.startswith("Etymology tree"):
+                at = prose.find(exp, cursor)
+                if at < 0:
+                    at = prose.find(exp)
+                if at >= 0:
+                    cursor = at
+                    pos = at
             for p in template_parts(kind, targs, base):
-                mentions.append(("part", tlang, p, "", "", "origin", -1))
+                mentions.append(("part", tlang, p, "", "", "origin", pos))
             continue
         if name in ETY_NAMES:
             tlang, analyses = etymon_analyses(t, page_lang)
@@ -3349,21 +3391,34 @@ class Origin:
         return own + walked
 
     def english_parts(self, ms, chains):
-        """fam -> [(form, key)]: the parts the English page supplies itself.
+        """fam -> (parts, pos, heads, before): the parts the English page
+        supplies itself.
 
         From a decomposition template whose language is a root language,
         from the parts of an etymon analysis, and from the prose parser,
-        the first accepted set per language wins.
+        the first accepted set per language wins. `pos` is where the parts
+        sit in the prose (-1 when unknown), `heads` the spellings of the
+        parts, and `before` the last origin term named ahead of a template
+        run in template order: the head the etymon tree nests the parts
+        under, or the origin template written just before a plain one. A
+        run with no prose position belongs to that term and to no other
+        (review finding 5, 2026-09-05).
         """
         parts_by = {}
         tl = {}
-        for kind, code, term, _, _, _, _ in ms:
+        for kind, code, term, _, _, _, pos in ms:
+            if pos == -2:
+                # A walked page's word for a term's language is not the
+                # page's own: the Old French page delivrer writes līberō
+                # inside a French template.
+                continue
             fam = lang_family(code)
             for f in ("la", "grc"):
                 tk = norm_for(f, term)
                 if tk:
                     tl.setdefault(tk, fam)
         run = []
+        before = [None]
 
         def flush():
             if len(run) >= 2:
@@ -3371,26 +3426,44 @@ class Origin:
                 if fam in self.g and fam not in parts_by:
                     g = self.g[fam]
                     resolved = []
+                    heads = set()
                     for _, code, term, _, _, _, _ in run:
                         pk, _ = g.lookup(term, alt_ok=True)
                         if pk is None or lang_family(code) != fam:
                             resolved = None
                             break
                         resolved.append((g.form.get(pk) or g.clean_term(term), pk))
+                        heads.add(strip_marks(term))
                     if resolved:
-                        parts_by[fam] = (resolved, -1, set())
+                        parts_by[fam] = (resolved, run[0][6], heads, before[0])
             del run[:]
 
         for m in ms:
             if m[0] == "part" and lang_family(m[1]) in self.g:
-                if run and run[-1][1] != m[1]:
+                if run and (run[-1][1] != m[1] or run[-1][6] != m[6]):
                     flush()
                 run.append(m)
             else:
                 flush()
+                kind, code, term, gloss, rom, role, mpos = m
+                if (kind != "part" and role == "origin"
+                        and lang_role(code) in ("root", "pass")
+                        and not term.startswith("*")):
+                    before[0] = (code, term, gloss, mpos)
         flush()
         for chain, stance, pos in chains:
             if stance == "reject":
+                continue
+            # A trailing suffix the page's own templates give as English
+            # ("from Latin funereus + -al", "cohaereō, + -ive") is the
+            # English word's suffix, not a part of the lemma (review
+            # finding 5): it comes off the chain, and a chain left with
+            # one term is no chain.
+            while (len(chain) >= 2 and chain[-1].head.startswith("-")
+                   and not chain[-1].explicit
+                   and tl.get(norm_for("la", chain[-1].head)) == "en"):
+                chain = chain[:-1]
+            if len(chain) < 2:
                 continue
             for fam in ("la", "grc"):
                 if fam in parts_by:
@@ -3402,7 +3475,7 @@ class Origin:
                         heads.add(strip_marks(t.head))
                         if t.target:
                             heads.add(strip_marks(t.target))
-                    parts_by[fam] = (res, pos, heads)
+                    parts_by[fam] = (res, pos, heads, None)
         return parts_by
 
     def attach(self, mentions, chains, word="", ctx=None):
@@ -3438,8 +3511,17 @@ class Origin:
         # sorprendre, from super- + prendere" splits the French verb. That
         # owner labels the row when it is no node of the graph.
         owner = {}
-        for fam, (parts, pos, hs) in list(parts_by.items()):
+        for fam, (parts, pos, hs, before) in list(parts_by.items()):
             if pos < 0:
+                # No prose position: the parts belong to the term the
+                # template itself names (the etymon head, or the origin
+                # template written just before it), never to any term of
+                # the run (review finding 5: persecute's per- + sequor
+                # landed on persecūtor, sport's de- + portāre on portō).
+                if before is not None and strip_marks(before[1]) not in hs:
+                    owner[fam] = before
+                else:
+                    del parts_by[fam]
                 continue
             best = None
             for kind, code, term, gloss, rom, role, mpos in ms:
@@ -3463,13 +3545,21 @@ class Origin:
         # the chain explains, not a lemma of its own: "from super- +
         # prendere" written with mention templates must not attach a word
         # to la:super-. The parser's role decides, never the template name.
-        heads = set()
-        for parts, pos, hs in parts_by.values():
+        # Only a mention written at or after the chain is one of its terms:
+        # infirm names infirmus as its origin two sentences before the verb's
+        # "īnfirmus + -ō", and that mention stays the origin. A mention's
+        # position is where its expansion starts, which puts the language
+        # name ("Latin dis-") a few characters ahead of the chain's head.
+        head_pos = {}
+        for parts, pos, hs, _ in parts_by.values():
             if pos >= 0:
-                heads |= hs
-        if heads:
+                for h in hs:
+                    head_pos[h] = min(head_pos.get(h, pos), pos)
+        if head_pos:
             ms = [(("part",) + m[1:]) if m[0] in ("mention", "origin")
-                  and strip_marks(m[2]) in heads else m for m in ms]
+                  and strip_marks(m[2]) in head_pos
+                  and (m[6] < 0 or m[6] + LANG_NAME_SPAN >= head_pos[strip_marks(m[2])])
+                  else m for m in ms]
 
         own = []
         named = []
@@ -3514,6 +3604,12 @@ class Origin:
                         "label": "*" + self.g[fam].clean_term(term[1:]),
                         "extra": parts_by[fam][0]}
             if lang_role(code) == "pass" and not term.startswith("*"):
+                # The French word owns the parts, but when its own page
+                # continues to a Latin lemma that decomposes, that lemma is
+                # the row (ancestor: ancessor's page names antecessor).
+                deeper = self.pick([c for c in named if c[0] == fam], {}, False, {})
+                if deeper and deeper.get("key") and self.decomposes(fam, deeper["key"]):
+                    return deeper
                 return {"lang": code, "key": None, "first": "", "hint": "",
                         "label": self.g[fam].clean_term(term),
                         "extra": parts_by[fam][0], "fam": fam}
@@ -3599,11 +3695,11 @@ class Origin:
     def pick(self, named, parts_by, alt_ok, owner):
         """The attachment among the named root-language terms, or None."""
         def owns(fam, term):
-            """True when the page's parts in `fam` belong to this term, or
-            to no term in particular."""
+            """True when the page's parts in `fam` belong to this term.
+            Parts with no owner belong to no term (review finding 5)."""
             own = owner.get(fam)
             if own is None:
-                return parts_by[fam][1] < 0
+                return False
             return strip_marks(own[1]) == strip_marks(term)
 
         runs = []
@@ -3633,7 +3729,7 @@ class Origin:
                 if c[1] is not None:
                     entry = c
                     break
-                if alt_ok and fam in parts_by and parts_by[fam][1] >= 0                         and owns(fam, c[2]):
+                if alt_ok and fam in parts_by and owns(fam, c[2]):
                     # A term Wiktionary never wrote (ad montem, dēcadēns) that
                     # the English page splits itself. The row reads the term
                     # as written over the parts, the row the spike counted as
@@ -3709,10 +3805,16 @@ class Origin:
         """
         seen = collections.Counter()
         for att in attachments:
-            if not att or "key" not in att or att["key"] is None:
+            if not att or "key" not in att:
                 continue
             lang = att.get("fam") or att["lang"]
+            # A lemma Wiktionary never wrote (medicālis) is no node, but the
+            # parts the page gives it are reached like any other split's.
             reached = set(self.top_reaches(lang, att["key"], att.get("extra")))
+            if att["key"] is None:
+                for r in reached:
+                    seen[r] += 1
+                continue
             aliased = (curation.ROOT_ALIASES.get(lang + ":" + att["key"])
                        or curation.ROOT_ALIASES.get(att["key"]))
             if not self.is_affix(lang, att["key"]) and not aliased:

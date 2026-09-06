@@ -584,7 +584,22 @@ Latin (`lang` fro, frm or fr on a decomposed row). A chain with no term
 before it ("From Latin spectāculum + -ar") is the English word's own
 analysis, and its first term is the lemma. A mention that is a term of an
 owned chain is a part, not a lemma, so "from super- + prendere" written
-with mention templates never attaches a word to la:super-.
+with mention templates never attaches a word to la:super-; only a mention
+written at or after the chain counts as one of its terms.
+
+A decomposition template's parts are owned the same way (review finding
+5, 2026-09-05): the template's expansion ("de- + portāre") gives it a
+prose position, and the parts belong to the last root or pass-through
+term named before it. A template with no prose position belongs to the
+term the template itself names, the etymon head it nests under or the
+origin template written just before it, and to no term at all when none
+precedes it; never to any term of the run. An origin template whose
+expansion is not in the prose is located by its term. A trailing suffix
+the page's own templates give as English ("funereus + -al" beside a
+{{suffix|en|3=al}}) comes off a chain, and a chain left with one term is
+no chain. When a French word owns the parts and its own page continues
+to a Latin lemma that decomposes, that lemma is the row (ancestor reads
+antecessor through ancessor's page).
 
 When no root-language term resolves, the word's deepest row-only mention
 renders the row-only row. A word whose chain ends in a pass-through

@@ -1463,6 +1463,33 @@ pinned it; the gold set carries a row for each.
   identity reads identitās = īdem + -tās (the Greek ταὐτότης is a
   calque on that page, rejected under finding 1), access still reads
   accēdō + -tus with accēdō carrying ad- + cēdō.
+- Template parts and their owner (finding 5). A decomposition template
+  on an English page takes its prose position from its expansion ("de-
+  + portāre" on sport), so its parts belong to the last root or
+  pass-through term named before it, as a prose chain's do. A template
+  with no prose position belongs to the term the template itself names:
+  the head the etymon tree nests it under, or the origin template
+  written just before it; never to any term of the run, and to no term
+  at all when none precedes it. An origin template whose expansion is
+  not in the prose (a gloss quoted differently, an alt stem such as
+  compāniōn-) is located by its term. A trailing suffix the page's own
+  templates give as English ("from Latin funereus + -al" with a
+  {{suffix|en|3=al}}) comes off the chain, and a chain left with one
+  term is no chain; a suffix template with the base omitted still yields
+  its affix. A mention is one of a chain's terms only when it is written
+  at or after the chain (infirm names infirmus two sentences before the
+  verb's īnfirmus + -ō). When a French word owns the parts and its own
+  page continues to a Latin lemma that decomposes, that lemma is the
+  row (ancestor reads antecessor). Outcomes: sport reads dēportō = dē-
+  + portō, persecute reads persequor = per- + sequor, funereal reads
+  fūnereus = fūnus + -eus, advise reads advisō = ad- + vīsō, cohesive
+  reads cohaereō = con- + haereō, mediocre reads mediocris = medius +
+  ocris; 60 words gained a decomposed row, none lost one to a single.
+  accolade still reads *accollō = ad- + collum + -āta (the page's own
+  chain; the -āta is Occitan in truth) and byssinosis still reads
+  byssinus = byssus + -ōsis (the page writes "byssinum via byssus +
+  -osis", a chain no positional rule separates from the legitimate
+  "from X, from Y + Z"); both are left as the page states them.
 
 ## Naming (Jesse decision 2026-08-25)
 
