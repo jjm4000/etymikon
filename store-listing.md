@@ -261,9 +261,39 @@ accede register marker, the Tantalus card and its gloss.
 
 ## Open before upload
 
-- GitHub Pages is off. Turn it on for `main` at `/ (root)` and confirm
-  the privacy policy URL loads before submitting; the field is rejected
-  otherwise.
-- `privacy-policy.html` heads itself "Etymikon: English Root Dictionary",
-  which is not the name in the manifest or on this page. Worth aligning
-  in the same pass that turns Pages on.
+Both earlier items are done. GitHub Pages is on for `main` at `/ (root)`
+and https://jjm4000.github.io/etymikon/privacy-policy.html returns the
+policy. That page no longer heads itself with a name the project never
+shipped.
+
+What is left is one thing, and it has to be done by hand.
+
+### The clean-profile smoke pass
+
+Nobody has loaded the packed zip and confirmed it runs. Automating it was
+attempted and abandoned, and the reasons are recorded here so the next
+person does not spend the same hour: headless Chrome loads an unpacked
+extension but gives its own pages no extension context, so `chrome` is
+undefined and nothing can be proved; a headed run attaches to an already
+running Chrome and silently ignores `--user-data-dir` and
+`--load-extension`; and an unpacked extension's id is derived from its
+path, so a wrong guess yields an error page that still answers on the URL
+and reads as a pass. One attempt reported PASS against Chrome's own
+Google Network Speech component before that was caught.
+
+Do this instead, once, before submitting:
+
+1. Unzip `etymikon-1.0.0.zip` somewhere temporary.
+2. Open a new Chrome profile, or a guest window, so nothing else is loaded.
+3. `chrome://extensions`, turn on Developer mode, Load unpacked, pick the
+   unzipped folder. It must load with no error banner.
+4. On any article page, select `manuscript`. The card should read FROM
+   LATIN manuscriptus over manus and scribo.
+5. Select `subterranean`. The breakdown is sub- plus terra plus -an, and
+   the chip reads Uncommon.
+6. Click terra. The root card opens and lists the words built on it.
+7. Open the side panel from the toolbar icon. Type `errata` and press
+   Enter. Search, Saved and Settings all render.
+8. Star a card, check it appears under Saved, and export the folder to
+   CSV.
+9. `chrome://extensions` again: the service worker line shows no errors.
