@@ -643,72 +643,57 @@
   var INLINE_FAMILY = 8;   // rows a root response carries (SPEC)
   var FAMILY_CHUNK = 200;  // rows one {type:"family"} chunk carries (SPEC)
 
-  // The tier the worker joins onto every word match and family row. The
-  // cutoffs live in lookup.js; this is the same rule, so the fixture speaks
-  // the protocol rather than the data.
-  function tier(fr) {
-    if (typeof fr !== "number" || fr <= 0) return "rare";
-    if (fr <= 3000) return "everyday";
-    if (fr <= 15000) return "common";
-    if (fr <= 50000) return "advanced";
-    return "rare";
-  }
-
-  // The worker joins the chip's WORDING beside the tier, so no surface has to
-  // re-word a classification. The protocol value stays lowercase.
-  function tierLabel(zone) {
-    return zone.charAt(0).toUpperCase() + zone.slice(1);
-  }
-
   /* ------------------------------------------------------------------ *
-   * The worker's lookup behavior, per SPEC:
-   * token extraction, case folding, forms map, then the suffix rules.
+   * The worker's lookup behavior is NOT reimplemented here.
+   *
+   * This block used to carry its own token rule, its own suffix rules and
+   * its own tier cutoffs. All three had drifted from extension/lookup.js,
+   * and the drift was invisible because the copied resolver never ran: every
+   * check reached its entry by an exact key or through the FORMS fixture.
+   * The page imports the shipped module and calls it, so a rule that moves
+   * there moves here.
+   *
+   * The fixtures are still the gate. resolve() reads whatever tables it is
+   * handed, and the page hands it WORDS and FORMS in the shape the shipped
+   * bundle has.
+   *
+   * A dynamic import needs an http origin, so the page has to be served, as
+   * the README already says. The import starts here and is exposed as
+   * __ready. The self-checks await it before their first check, because the
+   * builders below call tierOf synchronously.
    * ------------------------------------------------------------------ */
 
-  var TOKEN_RE = /[A-Za-z][A-Za-z'-]*/;
+  var DATA = { words: { words: WORDS }, forms: { map: FORMS } };
 
-  function extractWord(text) {
-    var hit = TOKEN_RE.exec(String(text || ""));
-    return hit ? hit[0].slice(0, 40) : "";
+  var REAL = null;
+  var READY = import("../extension/lookup.js").then(function (mod) {
+    REAL = mod;
+    return mod;
+  });
+
+  function real() {
+    if (REAL === null) {
+      throw new Error("extension/lookup.js has not loaded: await " +
+        "__etymikonTestRuntime.__ready, and serve this page over http");
+    }
+    return REAL;
   }
 
-  // Each rule turns a surface into a candidate lemma; the first candidate
-  // that is a shipped word wins.
-  function suffixCandidates(word) {
-    var out = [];
-    function add(value) { if (value && out.indexOf(value) < 0) out.push(value); }
-    if (/ies$/.test(word)) add(word.slice(0, -3) + "y");
-    if (/es$/.test(word)) add(word.slice(0, -2));
-    if (/s$/.test(word)) add(word.slice(0, -1));
-    if (/ed$/.test(word)) {
-      add(word.slice(0, -2));
-      add(word.slice(0, -1));
-    }
-    if (/ing$/.test(word)) {
-      add(word.slice(0, -3));
-      add(word.slice(0, -3) + "e");
-      // Doubled consonant: "running" -> "run".
-      var stem = word.slice(0, -3);
-      if (stem.length > 2 && stem.charAt(stem.length - 1) === stem.charAt(stem.length - 2)) {
-        add(stem.slice(0, -1));
-      }
-    }
-    if (/er$/.test(word)) add(word.slice(0, -2));
-    if (/est$/.test(word)) add(word.slice(0, -3));
-    return out;
-  }
+  // The tier the worker joins onto every word match and family row, and the
+  // wording it joins beside it. Both come from lookup.js, where TIER_CUTOFFS
+  // is the one place the cutoffs exist. The protocol value stays lowercase.
+  function tier(fr) { return real().tierOf(fr); }
 
-  function resolve(word) {
-    var lower = word.toLowerCase();
-    if (WORDS[lower]) return { lemma: lower, inflected: false };
-    if (FORMS[lower] && WORDS[FORMS[lower]]) {
-      return { lemma: FORMS[lower], inflected: true };
-    }
-    var candidates = suffixCandidates(lower);
-    for (var i = 0; i < candidates.length; i++) {
-      if (WORDS[candidates[i]]) return { lemma: candidates[i], inflected: true };
-    }
-    return null;
+  function tierLabel(zone) { return real().TIER_LABELS[zone]; }
+
+  // Token extraction, case folding, the forms map and the suffix rules, all
+  // of them the shipped ones. `lemma` is the words.json key, `surface` is the
+  // token with its selected casing, and `inflected` says the surface was not
+  // that key.
+  function resolve(text) {
+    var hit = real().resolve(text, DATA);
+    if (hit === null) return null;
+    return { surface: hit.surface, lemma: hit.canonical, inflected: !!hit.formOf };
   }
 
   // The worker joins each morph's gloss: the root gloss for an r chip, the
@@ -793,12 +778,10 @@
   }
 
   function lookup(text) {
-    var word = extractWord(text);
-    if (!word) return { ok: true, matches: [] };
-    var hit = resolve(word);
+    var hit = resolve(text);
     if (!hit) return { ok: true, matches: [] };
     // `surface` keeps the selected casing; `canonical` is the matched key.
-    return { ok: true, matches: [wordMatch(word, hit.lemma, hit.inflected)] };
+    return { ok: true, matches: [wordMatch(hit.surface, hit.lemma, hit.inflected)] };
   }
 
   /* ------------------------------------------------------------------ *
@@ -1375,6 +1358,9 @@
       if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
       return Promise.resolve(resp);
     },
+    // The real extension/lookup.js, once its dynamic import has landed. The
+    // fake cannot resolve or tier anything until it has.
+    __ready: READY,
     __lookup: lookup,
     __root: rootResponse,
     __family: rankedFamily,
@@ -1448,6 +1434,17 @@
   document.getElementById("run").addEventListener("click", async function () {
     var api = globalThis.__etymikon;
     if (!api) { out.textContent = "FAIL: __etymikon test hooks missing (is chrome.runtime present?)"; return; }
+    // The fake resolves and tiers through the real extension/lookup.js, which
+    // it loads by dynamic import. Await it before the first check, so no check
+    // races the module. A failure here is the file:// case: the module cannot
+    // load without an http origin.
+    try {
+      await globalThis.__etymikonTestRuntime.__ready;
+    } catch (e) {
+      out.textContent = "FAIL: extension/lookup.js did not load (" + e +
+        "); serve the repo over http, since file:// cannot import a module";
+      return;
+    }
     var lines = [], pass = 0, fail = 0, skipped = 0;
     function check(name, cond, detail) {
       (cond ? pass++ : fail++);
@@ -1520,8 +1517,14 @@
       r2.matches[0].formOf.surface === "territories" &&
       r2.matches[0].formOf.lemma === "territory",
       JSON.stringify(r2.matches[0].formOf));
-    check("the suffix rules cover running → run",
-      fake.__lookup("running").matches[0].canonical === "run");
+    // A surface the FORMS fixture does not carry, so it can only arrive
+    // through the suffix rules, and one that needs a repair to get there: the
+    // `er` rule proposes "runn", the doubled-consonant repair makes it "run".
+    var r3 = fake.__lookup("runner");
+    check("the suffix rules cover runner → run, through the doubled-consonant repair",
+      r3.matches.length === 1 && r3.matches[0].canonical === "run" &&
+      r3.matches[0].formOf.lemma === "run",
+      JSON.stringify(r3.matches.map(function (m) { return m.canonical; })));
     check("a word with no entry returns no matches",
       fake.__lookup("blorp").matches.length === 0);
 

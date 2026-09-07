@@ -2859,6 +2859,12 @@ types that no longer exist, the feature is deleted.
   chip, it opens a card labelled "Proper noun" with its one-word family
   and a crumb, and the residue chip stays inert with its gloss), on
   both pages.
+- Harness fakes: the fake worker imports extension/lookup.js and calls
+  its `resolve`, `tierOf` and `TIER_LABELS`. The page holds no second
+  copy of the token rule, the suffix rules or the tier cutoffs. The
+  fixtures stay the gate because the page hands them in as
+  `{ words: { words: WORDS }, forms: { map: FORMS } }`. The import is a
+  dynamic one and needs an http origin, so both pages must be served.
 - Real-app pass: test-page/index.html rewritten with English staging
   content (paragraphs containing anchor words), screenshots via the
   carried-over CDP harness with English scenes.
