@@ -12,7 +12,9 @@ each upload, because one data rule change moves several of them at once.
 Fenced blocks are pasted as they stand. Inside the detailed description
 there is no markdown, because the store renders that field as plain
 text, and there is no blank line between a separator and the body under
-it.
+it. That spacing rule belongs to this file alone. README.md keeps
+ordinary markdown spacing, and applying the listing rule to it was tried
+once on Okpyeon and reverted inside a minute.
 
 ## Name
 
@@ -61,8 +63,11 @@ Some words were assembled before English took them, so the card splits the sourc
 --- A WORD CARD ALSO SAYS WHAT IS BUILT ON THE WORD ---
 The family runs in both directions, so a card lists the longer words English builds on the one you looked up. absolute reads "Used in 4 words", which opens absolutely, absolutism, absoluteness and absolutist.
 
---- HOW COMMON THE WORD IS, ON EVERY CARD ---
-Every word carries one of four frequency tiers, so a word worth learning is easy to tell from a word almost nobody uses. subterranean reads Advanced.
+--- KEEP WHAT YOU LOOK UP ---
+Cards save into folders you name, and a folder exports to Anki or to CSV.
+
+--- SEARCH WITHOUT A PAGE ---
+The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra and press Enter.
 
 --- A WORD BUILT ON A NAME REACHES THE NAME ---
 An eponym opens the person or place behind it, on a card marked Proper noun. tantalize opens Tantalus, "A Phrygian king who was condemned to remain in Tartarus, chin-deep in water, with fruit-laden branches hanging above his head."
@@ -70,17 +75,14 @@ An eponym opens the person or place behind it, on a card marked Proper noun. tan
 --- WORDS THAT ARE NOT FROM LATIN OR GREEK STILL SAY WHERE THEY CAME FROM ---
 Germanic and other vocabulary gets a line of its own rather than nothing. sky reads "From Old Norse ský (cloud)".
 
---- YOU DO NOT NEED TO READ GREEK ---
+--- GREEK FORMS CARRY THEIR ROMANIZATION ---
 Every Greek form on a card carries its romanization beside it. Under ephemeral, the Greek part reads ἡμέρα, romanized hēmérā, glossed "day".
 
 --- DEFINITIONS SAY WHEN A SENSE IS MARKED ---
 Where the source marks a sense as archaic, informal or one of fourteen other labels, the marker is printed in front of the definition. The fourth sense of accede reads "archaic To approach; to arrive, to come forward."
 
---- SEARCH WITHOUT A PAGE ---
-The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra and press Enter.
-
---- KEEP WHAT YOU LOOK UP ---
-Cards save into folders you name, and a folder exports to Anki or to CSV.
+--- HOW COMMON THE WORD IS, ON EVERY CARD ---
+Every word carries one of four frequency tiers, counted over a corpus of film subtitles. subterranean reads Advanced.
 
 --- THE WHOLE DICTIONARY IS INSIDE THE EXTENSION ---
 84,326 words, 8,068 root cards and 110,719 inflection and spelling mappings, 24.7 MB in all. Etymikon makes no network requests and needs no account. It works with no connection.

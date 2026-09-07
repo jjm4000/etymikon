@@ -46,7 +46,10 @@ tiles.
   1,178 carry their own breakdown, 3,190 are anchors that recursion stops
   at, and 4,160 hold a one-word family. SPEC "Root card".
 - **Proper nouns get cards.** A word built on a name reaches the name:
-  darwinism opens Darwin. 1,141 English name cards ship, and 197 Latin
+  tantalize opens Tantalus, the Phrygian king. Some name cards reach
+  the wrong entry of a shared spelling and darwinism opens a
+  municipality in Argentina, which is the homograph gap in the
+  unscheduled list below. 1,141 English name cards ship, and 197 Latin
   and Greek cards are labelled names rather than roots. SPEC "A proper
   noun a word is built on is a card".
 - **Register labels.** A definition states its register where the page
