@@ -270,30 +270,49 @@ What is left is one thing, and it has to be done by hand.
 
 ### The clean-profile smoke pass
 
-Nobody has loaded the packed zip and confirmed it runs. Automating it was
-attempted and abandoned, and the reasons are recorded here so the next
-person does not spend the same hour: headless Chrome loads an unpacked
-extension but gives its own pages no extension context, so `chrome` is
-undefined and nothing can be proved; a headed run attaches to an already
-running Chrome and silently ignores `--user-data-dir` and
-`--load-extension`; and an unpacked extension's id is derived from its
-path, so a wrong guess yields an error page that still answers on the URL
-and reads as a pass. One attempt reported PASS against Chrome's own
-Google Network Speech component before that was caught.
+Four checks, done by hand, once, before submitting. It is short because
+almost everything else is already covered, and it is manual by decision
+rather than by neglect.
 
-Do this instead, once, before submitting:
+What automation already proves. The package is checked structurally:
+forward-slash separators, the manifest name and version, all three data
+files parsing at their expected counts, every icon present, package.json
+excluded. The code is checked by the two browser self-check suites, 268
+and 209 checks, which run the shipped lookup, saved, content and side
+panel scripts against the shipped stylesheet and the shipped data, behind
+a message-transport stub in place of chrome.runtime.
 
-1. Unzip `etymikon-1.0.0.zip` somewhere temporary.
-2. Open a new Chrome profile, or a guest window, so nothing else is loaded.
-3. `chrome://extensions`, turn on Developer mode, Load unpacked, pick the
-   unzipped folder. It must load with no error banner.
-4. On any article page, select `manuscript`. The card should read FROM
-   LATIN manuscriptus over manus and scribo.
-5. Select `subterranean`. The breakdown is sub- plus terra plus -an, and
-   the chip reads Uncommon.
-6. Click terra. The root card opens and lists the words built on it.
-7. Open the side panel from the toolbar icon. Type `errata` and press
-   Enter. Search, Saved and Settings all render.
-8. Star a card, check it appears under Saved, and export the folder to
-   CSV.
-9. `chrome://extensions` again: the service worker line shows no errors.
+What no automation here can reach. Chrome 151 headless ignores
+--load-extension. That is why the staging pages exist at all, and it is
+recorded in cdp.py's header, in make_screenshots.py, and in
+pipeline/README.md under "Why there are staging pages". A headed Chrome
+would load the extension but joins the running browser's process
+singleton, so --user-data-dir and --load-extension are both dropped and
+the run silently uses the everyday profile. There is no flag that fixes
+that; the running Chrome has to be closed first. Okpyeon reached the same
+wall across three releases and its release gate is manual QA for the same
+reason. Do not spend another afternoon here.
+
+So the packaging layer is the only gap: whether Chrome accepts the zip,
+registers the worker, and resolves the manifest's paths.
+
+1. Unzip etymikon-1.0.0.zip. In a fresh profile or a guest window, go to
+   chrome://extensions, enable Developer mode, Load unpacked, choose the
+   folder. It must load with no error banner, and the service worker line
+   must show no errors.
+2. On any article, select `manuscript`. The card reads FROM LATIN
+   manuscriptus over manus and scribo.
+3. Click the terra chip on `subterranean`. A root card opens listing the
+   words built on it.
+4. Open the side panel from the toolbar icon. Search, Saved and Settings
+   each render.
+
+Two traps, if anyone automates this later. Identify our extension
+positively, by its manifest name or by the id Chrome records in the
+profile's Preferences. A filter written as "any service worker that is
+not this known built-in" matches Chrome's own components, and one run
+reported a pass against Google Network Speech. And a tab created through
+CDP at a wrong extension id still reports the requested
+chrome-extension:// URL as its target url while location.href is
+chrome-error://chromewebdata/, so check location.href, never the target
+url.
