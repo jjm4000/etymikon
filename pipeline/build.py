@@ -512,6 +512,68 @@ def first_clause(g: str) -> str:
     return g.rstrip(".").strip()
 
 
+# The clause scan the name trim cuts on, and the Python half of the cut the
+# renderer already makes on a chip (content.js chipGloss, 2026-09-06). Same
+# boundary set and the same two refusals: a separator glued to the next
+# character is not a boundary ("1,000"), a stop inside an abbreviation is not
+# one either ("U.S. Army"), and a boundary under CLAUSE_MIN leaves a fragment.
+# What the renderer does not need and this does is the comma: a chip shows the
+# first clause and stops, while a card gloss walks the boundaries looking for
+# one that reads as a whole statement. first_clause keeps its own regex on
+# purpose. It runs on every sense of every language and a bracket-aware scan
+# would move rows this round has no business moving.
+CUT_OPEN = "([“"
+CUT_CLOSE = ")]”"
+CUT_SEPS = ",;:."
+
+
+def clause_bounds(g):
+    """(index, separator) of every clause end outside brackets and quotes.
+
+    The end of the line comes last, with an empty separator, so a caller that
+    walks boundaries also sees the whole line as a candidate.
+    """
+    depth = 0
+    quoted = False
+    for i, ch in enumerate(g):
+        if ch in CUT_OPEN:
+            depth += 1
+        elif ch in CUT_CLOSE:
+            depth = depth - 1 if depth > 0 else 0
+        elif ch == '"':
+            quoted = not quoted
+        elif depth == 0 and not quoted and ch in CUT_SEPS:
+            nxt = g[i + 1:i + 2]
+            if nxt and nxt != " ":
+                continue
+            if i < CLAUSE_MIN:
+                continue
+            if ch == "." and abbrev_dot(g, i):
+                continue
+            yield i, ch
+    yield len(g), ""
+
+
+def cut_tidy(cut: str) -> str:
+    """A cut with its separator and any dangling punctuation removed.
+
+    An abbreviation keeps its stop: "the usual spelling of Laurence in the
+    U.S.;" cuts to "... in the U.S.", not to "... in the U.S".
+    """
+    cut = cut.rstrip()
+    while cut and cut[-1] in " ,;:":
+        cut = cut[:-1].rstrip()
+    while cut.endswith(".") and not abbrev_dot(cut, len(cut) - 1):
+        cut = cut[:-1].rstrip(" ,;:")
+    return cut
+
+
+def last_token(s: str) -> str:
+    """The final word of a phrase, without the punctuation around it."""
+    parts = s.split()
+    return parts[-1].strip("()[]{}“”\"'.,;:") if parts else ""
+
+
 # ------------------------------------------------- the register of a sense
 #
 # The source marks a sense obsolete, slang or a slur and the build threw the
@@ -1563,6 +1625,163 @@ def alt_spelling_of(e):
     return None
 
 
+# ---------------------------------------------- the gloss of a name page
+#
+# The ladder below walks the senses in order and takes the first that fits
+# the card. That is right for an ordinary page, where the senses are
+# variations on one meaning and a short early one is a fair gloss. A name
+# page is not built that way: sense 1 is the referent and the later senses
+# are unrelated homographs, nearly always small American towns. Preferring
+# brevity therefore ships a different place, person or thing, and 230 of the
+# 1,338 shipped name cards did (222 English, 7 Latin, 1 Greek, measured
+# 2026-09-07). egypt read "A town in Craighead County, Arkansas", asia "An
+# epithet of Athena", darwin "A municipality of Río Negro province,
+# Argentina".
+#
+# So sense order outranks brevity on a name page and sense 1 is TRIMMED to
+# the budget rather than walked past. This runs only where the ladder walks
+# past sense 1. A card already showing sense 1, whole or as its first clause,
+# keeps every word it shows: that card is not the defect and cutting it loses
+# wording, since pilate would fall from "Pontius Pilate, the man who,
+# according to the Bible, ordered the crucifixion of Jesus" to "Pontius
+# Pilate" and spartacus from a gladiator to "A Thracian name".
+#
+# Boundaries rank by strength: a full stop, then a semicolon or colon, then
+# a comma. The first cut in the strongest tier that fits the card and reads
+# as a gloss wins. The full stop leads because these senses often read "A
+# country in North Africa. Official name: ... Capital: ...", where the first
+# sentence alone is the ideal gloss. When no cut fits the card, sense 1 goes
+# whole if it is inside the 160 cap, and only then does a longer cut inside
+# the cap get a turn. When nothing works the ladder answers as before, so no
+# card can lose a gloss here.
+
+# The naming categories the source opens a name sense with. Census of the
+# first segment of sense 1 over the 156,769 name entries in the three
+# extracts that state a sense (2026-09-07): 60,494 open with one of these
+# heads, which are surname 49,934, given name 9,484, name 713, nickname 248,
+# placename 74, patronymic 35 and toponym 6. Between the article and the head
+# stand adjectives (male 5,003, female 4,319, diminutive 704, English 358,
+# Meitei 298, habitational 225, unisex 193, and a tail of 308 mostly language
+# and nationality words). After the head the segment ends there 32,777 times
+# and carries an origin phrase 25,717 times ("from German" 3,755,
+# "originating as" 1,316, "transferred from" 699 and their kin). None of that
+# says whose name it is, so a segment of exactly that shape is a category and
+# the trim carries past it. darwin stops one clause later, at "A surname,
+# especially referring to Charles Darwin (1809–1882)", because "especially
+# referring to" is neither a modifier nor an origin.
+NAME_HEADS = r"(?:(?:sur|place|fore|nick)?name|given\s+name|patronymic|toponym)"
+RE_NAME_CATEGORY = re.compile(
+    r"^(?:an?|the)\s+(?:[\w'’-]+\s+){0,5}?" + NAME_HEADS +
+    r"(?:\s+(?:from|in|of|originating|transferred|derived|used)\b[^,;:]*)?$",
+    re.I)
+# A cut that opens a setting or a usage note is not a definition: magi reads
+# "Chiefly preceded by the (three)" and paul "In the New Testament".
+RE_CUT_LEADIN = re.compile(
+    r"^(?:in|on|at|by|with|among|during|according|chiefly|especially|usually|"
+    r"often|sometimes|mainly|particularly|originally|now|formerly|also)\b", re.I)
+RE_CUT_CONJ = re.compile(r"^(?:and|or|nor|but)\b")
+RE_CUT_WORD = re.compile(r"[A-Za-z][\w'’-]*")
+# A cut ending on one of these stopped mid-thought ("A leader who", mahdi),
+# and a comma that follows one leaves a clause open behind a later cut ("A
+# leader who, according to Sunni eschatology").
+CUT_FUNCTION = frozenset("""
+a an the who which that whose whom what and or nor but of in on at to for
+from with by as than when where while its his her their our your my this
+these those is are was were be been being has have had
+""".split())
+# A phrase points at one thing in one of four ways: it opens with "the", it
+# carries a number, it names something with a capital, or it hangs a
+# description on its head noun with a preposition or a relative pronoun. "A
+# telescopic binary star" (sirius) does none of them and is a kind of thing;
+# "A hammer-wielding god associated with thunder" (thor) has "with", "The
+# largest continent" (asia) opens with the article, and "A river in Europe"
+# (danube) has both a preposition and a name.
+CUT_POINTERS = frozenset("""
+of in on at to for from with by near between within around above below
+who which that whose whom where when
+""".split())
+
+
+def names_a_kind(cut) -> bool:
+    """True when the cut names a kind of thing rather than one thing."""
+    if RE_NAME_CATEGORY.match(cut):
+        return True
+    words = RE_CUT_WORD.findall(cut)
+    if not words:
+        return True
+    if words[0].lower() == "the" or any(ch.isdigit() for ch in cut):
+        return False
+    return not any(w.lower() in CUT_POINTERS or w[:1].isupper()
+                   for w in words[1:])
+
+
+def echoes_title(cut, title) -> bool:
+    """True when the cut adds at most one word to the page's own title.
+
+    A gloss has to say something its own headword does not: the page
+    Thanksgiving cuts to "Thanksgiving Day" at its first comma, which names
+    nothing the card does not already print above it.
+    """
+    if not title:
+        return False
+    own = {w.lower() for w in RE_CUT_WORD.findall(title)}
+    return len([w for w in RE_CUT_WORD.findall(cut)
+                if w.lower() not in own]) < 2
+
+
+def clause_open(cut) -> bool:
+    """True when a clause opened inside the cut and never closed."""
+    return any(sep == "," and i < len(cut)
+               and last_token(cut[:i]).lower() in CUT_FUNCTION
+               for i, sep in clause_bounds(cut))
+
+
+def list_comma(g, i) -> bool:
+    """True when the comma at i separates two names, not two clauses.
+
+    Without this america cuts to "A supercontinent consisting of North
+    America" and drops Central and South America, and a place written "A city
+    in Fulton County, Georgia" would lose its state.
+    """
+    tail = g[i + 1:].lstrip()
+    if not tail or RE_CUT_CONJ.match(tail):
+        return True
+    return bool(tail[:1].isupper() and last_token(g[:i])[:1].isupper())
+
+
+def cut_reads_as_gloss(cut, g, i, sep, title) -> bool:
+    """True when one cut of a name sense can stand on a card by itself."""
+    if len(cut) < CLAUSE_MIN or RE_CUT_LEADIN.match(cut):
+        return False
+    if last_token(cut).lower() in CUT_FUNCTION or clause_open(cut):
+        return False
+    if names_a_kind(cut) or echoes_title(cut, title):
+        return False
+    return not (sep == "," and list_comma(g, i))
+
+
+def name_gloss(g, title="") -> str:
+    """Sense 1 of a name page, trimmed to the card budget.
+
+    "" when no cut of it reads as a gloss, which leaves the ladder to answer.
+    """
+    if len(g) <= ROOT_GLOSS_CARD:
+        return g
+    cuts = [(i, sep, cut_tidy(g[:i])) for i, sep in clause_bounds(g)]
+    for tier in (".", ";:", ","):
+        for i, sep, cut in cuts:
+            if sep in tier and len(cut) <= ROOT_GLOSS_CARD \
+                    and cut_reads_as_gloss(cut, g, i, sep, title):
+                return cut
+    if len(g) <= ROOT_GLOSS_MAX:
+        return g
+    for i, sep, cut in cuts:
+        if len(cut) <= ROOT_GLOSS_MAX \
+                and cut_reads_as_gloss(cut, g, i, sep, title):
+            return cut
+    return ""
+
+
 def best_gloss(e) -> str:
     """A root-card gloss for one entry, inside the card budget.
 
@@ -1593,15 +1812,30 @@ def best_gloss_row(e):
     The labels travel with the line the card takes, so an obsolete or
     derogatory root gloss says so on the card the same way a word's
     definition does (owner decision 2026-09-06).
+
+    On a name page the ladder is not allowed to walk past sense 1, which is
+    the page's referent; sense 1 is trimmed to the budget instead. See the
+    name-gloss note above.
     """
-    for g, lb in gloss_rows(e):
+    rows = gloss_rows(e)
+    i, g = ladder_row(rows)
+    if i > 0 and (e.get("pos") or "") == "name":
+        head = name_gloss(rows[0][0], e.get("word") or "")
+        if head:
+            return head, rows[0][1]
+    return (g, rows[i][1]) if i >= 0 else ("", [])
+
+
+def ladder_row(rows):
+    """(index, line) of the sense the budget ladder takes, or (-1, "")."""
+    for i, (g, _) in enumerate(rows):
         if len(g) <= ROOT_GLOSS_CARD:
-            return g, lb
-    for g, lb in gloss_rows(e):
+            return i, g
+    for i, (g, _) in enumerate(rows):
         head = first_clause(g)
         if head and len(head) <= ROOT_GLOSS_MAX:
-            return head, lb
-    return "", []
+            return i, head
+    return -1, ""
 
 
 def gloss_lines(e):

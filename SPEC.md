@@ -337,6 +337,16 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   dots) and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
   (review finding 2026-08-24: 92 shipped roots carried sentence-length
   usage notes into the chip subtext).
+  A card of kind `name` reads one rung differently (2026-09-07). On a
+  name page sense 1 is the referent and the later senses are unrelated
+  homographs, so where the ladder above would walk past sense 1 the card
+  takes sense 1 and TRIMS it instead, at a full stop first, then a
+  semicolon or colon, then a comma, keeping the first cut that fits the
+  budget and reads as a gloss rather than a bare category, a fragment or
+  a list item. Sense 1 goes whole when no cut fits and it is inside the
+  160 cap, and the ladder above answers when nothing does, so no card can
+  lose its gloss to this rule. A name card already showing sense 1 keeps
+  every word it shows. See "Sense one is what a name page is about".
 - `lb` (2026-09-06): the register markers of the sense the card's
   gloss came from, in the same vocabulary and order a definition's
   are, absent when the sense carried none and on every hand gloss.
@@ -2669,7 +2679,8 @@ Data and rendering:
   where a section has at least one marked definition. It costs 0.58 MB
   over 20,606 sections.
 - `lb` on a roots.json card, the markers of the sense `best_gloss` took
-  the card's line from. 136 cards carry one. A `ROOT_GLOSSES` hand gloss
+  the card's line from. 125 cards carry one, from 136 before the name
+  trim moved 17 name cards to a differently marked sense. A `ROOT_GLOSSES` hand gloss
   carries none: the marker states what the source said about a sense, and
   a hand gloss came from nobody's sense.
 - The renderer prints them comma-joined in muted italic in front of the
@@ -2693,17 +2704,18 @@ left them unclickable. That was the exception, not the rule: never-silent
 already ships a one-word family for a Latin root, and refusing the same for
 Korea was the divergence the owner did not want.
 
-The rule is the one that already governs every root card, and there is no
-second rule: a card needs a gloss. A proper-noun page a shipped word is
-built on ships a card wherever the source supplies a usable gloss, with a
-family, a search presence and a clickable chip, and the rest stay inert
-chips carrying whatever gloss they have. No family-size threshold, no hand
-glosses.
+The rule for shipping one is the rule that already governs every root card:
+a card needs a gloss. A proper-noun page a shipped word is built on ships a
+card wherever the source supplies a usable gloss, with a family, a search
+presence and a clickable chip, and the rest stay inert chips carrying
+whatever gloss they have. No family-size threshold, no hand glosses.
 
 - The key folds the page title, the way la:terra folds the form it
   displays with macrons: `en:korea` displays Korea. The gloss and the
   register markers are the page's own, through the same `best_gloss` and
-  the same 80-character card budget every other card runs through.
+  the same 80-character card budget every other card runs through. Which
+  SENSE the budget takes is where a name page differs, and the one place
+  it does: see "Sense one is what a name page is about" below.
 - The label line says "Proper noun" in English, "Latin proper noun" and
   "Greek proper noun" elsewhere. The `name` kind is applied in every
   language, so 169 Latin and Greek cards that read "Latin root" over a
@@ -2853,7 +2865,8 @@ Volta a West African river, Texas a Wisconsin town, Moon a surname. That is
 the homograph gap the previous round already recorded for chip glosses (13
 of 20 right there), now visible on a card. It is not a regression, since
 each of the 9 previously opened a lower-case word that is a different page
-altogether, and it is the next thing to fix.
+altogether, and it is the next thing to fix. Fixed the next day by "Sense
+one is what a name page is about" below.
 
 What is not there. No proper-noun card carries a warning marker. Of the
 1,635 chip forms with a proper-noun page, 12 pages carry a warning tag on
@@ -2861,7 +2874,9 @@ some sense and 4 of those on sense 1; of the 4, Araucania's sense 1 is over
 the card budget so the card takes sense 2, and Fritz, Jap and Jerry are
 recorded as ordinary noun pages too, so their chips open WORD cards, where
 the markers do render (jap noun 1 reads "ethnic slur, derogatory"). The
-owner's count of 27 is not what this extract holds.
+owner's count of 27 is not what this extract holds. Araucania's card takes
+sense 1 from 2026-09-07 and reads "offensive" above its family, so one
+proper-noun card carries a warning marker now.
 
 No curation entry was added in this round. Every change is a rule.
 
@@ -3087,6 +3102,86 @@ four that fire. All four dead entries are on report-only tables, so the
 build is green with the abort armed on the other five.
 
 No curation entry was added, removed or amended.
+
+### Sense one is what a name page is about (2026-09-07)
+
+The gloss ladder walks the senses in order and takes the first that fits the
+80-character card. On an ordinary page the senses are variations on one
+meaning, so a short early sense is a fair gloss. A name page is built the
+other way. Sense 1 is the referent the page is named for and the senses
+after it are unrelated homographs, nearly always small American towns.
+Preferring brevity therefore ships a different place, person or thing.
+
+Measured on the shipped data at 2026-09-07: 230 of the 1,338 name cards took
+a later sense, 222 English, 7 Latin and 1 Greek. egypt read "A town in
+Craighead County, Arkansas". asia read "An epithet of Athena". darwin read
+"A municipality of Río Negro province, Argentina".
+
+The rule. On a page whose pos is `name`, sense order outranks brevity. Where
+the ladder would walk past sense 1, the card takes sense 1 and trims it to
+the budget instead.
+
+- The trim cuts at a boundary the source wrote, never inside a word. The
+  boundary scan is `clause_bounds`, which is the build's copy of the cut
+  the renderer already makes on a chip: a comma, semicolon, colon or full
+  stop that closes a word, outside every bracket and quoted run, at least
+  CLAUSE_MIN characters in. `first_clause` keeps its own simpler regex,
+  because it runs on every sense of every language.
+- Boundaries rank by strength. A full stop first, because these senses
+  often read "A country in North Africa. Official name: ... Capital: ..."
+  and the first sentence alone is the ideal gloss. Then a semicolon or
+  colon. Then a comma.
+- The first cut in the strongest tier that fits the 80-character card and
+  reads as a gloss wins. When none does, sense 1 goes whole if it is inside
+  the 160-character cap, and only then does a longer cut inside the cap get
+  a turn.
+- When nothing reads as a gloss the ladder answers as it always did, so no
+  card can lose its gloss to this rule. Six cards are in that state.
+- A name card whose gloss already comes from sense 1 keeps every word it
+  shows. Trimming those would lose wording for no gain: pilate would fall
+  from "Pontius Pilate, the man who, according to the Bible, ordered the
+  crucifixion of Jesus" to "Pontius Pilate".
+
+Reading as a gloss is six refusals, each one a case the census found.
+
+- It stops mid-thought, ending on a function word. mahdi cut to "A leader
+  who".
+- It opens a setting or a usage note rather than a definition. magi cut to
+  "Chiefly preceded by the (three)".
+- It leaves a relative clause open behind it, which is a comma cut past a
+  comma that follows a function word. mahdi again, at "A leader who,
+  according to Sunni eschatology".
+- It names a kind of thing rather than a thing. Two shapes, below.
+- It repeats the page's own title and adds at most one word. thanksgiving
+  cut to "Thanksgiving Day", which says nothing the card does not already
+  print above it.
+- For a comma only: the comma sits between two capitalised words, which
+  makes it a list or an address separator rather than a clause end. america
+  cut to "A supercontinent consisting of North America" and dropped the
+  other two.
+
+Naming a kind has two shapes. The first is the naming category the source
+opens a name sense with. Census of the first segment of sense 1 over the
+156,769 name entries in the three extracts that state a sense: 60,494 open
+with one of seven heads, being surname 49,934, given name 9,484, name 713,
+nickname 248, placename 74, patronymic 35 and toponym 6. Between the article
+and the head stand adjectives and nothing else, 308 distinct words over
+17,239 tokens, led by male 5,003, female 4,319, diminutive 704, English 358,
+Meitei 298, habitational 225 and unisex 193. After the head the segment ends
+there 32,777 times and carries an origin phrase 25,717 times, led by "from
+German" 3,755, "originating as" 1,316 and "transferred from" 699. None of
+that says whose name it is, so a segment of exactly that shape is a category
+and the trim carries past it. darwin stops one clause later, at "A surname,
+especially referring to Charles Darwin (1809–1882)".
+
+The second shape is a phrase with nothing in it that points at one thing. A
+phrase points at one thing when it opens with "the", carries a number, names
+something with a capital, or hangs a description on its head noun with a
+preposition or a relative pronoun. "A telescopic binary star" does none of
+them and is a kind of thing, so sirius keeps reading to "A telescopic binary
+star, visually the brightest star in the night sky". "A hammer-wielding god
+associated with thunder" has "with", "The largest continent" opens with the
+article, and "A river in Europe" has both a preposition and a name.
 
 ## Naming (Jesse decision 2026-08-25)
 

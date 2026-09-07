@@ -1117,11 +1117,22 @@ so a budget decides which sense gets the card:
 3. the **160 character** safety cap decides which clause is usable. A gloss
    over it is not used at all, and the walk moves to the next sense.
 
+A card of kind `name` reads one rung differently. Sense 1 of a name page is
+the referent and the senses after it are unrelated homographs, so where the
+walk above would leave sense 1 behind, the card takes sense 1 and cuts it to
+the budget instead. The cut lands on a full stop first, then a semicolon or
+colon, then a comma, and it keeps the first cut that fits the card and reads
+as a gloss rather than a bare category, a fragment or one item of a list.
+Sense 1 goes whole when no cut fits and it is inside the safety cap, and the
+walk above answers when nothing does, so no card loses its gloss to this. A
+name card already reading sense 1 keeps every word of it. SPEC "Sense one is
+what a name page is about".
+
 A trailing parenthetical clarifier and a leading usage label are dropped
 before any of this, so `terra` reads "dry land" instead of "dry land (as
-opposed to watery parts of the Earth)". Every surviving string is a whole
-clause from the source. A hand gloss in `ROOT_GLOSSES` overrides the whole
-ladder.
+opposed to watery parts of the Earth)". Every surviving string ends where the
+source put a boundary, at a sentence or a clause end, never inside a word. A
+hand gloss in `ROOT_GLOSSES` overrides the whole ladder.
 
 The SPEC bullet reads "the shortest sense at or under 80 characters". Source
 order is used instead of length, and the deviation is reported to the owner:
