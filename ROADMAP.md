@@ -23,8 +23,8 @@ counts in the bullets come from `extension/data/` and
 upload, because one data rule change moves several of them at once. The
 upload has an order of its own: declutter the README, write the store
 listing from it, build the zip, smoke it in a clean Chrome profile, then
-submit. The rest of the collateral is ready, meaning the icon set, the
-promo tiles, and eight screenshot scenes with wording checks.
+submit. The rest of the collateral is ready: the icon set and the promo
+tiles.
 
 - **The core loop.** Select a word, read its definitions and its morpheme
   breakdown, click any morpheme to its root card, walk the root's family,
@@ -59,12 +59,12 @@ promo tiles, and eight screenshot scenes with wording checks.
   spellings. 5,612 shipped words shadow a lemma (ran, running) and carry
   an "Also a form of" row plus their lemma's origin row. SPEC "Data
   files (produced by pipeline/build.py)".
-- **A general dictionary under the etymology.** 84,326 words in 24.7 MB,
-  under the hybrid cap: everything attested in the top 50,000 ranks, plus
-  every rarer word carrying a breakdown, whether that breakdown is an
-  English split or a classical origin chain that decomposes. American
-  spellings are primary and British spellings resolve to them. SPEC
-  "Product decisions".
+- **A general dictionary under the etymology.** 84,326 words in 24.7 MB
+  of data, under the hybrid cap: everything attested in the top 50,000
+  ranks, plus every rarer word carrying a breakdown, whether that
+  breakdown is an English split or a classical origin chain that
+  decomposes. American spellings are primary and British spellings
+  resolve to them. SPEC "Product decisions".
 - **Tier chips.** Everyday 2,649, Common 8,419, Advanced 18,190,
   Uncommon 55,068, nothing unranked. The cutoffs live in one function,
   and the build asserts every tier holds a word and that both label
