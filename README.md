@@ -35,10 +35,11 @@ any card saves it into folders; folders export to Anki or CSV.
 Words whose source is neither Latin nor Greek still say where they
 came from: sky reads "From Old Norse ský (cloud)" on one quiet row, and
 a Greek form prints its romanization beside it. The shipped dictionary
-holds 84,307 words, 6,737 roots (English affixes beside Latin and Greek
-lemmas), and 110,676 inflection mappings, built from Wiktionary at build
-time. Lookups work offline. The extension makes no network requests of
-any kind.
+holds 84,326 words, 8,068 root cards (English affixes, Latin and Greek
+lemmas, and 1,338 proper nouns), and 110,719 inflection and spelling
+mappings, built from Wiktionary at build time. The data files come to
+24.7 MB. Lookups work offline. The extension makes no network requests
+of any kind.
 
 The name is Greek: etymos ("true sense") + -ikon, the formation behind
 lexicon. The Byzantine etymological dictionaries were titled
