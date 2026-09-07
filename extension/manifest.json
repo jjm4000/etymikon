@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Etymikon: Word Roots Popup Dictionary",
+  "name": "Etymikon: Word Roots and Etymology Popup Dictionary",
   "version": "1.0.0",
   "description": "Select an English word on any page to see its definitions and its morpheme breakdown: subterranean = sub- + terra + -an.",
   "background": {

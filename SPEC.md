@@ -18,7 +18,14 @@ needs its full binding detail.
 - Name: Etymikon (Greek etymos "true sense" + -ikon, the lexicon
   formation). The K spelling is binding. Tagline (Jesse decision
   2026-08-25, the Okpyeon pattern with a colon): the manifest and
-  store name is "Etymikon: Word Roots Popup Dictionary".
+  store name is "Etymikon: Word Roots and Etymology Popup Dictionary"
+  (Jesse decision 2026-09-07, widened from "Etymikon: Word Roots
+  Popup Dictionary" so the store indexes the word readers actually
+  search for). The title names the subject; it does not promise the
+  genre. Only 17.9% of shipped words reach a named older language,
+  and no entry carries a date, a sense history or a cognate, so the
+  DESCRIPTION says what the cards show and never says "complete
+  etymology".
 - Audience: native speakers building vocabulary (GRE/SAT register).
   Wiktionary definitions ship as harvested, no simplification pass.
 - Dictionary scope: general English dictionary. Every shipped word gets
