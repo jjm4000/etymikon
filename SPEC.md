@@ -3183,6 +3183,59 @@ star, visually the brightest star in the night sky". "A hammer-wielding god
 associated with thunder" has "with", "The largest continent" opens with the
 article, and "A river in Europe" has both a preposition and a name.
 
+### Measured after the name-gloss round (2026-09-07)
+
+Two --offline builds byte-identical. 120 spot checks in the build pass 0
+failed, `--verify` 0 failed. Gold 311 of 311, six card rows added, committed
+score raised from 305. Node 181, index harness 268, embed harness 209, 8
+screenshots regenerated with their scene checks passing and byte-identical
+to the set before the round.
+
+Data. roots.json: 224 cards change, every one of kind `name`, being 217
+English, 6 Latin and 1 Greek. Two fields move and no others: `gloss` on all
+224 and `lb` on 17 of them, 14 losing a marker and 3 gaining one, so cards
+carrying a register marker fall from 136 to 125. Araucania is the first
+proper-noun card to carry a warning marker, reading "offensive" over its
+family, because its sense 1 is tagged that way in the source and the card now
+takes it. words.json: 1 word changes, odessan, whose inert Odessa chip reads
+"A port city, the administrative center of Odessa Raion and Odesa Oblast,
+Ukraine" for "A raion of Odesa Oblast, Ukraine. Capital: Odessa." forms.json
+is byte-identical. Every other count in the build report is unchanged: 84,326
+words, 8,068 roots, 1,141 English name cards, 110,719 forms rows.
+
+Where the 230 went. 224 now read sense 1, 169 of them inside the 80-character
+card and 55 of them whole inside the 160-character cap. 6 have no cut that
+reads as a gloss and no sense 1 inside the cap, so the ladder still answers
+for them: abkhazia, lemuria, magi, marshall, pentecost and la:seres. Root
+glosses over 100 characters rise from 192 to 216 and over 120 from 91 to 104,
+which is the price of letting a name card keep the whole of sense 1.
+
+The hand checks. Thirty changed glosses read against the extracts: 30 are
+sense 1 whole or an exact prefix of it, cut at a boundary the source wrote.
+No shipped name gloss carries an unbalanced bracket, an odd quote count or a
+dangling separator, and none lost its gloss.
+
+One card got worse. la:atlas reads "a mountain in the Atlas Mountain Range in
+the former Kingdom of Mauretania" for "the Titan Atlas". The Latin page puts
+the mountain in sense 1 and the Titan in sense 2, and the English word atlas
+descends from the Titan, so sense order picks the wrong referent here. It is
+the one place in this round where a hand gloss would beat the rule, and it is
+reported rather than written. Two more are arguable and neither is wrong:
+grc:βερενίκη reads the given name where varnish descends from the city named
+after her, and australasia reads "Synonym of Oceania" where sense 2 described
+the region, though sense 1 of that page is half raw wikitext.
+
+What is left. 380 name cards read a bare category and nothing else, 284
+English, 46 Latin and 50 Greek, because that is the whole of the page's sense
+1 and no trim can help. 95 of them read "A surname." lamarck and mendel are
+both in this class, and a gold row pins lamarck so the accepted shape cannot
+drift: never-silent says a card with a thin gloss beats no card, so the thin
+gloss ships. Four more cards open sense 1 with a bare category and state more
+after it, being cyril, handel, sonia and yoruba, and the trim does not reach
+them because it fires only where the ladder walks past sense 1.
+
+No curation entry was added, removed or amended.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
