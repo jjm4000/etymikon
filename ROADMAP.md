@@ -120,14 +120,19 @@ had gain a working chip. Against that:
   largest single hole left in the origin subsystem. SPEC "Origin
   subsystem, source graphs" holds the phasing.
 - **The section-clash words.** 56 words state a classical origin and show
-  nothing because the withholding rule fires on them, and the list with
-  reasons is in `pipeline/cache/misses-report.txt`. They are common words
-  and each one is a reader selecting a word and getting no origin at all.
+  nothing, because the card's first senses come from more than one
+  etymology section and a later section supplies more of them than the
+  first. Every one of them ranks inside the top 50,000 and 19 inside the
+  top 10,000, so each is a reader selecting an ordinary word and getting
+  no origin at all. The list with reasons is in
+  `pipeline/cache/misses-report.txt`.
 - **Cards that render nothing under the definitions.** 8,456 words carry
   neither a breakdown nor an origin row. 3,361 of those inherit a row
-  from the lemma they shadow, which leaves 5,095 cards that say nothing
-  about where the word came from. Most are rare, and the fix is more
-  origin coverage rather than a new surface.
+  from the lemma they shadow, which leaves 5,095 cards saying nothing
+  about where the word came from, 198 of them inside the top 3,000 ranks.
+  None are tail words: a word ships beyond rank 50,000 only by carrying a
+  breakdown, so the whole set is inside the cap. The fix is more origin
+  coverage rather than a new surface.
 - **The homograph gap on chips.** A chip opens the right page at a minor
   sense, because a proper-noun page with many senses gives the card
   budget a small town or a surname before the famous referent. Darwin
