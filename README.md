@@ -55,8 +55,10 @@ Etymologikon.
   them, and emits `extension/data/`. Release tooling (icons, promo,
   screenshots, zip) lives here too. See `pipeline/README.md`.
 - `test/`: Node test suite, run with `node test/lookup.test.mjs`.
-- `test-page/`: browser self-check harness pages; serve the repo over
-  http and press each page's run button.
+- `test-page/`: browser self-check harness pages. Run them headless with
+  `python pipeline/run_selfchecks.py`, or serve the repo over http and
+  press each page's run button. They have to be served either way: the
+  pages import the extension's own modules.
 
 ## Provenance
 

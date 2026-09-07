@@ -2832,6 +2832,64 @@ tooling. Where those sections say hanja/hangul/eumhun, read
 word/root/gloss per this spec; where they name data files or message
 types that no longer exist, the feature is deleted.
 
+## The headless self-check runner
+
+    python pipeline/run_selfchecks.py [--page index|embed|both] [--port N]
+                                      [--timeout S] [--keep]
+
+Serves the repo root over http, launches one headless Chrome through
+pipeline/cdp.py, and runs both browser self-check pages unattended. It waits
+for readyState and for `#run` and `#out`, reads `#out`, clicks `#run` once,
+then polls until the text changes. Exit status is 0 only when every requested
+page completed with no failing line. Run as `python pipeline/run_selfchecks.py`
+so pipeline/ lands on sys.path and `from cdp import ...` resolves.
+
+The transcript is one contract, held by the page that writes it and the parser
+that reads it. A page writes the whole thing in one assignment to `#out` when
+it finishes:
+
+    PASS  <name>[   [detail]]     one line per passing check
+    FAIL  <name>[   [detail]]     one line per failing check
+    FAIL  threw: <stack>          an uncaught error inside the suite
+    SKIP  <name>   [why]          one line per skipped check
+    <blank>
+    <n> passed, <m> failed[, <k> skipped]
+
+A thrown error has no prefix of its own. "FAIL  threw: " starts with
+"FAIL  ", so the fail counter and the failing-line filter already carry it.
+The closing line is the completion signal: a transcript without it is
+reported as DID NOT COMPLETE, and the page's own words are printed.
+
+- The viewport is 1280x1000 at device scale 1, and the size is part of the
+  contract. index.html sizes the panel from the viewport
+  (`wide = min(760, floor(vw * 0.85))`) and skips two clamp checks when that
+  lands under 560. At 1280 it is 760 and both run. Several other checks
+  measure the popup against the viewport and were calibrated at scale 1.
+- Both pages have early-return paths that write ONE line to `#out`: the test
+  hooks are missing, or extension/lookup.js did not load. That write ends the
+  poll, there is no closing line, and the runner reports DID NOT COMPLETE
+  with the line. That is the contract, not a defect.
+- Downloads are denied at the browser level with
+  `Browser.setDownloadBehavior`, independent of the pages'
+  `__etymikonSuppressDownload` guard, so a change to that guard can never
+  write a file.
+- stdout is reconfigured to utf-8. Check names carry macrons (territōrium,
+  cēdō) and the Windows console default would throw on them.
+
+pipeline/cdp.py holds what both this runner and make_screenshots.py need: the
+websocket client, the synchronous JSON-RPC loop, the static file server, the
+Chrome launcher and the Tab wrapper. It defines its own ROOT from its own
+`__file__`, so serve_root always serves the repo and not the importing
+script's tree. `serve_root(port=0)` returns (server, port) so a caller can pin
+one, and pins its own extensions_map because the Windows registry maps .js to
+text/plain and that kills ES module loading. `Chrome(window=(w, h))` takes the
+window size rather than reading the screenshot constants, and kills the
+process and removes the temp profile if the websocket connect fails.
+`Chrome.close` tolerates a socket Browser.close has already torn down.
+`Tab(chrome, w, h, dark, scale)` takes the device scale factor, and PIL is
+imported inside `Tab.screenshot`, so a caller that never captures pixels runs
+on the standard library alone.
+
 ## Verification expectations
 
 - Pipeline: build report with counts, anchors green, determinism
@@ -2859,12 +2917,9 @@ types that no longer exist, the feature is deleted.
   chip, it opens a card labelled "Proper noun" with its one-word family
   and a crumb, and the residue chip stays inert with its gloss), on
   both pages.
-- Harness fakes: the fake worker imports extension/lookup.js and calls
-  its `resolve`, `tierOf` and `TIER_LABELS`. The page holds no second
-  copy of the token rule, the suffix rules or the tier cutoffs. The
-  fixtures stay the gate because the page hands them in as
-  `{ words: { words: WORDS }, forms: { map: FORMS } }`. The import is a
-  dynamic one and needs an http origin, so both pages must be served.
+- Both harness pages are run headless by pipeline/run_selfchecks.py, at
+  1280x1000, and the run is green when both report 0 failed. See "The
+  headless self-check runner" for the transcript contract.
 - Real-app pass: test-page/index.html rewritten with English staging
   content (paragraphs containing anchor words), screenshots via the
   carried-over CDP harness with English scenes.

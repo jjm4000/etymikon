@@ -1219,15 +1219,142 @@ superseded parser and do not describe a current build. The copies are not
 replaced by an import: a spike that changes when the pipeline changes no
 longer reproduces what it published.
 
+## Browser tooling: cdp.py, run_selfchecks.py, make_screenshots.py
+
+Three files, one headless Chrome driver. None of them is part of the data
+build and none reads `cache/`. Both scripts are run as
+`python pipeline/<name>.py`, which puts `pipeline/` on `sys.path` so
+`from cdp import Chrome, Tab, serve_root` resolves.
+
+### cdp.py
+
+A websocket client, a synchronous JSON-RPC loop, a static file server, a
+Chrome launcher and a Tab wrapper. Python 3.12 standard library only; PIL is
+imported inside `Tab.screenshot`, so a caller that never captures pixels needs
+nothing else.
+
+    server, port = serve_root()          # the repo root over http, free port
+    chrome = Chrome(window=(1280, 800))  # one headless Chrome per run
+    tab = Tab(chrome, 1280, 800)         # one tab per page, viewport preset
+    tab.navigate(f"http://127.0.0.1:{port}/some/page.html")
+    tab.evaluate("document.title")
+    tab.close(); chrome.close(); server.shutdown()
+
+`ROOT` comes from cdp.py's own `__file__`, so `serve_root` serves the repo and
+not whichever tree the importing script sits in. The handler pins its own
+`extensions_map`, because the Windows registry maps `.js` to `text/plain` and
+that kills ES module loading. `serve_root(port)` returns the chosen port, so a
+caller can pin one instead of taking a free one. `Chrome` kills the process
+and removes the temp profile if the websocket connect fails, and
+`Chrome.close` tolerates a socket `Browser.close` has already torn down. `Tab`
+takes the device scale factor.
+
+Chrome 151 headless needs `--headless=new` on this machine, and it ignores
+`--load-extension`, which is why every caller loads the extension code into
+plain pages behind the `__etymikonTestRuntime` stub instead.
+
+### run_selfchecks.py
+
+    python pipeline/run_selfchecks.py [--page index|embed|both] [--port N]
+                                      [--timeout S] [--keep]
+
+test-page/index.html and test-page/embed.html each carry hundreds of `check()`
+assertions behind a "Run self-checks" button. Opening them in a browser is the
+manual route; this is the unattended one. It serves the repo root, launches
+one headless Chrome, and per page opens a tab at 1280x1000 at device scale 1,
+waits for readyState and for `#run` and `#out`, reads `#out`, clicks `#run`
+once, then polls until the text changes. It prints the counts, then every
+failing line verbatim. Exit status is 0 only when every requested page
+completed with no failing line.
+
+What is asserted. The page's closing line and this parser are one contract,
+written out in SPEC under "The headless self-check runner". A page writes its
+whole transcript in one assignment to `#out`:
+
+    PASS  <name>[   [detail]]     one line per passing check
+    FAIL  <name>[   [detail]]     one line per failing check
+    FAIL  threw: <stack>          an uncaught error inside the suite
+    SKIP  <name>   [why]          one line per skipped check
+    <blank>
+    <n> passed, <m> failed[, <k> skipped]
+
+A thrown error carries no prefix of its own: "FAIL  threw: " starts with
+"FAIL  ", so the fail counter and the failing-line filter already hold it. A
+transcript with no closing line is reported as DID NOT COMPLETE with the
+page's own words printed, which is what both pages' early-return paths produce
+when their test hooks are missing or when extension/lookup.js did not load.
+
+The runner also checks itself against the page. If the closing line's numbers
+disagree with the PASS, FAIL and SKIP lines it counted, it prints a warning,
+because that means the transcript was not read the way the page wrote it.
+
+1280x1000 is part of the contract. index.html sizes the panel from the
+viewport (`wide = min(760, floor(vw * 0.85))`) and skips two clamp checks when
+that lands under 560; at 1280 it is 760 and both run. Downloads are denied at
+the browser level with `Browser.setDownloadBehavior`, independent of the
+pages' own `__etymikonSuppressDownload` guard. stdout is reconfigured to
+utf-8, since check names carry macrons.
+
+The pages have to be served rather than opened from disk: they dynamic-import
+extension/lookup.js, and the fake worker resolves and tiers through it.
+
+### make_screenshots.py
+
+    python pipeline/make_screenshots.py [--only 3,8] [--keep-temp]
+
+Drives the staging pages in `screenshots/` through a headless Chrome and
+writes the store screenshot set to the repo-root `screenshots/` directory:
+`shots-page.html` for the in-page selection popup, `shots-panel.html` for the
+side panel. Both load the REAL extension code against the REAL
+`extension/data/*.json` behind `__etymikonTestRuntime`, so every pixel is the
+product's own rendering and only the message transport is local. Each staging
+page documents its query parameters in the comment at the top of the file.
+
+A composite shot captures the page narrower and docks a panel capture beside
+it, with the 1px separator Chrome draws between them: 919 + 1 + 360 = 1280.
+Nothing lands in `screenshots/` until every shot has passed every check, so a
+failed run leaves the committed set exactly as it was.
+
+Adding a scene. A scene is one entry in the `SHOTS` list:
+
+    {
+      "n": 9,
+      "name": "9-something.png",
+      "kind": "page",              # or "composite" for page plus side panel
+      "page": {"scene": "origin", "w": 420},
+      "panel": {"view": "saved"},  # composite only
+      "dark": True,                # optional, drives prefers-color-scheme
+      "panel_w": 360,              # optional, overrides the 919/360 split
+      "pixels": "seal",            # optional, adds the terracotta pixel test
+      "checks": [POPUP_UP, head_is("territory"), IN_FRAME],
+    }
+
+`page` and `panel` are query strings for the staging pages. If the scene you
+want does not exist yet, add it to the switch at the bottom of the staging
+page rather than parameterising the shot further. The scene is where the
+staging belongs, and the shot entry stays a description of what to capture.
+
+What is asserted, per shot:
+
+- Every expression in `checks` evaluates to `true` after the page signals
+  ready and before anything is captured. The check helpers at the top of the
+  file read through the content script's own test hook rather than poking at
+  the DOM blind, and every string they look for is the SPEC's own wording:
+  MADE OF, BUILDS N WORDS, FROM LATIN, "Used in N words", "Show 5 more (N)".
+  A shot that no longer says what the SPEC says is not a shot worth shipping.
+- `IN_FRAME` and `CHIPS_IN_VIEW` are geometry rather than text. A claim that
+  reached the DOM but sits past the viewport edge, or below its own row, is
+  invisible, and a shot that advertises a signal has to prove it reached the
+  pixels.
+- The image itself: exactly 1280x800, mode RGB, no transparency key.
+- `"pixels": "seal"` adds a count of terracotta pixels in the panel's
+  lower-right corner box, which is how a shot whose point is the corner seal
+  proves the seal rendered. The predicate holds in both schemes.
+
 ## Other tooling in this directory
 
 `make_icons.py` renders the epsilon seal icon set from the geometry in its
 tuning table. `make_promo.py` builds the store promo tiles from the same
-geometry, so the tile is the icon enlarged. `make_screenshots.py` drives the
-staging pages in `screenshots/` (shots-page.html for the selection popup,
-shots-panel.html for the sidebar) through a headless Chrome and writes the
-store screenshot set to the repo-root `screenshots/` directory; every scene
-asserts its SPEC wording before shooting. `make_zip.ps1` packs
-etymikon-<version>.zip. The mechanisms carry over from Okpyeon; the content
-is Etymikon's. None of these are part of the data build and none read
-`cache/`.
+geometry, so the tile is the icon enlarged. `make_zip.ps1` packs
+etymikon-<version>.zip. The mechanisms carry over from Okpyeon; the content is
+Etymikon's. Neither is part of the data build and neither reads `cache/`.
