@@ -6,23 +6,25 @@ names the SPEC section holding its contract. Ordering within a block is
 not priority order. Work in flight has no heading of its own; it becomes
 a bullet in the top block on the day it merges.
 
-## Merged and verified, awaiting the first release
+## 1.0.0: merged and verified, ready for the first store submission
 
-Nothing has been uploaded yet, so this block is the whole product. It is
-written against this commit on `origin-graphs`, which is the tree that
-merges to `main`; `main` on its own still holds the data the costs
-section below measures against. The work runs from 2026-08-24 to
-2026-09-07. Suite counts on this commit: 120
-spot checks in a full build and 114 under `--verify`, gold 305 of 305,
-181 Node checks, 268 index-harness checks, 209 embed-harness checks, and
-8 screenshots with their scene checks. The counts in the bullets come
-from `extension/data/` and `pipeline/cache/build-report.txt`, and are
-re-measured before every upload, because one data rule change moves
-several of them at once. The upload has an order of its own: declutter
-the README, write the store listing from it, build the zip, smoke it in
-a clean Chrome profile, then submit. The rest of the collateral is
-ready, meaning the icon set, the promo tiles, and eight screenshot
-scenes with wording checks.
+The manifest reads 1.0.0, so `pipeline/make_zip.ps1` writes
+etymikon-1.0.0.zip and the sidebar footer reads "Etymikon 1.0.0". This is
+the first store submission, so this block is the whole product and there
+is no earlier release to compare against. It is written against this
+commit on `origin-graphs`, which is the tree that merges to `main`;
+`main` on its own still holds the data the costs section below measures
+against. The work runs from 2026-08-24 to 2026-09-07. Suite counts on
+this commit: 120 spot checks in a full build and 114 under `--verify`,
+gold 305 of 305, 181 Node checks, 268 index-harness checks, 209
+embed-harness checks, and 8 screenshots with their scene checks. The
+counts in the bullets come from `extension/data/` and
+`pipeline/cache/build-report.txt`, and are re-measured before every
+upload, because one data rule change moves several of them at once. The
+upload has an order of its own: declutter the README, write the store
+listing from it, build the zip, smoke it in a clean Chrome profile, then
+submit. The rest of the collateral is ready, meaning the icon set, the
+promo tiles, and eight screenshot scenes with wording checks.
 
 - **The core loop.** Select a word, read its definitions and its morpheme
   breakdown, click any morpheme to its root card, walk the root's family,
