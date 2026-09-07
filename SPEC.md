@@ -2727,6 +2727,77 @@ Outcome: 30 words read a different breakdown, every one of them a
 correction; 5 words gain a card and none loses one; 6 origin rows change,
 phase reading φάσις = φαίνω + -σις where it read a single row before.
 
+### Measured after the register round (2026-09-07)
+
+Two --offline builds byte-identical, verify 114 spot checks 0 failed (110
+before, 4 added), gold 304 of 304 (11 rows added and 3 amended), Node 181,
+index harness 268, embed harness 190, 8 screenshots regenerated with their
+scene checks passing. Data: 84,326 words (84,321 before), 8,068 roots
+(6,743), 110,719 forms rows (110,717), 14,733 origin rows (14,730): 7,134
+decomposed (7,130), 2,247 single (2,248), 5,352 row-only (unchanged); 21.3
+MB, 0.9 MB and 2.5 MB, 24.7 MB total (24.1 before). Breakdown coverage of
+the top 10,000 ranks 38.3%. The 1,752 misses of 2026-09-01 render 553
+decomposed, 1,016 single, 183 nothing (top 10,000: 174 / 338 / 41), against
+552 / 1,017 / 183 before.
+
+What moved. 27,291 definitions over 17,567 words gained a register marker,
+14.7% of the dictionary, and 136 root cards gained one. 1,141 proper-noun
+cards ship and 169 Latin and Greek cards were relabelled from root to name.
+1,621 chips gained a target and 254 changed one. 4,351 chips stay inert,
+from 5,970.
+
+The regression check against the build before this round: 0 words lost, 0
+forms rows lost, 0 root glosses changed, 0 root forms changed, 0 anchor
+`parts` changed, 0 definitions changed, and 0 origin rows lost. The
+exceptions, all of them listed:
+
+- 1 root card lost, grc:φάσις, because phase now reads the decomposed row
+  φαίνω + -σις and nothing else names the lemma. The card is not missing,
+  it is one level shallower than the row.
+- 10 chips lost a target, each of them a capitalised chip that was folding
+  onto a page it does not name: Ancylostoma to the hookworm noun, Host to
+  the host who receives guests, Rhine (twice) to a drainage ditch, Aland
+  to a fish, Labour to the noun, Lost to the adjective, Garbo to the
+  Australian dustman, CrossFit to the verb, Tartare to the sauce. Eight are
+  a different word; the hookworm and the CrossFit verb define the same
+  thing under a page the chip does not name.
+- 1 chip lost a target to the modifier fix: milquetoast's first chip read
+  `milk`, pulled out of the prose inside a note, and now reads `milque`,
+  which is what the arg says and which has no page.
+- 6 origin rows changed, all six a correction of a split the old sweep had
+  garbled, and 1 part gloss changed with them (adversity's adversus reads
+  "towards").
+- 1 screenshot changed, 4-sidebar-search.png, by a 7 by 5 pixel region
+  where the -ful chip no longer needs its clamp ellipsis. A pristine
+  checkout of HEAD renders the same image, so the change is the machine and
+  not this round.
+
+The hand checks. Twenty rendered definitions across the four groups, read
+against the extracts: 20 right. All 10 chips that lost a target: 8 name a
+different word, 2 name the same thing under a page the chip does not name.
+The 30 words whose breakdown the modifier fix changed: 30 right.
+
+The 254 chips that changed target, read at 30: all 30 now open the page the
+source names, and 21 of the 30 open it at the right sense. The other 9 land
+on a minor sense of the right page, because a proper-noun page with many
+senses gives the card budget a small US town or a surname before the famous
+referent: Darwin reads an Argentine municipality, Dickens a Texas city,
+Volta a West African river, Texas a Wisconsin town, Moon a surname. That is
+the homograph gap the previous round already recorded for chip glosses (13
+of 20 right there), now visible on a card. It is not a regression, since
+each of the 9 previously opened a lower-case word that is a different page
+altogether, and it is the next thing to fix.
+
+What is not there. No proper-noun card carries a warning marker. Of the
+1,635 chip forms with a proper-noun page, 12 pages carry a warning tag on
+some sense and 4 of those on sense 1; of the 4, Araucania's sense 1 is over
+the card budget so the card takes sense 2, and Fritz, Jap and Jerry are
+recorded as ordinary noun pages too, so their chips open WORD cards, where
+the markers do render (jap noun 1 reads "ethnic slur, derogatory"). The
+owner's count of 27 is not what this extract holds.
+
+No curation entry was added in this round. Every change is a rule.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
