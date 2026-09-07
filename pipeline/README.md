@@ -1499,4 +1499,14 @@ What is asserted, per shot:
 tuning table. `make_promo.py` builds the store promo tiles from the same
 geometry, so the tile is the icon enlarged. `make_zip.ps1` packs
 etymikon-<version>.zip. The mechanisms carry over from Okpyeon; the content is
-Etymikon's. Neither is part of the data build and neither reads `cache/`.
+Etymikon's. None is part of the data build and none reads `cache/`.
+
+The marquee tile carries the size of the corpus, and it carries FLOORS rather
+than counts: 85,000+ words and 6,000+ Latin and Greek roots. A promo image is
+uploaded to the dashboard by hand, so an exact count would be stale from the
+next data rebuild until someone remembered to upload a new tile. `make_promo.py`
+reads `extension/data` and refuses to render if the shipped data has fallen
+under either floor, which is the only way the claim can become false. The
+roots floor is the tight one: the data clears it by 166 at 6,166, so a rebuild
+that moves the root analysis is the case to watch. The small tile has no room
+for the figures and carries the lockup alone.
