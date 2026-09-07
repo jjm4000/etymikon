@@ -1113,9 +1113,16 @@ so a budget decides which sense gets the card:
 
 1. the first sense at or under **80 characters**, in source order, wins;
 2. otherwise a sense keeps its first clause, split at a semicolon or a full
-   stop that closes a word rather than an abbreviation;
+   stop that closes a word rather than an abbreviation, outside every
+   bracket and quoted run;
 3. the **160 character** safety cap decides which clause is usable. A gloss
    over it is not used at all, and the walk moves to the next sense.
+
+One scan finds those boundaries, `clause_bounds`, and the name cut below
+walks the same one for the comma and the colon as well. `first_clause` ran a
+regex of its own until 2026-09-07, which cut "Erigeron canadensis (syn.
+Conyza canadensis), an annual weed" at the stop inside the bracket. SPEC "One
+clause scan, not three".
 
 A card of kind `name` reads one rung differently. Sense 1 of a name page is
 the referent and the senses after it are unrelated homographs, so where the

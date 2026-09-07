@@ -463,9 +463,6 @@ def clean_def(s) -> str:
     return clean_text(s)
 
 
-# A clause end: a semicolon or a full stop that closes a word rather than an
-# abbreviation, so "U.S. Army" is not cut at the U.
-RE_CLAUSE_END = re.compile(r"[;.](?=\s|$)")
 CLAUSE_MIN = 12         # below this a first clause is a fragment, not a gloss
 
 
@@ -501,30 +498,25 @@ def abbrev_dot(g: str, i: int) -> bool:
     return len(word) < 2 or "." in word
 
 
-def first_clause(g: str) -> str:
-    """The first clause of a sense line, split at a semicolon or full stop."""
-    for m in RE_CLAUSE_END.finditer(g):
-        if m.start() < CLAUSE_MIN:
-            continue
-        if g[m.start()] == "." and abbrev_dot(g, m.start()):
-            continue
-        return g[:m.start()].strip()
-    return g.rstrip(".").strip()
-
-
-# The clause scan the name trim cuts on, and the Python half of the cut the
+# The one clause scan in the build, and the Python half of the cut the
 # renderer already makes on a chip (content.js chipGloss, 2026-09-06). Same
-# boundary set and the same two refusals: a separator glued to the next
+# boundary set and the same three refusals: a separator glued to the next
 # character is not a boundary ("1,000"), a stop inside an abbreviation is not
 # one either ("U.S. Army"), and a boundary under CLAUSE_MIN leaves a fragment.
-# What the renderer does not need and this does is the comma: a chip shows the
-# first clause and stops, while a card gloss walks the boundaries looking for
-# one that reads as a whole statement. first_clause keeps its own regex on
-# purpose. It runs on every sense of every language and a bracket-aware scan
-# would move rows this round has no business moving.
+# Everything inside a bracket or a quoted run is skipped, because a separator
+# there belongs to the aside and not to the sentence carrying it.
+#
+# Two callers, one scan. The name trim walks every boundary looking for a cut
+# that reads as a whole statement, so it wants the comma and the colon too.
+# first_clause takes the first strong boundary and stops, so it reads only
+# the semicolon and the full stop. There was a third cutter until 2026-09-07:
+# first_clause ran on a regex of its own that knew nothing about brackets and
+# cut "Erigeron canadensis (syn. Conyza canadensis), an annual weed" down to
+# "Erigeron canadensis (syn". It reads the same boundaries as the rest now.
 CUT_OPEN = "([“"
 CUT_CLOSE = ")]”"
 CUT_SEPS = ",;:."
+CLAUSE_STRONG = (";", ".")
 
 
 def clause_bounds(g):
@@ -566,6 +558,22 @@ def cut_tidy(cut: str) -> str:
     while cut.endswith(".") and not abbrev_dot(cut, len(cut) - 1):
         cut = cut[:-1].rstrip(" ,;:")
     return cut
+
+
+def first_clause(g: str) -> str:
+    """The first clause of a sense line, split at a semicolon or full stop.
+
+    A line with no strong boundary outside its brackets is returned whole,
+    less the sentence stop. cut_tidy is not used on either arm: it reads
+    "etc." and "Ms." as sentence stops and drops them, and a gloss that ends
+    "slaying by treachery, stealth, etc." must keep the stop it was written
+    with. The name trim can afford that rule because it cuts long name
+    senses; this runs on every sense of every language.
+    """
+    for i, sep in clause_bounds(g):
+        if sep in CLAUSE_STRONG:
+            return g[:i].strip()
+    return g.rstrip(".").strip()
 
 
 def last_token(s: str) -> str:

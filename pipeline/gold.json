@@ -502,6 +502,10 @@
     {"word": "en:lamarck", "kind": "card", "lang": "en", "form": "Lamarck", "rootkind": "name",
      "gloss": "A surname.",
      "lb": [], "family": ["lamarckism", "lamarckian", "lamarckist"],
-     "why": "the accepted shape when a page offers nothing but its category: the Lamarck page has one sense and it reads \"A surname.\", so no trim can help and the thin gloss ships rather than the card being dropped (never-silent). 380 name cards are in this class, 284 English, 46 Latin and 50 Greek"}
+     "why": "the accepted shape when a page offers nothing but its category: the Lamarck page has one sense and it reads \"A surname.\", so no trim can help and the thin gloss ships rather than the card being dropped (never-silent). 380 name cards are in this class, 284 English, 46 Latin and 50 Greek"},
+    {"word": "grc:-ακός", "kind": "card", "lang": "grc", "form": "-ακός", "rootkind": "suffix",
+     "gloss": "added to noun stems to form adjectives: of or pertaining to, in the manner of",
+     "lb": [],
+     "why": "the ladder's clause arm, pinned. The page has one entry with one sense, \"added to noun stems to form adjectives: of or pertaining to, in the manner of; -ac\" at 81 characters, so no sense fits the 80-character card and the card takes the first clause. first_clause stops at a semicolon or a full stop only, so the colon after \"adjectives\" stays in the gloss where the name trim would have cut on it"}
   ]
 }

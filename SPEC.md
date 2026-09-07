@@ -333,8 +333,9 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   source order (shortest-wins was tried and degraded terra to "earth"
   and λόγος to "subject matter"; source order keeps the primary
   sense); when none fits, take the first clause of the first sense
-  (split at the first semicolon or period, skipping abbreviation
-  dots) and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
+  (split at the first semicolon or full stop that closes a word,
+  outside every bracket and quoted run, skipping abbreviation dots)
+  and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
   (review finding 2026-08-24: 92 shipped roots carried sentence-length
   usage notes into the chip subtext).
   A card of kind `name` reads one rung differently (2026-09-07). On a
@@ -3125,8 +3126,9 @@ the budget instead.
   boundary scan is `clause_bounds`, which is the build's copy of the cut
   the renderer already makes on a chip: a comma, semicolon, colon or full
   stop that closes a word, outside every bracket and quoted run, at least
-  CLAUSE_MIN characters in. `first_clause` keeps its own simpler regex,
-  because it runs on every sense of every language.
+  CLAUSE_MIN characters in. `first_clause` read a regex of its own until
+  2026-09-07 and now reads the same scan; see "One clause scan, not
+  three".
 - Boundaries rank by strength. A full stop first, because these senses
   often read "A country in North Africa. Official name: ... Capital: ..."
   and the first sentence alone is the ideal gloss. Then a semicolon or
@@ -3233,6 +3235,48 @@ drift: never-silent says a card with a thin gloss beats no card, so the thin
 gloss ships. Four more cards open sense 1 with a bare category and state more
 after it, being cyril, handel, sonia and yoruba, and the trim does not reach
 them because it fires only where the ladder walks past sense 1.
+
+No curation entry was added, removed or amended.
+
+### One clause scan, not three (2026-09-07)
+
+The build cut a clause in two places and the renderer in a third.
+`clause_bounds` skipped brackets and quoted runs, `chipGloss` in content.js
+did the same in JavaScript, and `first_clause` ran a regex that knew about
+neither. So the ladder's second rung cut "Erigeron canadensis (syn. Conyza
+canadensis), an annual weed" down to "Erigeron canadensis (syn" and
+"Alternative form of loos (“praise; fame; reputation”)" down to "Alternative
+form of loos (“praise".
+
+`first_clause` now walks `clause_bounds` and stops at the first semicolon or
+full stop. The Python cutter is one scan with two callers: the name trim
+wants the comma and the colon as well and walks every boundary, this one
+takes the first strong boundary and stops. content.js keeps its copy, which
+is the renderer's own cut of a chip and cannot call Python.
+
+What it does not take from the scan is `cut_tidy`. That reads "etc." and
+"Ms." as sentence stops and drops them, so "slaying by treachery, stealth,
+etc.; treacherous" would cut to "... stealth, etc" and "madam, Mrs. or Ms.;
+a title used with a woman's full name" to "... or Ms". The name trim can
+afford that on long name senses. This runs on every sense of every language,
+so it keeps its own tail rule: the boundary punctuation goes with the tail,
+and a whole line loses its sentence stop.
+
+Measured over every gloss line of all thirteen extracts, 2,937,525 distinct
+lines: 2,479 read differently, being English 1,919, Latin 421, Greek 65,
+French 49, Middle English 13, Old Norse 5, Old English 4, Middle French 2
+and Old French 1. Thirty read against the extracts, spread over four
+languages: 30 improve and 0 worsen, every one of them an old cut that landed
+inside a parenthesis or a quoted run. Applying `cut_tidy` as well would move
+3,731 further lines and was measured and refused for the reason above.
+
+Nothing ships differently. A build calls `first_clause` 31,604 times and 138
+of those calls now read a different clause, but all 138 are name-page senses,
+where the name trim of 2026-09-07 already takes sense 1 and cuts it on
+`clause_bounds`. The two output sets are byte-identical to the build before
+the change. The fix is correctness where the build was wrong, not a change of
+what a reader sees, and it is cheap to keep because there is now one scan to
+maintain instead of two.
 
 No curation entry was added, removed or amended.
 
