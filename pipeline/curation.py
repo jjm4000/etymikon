@@ -132,12 +132,9 @@ ROOT_ALIASES = {
     # The English noun terra exists, so an unaliased part would resolve to
     # en:terra and split the family off the Latin card.
     "terra": "la:terra",
-    # Combining form used in terr-aqueous and friends.
-    "terr-": "la:terra",
-    # terrain reaches Latin terrenum, an inflection page for terrenus, whose
-    # own split Wiktionary records at the Italic stage rather than the Latin
-    # one. The hop stops at the source language, so the link is made here.
-    "terrenum": "la:terra",
+    # terrenus records its own split at the Italic stage rather than the
+    # Latin one. The hop stops at the source language, so the link is made
+    # here.
     "terrenus": "la:terra",
     # terrestrial reaches terrestris, whose split is also recorded at the
     # Italic stage (*terzos + *-tris).
@@ -148,11 +145,10 @@ ROOT_ALIASES = {
     # decomposition template, so the family fragments one card per lemma and
     # the 2-word threshold then prunes every one of them. These four links
     # are what the flattening rule would find if the source recorded them.
-    # remember reaches rememoror, memorandum reaches memorandum itself.
+    # remember reaches rememoror.
     "memoro": "la:memor",
     "memoror": "la:memor",
     "rememoror": "la:memor",
-    "memorandum": "la:memor",
     # Classical affix pages whose own gloss is a relation note pointing at
     # another page. Wiktionary writes the note instead of a meaning, so the
     # card would ship reading "allomorph of con-" and split a family that
@@ -191,10 +187,6 @@ ROOT_ALIASES = {
 # appearing at all, which changes nothing that ships.
 
 ROOT_SKIPS = frozenset({
-    # Wiktionary records an infix entry for the expletive in
-    # abso-fucking-lutely. It is a real affix page and it would put a second
-    # card on a word that already has one.
-    "en:fucking",
     # Latin case and stem markers. These are real suffix pages, and source
     # splits do name them, but a card reading "suffix marking the nominative
     # singular" teaches a reader nothing about the word they selected
@@ -259,11 +251,6 @@ ROOT_GLOSSES = {
     # depart. A separate -iō page reads "Used to form fourth conjugation
     # verbs".
     "la:-io": "used to form fourth-conjugation verbs",
-    # Harvested: "used as a derivational suffix to form compound agent
-    # nouns". Family: conscious, magnanimous, elegant, envious, all
-    # adjectives. A separate -us page reads "used to derive adjectives from
-    # other parts of speech".
-    "la:-us": "used to derive adjectives from other parts of speech",
     # Harvested: "from materials", which reads like a cut string. The
     # fullest sense on the page reads as below.
     "la:-eus": "derives relational adjectives from nouns, used chiefly to "
@@ -375,24 +362,19 @@ ROOT_STOPS = frozenset({
 LEMMA_STEPS = {
     # dēpōnēns is a Latin lemma page ("deponent", a grammatical term) rather
     # than a form-of page for dēpōnō, so settle() stopped on it, the chain
-    # reached a lemma with no split, and deponent shipped nothing. prōpōnēns
-    # beside it IS a form-of page and steps to prōpōnō on its own. The step
-    # here is the one the source would record if the page were shaped like
-    # its sibling (owner decision 2026-09-01). The participle step of the
-    # source graph reads the same page's etymon now; the entry stays because
-    # curation wins over the extract at every hop.
-    "la:deponens": "la:depono",
     # strictus is the past participle of stringō, written as a lemma page
     # with an adjective's gloss ("tightened, compressed") and no form-of
     # link, so district read dis- + strictus and stopped at the participle
     # (review 2, cause 1, 2026-09-06). The page's own head calls it a
     # participle; the step is the one the parser makes for every participle
-    # that carries a form-of link.
+    # that carries a form-of link. Reported redundant on 2026-09-07 and
+    # proved load-bearing: removing it put district back on the participle.
     "la:strictus": "la:stringo",
     # vīsus the participle of videō and vīsus the fourth-declension noun
     # share a page, and the noun's senses carry it, so vision read vīsus +
     # -tiō with the noun's gloss. vīsiō is built on the participle, so the
-    # page steps to videō the way any participle page does.
+    # page steps to videō the way any participle page does. Reported
+    # redundant on 2026-09-07 and proved load-bearing the same way.
     "la:visus": "la:video",
     # cocus carries two entries: an alternative form of coquus ("cook") and
     # a New Latin noun for the coconut. The lemma entry makes the page a
@@ -434,7 +416,8 @@ SOURCE_SPLITS = {
     # reads mēns + -ālis and one reads mentum ("the chin") + -ālis. The
     # first is the word English took; the second belongs to the anatomical
     # term. The node followed the second, so mental read "the chin"
-    # (review 2, cause 1, 2026-09-06).
+    # (review 2, cause 1, 2026-09-06). Reported redundant on 2026-09-07 and
+    # proved load-bearing: removing it put the chin back on the card.
     "la:mentalis": ["mēns", "-ālis"],
     # diurnus is written "diūs + -nus" on its page. diūs is no page of its
     # own; the lookup steps it through dīus, an alternative form of dīvus,

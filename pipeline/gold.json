@@ -475,6 +475,9 @@
     {"word": "t-shirty", "kind": "morphs", "parts": ["T-shirt", "-y"], "inert": [],
      "glosses": ["A lightweight shirt without buttons, usually with short sleeves and no collar. Often made of cotton and frequently bears a picture or slogan.", "forming adjectives (having the quality of) and diminutive nouns"],
      "labels": [[]],
-     "why": "suffix en T-shirt + y; the extract records a noun page titled T-shirt, so the chip opens the shipped word t-shirt rather than folding onto a page it does not name"}
+     "why": "suffix en T-shirt + y; the extract records a noun page titled T-shirt, so the chip opens the shipped word t-shirt rather than folding onto a page it does not name"},
+    {"word": "la:-us", "kind": "card", "lang": "la", "form": "-us", "rootkind": "suffix",
+     "gloss": "used to derive adjectives from other parts of speech",
+     "why": "the -us page carrying the adjective-forming sense, which the homograph rule selects unaided since 2026-09-06. This row replaces the ROOT_GLOSSES override that used to state it, so the rule stands alone and a regression fails here by name"}
   ]
 }
