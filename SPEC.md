@@ -499,9 +499,12 @@ Sections in order:
   activation) opening that root card as an ordinary drill-down with
   breadcrumbs. Chips with `w` are nav chips opening that word's card
   via an ordinary lookup drill-down. Chips with neither are inert and
-  render without the hover affordance. Chip gloss text clamps to 2
-  lines with a bounded chip width; the chip is the one place a long
-  root gloss must never dominate the card. Section absent when no
+  render without the hover affordance; an inert chip carrying `g`
+  states that gloss, which is how a proper noun says what it names.
+  Chip gloss text is cut to its first clause past 90 characters and
+  then clamps to 2 lines with a bounded chip width; the chip is the one
+  place a long root gloss must never dominate the card, and the card
+  the chip opens keeps the gloss whole. Section absent when no
   `morphs`.
 - Navigation selection guard: a nav activation is suppressed only when
   the current selection lies INSIDE the panel's shadow root (the
@@ -2335,6 +2338,43 @@ gloss.
   means the botanist Caspary, whom the page never mentions. The wrong
   one is Mahdi, which reads "A male given name from Arabic" because
   both senses above it run past the cap with no clause to stop at.
+
+### A chip shows one clause, its card shows the gloss (2026-09-06)
+
+22,040 chip joins carried a gloss over 90 characters and clamped
+mid-thought. The -μα chip on system read "Added to verbal stems to
+form neuter nouns denoting the effect or result of an action..." and
+stopped. 158 distinct forms did it through a root gloss and 3,937
+through a word's first definition.
+
+- The cut lives in the RENDERER, in content.js buildChipRow, beside the
+  width cap and the two-line clamp it belongs with. Three things reach a
+  chip gloss and only one of them is in the data: a root card's gloss, a
+  parent's stated part sense, and the first definition of a word a `w`
+  chip names, which is joined at runtime out of that word's senses. A
+  build-side cut would have to ship a second copy of the first two and
+  could not reach the third at all, and the two copies could drift from
+  the card. One function at the one call site all three chip rows pass
+  through covers every chip and costs no bytes.
+- A clause ends at a comma, semicolon, colon or full stop that closes a
+  word, outside any bracket and outside a quoted run, so "1,000" and
+  "(i.e., to whom)" are not clause ends and neither is the stop in "U.S.
+  Army". A boundary under 12 characters leaves a fragment rather than a
+  clause, so the cut moves on: -men reads "forms nouns, usually from
+  verbs" and not "forms nouns". Nothing is cut inside a word, and the
+  boundary punctuation goes with the tail.
+- A gloss at or under 90 characters is left exactly as written, clause
+  punctuation included, so ἵστημι still reads "to stand; to set".
+- A gloss the source wrote with no clause to stop at is left whole and
+  the clamp holds it. 49 root-gloss forms and 797 word-definition forms
+  are in that state, against 158 and 3,937 before.
+- Outcome: 21,407 chip joins are cut, and chip joins over 90 characters
+  fall from 22,040 to 3,987. system reads -μα "Added to verbal stems
+  to form neuter nouns denoting the effect or result of an action" and
+  the grc:-μα card still carries the whole line.
+- The trim is a rendering rule, so the gold set cannot pin it. Both
+  harness pages pin it instead, on a fixture root whose gloss runs to
+  the safety cap: the chip shows the clause, the card shows the line.
 
 ## Naming (Jesse decision 2026-08-25)
 

@@ -493,7 +493,9 @@
     // word cards carry one over 80, so an unbounded chip would swallow the card
     // it belongs to. Width caps at a third of the default panel and the gloss
     // clamps to two lines: the chip names the part, the root card tells the
-    // whole story (SPEC, appendBreakdown).
+    // whole story (SPEC, appendBreakdown). chipGloss cuts a long gloss to its
+    // first clause before it gets here, so the clamp holds what is left rather
+    // than a sentence stopping mid-word.
     ".morph {",
     "  display: inline-flex; flex-direction: column; gap: 1px;",
     "  padding: 3px 8px 4px; border-radius: 8px; max-width: 120px;",
@@ -1966,6 +1968,56 @@
     });
   }
 
+  // The chip's share of a gloss. A chip is bounded (see .morph above) and the
+  // gloss it shows was written for the card it opens, where the whole line
+  // belongs: the grc:-μα card reads "Added to verbal stems to form neuter
+  // nouns denoting the effect or result of an action, a particular instance of
+  // an action, or the object of an action" and the chip on system stopped
+  // mid-thought at the clamp. Past the budget the chip shows the first clause
+  // and the card keeps every word.
+  //
+  // A clause ends at a comma, semicolon, colon or full stop that closes a
+  // word, outside any bracket and outside a quoted run, so "1,000" and
+  // "(i.e., to whom)" are not clause ends. A boundary under CHIP_CLAUSE_MIN
+  // leaves a fragment rather than a clause ("forms nouns"), so the cut moves
+  // on to the next one. A gloss the source wrote with no clause to stop at is
+  // left whole and the clamp holds it, which is the case for 49 chip forms.
+  var CHIP_GLOSS_MAX = 90;
+  var CHIP_CLAUSE_MIN = 12;
+  var CHIP_OPEN = "([“";
+  var CHIP_CLOSE = ")]”";
+
+  // "U.S. Army" is not two clauses: a full stop closes an abbreviation when
+  // the word before it is a single letter or already carries a stop.
+  function abbrevDot(text, at) {
+    var parts = text.slice(0, at).split(" ");
+    var word = parts[parts.length - 1];
+    return word.length < 2 || word.indexOf(".") >= 0;
+  }
+
+  function chipGloss(gloss) {
+    if (gloss.length <= CHIP_GLOSS_MAX) return gloss;
+    var depth = 0;
+    var quoted = false;
+    for (var i = 0; i < gloss.length; i++) {
+      var ch = gloss.charAt(i);
+      if (CHIP_OPEN.indexOf(ch) >= 0) {
+        depth++;
+      } else if (CHIP_CLOSE.indexOf(ch) >= 0) {
+        depth = depth > 0 ? depth - 1 : 0;
+      } else if (ch === '"') {
+        quoted = !quoted;
+      } else if (depth === 0 && !quoted && ",;:.".indexOf(ch) >= 0) {
+        var next = gloss.charAt(i + 1);
+        if (next !== "" && next !== " ") continue;
+        if (i < CHIP_CLAUSE_MIN) continue;
+        if (ch === "." && abbrevDot(gloss, i)) continue;
+        return gloss.slice(0, i).replace(/[\s,;:.]+$/, "");
+      }
+    }
+    return gloss;
+  }
+
   /**
    * THE chip row. One implementation, three call sites: the breakdown of an
    * English word, the decomposed source lemma of an origin, and the split an
@@ -1993,7 +2045,7 @@
       // Latin-script form carries no romanization line.
       var rom = nonEmptyString(p.rom);
       if (rom && nonLatinScript(form)) chip.appendChild(el("span", "morph-rom", rom));
-      var gloss = nonEmptyString(p.gloss);
+      var gloss = chipGloss(nonEmptyString(p.gloss));
       if (gloss) chip.appendChild(el("span", "morph-gloss", gloss));
       var rootKey = nonEmptyString(p.r);
       var wordKey = nonEmptyString(p.w);

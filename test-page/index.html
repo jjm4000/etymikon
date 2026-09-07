@@ -529,12 +529,14 @@
         { word: "kindly", def: "In a kind manner.", fr: 11000 }
       ]
     },
-    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    // A gloss at the safety cap whose FIRST CLAUSE is long, so both halves of
+    // the chip rule have something real to hold: the chip cuts to the clause
+    // and the clause is still long enough for the two-line clamp to bite.
     "grc:phos": {
       form: "φῶς", rom: "phos", lang: "grc",
-      gloss: "light, the light of day; the light of a torch or a fire, and " +
-        "by extension the light of life, of deliverance, of happiness, or of " +
-        "a great man who sheds light around him",
+      gloss: "the light of day and the light of a torch or of a fire alike, " +
+        "and by extension the light of life, of deliverance, or of a great " +
+        "man who sheds light around him",
       kind: "root",
       family: [
         { word: "photograph", fr: 7300 },
@@ -1621,16 +1623,26 @@
       api.queryAll(".morph")[0].querySelector(".morph-gloss") === null,
       api.queryAll(".morph")[0].textContent);
 
-    // --- a long chip gloss is bounded and clamped ------------------------
+    // --- a long chip gloss is cut to its clause, bounded and clamped -----
     // The one place a root gloss could dominate the card it explains: real
-    // glosses reach the 160-character cap, so the chip caps its width and the
-    // gloss stops at two lines.
+    // glosses reach the 160-character cap, so the chip shows the first clause
+    // and no more, caps its width, and clamps what is left to two lines. The
+    // card the chip opens keeps every word of the same gloss.
     api.resetPanelSize();
     show("photograph");
     await until(function () { return api.queryAll(".morph-gloss").length === 2; });
     var longGloss = api.queryAll(".morph-gloss")[0];
-    check("test setup: the fixture chip really does carry a long gloss",
-      longGloss.textContent.length > 120, "chars=" + longGloss.textContent.length);
+    var wholeGloss = fake.__root("grc:phos").root.gloss;
+    check("test setup: the fixture root really does carry a long gloss",
+      wholeGloss.length > 120, "chars=" + wholeGloss.length);
+    check("a chip gloss past the budget is cut to its first clause",
+      longGloss.textContent === "the light of day and the light of a torch or of a fire alike",
+      longGloss.textContent);
+    check("the cut lands on a clause of the gloss and dangles no punctuation",
+      wholeGloss.indexOf(longGloss.textContent) === 0 &&
+      !/[\s,;:.]$/.test(longGloss.textContent) &&
+      wholeGloss.charAt(longGloss.textContent.length) === ",",
+      JSON.stringify(longGloss.textContent.slice(-12)));
     var chipBox = api.queryAll(".morph")[0].getBoundingClientRect();
     check("the chip is bounded and never spans the card",
       chipBox.width <= 121 && chipBox.width < api.hostRect().width / 2,
@@ -1649,6 +1661,24 @@
       "controls=" + api.queryAll(".morph .more").length);
     check("the whole card stays short despite the long gloss",
       api.hostRect().height <= 360.5, "h=" + Math.round(api.hostRect().height));
+    // The other half of the rule: the card the chip opens is where the whole
+    // definition belongs, and it keeps it.
+    api.showRoot(anchor, fake.__root("grc:phos").root);
+    await until(function () { return !!api.query(".card.root"); });
+    var cardGloss = api.query(".gloss-text").textContent;
+    check("the root card the chip opens keeps the gloss whole",
+      // The sense list capitalizes the first letter and touches nothing else,
+      // so every word after it has to match the gloss the chip cut.
+      cardGloss.slice(1) === wholeGloss.slice(1) && cardGloss.length > 120,
+      cardGloss);
+    // A gloss inside the budget is left exactly as the data wrote it, clause
+    // punctuation included: the trim is for the ones that overrun, not a
+    // rewrite of every chip.
+    show("system");
+    check("a gloss inside the budget keeps its own clauses",
+      texts(api.queryAll(".morph-gloss")).join(" | ") ===
+        "with, together | to stand; to set",
+      texts(api.queryAll(".morph-gloss")).join(" | "));
     show("subterranean");
 
     // --- a chip opens the root card --------------------------------------

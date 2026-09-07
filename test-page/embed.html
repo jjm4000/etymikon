@@ -538,12 +538,14 @@
         { word: "kindly", def: "In a kind manner.", fr: 11000 }
       ]
     },
-    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    // A gloss at the safety cap whose FIRST CLAUSE is long, so both halves of
+    // the chip rule have something real to hold: the chip cuts to the clause
+    // and the clause is still long enough for the two-line clamp to bite.
     "grc:phos": {
       form: "φῶς", rom: "phos", lang: "grc",
-      gloss: "light, the light of day; the light of a torch or a fire, and " +
-        "by extension the light of life, of deliverance, of happiness, or of " +
-        "a great man who sheds light around him",
+      gloss: "the light of day and the light of a torch or of a fire alike, " +
+        "and by extension the light of life, of deliverance, or of a great " +
+        "man who sheds light around him",
       kind: "root",
       family: [
         { word: "photograph", fr: 7300 },
@@ -1877,6 +1879,22 @@
       texts(api.queryAll(".morph-rom")).join(" ") === "sun- hístēmi" &&
       texts(greekChip.children).join(" | ") === "συν- | sun- | with, together",
       texts(greekChip.children).join(" | "));
+    // The chip trim is renderer-side too, so the sidebar gets it with no code
+    // of its own: the chip shows the first clause of a gloss past the budget
+    // and the root card the chip opens keeps every word of it.
+    await search("photograph");
+    var longChip = api.queryAll(".morph-gloss")[0];
+    check("a long chip gloss is cut to its first clause in the sidebar too",
+      longChip.textContent === "the light of day and the light of a torch or of a fire alike",
+      longChip.textContent);
+    await search("grc:phos");
+    var cardGloss = api.query(".gloss-text").textContent;
+    check("the root card the chip opens keeps the gloss whole",
+      // The sense list capitalizes the first letter and touches nothing else.
+      cardGloss.slice(1) === fake.__root("grc:phos").root.gloss.slice(1) &&
+      cardGloss.length > 120,
+      cardGloss);
+
     await search("grc:idea");
     check("a one-word family renders its card with BUILDS 1 WORD",
       texts(api.queryAll(".label")).indexOf("BUILDS 1 WORD") >= 0 &&
