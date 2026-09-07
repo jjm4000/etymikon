@@ -49,19 +49,17 @@ Select an English word on any page to see its definitions and its morpheme break
 Plain text. Paste everything between the fences.
 
 ```
-Etymikon is an offline popup dictionary for English word roots. Select a word on any page and the card shows its definitions and the pieces it is built from.
-
 --- SELECT A WORD, SEE WHAT IT IS MADE OF ---
 Highlight any English word and the popup gives its definitions and its parts. subterranean is sub- (under, beneath) plus terra (dry land) plus -an (belonging to).
 
---- EVERY ROOT HAS A CARD, AND THE CARD LISTS THE WORDS BUILT ON IT ---
-A root card gives the root's form, its language, its gloss, and the English words built on it, commonest first. The card for Latin cēdō, "to go", lists 44 words, necessary and access among them.
+--- EVERY ROOT HAS A CARD ---
+A root card gives the root's form, its language, its gloss, and the English words built on it. The card for Latin cēdō, "to go", lists 44 words, necessary and access among them.
 
---- WORDS ENGLISH BORROWED WHOLE SHOW THE SOURCE WORD'S PARTS ---
-Some words were assembled before English took them, so the card splits the source word instead. territory reads FROM LATIN territōrium, over terra (dry land) and -tōrium (used to form nouns denoting a place).
+--- A BORROWED WORD SHOWS THE SOURCE WORD'S PARTS ---
+Some words were assembled before English took them, so the card splits the source word instead. manuscript reads FROM LATIN manūscrīptus, over manus (hand) and scrībō (to write).
 
---- A WORD CARD ALSO SAYS WHAT IS BUILT ON THE WORD ---
-The family runs in both directions, so a card lists the longer words English builds on the one you looked up. absolute reads "Used in 4 words", which opens absolutely, absolutism, absoluteness and absolutist.
+--- A WORD CARD SAYS WHAT IS BUILT ON THE WORD ---
+The family runs in both directions, so a card lists the longer words English builds on the one you looked up. please is used in five words, and pleasant is one of them.
 
 --- KEEP WHAT YOU LOOK UP ---
 Cards save into folders you name, and a folder exports to Anki or to CSV.
@@ -70,28 +68,25 @@ Cards save into folders you name, and a folder exports to Anki or to CSV.
 The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra and press Enter.
 
 --- A WORD BUILT ON A NAME REACHES THE NAME ---
-An eponym opens the person or place behind it, on a card marked Proper noun. tantalize opens Tantalus, "A Phrygian king who was condemned to remain in Tartarus, chin-deep in water, with fruit-laden branches hanging above his head."
+An eponym opens the person or place behind it, on a card marked Proper noun. tantalize opens Tantalus, the Phrygian king left chin-deep in water he could not drink.
 
---- WORDS THAT ARE NOT FROM LATIN OR GREEK STILL SAY WHERE THEY CAME FROM ---
-Germanic and other vocabulary gets a line of its own rather than nothing. sky reads "From Old Norse ský (cloud)".
-
---- GREEK FORMS CARRY THEIR ROMANIZATION ---
-Every Greek form on a card carries its romanization beside it. Under ephemeral, the Greek part reads ἡμέρα, romanized hēmérā, glossed "day".
+--- NOT EVERY WORD COMES FROM LATIN OR GREEK ---
+A word from anywhere else names the language and the word it came from. sky reads "From Old Norse ský (cloud)", and ephemeral reaches Greek ἡμέρα, romanized hēmérā, glossed "day".
 
 --- DEFINITIONS SAY WHEN A SENSE IS MARKED ---
 Where the source marks a sense as archaic, informal or one of fourteen other labels, the marker is printed in front of the definition. The fourth sense of accede reads "archaic To approach; to arrive, to come forward."
 
---- HOW COMMON THE WORD IS, ON EVERY CARD ---
-Every word carries one of four frequency tiers, counted over a corpus of film subtitles. subterranean reads Advanced.
+--- HOW COMMON THE WORD IS ---
+Every word carries one of four frequency tiers, counted over a corpus of film subtitles. subterranean reads Uncommon.
 
 --- THE WHOLE DICTIONARY IS INSIDE THE EXTENSION ---
-84,326 words, 8,068 root cards and 110,719 inflection and spelling mappings, 24.7 MB in all. Etymikon makes no network requests and needs no account. It works with no connection.
+84,326 words, 8,068 root cards and 110,719 inflection and spelling mappings, 24.7 MB of dictionary data. Etymikon works with no connection and makes no network requests.
 
 --- SOURCES ---
 Definitions, morpheme breakdowns and inflected forms: English Wiktionary, through the machine-readable extracts published by kaikki.org, under CC BY-SA.
 Root glosses and headword forms on the Latin and Greek cards: Latin Wiktionary and Ancient Greek Wiktionary, from the same kaikki.org extracts, under CC BY-SA.
 Word frequencies: hermitdave FrequencyWords, MIT License, (c) 2016 Hermit Dave, derived from the OPUS OpenSubtitles 2018 corpus.
-The four frequency tiers, Everyday, Common, Advanced and Uncommon, are Etymikon's own classification. The sources supply a frequency rank, not a tier.
+The four frequency tiers, Everyday, Common, Uncommon and Rare, are Etymikon's own classification. The sources supply a frequency rank, not a tier.
 
 --- LICENSE ---
 The dictionary data shipped in the extension is a derived database under CC BY-SA 4.0, an obligation inherited from Wiktionary. The extension's source code is GPL-3.0. Both are at https://github.com/jjm4000/etymikon
