@@ -18,14 +18,23 @@ needs its full binding detail.
 - Name: Etymikon (Greek etymos "true sense" + -ikon, the lexicon
   formation). The K spelling is binding. Tagline (Jesse decision
   2026-08-25, the Okpyeon pattern with a colon): the manifest and
-  store name is "Etymikon: Word Roots Popup Dictionary".
+  store name is "Etymikon: Word Roots and Etymology Popup Dictionary"
+  (Jesse decision 2026-09-07, widened from "Etymikon: Word Roots
+  Popup Dictionary" so the store indexes the word readers actually
+  search for). The title names the subject; it does not promise the
+  genre. Only 17.9% of shipped words reach a named older language,
+  and no entry carries a date, a sense history or a cognate, so the
+  DESCRIPTION says what the cards show and never says "complete
+  etymology".
 - Audience: native speakers building vocabulary (GRE/SAT register).
   Wiktionary definitions ship as harvested, no simplification pass.
 - Dictionary scope: general English dictionary. Every shipped word gets
   a definition card. The breakdown row renders when a split exists,
   whatever the split's origin (Latinate and Germanic alike).
 - Root node set: English affix entries (sub-, -an) and Latin/Greek
-  lemmas (terra, logos). Drill-down stops there. Proto-Indo-European is
+  lemmas (terra, logos). Drill-down stops there. Extended 2026-09-06:
+  a proper-noun PAGE any shipped word is built on joins the root set
+  under the `name` kind, in every language. Proto-Indo-European is
   out of scope everywhere, permanently for v1. Extended 2026-09-05:
   Old English lemmas join the root set in phase two of the origin
   subsystem (see "Origin subsystem, source graphs").
@@ -38,7 +47,8 @@ needs its full binding detail.
   source graphs").
 - Morpheme chips split by target: a part that is itself a shipped word
   (muse in music, beauty in beautiful) links to that WORD card, not a
-  root card. Root cards are for affixes and Latin/Greek lemmas only.
+  root card. Root cards are for affixes, Latin/Greek lemmas and, from
+  2026-09-06, the proper-noun pages a word is built on.
 - Dictionary cap, the hybrid rule: every dictionary word ranked in the
   top 50,000 of the frequency list ships unconditionally; beyond rank
   50,000 a word ships only if it carries a morpheme breakdown AND is
@@ -48,10 +58,15 @@ needs its full binding detail.
   (nanovoltmeter, extremistical) ship and words.json is 53 MB; with it
   the dictionary is 76,496 words at 17.9 MB and the tail stays real
   (snarkiness, parapsychological, glucoside).
-  Proper-noun-only entries never ship.
+  Proper-noun-only entries never ship as WORDS. Amended 2026-09-06
+  (owner decision, ratified twice): a proper noun a shipped word is
+  BUILT ON ships as a root card, family and all (see "A proper noun a
+  word is built on is a card").
 - Word tiers, from frequency rank: Everyday (rank 1 to 3,000), Common
-  (to 15,000), Advanced (to 50,000), Rare (beyond, and unranked). Roots
-  are not tiered; a root card shows how many shipped words it builds.
+  (to 15,000), Uncommon (to 50,000), Rare (beyond, and unranked).
+  Roots are not tiered; a root card shows how many shipped words it
+  builds. The fourth tier was labelled Rare until 2026-09-07; its enum
+  key is still `rare` (see "The fourth tier is Uncommon").
 - v1 non-goals: hover mode, pronunciation (audio and IPA), PIE
   etymology, browse-roots-by-surface (ped as pes vs pais), non-classical
   origin chains (a Hebrew or Old Norse org row is future work, pending a
@@ -111,6 +126,12 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   sections, max 4 defs each, defs in full (the no-truncation rule
   carries over: never emit a cut string; a whole overlong sense may be
   dropped by a ~400 char safety cap).
+- `lb` on a POS section (2026-09-06): the register markers of that
+  section's definitions, one list per definition, parallel to `defs`
+  and present only where at least one definition carries a marker:
+  `{ "pos": "noun", "defs": ["Rum cut with water.", "Any alcoholic
+  drink."], "lb": [[], ["slang", "dialectal"]] }`. The vocabulary and
+  the order are in "Sense register labels".
 - `morphs`: the breakdown, present only when the word has an accepted
   English-surface split (acceptance rules under Pipeline). `f` is the
   display form in split order. Exactly one of two link fields, or
@@ -126,7 +147,9 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   The worker DOES join the derived `tier` string
   ("everyday" | "common" | "advanced" | "rare") onto every word match
   and family row, because the renderer is a classic script that cannot
-  import lookup.js; the cutoffs still live in exactly one place.
+  import lookup.js; the cutoffs still live in exactly one place. The
+  enum key and the visible label are separate: the fourth key is
+  `rare` and its label is "Uncommon" (2026-09-07).
 - `org`: optional origin, present when the word has no `morphs` but
   its etymology chain reaches Latin or Greek. Two shapes (Jesse
   decision 2026-08-25, the FROM LATIN row):
@@ -137,8 +160,10 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
     { "f": "-tōrium", "r": "la:-torium" } ] }`. `l` is the source lemma's
     display form, macrons kept. `parts` (2 or more) follow the morphs
     chip contract: `f` display form, `r` root key when that root
-    ships, absent for an inert chip. Parts come from the recursive
-    flattening rule below.
+    ships, absent for an inert chip. A part may also carry `g`, the
+    gloss the parent's own split gives it, which the worker joins
+    over the root card's (see "Part senses", 2026-09-06). Parts come
+    from the recursive flattening rule below.
   - Single, when the lemma does not decompose:
     `"org": { "r": "la:terra", "f": "terra" }` as before.
   A word never carries both `morphs` and `org`.
@@ -308,19 +333,44 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   source order (shortest-wins was tried and degraded terra to "earth"
   and λόγος to "subject matter"; source order keeps the primary
   sense); when none fits, take the first clause of the first sense
-  (split at the first semicolon or period, skipping abbreviation
-  dots) and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
+  (split at the first semicolon or full stop that closes a word,
+  outside every bracket and quoted run, skipping abbreviation dots)
+  and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
   (review finding 2026-08-24: 92 shipped roots carried sentence-length
   usage notes into the chip subtext).
-- `kind`: `prefix`, `suffix`, `infix`, `circumfix`, or `root`, taken
-  from the harvested entry pos, never re-derived from hyphen shape
+  A card of kind `name` reads one rung differently (2026-09-07). On a
+  name page sense 1 is the referent and the later senses are unrelated
+  homographs, so where the ladder above would walk past sense 1 the card
+  takes sense 1 and TRIMS it instead, at a full stop first, then a
+  semicolon or colon, then a comma, keeping the first cut that fits the
+  budget and reads as a gloss rather than a bare category, a fragment or
+  a list item. Sense 1 goes whole when no cut fits and it is inside the
+  160 cap, and the ladder above answers when nothing does, so no card can
+  lose its gloss to this rule. A name card already showing sense 1 keeps
+  every word it shows. See "Sense one is what a name page is about".
+  On an ordinary la or grc card the ladder is checked once more, after the
+  English pages have attached (2026-09-07). Where it walked past sense 1,
+  every sense of the entry becomes a candidate, whole inside the card and as
+  its first clause inside the cap, and the sense two or more English or
+  source statements name wins. Order does not decide here: sense 1 of an
+  ordinary page is the most basic meaning, not the meaning English took. See
+  "The sense an ordinary card shows".
+- `lb` (2026-09-06): the register markers of the sense the card's
+  gloss came from, in the same vocabulary and order a definition's
+  are, absent when the sense carried none and on every hand gloss.
+- `kind`: `prefix`, `suffix`, `infix`, `circumfix`, `name` or `root`,
+  taken from the harvested entry pos, never re-derived from hyphen shape
   (review finding 2026-08-24: shape-guessing labeled 10 interfixes as
   suffixes and the one circumfix as a root). Label lines compose
   language and kind: en affixes say just "Prefix", "Suffix",
   "Interfix", "Circumfix"; classical roots always name their
   language, whatever the kind: "Latin root", "Latin prefix", "Greek
   suffix", "Greek root"; a plain English combining form says "English
-  root". Anchor: en:-o- ships with kind infix.
+  root". A `name` card says "Proper noun" in English and "Latin proper
+  noun", "Greek proper noun" elsewhere (2026-09-06): the English card
+  is reached from an English word's breakdown and is the only English
+  card that would otherwise name its own language. Anchor: en:-o-
+  ships with kind infix.
 - `src`: for `en:` affixes whose entry derives from a Latin/Greek
   lemma, the key of that lemma's card when shipped. Renders as one line
   on the affix card ("From Latin sub ›") and navigates to it.
@@ -377,6 +427,10 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 }
 ```
 
+- Sense sections pass `lb` through beside `defs` when the entry
+  carries one, parallel to it and filtered to non-empty strings; a
+  ragged or junk array is dropped whole rather than sliding a marker
+  onto the wrong definition. A root response passes `lb` the same way.
 - The worker joins each morph's gloss into the response (the content
   script never reads roots.json): `r` chips get the root gloss, `w`
   chips get the word's first def. Morphs with neither come back as
@@ -489,7 +543,10 @@ Sections in order:
 - `appendGlosses`: per POS section, a small uppercase POS label (NOUN,
   VERB, ADJECTIVE, ADVERB, other tags as harvested), then the numbered
   sense list. Numbering, 2-line clamp, geometry-derived "more" expander
-  all carried over.
+  all carried over. A definition carrying `lb` prints its markers in
+  front of the text, comma-joined, in muted italic, INSIDE the clamped
+  span, so the clamp and the expander measure the line exactly as they
+  did without it (2026-09-06).
 - `appendBreakdown`: the morpheme row, label "MADE OF" in the house
   label style. Chips joined by "+": each chip shows `f` on top and the
   root gloss beneath in small muted text (gloss absent: form only).
@@ -497,9 +554,12 @@ Sections in order:
   activation) opening that root card as an ordinary drill-down with
   breadcrumbs. Chips with `w` are nav chips opening that word's card
   via an ordinary lookup drill-down. Chips with neither are inert and
-  render without the hover affordance. Chip gloss text clamps to 2
-  lines with a bounded chip width; the chip is the one place a long
-  root gloss must never dominate the card. Section absent when no
+  render without the hover affordance; an inert chip carrying `g`
+  states that gloss, which is how a proper noun says what it names.
+  Chip gloss text is cut to its first clause past 90 characters and
+  then clamps to 2 lines with a bounded chip width; the chip is the one
+  place a long root gloss must never dominate the card, and the card
+  the chip opens keeps the gloss whole. Section absent when no
   `morphs`.
 - Navigation selection guard: a nav activation is suppressed only when
   the current selection lies INSIDE the panel's shadow root (the
@@ -547,7 +607,8 @@ Sections in order:
   the form: "Latin root", "Greek root", "Prefix", "Suffix" (kind and
   lang joined in plain English; en affixes say just "Prefix"/"Suffix").
 - `appendRootGloss`: the gloss as a single sense line ("earth, land"),
-  same clamp rules.
+  same clamp rules, through the same appendSenseList, so a card's `lb`
+  prints in front of its gloss exactly as a definition's does.
 - `appendRootParts` (owner decision 2026-09-01): for anchor roots
   carrying `parts`, the chip row under the label "MADE OF", the same
   buildChipRow and the same label the word card uses. Chips with `r`
@@ -601,9 +662,11 @@ off the derived tier:
 - Everyday: green tint; title "Rank in the 3,000 most frequent English
   words (OpenSubtitles corpus)"
 - Common: blue tint; title "Rank 3,001 to 15,000 by frequency"
-- Advanced: amber tint; title "Rank 15,001 to 50,000 by frequency"
-- Rare: grey tint; title "Beyond the 50,000 most frequent words, or
-  unranked (Etymikon's classification)"
+- Uncommon: amber tint; title "Rank 15,001 to 50,000 by frequency"
+- Rare: grey tint; title "Beyond the 50,000 most frequent words,
+  or unranked (Etymikon's classification)". Keyed `rare`, so the CSS
+  variables and the modifier class read `--tier-rare-*` and
+  `tier-chip--rare`.
 
 Word cards and family rows render exactly one. Root cards render no
 tier chip; the family count line is the root's weight signal.
@@ -667,6 +730,57 @@ tier chip; the family count line is the root's weight signal.
   docstring. The 16px asset drops the ring and enlarges the glyph.
   The bare epsilon is binding: no diacritics at icon size.
 
+### The saved view's folder bands (2026-09-07)
+
+User-reported, fixed in 85e340d: with nothing saved every folder vanished
+from the saved list and came back on the first save, and an empty folder
+could not be selected or deleted. This is the contract that fix settled.
+
+- Showing a folder is never gated on its contents. Every folder renders as
+  a band, under All and under a single-folder filter alike, in folder
+  order. The grouped class is unconditional, so a filtered band sits over
+  its rows the way an All band does.
+- An empty band prints one line under it, "This folder is empty.", at the
+  item-row indent. A collapsed band prints nothing at all: the collapse
+  `continue` sits above that append.
+- The nothing-saved hint prints once, above the bands, never instead of
+  them.
+- Folder selection is its own map beside the item selection and is never
+  derived from it. The default folder is never in that map: its checkbox
+  picks its items and never the folder, and it is inert only while the
+  folder is empty. Every other empty band's box is live.
+- Checking a folder counts as a selection, so no action widens to the
+  filter. A checked folder alone arms Delete; Move and Export stay inert.
+  Select-all is about items, and clearing it clears the folder map with it.
+- One function computes a band's check state for both the build and the
+  cheap re-sync, and that re-sync runs under a filter too.
+- The confirmation is one sentence per part, the items first and then each
+  folder in order. The per-folder sentence names the default folder by the
+  name it has now, read through `folderName(DEFAULT_FOLDER_ID)`, because
+  saved.js lets that folder be renamed.
+- Delete removes the items first and the folders second. The other order
+  moves a deleted folder's items into the default folder before the item
+  delete reaches them.
+- The folder map is pruned in `refresh()` beside the item selection, so a
+  folder deleted under the view cannot sit in the delete set and re-arm the
+  action. Every write in the chain goes through `mutate()`, so each one
+  leaves a self-write claim and the storage echo it causes is dropped.
+- The corner seal. sidepanel.js keeps SEAL_ROOM at 230 and the saved view
+  declares no seal box, so it is measured against its own container. An
+  empty saved view is no longer one line of text: it is the hint plus one
+  band and one empty line per folder. Measured in the 360x600 panel the
+  embed harness frames, the view has 356px of room with the default folder
+  alone, and each further empty folder costs 65px, so the seal shows at one
+  and two folders and is gone at three (226px). The clearance stays at 230
+  (decision 2026-09-07). The seal is a fit-gated ornament and the rule that
+  drops it when a view fills is the rule; tuning the number per view would
+  make the seal say something about the view instead of about the fit.
+
+19 checks in test-page/embed.html pin this: the bands, the hint, the empty
+line, the collapsed case, the inert default box, the filter band, the
+selection map, the arming rule, the confirmation copy, the delete
+ordering, the prune, and the claims `mutate()` leaves.
+
 ## Pipeline (build.py rewrite)
 
 Skeleton carries over: download-if-missing with curl resume and remote
@@ -696,7 +810,9 @@ Sources:
 Parsing rules, English extract:
 
 - An entry counts toward a word when `word` lowercases to the key and
-  `pos` is not `name`. A word whose entries are all `name` never ships.
+  `pos` is not `name`. A word whose entries are all `name` never ships
+  as a word; from 2026-09-06 its page ships as a root card wherever a
+  shipped word is built on it.
   Senses harvest: first gloss line of each sense, per POS, caps as in
   the schema. Entries that are pure form-of (every sense carries
   form_of/alt_of) contribute to forms.json, not senses.
@@ -931,6 +1047,9 @@ Three verify checks pin the field: every `r` inside a root's `parts`
 exists in roots.json; only anchors carry `parts`; every anchor whose
 lemma decomposes carries `parts`, and no other root does. The last two
 run only on a full build, since a `--verify` run has no anchor set.
+(Widened 2026-09-05, review finding 4: a node the chip cap kept whole
+carries `parts` the same way, so both checks read "anchors and carried
+nodes"; see the review notes under "Origin subsystem, source graphs".)
 Anchor: la:accedo carries parts reading ad- + cēdō, both linked.
 
 ### Root families credit through anchors (2026-09-01)
@@ -1023,7 +1142,8 @@ breakdown too, and it is the same breakdown the card would show.
 
 Rule: a corpus-attested word above `RANK_CAP` carrying a classical
 origin template becomes a candidate. Every other candidacy rule is
-unchanged: no rank, no card; proper nouns are excluded; the hyphen and
+unchanged: no rank, no card; a proper noun is no word here (it may
+still be a card); the hyphen and
 character rules stand. At emit the word ships only if its final org row
 is DECOMPOSED (`l`, `lang`, `parts`), and it is dropped otherwise. A
 single "From Latin x" row past the cap is a card with no breakdown on
@@ -1115,7 +1235,9 @@ silently diverged from):
   dē- + pōnō; fornicate links its fornix part and tactic its τάσσω
   part; no org row names its own lemma as a part; every `r` inside a
   root's `parts` exists in roots.json; only anchors carry `parts`;
-  every anchor whose lemma decomposes carries `parts`, and no other.
+  every anchor whose lemma decomposes carries `parts`, and no other
+  (both widened 2026-09-05 to anchors and the nodes the chip cap kept
+  whole, review finding 4).
 - Distribution sanity, printed in the build report: total words around
   83k (29k ranked lemma pages inside the top 50,000, since inflection
   pages live in forms.json, plus the attested tail that carries a split
@@ -1344,13 +1466,2029 @@ and the eyeball sample, never by a reader first.
 - Anchors added 2026-09-05: manuscript carries manūscrīptus = manus +
   scrībō, both linked; idea carries a single row naming grc:ἰδέα and
   that root ships; system carries σύστημα decomposed; period carries
-  περίοδος = περι- + ὁδός; curious carries cūriōsus = cūra + -ōsus;
+  περίοδος = περί + ὁδός (corrected 2026-09-05, see the build notes
+  below: the extract splits it on the preposition, not the prefix);
+  curious carries cūriōsus = cūra + -ōsus;
   sock carries a single row naming la:soccus and that root ships with
   a family of at least one; sky carries a row-only single row with
   lang non and no `r`; no word with an origin template to a classified
   language ships with neither morphs nor org, except through a drop
   whose reason is in the misses report.
 - The gold score is printed and gated as specified in Principle 5.
+
+### Phase one as built (dated notes, 2026-09-05, build agent)
+
+Each note records where the build had to read this section against the
+extracts and what it did. None of them is a silent divergence; the
+owner rules on each.
+
+- period reads περίοδος = περί + ὁδός, not περι- + ὁδός. The Greek page
+  splits it as περῐ́ + ὁδός, the preposition περί reached through the
+  length-mark rule; the prefix page περι- is a different node. The
+  anchor and the gold row pin περί.
+- hesitation reads haesitātiō = haesitō + -tiō, with the haesitō card
+  carrying haereō + -titō. Under never-silent hesitance attaches as well
+  and both reach haesitō, so it is an anchor by the 2026-09-01 rule and
+  the row stops there. The 2026-09-01 wording (haereō + -titō + -tiō)
+  described the build before hesitance attached.
+- curious reads cūriōsus = cūra + -ōsus from a curated source edge
+  (`SOURCE_SPLITS` in curation.py), not from prose. The Latin page
+  records cūriōsus as a back-formation from incūriōsus, and no English
+  entry of curious names cūra; the only English split template on the
+  page belongs to the curium sense. The mockup's row is the standard
+  analysis, so it is data with its reason.
+- sock reads soccus because an alternative-form page is not a node.
+  σύκχος, which the sock page names, is a spelling of συγχίς (a glossed
+  Greek lemma). The lookup steps through form-of pages but through an
+  alternative-form page only in a fallback pass, and the fallback pass
+  wins only when it reaches a node that decomposes (μονάρχης is a
+  spelling of μόναρχος, which splits, so monarch reads Greek). idea
+  reads ἰδέα by the plain deepest rule.
+- Deepest term is read per language run: the terms an English page
+  names fall into runs by language, the first term of a run is the
+  lemma English borrowed, and the rest of the run is that lemma's own
+  ancestry. The word attaches to the deepest run's entry lemma, or to a
+  run whose entry decomposes when the deepest does not. Without the run
+  rule access attached to accēdō instead of accessus and every anchor
+  above a base verb lost its reaches.
+- A plus-chain in English prose belongs to the last root or
+  pass-through term named before it. When that term is a node without
+  a split, the chain supplies its parts (dīvortium = dī- + vertō); when
+  it is a term Wiktionary never wrote, the row reads the term as written
+  over the parts (ad montem = ad + mōns); when it is a reconstruction,
+  the starred form labels the row (*manizāre = manus + -izō); when it is
+  a pass-through word and no root lemma is named, the French word
+  labels the row and the chips stay Latin (lang fro, frm or fr on a
+  decomposed row). A chain with no term before it ("From Latin
+  spectāculum + -ar") is the English word's own analysis and its first
+  term is the lemma.
+- A word whose chain ends in a pass-through language with nothing
+  deeper (dessert at Middle French, quite at Anglo-Norman) renders no
+  row and goes to the misses file with that reason, since pass-through
+  pages never ship. kaikki publishes no Anglo-Norman extract, so an xno
+  page is never walked.
+- A homograph's card gloss is picked with support from the attaching
+  words (the template gloss and the English word itself): cava reads
+  "a hollow, hole, cave" for cave rather than the jackdaw. A name entry
+  never wins on support. ROOT_GLOSSES still overrides.
+- Greek forms print the page title, never the canonical form with its
+  vowel-length marks; the romanization keeps kaikki's marks as before.
+- Root cards grew by about 3,000, not 1,900: attachment by any mention
+  reaches more lemmas than the spike's chain set did. The outcome
+  against the 1,752 misses is 546 decomposed, 1,027 single and 179
+  nothing (the spike sized 488, 1,039 and 225); inside the top 10,000,
+  172, 340 and 41 (141, 359 and 53). The build report prints the line
+  every run, from pipeline/misses-2026-09-01.txt.
+
+### Review fixes as built (dated notes, 2026-09-05, fix agent)
+
+The adversarial review of the branch (findings 1 to 16) forced these
+corrections. Each note records the rule as built and the words that
+pinned it; the gold set carries a row for each.
+
+- Reach and anchors (finding 4). A word reaches the lemma it attaches to
+  and the immediate parts of that lemma's split, each once; a lemma
+  reached by ORG_ANCHOR_MIN or more words is an anchor. The 2026-09-01
+  wording counted parts only, so a lemma two words attached to was
+  still expanded away under a third: just attached to iūstus and
+  justice flattened through it to iūs + -tus + -itia. Now justice reads
+  iūstus + -itia and the iūstus card carries iūs + -tus. An anchor that
+  two words attach to and no row names as a part (βασιλικός under
+  basilica and basilic, whose rows read βασιλεύς + -ικός) gates nothing
+  and needs no card; the "every anchor ships" check is stated on the
+  anchors a row or a card names. A chain-only tail word whose row will
+  not decompose is dropped, so its attachment is no reach. Rows the
+  rule changed against the 2026-09-05 gold set: absolution reads
+  absolvō + -tiō (absolute attaches to absolvō) and impact reads
+  impingō + -tus (impinge attaches to impingō); both cards carry the
+  split the row no longer shows. Anchors 1,353 to 3,082.
+- Row limits (finding 4). No row may carry a duplicate root: a split
+  that names one twice keeps the lemma whole (ossuārium read ōs + ōs;
+  the cause was the trailing appositive ", alternative form of os"
+  read as a step on -ārius, and the trailing-appositive step now takes
+  the inflectional shapes only, so ossuary reads ōs + -ārius). A row
+  that would run to four or more chips falls back to the page's own
+  parts, and every part that stayed whole because of that ships a root
+  card carrying its own `parts`, exactly as an anchor's does (energy
+  read five chips; it reads ἐνεργός + -ης + -ια with the ἐνεργός card
+  carrying ἐν- + ἔργον + -ος). The verify checks "only anchors carry
+  parts" and "every anchor whose lemma decomposes carries parts" are
+  widened to anchors and carried nodes. Rows with four or more chips
+  211 to 2 (both the page's own four-part split), rows with two or more
+  suffix chips 552 to 204, duplicate parts 6 to 0, root cards lost
+  against main 81 to 45. automatic reads αὐτόματον = αὐτός + μέμαα,
+  identity reads identitās = īdem + -tās (the Greek ταὐτότης is a
+  calque on that page, rejected under finding 1), access still reads
+  accēdō + -tus with accēdō carrying ad- + cēdō.
+- Template parts and their owner (finding 5). A decomposition template
+  on an English page takes its prose position from its expansion ("de-
+  + portāre" on sport), so its parts belong to the last root or
+  pass-through term named before it, as a prose chain's do. A template
+  with no prose position belongs to the term the template itself names:
+  the head the etymon tree nests it under, or the origin template
+  written just before it; never to any term of the run, and to no term
+  at all when none precedes it. An origin template whose expansion is
+  not in the prose (a gloss quoted differently, an alt stem such as
+  compāniōn-) is located by its term. A trailing suffix the page's own
+  templates give as English ("from Latin funereus + -al" with a
+  {{suffix|en|3=al}}) comes off the chain, and a chain left with one
+  term is no chain; a suffix template with the base omitted still yields
+  its affix. A mention is one of a chain's terms only when it is written
+  at or after the chain (infirm names infirmus two sentences before the
+  verb's īnfirmus + -ō). When a French word owns the parts and its own
+  page continues to a Latin lemma that decomposes, that lemma is the
+  row (ancestor reads antecessor). Outcomes: sport reads dēportō = dē-
+  + portō, persecute reads persequor = per- + sequor, funereal reads
+  fūnereus = fūnus + -eus, advise reads advisō = ad- + vīsō, cohesive
+  reads cohaereō = con- + haereō, mediocre reads mediocris = medius +
+  ocris; 60 words gained a decomposed row, none lost one to a single.
+  accolade still reads *accollō = ad- + collum + -āta (the page's own
+  chain; the -āta is Occitan in truth) and byssinosis still reads
+  byssinus = byssus + -ōsis (the page writes "byssinum via byssus +
+  -osis", a chain no positional rule separates from the legitimate
+  "from X, from Y + Z"); both are left as the page states them.
+- Row-only romanization (finding 6). kaikki writes the automatic
+  transliteration into the template's expansion ("Sanskrit आरात्रिक
+  (ārātrika)") and not into `tr`, and a hand-written one sometimes sits
+  in the prose right after the expansion ("Hebrew כֻּתֹּנֶת (kuttṓnĕṯ)").
+  A row-only row (and any mention in another script) takes its `rom`
+  from `tr`, else from the expansion, else from the prose after it; a
+  transliteration is Latin letters with diacritics, IPA letters (ʔ, ʕ)
+  included. Non-Latin row-only rows without rom: 472 of 740 before, 122
+  after this rule alone (the review's measure over its sampled entries,
+  rows lacking rom though the expansion carries one: 371 to 64). aarti,
+  avatar, assassin, bolshevik and cotton all print their reading.
+- The row-only origin (finding 7). The row is the deepest term of the
+  page's own origin clause, read in template order: a reconstruction in
+  a proto language ends the walk (an unattested form in an attested
+  language, *bangen in Middle English, is a step the chain continues
+  past); a term with no step cue between it and the term before it in
+  the same sentence, or joined to it by "or" or "/", is an alternative
+  at the same depth and the first is shown ("Hindi गोरा / Urdu گورا",
+  "from Middle Dutch scoep ... and Middle Dutch schoppe"); a "via" term
+  after a "from" term is a stage between the borrower and that term,
+  not a deeper one (mango reads Malayalam, not Malay); a term after an
+  aside cue in its sentence was never an origin ("influenced also by
+  Punjabi X", "whence also", "reinforced by"; the one-object cues
+  "compare", "see also", "replaced" and "doublet of" mark the next term
+  only, and the chain resumes at the next "from", so contrary keeps
+  contrārius and ambulance keeps ambulō; "both from" and "all from"
+  resume the chain after any cue, so rose keeps rosa). A comma-joined
+  spelling list gives its first form, the rest being alternatives. A
+  walked French page is read only when the page itself settles nothing,
+  and a French term the page's own clause continues past to an attested
+  origin that exists is not walked at all (race reads "From Italian
+  razza", the page's own statement, not the French page's Latin
+  generātiō; a semicolon starts a new clause, so gin still walks engin
+  to ingenium). A term after a doubt cue ("a connection has also been
+  suggested with", "this suggests a derivation from", "disputedly") is a
+  proposal and no origin; "suggested by Berzelius" is a coinage and a
+  hedged origin ("of uncertain origin, but probably from") stands. A
+  code under CENSUS_MIN in no role is a row like any other, and the
+  build fails until ROW_ONLY_LANGS and the extension name it: 131 codes
+  surfaced (Old Turkic for cossack among them), read off the template
+  expansions; la-eme and la-ren joined the Latin period codes; fr-CA,
+  fr-aca, frc and xno-law joined the pass-through group. scoop reads
+  Middle Dutch scoep, swamp Old English swamm, creek Old Norse kriki,
+  avant-garde Middle English advaunte-garde, cossack Old Turkic
+  𐰴𐰔𐰍𐰸, gora Hindi गोरा, steppe Russian степь with its gloss and
+  reading; comma-joined forms 18 to 0.
+- The stance rule on template splits and calques (finding 8). A
+  decomposition template on a source page is refused like a prose chain
+  when a rejection cue sits before its expansion in the sentence, and
+  whole when the entry carries an `unk` or `unc` template: the page's
+  own etymology is unknown or uncertain and the split beside it is a
+  proposal (ἀνθόλοψ "the word superficially resembles ἄνθος + ὤψ ...
+  a corruption", λύσσα "disputedly", μηχανή "Unknown. Traditionally
+  derived from", vehemēns "Disputed"). A cue after the split says
+  nothing against it (sōbrius "instead of sēbrius"), and a stance
+  inside a parenthesis is an aside, not the sentence's (rebellis). A
+  node whose own page refused its split for stance takes no parts from
+  an English page that repeats them as fact (squirrel: the Greek page
+  calls σκιά + οὐρά a folk etymology, so σκίουρος stays whole). A
+  calque-type cue names the model, and the word's own chain resumes at
+  the next "from" ("Coined by Cicero as a calque of Greek ποιότης, from
+  quālis + -tās" keeps quālitās split; "a calque of Latin diēs
+  Mercuriī" still rejects the Latin). Outcomes: antelope and squirrel
+  read a single Greek row; lyssa, a tail word whose only split is
+  refused, ships no card; race reads "From Italian razza", the page's
+  own statement (the walk rule of finding 7); tuesday reads Old English
+  tīwesdæġ and wednesday Middle English Wednesday (its Old English is
+  unattested). Refused template splits la 205 to 238, grc 575 to 608;
+  49 rows changed.
+- The 40 shape regressions of the review (finding 9), re-read against
+  the extracts: 17 better than main (serious, control, difficult,
+  decide, criminal, funeral, material, attitude, reverse, intellectual,
+  demonstrate, sally, sport, minor, genuine, minus, vent), 21 the same
+  or an anchor-shallowed equivalent, 2 worse (salad reads the shared
+  saliō card glossed "to leap", legacy the shared legō card glossed "to
+  gather"; both are the one-card-per-key majority rule of finding 2).
+  The review counted 16, 14 and 10.
+- Minors (findings 10 to 15). A row-only gloss is one short line like
+  a root gloss: whole when it fits the card budget, else its first
+  clause, else nothing (moloch); the private-use characters kaikki
+  writes for a gloss's square brackets are stripped (Abdul "servant
+  [of]"); a sense written as a heading and a child glosses with the
+  child (la:pes "a foot"); a breve stacked on a macron prints the
+  macron alone (citō); the English affix src row carries the source
+  root's romanization; grk-pro left the row-only table, since no proto
+  language is one. Left as they were, with the reason: the breadcrumb
+  cycle guard (finding 13) is the carried-over Okpyeon crumb rule and
+  changing it is a shell decision, not a data fix; the etymon tree's
+  nested ancestry (finding 15: dinero, pray, violence, violin, shower)
+  lives only in the rendered tree lines, a graph flattened one node per
+  line with marker suffixes, and reading it needs a parser of its own.
+- Measured after the fixes (2026-09-06, seed 20260906). 150 random
+  decomposed rows read against the extracts: 135 right, 10 degraded
+  (right parts, a shallow or odd gloss), 5 wrong (3.3%; the review
+  measured 3.3%): diamante and facete ship an etymology their source
+  page leans against, percolate, aureola and iode land on the wrong
+  homograph card. The 100 highest-ranked rows that differ from main:
+  84 right, 6 degraded, 3 questionable (blue, risk, notice), 7 wrong
+  (7%; the review measured 11%): are (the verb page is a form-of entry,
+  so the noun "are" wins and reads Latin ārea), mine and fell (the
+  card picks the wrong homograph), list (the Latin extract carries the
+  city Lista only), park (the enclosure entry is an alternative form),
+  camera (labelled camera obscūra), doubt (a stated theory shipped).
+  Determinism holds (two builds byte-identical), verify 0 failed, gold
+  71 of 71, Node 169, index harness 246, embed harness 181, 8
+  screenshots regenerated. Data: 84,307 words, 6,737 roots, 14,247
+  origin rows (7,073 decomposed, 2,218 single, 4,956 row-only), 23.9
+  MB; breakdown coverage of the top 10,000 ranks 37.9%; the 1,752
+  misses of 2026-09-01 render 552 decomposed, 1,029 single, 171
+  nothing (top 10,000: 171 / 343 / 39).
+
+### Part senses (dated note, 2026-09-06, second review, cause 1)
+
+The second adversarial pass measured that findings 2 and 3 fixed which
+entry supplies a NODE's split, label and gloss, and that nothing applied
+the same rule to the PARTS of a split. A chip showed whatever gloss won
+its own root card, so la:in- read "un-, non-, not" on incident, intend,
+insist and noise, and la:-tus read the action-noun entry on defense and
+expert. Fourteen roots of that shape touched 847 shipped words.
+
+- A part chip carries its own gloss, chosen from the sense the PARENT's
+  split states for it: the `t`, `tN` or `glossN` argument of the parent's
+  decomposition template, its inline `<t:...>` and `<id:...>` modifiers,
+  or the parenthetical beside the term in the parent's prose chain. The
+  same evidence already fed the homograph vote as a hint; now it also
+  picks the wording.
+- The candidates are every card-sized sense line of every lemma entry of
+  the part's page, name entries excluded, so one rule reaches a homograph
+  entry (la:in-) and a further sense of a single entry (grc:κρίνω "to
+  decide or judge" under κρίσις) alike.
+- A stated sense matches a line when a comma-joined piece of the two is
+  the same, or when a content word of the two is: equal, equal once a
+  plural -s comes off, or sharing a five-letter prefix ("adjectival" and
+  "adjectives"). Five, not four: four makes "action" match "active".
+- A line wins only by naming MORE of the stated sense than the card's own
+  gloss does, curated ROOT_GLOSSES included. Sharing a word with it is not
+  enough, which keeps the rule to the homographs it is about: ūnus states
+  "one" and its card already says "one, single", so nothing changes, while
+  la:-iō states "abstract noun" against a card about fourth-conjugation
+  verbs and the chip carries the noun suffix (union).
+- The winning line ships as `g` on the part and the worker joins it over
+  the root card's gloss. The card keeps its own gloss for its own page.
+  A `g` equal to the card's is dropped at emit.
+- A gloss that is only a grammatical note is not a gloss. The Greek
+  preposition pages write their case headings as senses of their own, so
+  period read "περί ([with genitive])" and episode the same of ἐπί. A
+  whole line in square brackets is refused and the next sense carries the
+  card.
+- A gold row may now pin `glosses`, the chip subtext a reader sees, joined
+  the way lookup.js joins it. Rows without the field are unaffected.
+- Five curated entries cover parts no evidence on the page reaches:
+  LEMMA_STEPS la:strictus to la:stringō and la:visus to la:videō (both
+  participles written as lemma pages, so district stopped at strictus and
+  vision at the noun vīsus); SOURCE_SPLITS la:mentālis = mēns + -ālis (the
+  page's two adjective entries both gloss "mental" and the node followed
+  the anatomical mentum) and la:diurnus = diēs + -nus (the page writes
+  diūs, which steps through dīus to dīvus "god, deity", so journey read a
+  deity); ROOT_GLOSSES la:-ēnus (the page's only entry glosses the
+  distributive numerals, while the family is adjectives).
+- Outcome: 1,088 word rows and 216 root cards carry an explicit part
+  gloss (1,136 and 223 parts), 1,119 rows changed wording, no row changed
+  its parts except the five curated ones. Not reached, with the reason:
+  suggest and county read what their pages state (suggestus writes
+  -tus<t:action noun>, comitātus writes comitor + -tus); command reads
+  la:commandō, whose only entry is "to chew"; suspicious states no sense
+  for suspiciō; divorce reads the la:di- page, whose only entry is the
+  Greek-derived "two".
+- series was reported as a regression of this rule, reading serō "to sow,
+  plant". It does not: the Latin seriēs page writes serō<id:link><t:to
+  bind>, the rule reads it, and the chip carries "to link together; to
+  entwine; to interlace". The report describes the build before this rule
+  landed, when the chip fell back to the la:serō card. desert reads the
+  same homograph for the same reason (the dēserō page writes serō#Etymology
+  2 2<t:to bind, join>), and season keeps "to sow, plant" from satiō's
+  serō<id:sow><t:to sow>. All three are gold rows with their glosses
+  pinned, so the wording cannot move without the gate saying so.
+
+### The Germanic walk (dated note, 2026-09-06, second review, cause 2)
+
+The row-only walk of finding 7 took the last row-language origin term in
+template order. That stopped one step short or stepped sideways on the
+commonest Germanic words. Five rules, each pinned by the word that found
+it:
+
+- A term in a language the walk has already left starts a second chain
+  rather than going a step deeper. The test is on positioned terms only,
+  since the etymon tree repeats a chain's head with no position of its
+  own. about ends "Middle English about (adverb)" after its Old English
+  abūtan, and or reads "Old English āþor ... Middle English oththe, from
+  Old English oþþe"; both now stop at the Old English of the first chain.
+- A comma-joined spelling list whose first form is a reconstruction gives
+  the first attested spelling beside it. not writes Old English "*nōht,
+  nāht" and reads nāht.
+- A grammatical label is no term. STOP_HEADS, which already refused
+  "participle" and "genitive" as prose step targets, now refuses
+  "demonstrative", "pronoun", "determiner" and their kin: they read "Old
+  Norse demonstrative" off "þeir, plural of the demonstrative sá", and
+  pulley read a Latin row assembled out of "the feminine of neuter
+  polidium".
+- A term of an accepted plus-chain is a component of the word before it,
+  not an origin, in any language rather than only in Latin and Greek. The
+  chain must explain a word of its own language named before it, so ever
+  stops at ǣfre rather than the ā of "ǣfre, from ā + in feore", while
+  caffeine keeps Italian caffè, which no earlier Italian word owns.
+- A row-only row prints the template's display argument when it has one
+  ({{inh|en|ang|don|dōn}}), since the row is inert text and shows the form
+  the page shows. A root or pass-through term is looked up and keeps the
+  page title. do reads dōn, a and an read ān.
+
+Outcome: 47 rows changed, 15 of them inside the top 1,000 ranks. Not
+reached: wait, whose page names no attested term under Middle English
+waiten (Anglo-Norman waiter has no extract and the Frankish forms are
+reconstructions), and won, which is cause 3.
+
+### The English side's section (dated note, 2026-09-06, second review, cause 3)
+
+A card shows the senses of every part of speech a word has, and the origin
+row came from one etymology section: the entry with the most senses. can
+read "To know how to" over "From Old English canne (glass, container, cup,
+jar)". The review measured 451 words of this shape, 99 inside the top
+3,000.
+
+- The origin row follows the etymology section that supplies the card's
+  FIRST senses, meaning the first sense list the card prints. The split
+  still follows the entry with the most senses, which is what keeps number
+  a count noun rather than numb + -er.
+- A section owns those senses when it supplies the first one and more than
+  half of that list. Below that no section supplies them, the row is
+  withheld, and the reason goes to the misses report: found opens with
+  "Food and lodging" from one section, a furnace interval from another and
+  a comb-maker's file from a third; deal opens with two senses from ang
+  dǣl and two from ang dǣlan.
+- A second section only makes the list ambiguous when it names an origin
+  of its own that differs. A section with nothing to say leaves the first
+  one speaking alone (cotton keeps its Hebrew row though "A liking." from
+  another section fills the fourth slot).
+- A section that names no origin at all gives no row, so shot reads
+  nothing rather than the noun's Old English sceot: the card opens with
+  "Tired, weary", whose section names only English shoot.
+- The homograph vote follows the same entry, since the vote is about the
+  origin the row shows.
+- One curated entry followed: LEMMA_STEPS la:cocus to la:coquus. cocus
+  carries an alternative-form entry for coquus beside a New Latin noun for
+  the coconut, and the lemma entry makes the page a node, so cook read
+  "coconut" once its row moved to the noun section.
+- Outcome: 728 rows changed, 110 of them inside the top 3,000 ranks. 268
+  moved section, 129 words gained a row their dominant section never gave
+  them (please, own, live, account, support), and 331 lost one, 268 of
+  those withheld with the reason in the misses report. Rows: 7,034
+  decomposed, 4,980 single, 5,540 row-only.
+- Not reached: won. Its past-participle entry ships only a form-of sense,
+  so the archaic verb "to live, remain" supplies the card's first senses
+  and the row reads its Old English wunian. The lemma pointer to win sits
+  at the foot of the card, under the senses, so the rule cannot read it as
+  what the reader sees first.
+
+### Prose ancestry (dated note, 2026-09-06, third pass)
+
+The second review left 106 rows wrong or degraded whose row no fix round
+had moved. The largest cause is one gap: kaikki writes many pages as a
+single etymon template whose expansion is the rendered tree, and that
+template's arguments carry the first step only. The rest of the chain is
+spelled out in the prose and belongs to no template, so the mention reader
+never saw it. father read Middle English fader with "from Old English
+fæder" in the prose beside it; country, store and jail named Latin in
+prose and shipped a Middle English row.
+
+- An English page's prose contributes its origin terms. A "<Language name>
+  <term>" written after an origin cue is a step of the chain, positioned
+  where the prose writes it, and the sentence's role decides it exactly as
+  a template's does. Only the English page is read this way: a source
+  page's prose is the graph's own business and a walked pass-through page
+  states one chain the walk already reads.
+- Five limits keep the reader on the page's own chain, each pinned by the
+  word that found it: only inside the sentence that states the page's own
+  origin (she ends "similar to the derivation of sure from Old French
+  seur" and read the Latin behind that French word; luck read fortūna out
+  of a closing paragraph); only where no template expansion covers the
+  text; never a term that is a word of a language name or is followed by
+  one (avocado writes "Latin American Spanish avocado", wu "the Mandarin
+  pronunciation of Chinese 吳"); never a term with a capitalised word
+  straight after it and no punctuation between (einstein writes "German
+  ein Stein"); never a head of a plus-chain, which the chain parser owns
+  (madonna writes "Italian madonna, from Old Italian ma + donna"). A
+  bracket or a quote in the term is markup and ends the match (drinking
+  writes "Middle English [Term?]"). A grammatical label between the name
+  and the term is stepped over (reverend writes "from Latin future passive
+  participle reverendus").
+- A term the page says is a SPELLING of a lemma the same run names after
+  it is a step, not the lemma English borrowed. chief runs "Old French
+  chief, from Vulgar Latin capus, from Latin caput" and the capus page
+  carries "Late Latin form of caput" beside an unrelated bird of prey,
+  which is the entry that won its card. An inflection is not a spelling:
+  a participle noun English really borrowed stays the lemma of its run
+  (strātus under street, respectus under respect, agēntia under agency).
+  kaikki writes the gender letter into the link's word ("form of caput n"),
+  so a form-of target that is no page title is retried without it.
+- The section test compares the ORIGIN two sections name, not the wording.
+  vega reads "Borrowed from Spanish vega (meadow, fertile lowland)" in one
+  section and "From Spanish vega" in another, and the row was withheld for
+  a difference of gloss.
+- One curated entry followed: LEMMA_STEPS la:precare to la:precor. The
+  page's one sense reads "second-person singular present active
+  imperative/indicative of precor" with no form-of link, so it counted as a
+  lemma and pray printed the statement as its gloss.
+- Outcome: 203 rows changed, 87 words gained a row and 4 lost one (each of
+  the four to the section rule, a second section that now names an origin
+  of its own). father reads Old English fæder, sister sweostor, town tūn,
+  red rēad, brain bræġn, steal stelan, meat mete, pride prūd, mouse mūs,
+  tide tīd, shade sċeadu; store reads Latin īnstaurō, jail caveola = cavea
+  + -ulus, popular populāris = populus + -āris, violence violentia =
+  violēns + -ia, authority auctōritās = auctor + -tās, chief and chef
+  caput, pray precor, command commendō = con- + mandō "to order, command"
+  (the "to chew" homograph the part-sense note could not reach), secretary
+  sēcrētārius = sēcernō + -ārius, theory Greek θεωρία, suicide suīcīdium =
+  suī + -cīdium. country reads Old French contree = contrā + -āta: the
+  Latin chips are right and the label is the French word, because the term
+  the prose names between them is written "*(terra) contrāta" and the
+  bracket rule refuses it.
+
+### A pass-through term is still a row (dated note, 2026-09-06, third pass)
+
+Phase one's pass-through group exists so a chain that stops at Old French
+continues to Latin when the French page names it. Where no root language
+is ever reached, the walk fell back to the Middle English term above the
+French one, or reported "chain stops in a pass-through language" and
+showed nothing. Both are wrong about what the page says: the French term
+is the deepest attested origin the page states.
+
+- The pass-through role governs CARDS, not rows. A word whose walk reaches
+  no root language renders the deepest term of its chain, in whatever
+  language the chain ends, inert like any other row-only row. try reads
+  Anglo-Norman trier, hurt Old Northern French hurter, touch Old French
+  tochier, department French département. The 2026-09-05 statement that
+  such a word renders no row and goes to the misses file is superseded;
+  dessert and quite render their French rows now.
+- ROW_ONLY_LANGS does not name the French codes, so verify accepts a row
+  code named by either table and the extension's LANG_NAME table gains
+  fr-CA, fr-aca and frc.
+- A plus-chain's ownership test treats the whole pass-through group as one
+  language, since a chain in Old French explains the Anglo-Norman word
+  named before it: lieutenant reads "Anglo-Norman lieutenant ... from Old
+  French lieu + tenant" and the row read lieu.
+- Outcome: 766 rows changed against the prose-ancestry build, 398 words
+  gained a row, 12 lost one (each to the section rule, a second section
+  that now names an origin of its own). wait, which the Germanic-walk note
+  recorded as not reached, reads Anglo-Norman waiter.
+
+### The spelling beside a reconstruction (dated note, 2026-09-06)
+
+The comma-joined rule of the Germanic walk reads a template's own argument
+list ("*nōht, nāht" on not) and shows the attested spelling. A page often
+writes the attested form in the prose instead, with no template of its own:
+shit reads "from Old English *sċite (“dung”) and sċitte (“diarrhoea”)",
+pick "from Old English *piccian, *pīcian (attested in pīcung), and pīcan,
+pȳcan", tall "*tæl, ġetæl", mix "*mixian, miscian", hey "*hē, ēa".
+
+The forms a page lists after a reconstruction, joined by a comma or by
+"and", are alternatives at the same depth, and the walk shows the first
+attested one. Two limits keep the reader inside the list: a parenthetical
+between two forms is skipped, and a form ends the way a list item does,
+with a comma, a full stop or its own parenthesis. An ordinary English word
+is followed by another word, which is where the list stopped being one
+("and cognate with", "and derivative of", "and akin to"). Only a row-only
+language is read this way, since the rule is the row's.
+
+Outcome: 20 rows changed, 2 words gained a row, 1 lost one to the section
+rule (tick, whose second section now names an origin of its own).
+
+### Glosses carry no markup and end in no separator (2026-09-06)
+
+Two shapes the source writes into a template's gloss argument reached the
+card as they were. Straight double quotes that survived the templating:
+black read Old English blæc glossed 'black, dark", also "ink' and learn
+read leornian glossed 'to learn", rarely also, "to teach'. And a trailing
+separator: win read winnan glossed "to labour, swink, toil," and range
+read rengier glossed "to range, to rank, to order,". The quotes come off
+a template gloss and a trailing comma, semicolon or colon comes off every
+gloss, template or card. Nothing else is cut.
+
+### Measured after the second review's three fixes (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 130
+of 130 (59 rows added, found and race rewritten to follow the section
+rule), Node 170, index harness 246, embed harness 181, 8 screenshots
+regenerated with their scene checks passing and byte-identical to the
+ones before. Data: 84,283 words (84,307 before), 6,704 roots (6,737),
+14,020 origin rows (14,247): 7,034 decomposed, 2,200 single, 4,786
+row-only; 23.9 MB. Breakdown coverage of the top 10,000 ranks 37.9%,
+unchanged. The 1,752 misses of 2026-09-01 render 547 decomposed, 1,002
+single, 203 nothing (top 10,000: 171 / 337 / 45), against 552 / 1,029 /
+171 before: the 32 that stopped rendering are rows the section rule
+withheld.
+
+60 random decomposed rows read against the extracts (seed 20260906): 55
+right, 3 degraded, 2 wrong (3.3%, the same rate the first pass measured).
+Wrong: endue reads indūcō where its first sense comes from induō, and
+predict reads praedicō "to proclaim" where English took the homograph
+praedīcō "to foretell". Degraded: bipennis carries an inert -is chip,
+officīna reads -īna as the female-noun suffix, perdita reads per- as the
+intensive prefix where its page says "through".
+
+### The silent section stays silent (measured 2026-09-06)
+
+The section rule withholds a row when the section supplying the card's
+first senses names no origin. Eleven words were reported as losing a
+correct row that way (bowl, gang, mass, robin, row, oh, sam, ya, eating,
+billy, ben). The fall-through was built and measured: a section that names
+no origin passes the row to the next section of the same sense list that
+does.
+
+It restores none of the eleven. They are withheld for a different reason:
+two sections name DIFFERENT origins and neither supplies most of the sense
+list, which is the clash rule, not the silent-section rule (bowl opens
+with the vessel senses from Old English bolla and the lawn-bowls senses
+from Latin bulla). The change gains 171 rows elsewhere, and a hand read of
+the twenty highest-ranked finds about half of them wrong: a reads the
+Latin letter, ok a Mandarin karaoke compound, bike Old English būc
+"belly", bars a Russian acronym. It also breaks two gold rows that state
+the rule deliberately (found, a). It is not kept, and the eleven stay
+withheld.
+
+The silent half of this note stands: a section that names no origin still
+passes the row to nobody, and found, a, bike and bars are still silent.
+The clash half is superseded by "The leading section keeps the row" below,
+which withholds only where a later section supplies MORE of the first
+sense list than the section the card opens with. bowl, gang, mass, robin,
+row, ya and ben are read there.
+
+### Measured after the third pass (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 189
+of 189 (59 rows added), Node 170, index harness 246, embed harness 181, 8
+screenshots regenerated with their scene checks passing and byte-identical
+to the ones before. Data: 84,300 words (84,283 before), 6,713 roots
+(6,704), 14,488 origin rows (14,020): 7,078 decomposed (7,034), 2,209
+single (2,200), 5,201 row-only (4,786); 23.9 MB. Breakdown coverage of the
+top 10,000 ranks 38.1% (37.9%). The 1,752 misses of 2026-09-01 render 547
+decomposed, 1,004 single, 201 nothing (top 10,000: 171 / 338 / 44),
+against 547 / 1,002 / 203 before.
+
+40 random decomposed rows read against the extracts (seed 20260906): 33
+right, 5 degraded, 2 wrong (5.0%; the two passes before measured 3.3% over
+150 and 60 rows). Wrong: diamante ships the derivation its Greek page
+leans against (already recorded 2026-09-06), and volatile reads volō "to
+wish" where the volātilis page writes "supine stem of volō (to fly)". The
+degraded rows are all one shape, a suffix chip carrying the sense a
+sibling entry of the suffix page has: assumptive and gelati read -tus as
+the action-noun suffix where the parent is a participle, conventicle reads
+-culum as the instrument suffix where the page says diminutive, sagittary
+reads -ārius as the adjective suffix where the word is an agent noun,
+phantasia reads a chip gloss that is a relation note. Both the wrong row
+and the degraded ones are the same gap: the part-sense rule of 2026-09-06
+reads the sense a PROSE split states beside a part, and a TEMPLATE split
+states its parts' senses in the prose around it, which nothing reads.
+
+Of the 106 rows the second review left wrong or degraded and no fix round
+had moved, 60 moved and 46 did not; none was newly withheld.
+
+### A row looks its own term up (dated note, 2026-09-06, source glosses)
+
+A census on 2026-09-06 of the 5,201 row-only rows found 3,281 of them, 63%,
+carrying no gloss at all, 526 inside the top 3,000 ranks. The card read "From
+Old English tō" and stopped. By language: Old English 887, Middle English 526,
+Old French 210, French 210, Italian 130, Spanish 115, Japanese 95, German 85,
+Old Norse 81, Arabic 57, and a tail.
+
+The cause was a rule gap, not only a missing extract. The French group's three
+extracts were already downloaded and 420 of their rows still had no gloss.
+Nothing ever looked a row-only term up in its own source extract. A gloss
+reached a row only where the English page happened to write one into a mention
+template.
+
+- A row-only row looks its term up in the extract of its own language and
+  takes the gloss written there. An explicit gloss from the English page keeps
+  priority: it is what that page says the word meant when English took it, and
+  the extract's is the source page's own headline sense. A form outside the
+  Latin script takes its romanization the same way, after the row's own.
+- The gloss is chosen the way a root card's is. One page, one gloss: the
+  entry with the most senses wins, a name entry is weighted last, and
+  `best_gloss` picks the line inside the card budget. A page that is only a
+  form-of entry holds no gloss of its own, since "past tense of wesan" is a
+  statement rather than a sense, so it is not in the table.
+- The lookup is the graph's lookup. The term is cleaned of inline modifiers,
+  a section suffix and trailing punctuation, the strict key is tried first,
+  and the loose key with every combining mark stripped answers when the strict
+  key is no page. Where two pages share one loose key the source is marking a
+  distinction the row cannot choose between (Old English god and gōd), so the
+  row stays silent. The table is not a graph: no edges, no cards, no splits.
+- `ROW_EXTRACT` names the extract a row's language is looked up in, and
+  `PASS_EXTRACT` already named the French group's. A code in neither table
+  takes whatever gloss the English page wrote and nothing more.
+
+Outcome on the French group, with nothing downloaded: 287 rows gained a gloss
+(fr 189, fro 83, frm 10, and 5 across the French variant codes), none lost
+one, none was reworded, and no row changed language. The French group's rows
+without a gloss fall from 485 to 203. Row-only rows without a gloss overall:
+3,281 to 2,994, and 526 to 515 inside the top 3,000. Lookups: 1,148 strict,
+4 loose, 0 ambiguous, 598 no page.
+
+Fifteen rows hand read against the extracts, all right: hurt (fro hurter "to
+crash into; to clatter into"), view (veue "sight"), attorney (atorner),
+jacket (jaque), button (bouter), guarantee (guarantie), supper (soper),
+random (randon), piss (pissier), perfume (frm parfum), swiss (Suisse, the
+noun over the country name), fiance (fiancer), colin (fr colin, the fish over
+the given name), chauffeur (the first sense, "stoker; fireman"), gadget
+(gâchette "latch"). Each is a gold row with its gloss pinned.
+
+Two rows read a gloss that is a derivational note, because the source page
+writes one as its only sense: bracelet reads fro bracelet "diminutive of
+bras" and tartare reads fr tartare "ellipsis of steak tartare". Both are what
+the page says, so no rule refuses them.
+
+### The Germanic extracts (dated note, 2026-09-06, owner decision)
+
+Seven extracts joined the download list, all verified present at kaikki on
+2026-09-06: Old English 13.2 MB, Middle English 7.1 MB, Old Norse 4.0 MB,
+Middle Dutch 0.6 MB, Old High German 0.9 MB, Old Dutch 0.7 MB, Old Saxon
+0.7 MB. They go through the existing download machinery, honouring --offline
+and the .part resume, and pipeline/README.md carries their URLs and sizes.
+Middle Low German and Anglo-Norman return 404 and no extract exists; the 104
+gml and xno rows they would have covered are unreachable and keep whatever
+gloss the English page wrote.
+
+Old English does NOT become a root language in this round. It stays row-only,
+gains glosses, and ships no card and no family. No ang: root key exists. The
+root role is phase two of this section and is not built here.
+
+Six of the seven are read for glosses alone, by the rule above. Middle English
+is also read as a pass-through language, since 643 rows stopped there and the
+Middle English page usually names the word behind them.
+
+- Middle English left ROW_ONLY_LANGS for PASS_LANGS. The pass-through role
+  governs cards, so a chain that reaches nothing deeper still renders its
+  Middle English row, as the 2026-09-06 note on pass-through rows says.
+- A row whose chain ends at a Middle English term continues through that
+  page to the term it names, one page at a time. The English page's own
+  statement still decides first: a page is walked only where the English
+  page's own clause does not continue past the term to something attested.
+- ROW_PASS_LANGS names the pass-through languages a ROW is read through as
+  well as a card. Middle English is the only member. The two spelling rules
+  a row-only language gets, the comma-joined list and the attested form
+  beside a reconstruction, are read for it too, since a chain ends at Middle
+  English as often as in a row-only language: print reads "Middle English
+  *printen, prenten, preenten" and shows prenten.
+- Three guards keep the walk on the word English took, each pinned by the
+  word that found it. A spelling that STATES two etymologies is two words and
+  is not walked or glossed (the Middle English male is masculine, a bag and
+  an apple, and mail read Latin masculus = mās + -culus off the first). Two
+  stated accounts, not two entries: counting a silent participle beside a
+  lemma page cost crude, duty, git and gage their Latin. A page whose own
+  etymology carries an unk or unc template states a proposal, not an origin
+  (core writes "Unknown; derivation from either Old French cuer or cors has
+  been suggested, though both possibilities pose serious problems", and walet
+  the same shape). And a term the English page names only as a cognate is
+  refused in the walk as it is on the page itself.
+- The guards are on Middle English alone. Applying the ambiguity test to the
+  French extracts, walked since 2026-09-05, shallows 36 rows and drops 17
+  (menu, coupe, ville and sac would read a French word glossed with itself).
+  Walking French rows the way Middle English ones are walked moved 108 rows
+  and read most of them worse, since a French page's own chain runs on past
+  the word English borrowed (swiss read Old High German Suittes over Middle
+  French Suisse, department read Old French departement with no gloss over
+  French département with one).
+- A row is a word and never an affix. A page that says where its suffix came
+  from is explaining a component: the Middle English burned page names Old
+  English -ed, fidget's page -ettan and thrice's -es. The chain stops at the
+  last whole word instead, so thrice reads þriwa, and where nothing is left
+  the word goes to the misses report with that reason (fidget).
+- A walked page settles nothing with a root lemma Wiktionary never wrote.
+  Such a term used to outrank the English page's own row and leave the card
+  silent. The row-only chain is read instead, and the word still goes to the
+  misses report when the chain has nothing either. The test is on a page that
+  names no root term of its own, so madam keeps its "la:mea domina never
+  written" drop. 13 words gained a row: tan, pot, patent, marla, gurgle,
+  madeleine, encore, putty, cabernet, decapitation, bisque, compote, valise.
+
+Outcome of the extracts and the walk together, against the French-group build:
+1,181 rows carry a gloss they did not have, 53 rows moved to a different term,
+21 gained a row and 1 lost one (fidget, to the affix rule). Rows without a
+gloss: 3,281 before this round, 2,098 after, and 526 to 222 inside the top
+3,000. By language the remainder is Middle English 341, Old English 205,
+Italian 130, Old French 125, Spanish 115, Japanese 95, German 85 and a tail.
+
+The 53 moved rows, read against the extracts: 12 continue to Latin (married
+reads marītō, launch lanceō, jelly gelāta, duty dēbeō, perversion perversiō,
+conceit concipiō), 8 to Old English (rid geryd, hearing gehēring, buck bucca,
+peek cēpan, snort fnora, building bytling), 5 to Old Norse (gasp geispa, slug
+slókr, clint klettr, lad ladd, gun Gunnhildr), and the rest to Old French,
+Anglo-Norman or a Middle English step. Twenty hand read: 18 right, 1 degraded
+(building reads Old English bytling where its page offers it as one of two
+accounts, "either formed anew or a continuation of"), 1 questionable (tore and
+bound now read a Middle English word because the Old Norse and Old English
+terms the page named are bare stems ending in a hyphen).
+
+Two known misses left, with the reason. poll reads Old English pōl "pool":
+the Middle English extract has no page for the head sense of pol, and nothing
+distinguishes the two. tick loses its row to the section rule, because its
+second etymology section now names an attested Middle English form and the
+two sections state different origins; the same shape was recorded on 2026-09-06
+for the spelling-beside-a-reconstruction rule.
+
+Not reached, with the reason: 584 rows still stop at Middle English. 360 name
+a spelling the Middle English extract has no page for (abandoned, awakenen,
+babelen), 55 name a page with no etymology at all, and 22 name a page whose
+etymology the reader could not use. That is a source gap, not a rule gap.
+
+### Reading the English page harder (dated note, 2026-09-06)
+
+Italian, Spanish, German, Japanese, Arabic and the rest are terminal
+row-only origins with no extract here: they cost 352 MB for 482 glosses,
+which the owner declined on 2026-09-06. 1,039 rows without a gloss are in
+one of those languages, 39 of them inside the top 3,000. The question was
+whether the English page's own templates, read harder, close any of it.
+
+Measured over those rows, the page still carries two things a row was not
+taking: a `tr` argument on another template naming the same term, and a
+transliteration the prose writes after the term with no expansion to anchor
+it. Both are readings of the FORM, so a page that names one spelling twice
+reads it the same way both times and no homograph can spoil it.
+
+- Kept: the romanization. A row-only row with no romanization takes it from
+  another template of its own section that names the same term in the same
+  language, else from the prose after the term. 8 rows gained one, none lost
+  or changed one, and all 8 are right: magazine مَخْزَن (maḵzan), muslim
+  أَسْلَمَ (ʔaslama), buddha बोधति (bodhati), macabre مَقْبَرَة (maqbara),
+  nawab نَائِب (nāʔib), masala مصلحت (maṣlaḥat), schmooze שְׁמוּעָה
+  (sh'mu'á), boyar боя́рин (bojárin). Non-Latin row-only rows without a
+  reading: 83 to 75.
+- Dropped: the gloss. A gloss is a reading of the SENSE, and a second
+  template naming the same spelling is often about another word. Inside one
+  etymology section, which is all the section rule of 2026-09-06 allows, it
+  reaches 2 rows and rewords 3 (freak, bird, fun, each to a longer wording of
+  the same sense). Pooling the sections of a page would reach 19 and read 3
+  of them wrong, and the wrong ones are the commonest words of the set: been
+  would read Old English bēon "bees", which is the plural of bēo, and over
+  would read ofer "riverbank, seashore, brink", which is the other ofer. bak
+  would read a hanja as its gloss. Two rows do not pay for that, and pooling
+  sections contradicts the section rule, so the gloss half is not built. The
+  extract lookup is what closes this gap, and for these languages there is no
+  extract.
+
+### Measured after the source-gloss round (2026-09-06)
+
+Two --offline builds byte-identical, verify 104 checks 0 failed, gold 244 of
+244 (55 rows added, 7 amended to pin a gloss the extract supplies), Node 170,
+index harness 246, embed harness 181, 8 screenshots regenerated with their
+scene checks passing and byte-identical to the ones before. Data: 84,306
+words (84,300 before), 6,723 roots (6,713), 14,506 origin rows (14,488):
+7,098 decomposed (7,078), 2,218 single (2,209), 5,190 row-only (5,201); 24.0
+MB (23.9). Breakdown coverage of the top 10,000 ranks 38.2% (38.1%). The
+1,752 misses of 2026-09-01 render 551 decomposed, 1,004 single, 197 nothing
+(top 10,000: 173 / 337 / 43), against 547 / 1,004 / 201 before.
+
+The headline. Row-only rows with no gloss at all: 3,281 of 5,201 before, 63%,
+and 2,098 of 5,190 after, 40%. Inside the top 3,000 ranks, 526 before and 222
+after. Inside the top 10,000, 1,173 and 569. 1,172 rows gained a gloss and 8
+gained a romanization.
+
+By language, rows without a gloss before and after: Old English 887 to 228,
+Middle English 526 to 344, Old French 210 to 126, French 210 to 21, Italian
+130 to 130, Spanish 115 to 115, Japanese 95 to 95, German 85 to 85, Old Norse
+81 to 34, Middle French 65 to 55, Anglo-Norman 61 to 64, Arabic 57 to 57,
+Sanskrit 54 to 54, Middle Dutch 49 to 44. The languages that do not move are
+the ones with no extract here, which is the owner's 352 MB decision.
+
+The regression check against the build before this round: 0 rows lost a
+romanization, 1 row lost its row (fidget, to the affix rule, with the reason
+in the misses report), and 9 rows lost a row gloss, each because the row
+itself moved. Every one of the nine is listed: married, launch and git now
+link a Latin card and read its gloss; nick reads Old French niche and the Old
+French extract glosses no such page; bacon reads Anglo-Norman, which has no
+extract; subpoena and twill became decomposed rows with Latin chips; tore and
+sunder moved off a bare stem ending in a hyphen to the Middle English word.
+50 rows changed language or shape, 9 of them inside the top 3,000, all
+accounted for in the Germanic note above.
+
+No curation entry was added in this round. Every change is a rule.
+
+### The leading section keeps the row (dated note, 2026-09-06)
+
+268 shipped words showed no origin row because two etymology sections
+disagreed and neither supplied more than half of the card's first sense
+list. bowl opens with the vessel senses from Old English bolla and fills
+the rest of the list with the lawn-bowls senses from Latin bulla, so both
+sections held two of four and the row was withheld. A held-out audit read
+eleven of thirteen sampled words as a coverage loss: the page does state
+an origin for the section the card leads with.
+
+- A section owns the card's first senses when it supplies the first one
+  and no disagreeing section supplies more of that list than it does. The
+  old test asked for more than half, which two sections of two senses each
+  can never meet. A tie goes to the section the card opens with, since
+  that is the one the reader is looking at.
+- The row is withheld where a later section supplies MORE of the list.
+  robot opens with the Central European serfdom from German Robot and
+  fills the other three slots with the machine from Czech robot; seal
+  opens with the animal and fills the rest with the stamp; ben, groom,
+  gum, coma and drake are the same shape.
+- Nothing falls through to a section the reader is not looking at. A
+  section that names no origin still passes the row to nobody, so found,
+  a, bike and bars stay silent. The 2026-09-06 fall-through experiment
+  stays refused.
+- Outcome: 209 of the 268 render a row, 56 stay withheld with the reason,
+  and 3 now report the reason their own section carries (san, bay and
+  macon name a lemma Wiktionary never wrote). 15 more words past the rank
+  cap ship a card, because their row now decomposes. No word lost a row.
+- The thirty highest-ranked words that gained a row, read against the
+  extracts: 26 right, 3 degraded, 1 wrong. Degraded: robin takes the
+  "Also from Middle English robynet" of a page whose headline is "short
+  for robin redbreast"; li takes the Korean 리 of the second clause where
+  the first names Mandarin 里; lit takes līhtte, which its own page calls
+  the preterite of līhtan. The wrong one was ah, and it is fixed below.
+
+### A proposal is not a statement, in the present tense too (2026-09-06)
+
+Unmasking the withheld rows showed ah reading Latin ad. Its page writes
+"Some propose that the Middle English is borrowed from Old French a", and
+the walk went through that French page to Latin. RE_STANCE_HARD already
+refuses a term after "suggested", "proposed" and "suggests", so the gap
+was the plural present tense alone. It now refuses "proposes" and a bare
+"propose" that takes a clause. The clause test is what keeps euro, whose
+page writes "a contest open to the general public to propose names" and
+whose Greek row is right. Two rows moved: ah reads Middle English ah, and
+spree moves off the Scots-to-Latin chain of "Watkins proposes a possible
+origin" onto the French esprit of the page's own first guess.
+
+### A glossless page steps to the page it names (2026-09-06)
+
+A row-only row looks its term up in its own extract (2026-09-06). A page
+that is only a form-of entry holds no gloss of its own, so the lookup
+stopped there and the row read "From Old English cumende" with nothing
+after it. The page is not silent: it says which page has the sense.
+
+- A page with no gloss of its own steps to the page it names, and the
+  step repeats, exactly as the source graph's lookup steps through a
+  form-of page and an alternative-form one. An alternative spelling is
+  read the way `alt_spelling_of` reads one, so an abbreviation or a
+  pronunciation spelling is refused here as it is for English; any other
+  form-of page names its lemma in the link of its first form-of sense.
+- A spelling that names two different pages is two words and steps
+  nowhere. The Middle English fond is an alternative form of fend, of
+  fonned and of fonden, and the row cannot choose.
+- The step is only taken where the spelling is no glossed page of its
+  own, so nothing that already had a gloss changed.
+- Outcome: 234 lookups stepped and 122 rows gained a gloss, none lost or
+  reworded one and no row moved. right reads Old English reht "right"
+  through riht, coming cumende "to come" through cuman, had hæfde "to
+  have, possess" through habban, waste Old Northern French wast
+  "destruction" through gast, quiche Old High German kuocho "cake; pie"
+  through kuohho, thwart Old Norse þvert through þverr.
+- The thirty highest ranked, read against the extracts: 27 right, 2
+  degraded, 1 wrong. Degraded: worse and worst read wiersa and wierrest
+  glossed "bad", which is the positive degree their pages step to. Wrong:
+  tiny reads Middle English tine glossed "thine, your", because the only
+  tine page the extract carries is a spelling of þin. Four more of that
+  shape are in the full 122: tore (tor, a spelling of tour "tower"),
+  munch (monchen, a spelling of mynchene "nun"), jakes (Jake, a spelling
+  of jakke "a padded coat") and peat (pete, a spelling of pety). Where
+  the extract carries one word under a spelling and the English page
+  means another, no evidence on either page separates them.
+- Not built: following the forms table of a page that never states
+  anything. It would reach 87 more rows and read Old French trope as the
+  adverb trop "excessively" where English troop wants the noun "herd".
+  The count and the reason are in pipeline/cache/gloss-gap-report.txt.
+
+### Measured after the leading-section round (2026-09-06)
+
+Two --offline builds byte-identical, verify 110 spot checks 0 failed (the
+104 the earlier notes give is stale; the build printed 110 before this
+round too), gold 284 of 284 (40 rows added and 5 amended: deal and ah
+state the new rule, found's reason is corrected to the one it is actually
+withheld for, and coming and release pin the gloss their step supplies),
+Node 170, index harness 246, embed harness 181, 8 screenshots regenerated
+with their scene checks passing and byte-identical to the ones before.
+Data: 84,321 words (84,306 before), 6,743 roots (6,723), 14,730 origin
+rows (14,506): 7,130 decomposed (7,098), 2,248 single (2,218), 5,352
+row-only (5,190); 24.0 MB. Breakdown coverage of the top 10,000 ranks
+38.3% (38.2%). The 1,752 misses of 2026-09-01 render 552 decomposed,
+1,017 single, 183 nothing (top 10,000: 173 / 339 / 41), against 551 /
+1,004 / 197 before.
+
+Row-only rows with no gloss: 2,098 of 5,190 before, 40%, and 2,052 of
+5,352 after, 38%. Inside the top 3,000 ranks, 222 before and 194 after;
+inside the top 10,000, 569 and 516. By language: Middle English 344 to
+327, Old English 228 to 165, Old French 126 to 121, Italian 130 to 131,
+Spanish 115 to 122, Japanese 95 to 100, German 85 to 87. The languages
+that rise are the ones with no extract here, and they rise because 209
+words gained a row.
+
+The regression check against the build before this round: 0 rows lost a
+row, 0 lost a gloss, 0 lost a romanization and no gloss was reworded. One
+row moved, spree, to the proposal rule.
+
+What is left is characterised in pipeline/cache/gloss-gap-report.txt,
+written once on this date rather than by the build. Of the 2,052 rows
+with no gloss, 1,266 are in a language with no extract here, which is the
+owner's 352 MB decision and the two extracts kaikki does not publish, and
+786 are in one that has an extract: 577 name a spelling the extract has
+no entry for at all, 156 name one it carries only in another page's forms
+table, 26 sit on a spelling the row will not guess between, and 27 end at
+a page the extract never glossed. Of the 183 words rendering nothing, 160
+name a lemma Wiktionary never wrote, 13 open with a section that states
+no origin, and 10 are withheld by the section rule above.
+
+No curation entry was added in this round. Every change is a rule.
+
+### A proper-noun chip says what it names (2026-09-06)
+
+7,172 morph chips render inert, meaning they look like a chip and open
+nothing. 1,525 of them name a proper noun, and on korean an empty box
+labelled Korea sat beside a filled, glossed, clickable -an, which reads
+as broken rather than as out of scope.
+
+The scope decision as it stood: a proper noun gets no card, no
+family, no search presence and no clickable chip. What it gets is a
+gloss. SUPERSEDED the same week by "A proper noun a word is built on
+is a card" (owner decision 2026-09-06); the harvest below is what that
+card is built from, and the `g` field it describes now carries only the
+residue, the pages whose folded key another page already claimed.
+
+- Pass 1 harvests one line per proper-noun page, from the entry with
+  the most senses, through best_gloss and the same 80-character card
+  budget and 160-character safety cap every other gloss runs through.
+  A page that is only a form-of entry states no sense and is skipped.
+- The table is keyed by the page TITLE, not by the folded key.
+  Wiktionary titles are case sensitive and a chip has to name the page
+  it is glossed from: spangle splits as spang + -le and the only page
+  the extract carries is the surname Spang, ghastly as gast + -ly and
+  Gast is a surname too. Folding the key first glossed 326 chips off a
+  page their own word never names, every one of them lower case.
+- The gloss travels in `g` on the chip, the field a decomposed org part
+  already uses for a stated sense, and lookup.js reads it wherever a
+  chip has no card and no word to read one from.
+- Outcome: 1,084 chips over 958 distinct forms gain a gloss. No chip
+  gained a target, no chip lost one, and no row changed. korean reads
+  Korea "A geographic region in East Asia" beside -an.
+- The twenty highest, read against the extracts: 13 right, 6 degraded,
+  1 wrong. The degraded ones are the card budget walking past a long
+  headline sense, which the single-row note above already records for
+  root cards: Lapland takes "A region in northern Finland" where sense
+  1 runs to 124 characters, and Samson, Tirana, Norland and Enceladus
+  are the same shape. Caspar reads "one of the Magi" where casparian
+  means the botanist Caspary, whom the page never mentions. The wrong
+  one is Mahdi, which reads "A male given name from Arabic" because
+  both senses above it run past the cap with no clause to stop at.
+
+### A chip shows one clause, its card shows the gloss (2026-09-06)
+
+22,040 chip joins carried a gloss over 90 characters and clamped
+mid-thought. The -μα chip on system read "Added to verbal stems to
+form neuter nouns denoting the effect or result of an action..." and
+stopped. 158 distinct forms did it through a root gloss and 3,937
+through a word's first definition.
+
+- The cut lives in the RENDERER, in content.js buildChipRow, beside the
+  width cap and the two-line clamp it belongs with. Three things reach a
+  chip gloss and only one of them is in the data: a root card's gloss, a
+  parent's stated part sense, and the first definition of a word a `w`
+  chip names, which is joined at runtime out of that word's senses. A
+  build-side cut would have to ship a second copy of the first two and
+  could not reach the third at all, and the two copies could drift from
+  the card. One function at the one call site all three chip rows pass
+  through covers every chip and costs no bytes.
+- A clause ends at a comma, semicolon, colon or full stop that closes a
+  word, outside any bracket and outside a quoted run, so "1,000" and
+  "(i.e., to whom)" are not clause ends and neither is the stop in "U.S.
+  Army". A boundary under 12 characters leaves a fragment rather than a
+  clause, so the cut moves on: -men reads "forms nouns, usually from
+  verbs" and not "forms nouns". Nothing is cut inside a word, and the
+  boundary punctuation goes with the tail.
+- A gloss at or under 90 characters is left exactly as written, clause
+  punctuation included, so ἵστημι still reads "to stand; to set".
+- A gloss the source wrote with no clause to stop at is left whole and
+  the clamp holds it. 49 root-gloss forms and 797 word-definition forms
+  are in that state, against 158 and 3,937 before.
+- Outcome: 21,407 chip joins are cut, and chip joins over 90 characters
+  fall from 22,040 to 3,987. system reads -μα "Added to verbal stems
+  to form neuter nouns denoting the effect or result of an action" and
+  the grc:-μα card still carries the whole line.
+- The trim is a rendering rule, so the gold set cannot pin it. Both
+  harness pages pin it instead, on a fixture root whose gloss runs to
+  the safety cap: the chip shows the clause, the card shows the line.
+
+### A row gloss is a fragment, not a sentence (2026-09-06)
+
+218 of 3,300 row glosses arrived as sentences, with a capital, a full
+stop or both, because the source wrote them in a definition field. Side
+by side bowl read "(bowl)" and girl "(A child; a young person of either
+sex.)".
+
+- At emit, a row-only gloss loses a trailing full stop that closes no
+  abbreviation and has its first letter lowered. Only the row-only shape
+  is touched: a single row and a chip read their wording off a root
+  card, which is a card's own line.
+- The test for a name is the dictionary's own definition text, which is
+  English prose in the same register. A word the definitions write in
+  lower case INSIDE a sentence at least as often as they capitalise it
+  there is an ordinary word and is lowered. Anything else is left alone,
+  so a word the definitions never use keeps its capital and the test
+  errs toward names. Definition-initial words are not counted, since
+  their case is the question being asked. Evidence: 185,476
+  definitions, 59,197 lower-case types and 9,268 capitalised ones.
+- An initialism is never lowered: a token whose letters are all capitals
+  once its stops are removed, so POW camp keeps POW.
+- A name PHRASE keeps its capital through its second word: lake and king
+  are ordinary words, Erie and Philip are not, so "Lake Erie" and "King
+  Philip II of Spain" stay as they are. The rule fires on exactly those
+  two rows and no others.
+- Outcome: 151 rows are reworded, 141 of them by lowering the first
+  letter and 10 by dropping a full stop alone. 68 keep their capital:
+  Navajos, Arabs, Algonquin language, Latin American, British, Norse,
+  Friday, Boche, POW camp, Dittrichia viscosa and the pronoun I among
+  them. No row ends in a full stop now, and no row lost a gloss.
+- All 141 rows whose capital was lowered were read back. Four are
+  wrong, and all four are homographs: moloch reads "ammonite god" where
+  Ammonite is the people, winnebago "winnebago person", moro "moor"
+  where Moor is the demonym, and pagoda "holy One". The definitions
+  write ammonite of the fossil, winnebago of the motorhome and moor of
+  the heath, so the lower-case evidence is real and says the wrong
+  thing.
+- One row keeps a capital it should not have: enamored, whose
+  Anglo-Norman row reads "Enamoured, lovestruck; deep in love". The
+  definitions spell the word the American way, so the British spelling
+  has no lower-case evidence at all.
+- An evidence floor was measured and refused. Requiring two lower-case
+  uses rather than one rescues Ammonite and Winnebago and capitalises
+  "Purifying; removal of impurities" wrongly; a floor of three adds
+  Cheddar and Yelling; four adds Idiocy, Gibbon and Gnawing. The best
+  of them trades three wrong rows for two, which is a tuned constant
+  bought with one row, so the rule stays as written and the five rows
+  are recorded here instead.
+
+### A chip takes a recorded form and refuses a guessed one (2026-09-06)
+
+resolve_part asks one question of a chip that is no affix: is this
+spelling itself a shipped word. A reader selecting the same text is
+asked more, because the runtime resolver falls through to forms.json and
+then to the suffix rules. So a selection of "struck" reached strike
+while the struck chip on awestruck opened nothing.
+
+Measured over the 7,172 inert chips: 1,525 name a proper noun and the
+rule above glosses them; of the 5,647 that do not, the recorded steps
+reach 1,119 and the suffix rules 60 more.
+
+- The RECORDED steps are taken: the shipped key and the forms.json map,
+  both of which are Wiktionary saying that this spelling is a form of
+  that word. Thirty read against the extracts: 30 right. seemeth reaches
+  seem, pence reaches penny, haemoglobin reaches hemoglobin, sung
+  reaches sing, learnt reaches learn.
+- The suffix rules are REFUSED. A selection may guess, because the
+  reader chose the text and gets an answer or none; a chip is the
+  dictionary stating what a word is made of, and a guess there is a
+  wrong statement. All 60 read against the extracts: 39 right, 21 wrong.
+  The wrong ones are the -er, -ed and -est strips landing on a short
+  stem that happens to ship: adulterer's adulter to adult, attercop's
+  atter to att, yammerer's yammer to yam, juddery's judder to jud,
+  natterer's natter to nat, dickerer's dicker to dick, congestive's
+  congest to cong, divestment's divest to div, tetterwort's tetter to
+  tet, tabid's tabes to tab, multihued's hued to hu, bilobed's lobed to
+  lob, addlepated's pated to pat, twitterpated the same, brilliant's
+  briller to brill, aniseedy's aniseed to anise, stockbroking's broking
+  to broke, and the plurals of adulteress and attery and rose-hued.
+  There is no length or shape that separates them from the 39; the
+  difference is that the source recorded one relation and not the other.
+- A chip written with a capital is refused as well. forms.json is keyed
+  by the folded spelling, so folding a capitalised chip changes which
+  page it names: Ares lands on are, Aten on eat, Yeats on gate, Paris on
+  peri and Mary on marry. All 30 of those are proper nouns whose own
+  gloss the chip already carries.
+- The step runs at emit, after forms.json is assembled and after the
+  US-primary re-keying, so both tables are the ones that ship. That is
+  also what reaches the 20 chips whose spelling only became a shipped
+  key when the record moved to it: distill, humor, favorable, somber.
+- Outcome: 1,202 chips gain a word card and 5,970 stay inert, 1,084 of
+  them glossed. No chip lost a target and no row changed. awestruck
+  reads awe + struck with struck opening strike, and thoroughbred reads
+  thorough + bred with bred opening breed.
+
+### Measured after the reading round (2026-09-06)
+
+Two --offline builds byte-identical, verify 110 spot checks 0 failed,
+gold 293 of 293 (9 rows added and 3 amended), Node 172, index harness
+254, embed harness 185, 8 screenshots regenerated with their scene
+checks passing and byte-identical to the ones before. Data: 84,321
+words, 6,743 roots, 110,717 forms rows, 14,730 origin rows unchanged;
+20.8 MB, 0.8 MB and 2.5 MB, 24.1 MB total (24.0 before). Breakdown
+coverage of the top 10,000 ranks 38.3%, and the 1,752 misses of
+2026-09-01 render 552 decomposed, 1,017 single, 183 nothing, all
+unchanged: this round moved no row and no card, only their wording and
+their links.
+
+What moved. 1,084 inert chips gained a gloss, 1,202 inert chips gained a
+word card, 151 row glosses were put in the fragment register, and 21,748
+chip joins are cut to a clause at render. Chips over 90 characters fall
+from 22,384 to 4,045. Words carrying a used-in list rise from 17,867 to
+18,006 and used-in rows from 61,688 to 62,890.
+
+The regression check against the build before this round: 0 words, roots
+or forms rows lost, 0 chips lost a target, 0 chips changed target, 0 rows
+lost, 0 rows lost a gloss or a romanization, 0 org rows changed shape and
+0 root glosses changed. There are no exceptions to list. No word lost a
+used-in row either, and the lists grow from 17,867 words to 18,006.
+
+The hand checks. Twenty proper-noun chips: 13 right, 6 degraded, 1
+wrong. Thirty recorded chip targets: 30 right, and the 60 the suffix
+rules would have added were all read, 39 right and 21 wrong. All 141
+lowered row glosses: 137 right, 4 wrong, each of the four a homograph
+whose lower-case sense is a different word.
+
+What is left. The two-line clamp still bites on a first clause longer
+than about 44 characters, which is what a chip 120 pixels wide can show.
+Cutting to the clause takes chip joins over that width from 74,389 to
+64,791; a budget of 44 rather than 90 would take it to 39,808 but would
+cut 68,008 joins, half of every chip in the dictionary, including the
+ones that render whole today. The -μα chip on system is in the residue:
+its first clause is 84 characters and the source wrote no earlier one.
+
+No curation entry was added in this round. Every change is a rule.
+
+### Sense register labels (2026-09-06)
+
+An owner decision. The build read every sense tag the source carries and
+threw all of them away, so 27,291 shipped definitions arrived as plain
+text: 6,238 obsolete, 6,051 slang, 1,927 derogatory, 173 ethnic slurs.
+A reader shown an obsolete sense with nothing on it is misled, and a slur
+shown with nothing on it is worse.
+
+The SHOWN set is four groups, and each group is a reason not to take the
+definition at face value. The order they read in is the group order, so a
+warning is the first thing on the line.
+
+| group | labels | what it says |
+|---|---|---|
+| warning | ethnic slur, slur, offensive, derogatory, pejorative, vulgar | using the sense harms the people it names |
+| currency | obsolete, archaic, dated, rare | the sense is not current English |
+| register | slang, informal, colloquial, dialectal | the sense is not standard English |
+| tone | humorous, euphemistic | the sense is not meant literally |
+
+The wording is the source's own tag, lower case, one word each. `ethnic`
+is the one exception: 833 of the 834 senses that carry it carry `slur`
+beside it, so it reads "ethnic slur" and subsumes the plain `slur`.
+`pejorative` is in the table and fires 9 times; the extract writes
+`derogatory` for nearly the whole class, and a tag that fires nine times
+still reaches nine readers.
+
+The classification is under a census gate, the template gate's twin.
+`SENSE_LABELS` and `SENSE_IGNORED` between them have to name every tag at
+or above `SENSE_CENSUS_MIN` uses on a sense the dictionary could ship, and
+a tag in neither fails the build before the expensive passes run. The
+threshold is 500 rather than the template gate's 1,000 because the tag
+vocabulary is smaller and its counts are an order of magnitude smaller: at
+500 every shown label except `pejorative` is under the gate, `slur` (621)
+and `ethnic` (555) included, and 59 of the 527 tags the extract carries
+need a line, 16 shown and 44 ignored. At 1,000 the whole warning group
+would sit under the gate, which is the group a new source tag must never
+be able to add in silence.
+
+The ignored side is 44 entries, each stating what the tag is: grammar
+(uncountable, transitive, plural-only), the scope of a definition (usually,
+broadly, especially), how to read it (figuratively, idiomatic), the age of
+the THING rather than the word (historical), the kind of writing it belongs
+to (poetic, literary, formal), and geography (US, UK, Scotland, Internet).
+A geography tag says where a sense is used, which is a note and not a
+warning; showing sixty of them would need a display name apiece and would
+bury the four groups that matter.
+
+Three near misses were measured and left out, and are recorded here so a
+later round can take them without re-measuring: `nonstandard` (1,647), a
+judgment on the form rather than the register of the sense; `proscribed`
+(431), the same from a usage guide; `uncommon` (2,245), a frequency note a
+step short of rare that the source uses beside it. The shown set is the one
+the owner enumerated.
+
+Data and rendering:
+
+- `lb` on a POS section of words.json, parallel to `defs`, written only
+  where a section has at least one marked definition. It costs 0.58 MB
+  over 20,606 sections.
+- `lb` on a roots.json card, the markers of the sense `best_gloss` took
+  the card's line from. 125 cards carry one, from 136 before the name
+  trim moved 17 name cards to a differently marked sense. A `ROOT_GLOSSES` hand gloss
+  carries none: the marker states what the source said about a sense, and
+  a hand gloss came from nobody's sense.
+- The renderer prints them comma-joined in muted italic in front of the
+  definition, INSIDE the clamped span. That is the whole reason the clamp
+  and the geometry-derived "more" control need no change: they measure the
+  line they always measured.
+- Chips carry no marker. A chip is 120 pixels with a two-line clamp and
+  the card it opens states the register in full.
+
+Anchors: cat noun 2 reads "offensive, derogatory Terms relating to
+people."; gay adjective 2 reads "derogatory, pejorative, slang"; jap noun 1
+reads "ethnic slur, derogatory"; methinks reads "archaic, humorous"; gosh
+reads "euphemistic"; en:-fag's card reads "offensive, derogatory" above
+its family.
+
+### A proper noun a word is built on is a card (2026-09-06)
+
+An owner decision, ratified twice. The product decision said proper nouns
+never ship, and the round before this one had given their chips a gloss and
+left them unclickable. That was the exception, not the rule: never-silent
+already ships a one-word family for a Latin root, and refusing the same for
+Korea was the divergence the owner did not want.
+
+The rule for shipping one is the rule that already governs every root card:
+a card needs a gloss. A proper-noun page a shipped word is built on ships a
+card wherever the source supplies a usable gloss, with a family, a search
+presence and a clickable chip, and the rest stay inert chips carrying
+whatever gloss they have. No family-size threshold, no hand glosses.
+
+- The key folds the page title, the way la:terra folds the form it
+  displays with macrons: `en:korea` displays Korea. The gloss and the
+  register markers are the page's own, through the same `best_gloss` and
+  the same 80-character card budget every other card runs through. Which
+  SENSE the budget takes is where a name page differs, and the one place
+  it does: see "Sense one is what a name page is about" below.
+- The label line says "Proper noun" in English, "Latin proper noun" and
+  "Greek proper noun" elsewhere. The `name` kind is applied in every
+  language, so 169 Latin and Greek cards that read "Latin root" over a
+  person or a place now read what they are.
+- An affix page owns its key outright: an affix is a morpheme and a name
+  is a page a morpheme happens to name. Two titles that fold together get
+  no card at all, because the key cannot say which page it names and a
+  card carrying the other page's gloss is worse than an inert chip
+  carrying the right one. Those chips keep the `g` gloss they had, which
+  is what the field now carries: 5 chips, from 1,084.
+- The word-key charset does not gate the harvest. A name is no word key
+  and never was, and the gate barred Ivory Coast, Third World, Córdoba
+  and eight more from ever being glossed.
+- Outcome: 1,141 English proper-noun cards ship, 1,011 of them with a
+  family of one word and the largest with 14. 1,338 cards carry the
+  `name` kind once the Latin and Greek pages are relabelled.
+
+### A chip is a page name (2026-09-06)
+
+An owner decision, from a field report on jacobite: the chip read Iacobus
+as a blank box while la:iacobus was a shipped, glossed card under the same
+spelling. 17 chips were in that state.
+
+resolve_part's last question was "is this spelling a shipped English word",
+and for a spelling an English word key cannot hold, because it carries a
+capital or is written in another script, the answer is structurally no. The
+resolver had no question left and gave up.
+
+A chip is the dictionary naming a page, so the question is which page, and
+the answer is read off the tables rather than guessed. In order:
+
+1. An English page under that exact spelling, when its word ships. The
+   word card carries that page's own senses, which is why Roman opens the
+   roman card and T-shirt the t-shirt card. A capitalised spelling is
+   only taken when the extract recorded a page under it: folding a
+   capitalised chip changes which page it names, and Ares would land on
+   are.
+2. A spelling an English word key could hold is asked of nothing else.
+   Reading a lower-case chip against the source languages would call
+   bulla, carō and fīnis references to Latin cards they are not.
+3. The proper-noun card for that title.
+4. A node in a source-language graph under that spelling, Greek first for
+   a Greek-script spelling.
+
+An affix shape is refused throughout: an affix that reached no affix page
+is not a word, and Latin carries pages at -a and -o that an English chip
+does not name. An INTERNAL hyphen is not an affix shape and never was, so
+x-ray and t-shirt are word keys; the same correction applies to the
+recorded-form step of the round before.
+
+Outcome: 1,621 chips gain a target and 254 change one, every one of the 254
+from a lower-case word the chip does not name to the page it does (Bacon to
+the surname, Babylon to the city, August to the month). 10 chips lose a
+target, each of them a fold onto a different page, and they are listed in
+the measured note below. All 17 of the reported chips gain a card.
+
+### A modifier opens at "<" (2026-09-06)
+
+A parsing defect, found while reading the inert chips. `clean_part` swept
+inline modifiers with a single `<[^>]*>` pass, which closes on the INNER
+tag of a modifier that holds markup of its own and then reads the note's
+prose as part of the form. worldwide's `world` chip shipped as 90
+characters of the OED entry for it, Honolulu's `hono` as "honowhanga" out
+of a cognate note, pedestrian's as "pedesterpedestri-". 434 args across the
+three extracts were affected.
+
+- One depth counter reads every modifier, nesting and all; an unclosed
+  `<` correctly eats the rest, since markup is what follows it.
+- An arg that is nothing but modifiers states its form in `alt`, which is
+  how a bound stem is written. Reading it keeps me = m + -e and κλέπτης =
+  κλεπ- + -της on the card at all. Where the arg names a term of its own
+  that term is the form: `alt` is a display Wiktionary substitutes and the
+  chip has to name a page. Three rows now show the lemma the source links
+  rather than the form it displays (curtain and cortina read -īnus for
+  -īna, keds -ēs), which is the cost of having one field do both jobs.
+- A prefix naming where a term lives is stripped whether it is a language
+  code, one of the dotted Latin-period abbreviations the origin tables
+  already carry, or the `w:` interwiki: chemical shipped `NL.:chēmicus`
+  and alevism `w:Alevi`.
+- The `a//b` alternation takes the first form, which is clean_term's rule
+  on the same args for the source-language lookups. The two callers had
+  drifted and kiwifruit rendered `Kiwi//kiwi`.
+
+Outcome: 30 words read a different breakdown, every one of them a
+correction; 5 words gain a card and none loses one; 6 origin rows change,
+phase reading φάσις = φαίνω + -σις where it read a single row before.
+
+### Measured after the register round (2026-09-07)
+
+Two --offline builds byte-identical, 114 spot checks in the build pass 0
+failed (110 before, 4 added), of which `--verify` runs 108: six checks read
+the build's in-memory anchor set and are skipped against a stale data file.
+Both counts are correct and they are not the same measurement. Gold 304 of
+304 (11 rows added and 3 amended), Node 181,
+index harness 268, embed harness 190, 8 screenshots regenerated with their
+scene checks passing. Data: 84,326 words (84,321 before), 8,068 roots
+(6,743), 110,719 forms rows (110,717), 14,733 origin rows (14,730): 7,134
+decomposed (7,130), 2,247 single (2,248), 5,352 row-only (unchanged); 21.3
+MB, 0.9 MB and 2.5 MB, 24.7 MB total (24.1 before). Breakdown coverage of
+the top 10,000 ranks 38.3%. The 1,752 misses of 2026-09-01 render 553
+decomposed, 1,016 single, 183 nothing (top 10,000: 174 / 338 / 41), against
+552 / 1,017 / 183 before.
+
+What moved. 27,291 definitions over 17,567 words gained a register marker,
+14.7% of the dictionary, and 136 root cards gained one. 1,141 proper-noun
+cards ship and 169 Latin and Greek cards were relabelled from root to name.
+1,621 chips gained a target and 254 changed one. 4,351 chips stay inert,
+from 5,970.
+
+The regression check against the build before this round: 0 words lost, 0
+forms rows lost, 0 root glosses changed, 0 root forms changed, 0 anchor
+`parts` changed, 0 definitions changed, and 0 origin rows lost. The
+exceptions, all of them listed:
+
+- 1 root card lost, grc:φάσις, because phase now reads the decomposed row
+  φαίνω + -σις and nothing else names the lemma. The card is not missing,
+  it is one level shallower than the row.
+- 10 chips lost a target, each of them a capitalised chip that was folding
+  onto a page it does not name: Ancylostoma to the hookworm noun, Host to
+  the host who receives guests, Rhine (twice) to a drainage ditch, Aland
+  to a fish, Labour to the noun, Lost to the adjective, Garbo to the
+  Australian dustman, CrossFit to the verb, Tartare to the sauce. Eight are
+  a different word; the hookworm and the CrossFit verb define the same
+  thing under a page the chip does not name.
+- 1 chip lost a target to the modifier fix: milquetoast's first chip read
+  `milk`, pulled out of the prose inside a note, and now reads `milque`,
+  which is what the arg says and which has no page.
+- 6 origin rows changed, all six a correction of a split the old sweep had
+  garbled, and 1 part gloss changed with them (adversity's adversus reads
+  "towards").
+- 1 screenshot changed, 4-sidebar-search.png, by a 7 by 5 pixel region
+  where the -ful chip no longer needs its clamp ellipsis. A pristine
+  checkout of HEAD renders the same image, so the change is the machine and
+  not this round.
+
+The hand checks. Twenty rendered definitions across the four groups, read
+against the extracts: 20 right. All 10 chips that lost a target: 8 name a
+different word, 2 name the same thing under a page the chip does not name.
+The 30 words whose breakdown the modifier fix changed: 30 right.
+
+The 254 chips that changed target, read at 30: all 30 now open the page the
+source names, and 21 of the 30 open it at the right sense. The other 9 land
+on a minor sense of the right page, because a proper-noun page with many
+senses gives the card budget a small US town or a surname before the famous
+referent: Darwin reads an Argentine municipality, Dickens a Texas city,
+Volta a West African river, Texas a Wisconsin town, Moon a surname. That is
+the homograph gap the previous round already recorded for chip glosses (13
+of 20 right there), now visible on a card. It is not a regression, since
+each of the 9 previously opened a lower-case word that is a different page
+altogether, and it is the next thing to fix. Fixed the next day by "Sense
+one is what a name page is about" below.
+
+What is not there. No proper-noun card carries a warning marker. Of the
+1,635 chip forms with a proper-noun page, 12 pages carry a warning tag on
+some sense and 4 of those on sense 1; of the 4, Araucania's sense 1 is over
+the card budget so the card takes sense 2, and Fritz, Jap and Jerry are
+recorded as ordinary noun pages too, so their chips open WORD cards, where
+the markers do render (jap noun 1 reads "ethnic slur, derogatory"). The
+owner's count of 27 is not what this extract holds. Araucania's card takes
+sense 1 from 2026-09-07 and reads "offensive" above its family, so one
+proper-noun card carries a warning marker now.
+
+No curation entry was added in this round. Every change is a rule.
+
+### Tier counts are reported and asserted (2026-09-07)
+
+Nothing reported the four tier counts, so a boundary typo in TIER_CUTOFFS
+emptied a bucket and every named anchor still passed. The build now prints
+them under the labels the extension really shows, and verify asserts each is
+non-empty. When a build splits a population into classes, a rule that
+silently stops producing one is a bug the count catches and nothing else
+does.
+
+    tiers : Everyday 2,649  Common 8,419  Uncommon 18,190  Rare 55,068
+            (unranked 0, absorbed by Uncommon)
+
+Two more checks ride with it. The last cutoff is asserted equal to RANK_CAP,
+because 50,000 is both the tier boundary and the shipping cap and moving one
+alone moves the dictionary. And content.js's TIER_LABEL is asserted to say
+the same words as lookup.js's TIER_LABELS, because content.js cannot import
+lookup.js and holds a documented second copy.
+
+The build reads both tables off the extension source rather than holding a
+copy, the way it already reads content.js's LANG_NAME. lookup.js stays the
+one place the cutoffs and the labels exist.
+
+### The fourth tier is Uncommon (owner decision 2026-09-07)
+
+The fourth tier's label changed from "Rare" to "Uncommon". Only the label
+changed. The enum key is still `rare`, and so are the CSS variables
+`--tier-rare-*` and the modifier class `tier-chip--rare`.
+
+Why. The bucket holds 55,068 of the 84,326 shipped words and it is bimodal.
+It carries abscond at 58,398, metallurgy at 52,663 and querulous at 174,469
+next to modelicious at 400,054, sobber at 530,934 and chossy at 875,585. The
+chip is the only judgment the product volunteers about a word, and on
+epistemology at 134,469 "Rare" told a vocabulary reader to skip. The cutoff
+supports "less frequent than rank 50,000 in a subtitle corpus" and nothing
+more. Over a bucket that wide the only honest single word is the one
+claiming least.
+
+What it costs. The label is also the tier column of the Anki and CSV
+exports, through TIER_LABELS in saved.js, so cards exported before this
+change say "Rare" and cards exported after say "Uncommon". The owner ruled on
+2026-09-07 that this carries no downstream cost: the extension has never been
+submitted and has no users, so there are no old decks to mismatch. A future
+contributor changing the label again should re-check that ruling rather than
+inherit it.
+
+What moved with it. Both label copies moved in the same change, and the build
+now fails when they disagree. The four tier counts ship in the same change,
+so before and after can be compared. No cutoff moved, and the shipped word
+count is unchanged at 84,326: the change touches no pipeline data path.
+
+Surfaces checked. TIER_CUTOFFS needed nothing, since it holds no fourth key.
+TIER_LABELS in lookup.js and TIER_LABEL in content.js each moved one string.
+TIER_ORDER holds keys and needed nothing. TIER_TITLE holds keys and its text
+already said what the cutoff supports, so only its comment moved. The saved.js
+export column reads TIER_LABELS and needed no code change. The screenshot
+scene checks name Advanced and Common and needed nothing. The gold rows carry
+no tier. Both self-check pages import the real lookup.js for tierOf and
+TIER_LABELS, so only their expected strings moved.
+
+### One axis for the tier ladder (owner decision 2026-09-07)
+
+The ladder is Everyday, Common, Uncommon, Rare. It read Everyday, Common,
+Advanced, Uncommon for part of the same day, which is superseded here and in
+the section above.
+
+Why it moved again. The four labels have to read as a sequence, and that one
+did not: Advanced is a difficulty word between two frequency words, and in
+ordinary English "uncommon" sounds milder than "advanced", so the fourth rung
+read as less extreme than the third. The deeper fault is that Advanced claimed
+difficulty from a frequency count, which is the same overclaim the fourth tier
+had just been renamed to avoid. One signal stands behind all four labels, a
+rank in a subtitle corpus, so all four now name frequency and nothing else.
+
+What that costs. Advanced was the one label that told a reader a word was
+worth learning, and abscond and querulous now read Uncommon. That signal was
+never in the data; it was an inference from rank wearing a difficulty word.
+
+Key and label agree again. The third tier's key moved from `advanced` to
+`uncommon` and the fourth kept the key `rare` it always had, its label
+reverting to Rare. Keys moved with labels because nothing persists them: a
+word entry carries only its rank and the tier is derived at lookup, so no card
+changed and no data was rebuilt, and the extension has no users, so no saved
+record or exported deck holds a key. After launch the same rename would need a
+migration. That window is the reason it was done now.
+
+One defect this surfaced. `tierOf` read `TIER_CUTOFFS.advanced` after the
+table was renamed, so every word between rank 15,001 and 50,000 resolved to
+the bottom tier while every card still looked correct. The Node suite and both
+self-check pages caught it, and the CSV export row in the failure output named
+the cause.
+
+Unlike the earlier rename, this one moved the screenshot scene check, which
+pins the chip's text, and shots 1, 7 and 8 with it.
+
+### Two coverage ratios are gated (2026-09-07)
+
+The build printed two ratios beside a sentence a person was supposed to read,
+and gated on neither. Both are now two-sided bands in the spot checks. A
+ratio that moves with the corpus cannot be pinned, so each floor sits under
+every value the project has measured and each ceiling sits far enough above
+that no harvest improvement reaches it while a counting bug does.
+
+- Morphs coverage of capped words: band 25% to 45%, measured 33.7%. This is
+  the share of words inside the shipping cap carrying an English-surface
+  split. It rose from about 20% to 33.7% over the etymon-tree and `+`-variant
+  rounds. The split harvest breaking takes it to near zero, and no legitimate
+  rule change has moved it by more than 5 points. The stale prose beside it
+  read "SPEC says 18 to 25%", which the SPEC had already superseded with
+  "around a third".
+- Breakdown coverage of the top 10,000 ranks: band 30% to 55%, measured
+  38.3%. The series reads 33.5, 33.8, 37.9, 38.1, 38.2, 38.3 and has only
+  ever risen. The largest single move was the 4 points the `+` variants
+  bought. The floor sits under the earliest measurement recorded, so reaching
+  it means a source stopped answering rather than drifting.
+
+### Every curated entry must fire (2026-09-07)
+
+Each of the 60 entries in curation.py is a human decision pinned against
+extract data that moves, and a rule change can retire one without a word of
+warning. The build now records which entries fired and reports the sweep in a
+CURATION FIRING block. What "fired" means differs per table and is written
+beside each table in curation.py, because a lookup is not a firing.
+
+| table | fired means | dead entry |
+| ----- | ----------- | ---------- |
+| `BLOCKED_SPLITS` | a harvested split was actually suppressed | aborts |
+| `FORCED_SPLITS` | it overrode a different harvested split | aborts |
+| `ROOT_GLOSSES` | it replaced a harvested gloss | aborts |
+| `BASE_ROUTES` | the gate opened on at least one word | aborts |
+| `LEMMA_STEPS` | it stepped ahead of the automatic step | aborts |
+| `ROOT_ALIASES` | it redirected a resolution landing elsewhere | reported |
+| `ROOT_SKIPS` | a key that met the root threshold was refused | reported |
+| `ROOT_STOPS` | recursion stopped at a lemma it would have split | reported |
+| `SOURCE_SPLITS` | always, by construction | reported |
+
+The abort is deliberately not uniform. It belongs on the five tables whose
+dead entry changes what a reader sees. A dead ROOT_SKIPS or ROOT_ALIASES
+entry usually means the key stopped appearing at all, which changes nothing
+that ships, and aborting there fails the build for a non-problem and trains a
+maintainer to delete entries to get green.
+
+Two severities, never collapsed. A dead entry never fired and is a bug, with
+two causes named in the failure message: the target vanished from the
+extract, or the rule stopped selecting it. A redundant entry is one the
+general rule would now decide the same way unaided, and it is a judgment call
+for the owner. FORCED_SPLITS and ROOT_GLOSSES define firing as differing from
+the harvest, so an entry the harvest now matches exactly does not fire. That
+is redundant, not dead: the entry was consulted, it was applied, and the card
+carries exactly what it states.
+
+ROOT_ALIASES is read through one recording accessor rather than fourteen
+instrumented call sites. Only the hand table is subject to the rule; the emit
+concatenates it with the aliases the build adds at run time to list alt
+forms, and that consultation is not a redirect.
+
+SOURCE_SPLITS already had this rule, at build.py's harvest, raising
+SystemExit when an entry names no node. That model is kept and is better than
+a sweep, because it fails at the point of use and names the exact key and the
+exact refusal.
+
+`python pipeline/build.py --offline --curation-report-only` reports every
+dead entry in all nine tables instead of stopping at the first aborting one.
+A corpus refresh wants the whole list at once.
+
+What the first sweep found. The five aborting tables are clean, so the build
+is green with the abort armed. Four entries are dead, all on report-only
+tables, and none of them was cleared.
+
+- `ROOT_ALIASES["terr-"]`. The combining form is a morph in zero shipped
+  words, so nothing resolves through it.
+- `ROOT_ALIASES["terrenum"]`. terrain settles on la:terra directly now, so
+  the inflection page is never the lemma a chain stops on.
+- `ROOT_ALIASES["memorandum"]`. Same shape. memorandum's row reads
+  `{"f": "memor", "r": "la:memor"}` without the alias.
+- `ROOT_SKIPS["en:fucking"]`. fucking is a shipped word, so its chip takes
+  the word-card branch of resolve_part and never becomes a root candidate.
+  The skip is superseded by the rule that a hyphen-free affix page which is
+  also a shipped word links to the word card.
+
+A dead alias still contributes its key to the `alt` list of the card it names,
+because the alt loop reads the whole hand table rather than the fired set. So
+la:terra ships alt `terr-`, `terrenum`, `terrenus`, `terrestris` and la:memor
+ships alt `memorandum`, `memoro`, `memoror`, `rememoror` while three of those
+seven redirect nothing. That is a spelling the card absorbs rather than a
+wrong card, so it is recorded and not changed.
+
+Five entries are redundant. `ROOT_GLOSSES["la:-us"]`, since the homograph
+rule now picks the adjective-forming page unaided and harvests the exact
+string the entry states. `LEMMA_STEPS["la:deponens"]`, `["la:strictus"]` and
+`["la:visus"]`, since the participle step of the source graph now reaches the
+same lemma; the deponens entry already carries a note saying the owner kept
+it for that reason, and the same reading applies to the other two.
+`SOURCE_SPLITS["la:mentalis"]`, since the page's own template split now
+resolves to the same two parts.
+
+### Two reporting gaps closed (2026-09-07)
+
+`noglossroot` counts a referenced root key dropped for want of a gloss. Every
+reference to such a key renders as an inert chip, so the counter measures a
+hole in the product's main surface, and it reached no log line while every
+neighbouring counter reached the report. It has one now. The hole measures 0
+at 2026-09-07.
+
+The COUNTS block broke origin rows down by shape and never by which source
+answered, though the graph coverage table two lines up already tracked
+template, etymon tree and prose separately. Decomposed rows now carry a `by
+source` line. When two sources can answer the same question the report says
+which one did, so a corpus refresh moves a number instead of swapping a
+source in silence. A fourth answer, `page`, is the lemma with no graph edge
+that decomposed on parts the English page supplied for it.
+
+### Two spot-check counts (2026-09-07)
+
+The round note above records 114 spot checks while `--verify` prints 108.
+Both are correct and they measure different runs. Six checks read state that
+only a build pass holds, the anchor set, the carried nodes, the computed
+splits and the harvest, and `verify_only()` reads three JSON files and has
+none of it. The six are: every anchor lemma a row or a card names as a part
+ships as a root card; no org part or morph chip naming an anchor is inert;
+every anchor or carried node whose lemma decomposes carries parts, and no
+other; only anchors and nodes the chip cap kept whole carry parts; no shipped
+row names a lemma the page carries only in a cognate template; no word with a
+classified origin ships with neither morphs nor org. A round note should say
+which of the two counts it means.
+
+### Measured after the build-discipline round (2026-09-07)
+
+Two --offline builds byte-identical, the misses file included. 120 spot
+checks in the build pass 0 failed (114 before, 6 added), of which
+`--verify` runs 114 (108 before). Gold 304 of 304, unchanged. Node 181,
+index harness 268, embed harness 209, 8 screenshots regenerated with
+their scene checks passing.
+
+Data: unchanged in every file. words.json, roots.json and forms.json are
+byte-identical to the build before this round. 84,326 words, 8,068 roots,
+110,719 forms rows, 14,733 origin rows. Nothing in this round touches a
+data path, which is the point: every change is a report line or a check.
+The one image that changes is shot 8, whose used-in rows carry the tier
+chip.
+
+New report lines. Tiers: Everyday 2,649, Common 8,419, Advanced 18,190,
+Uncommon 55,068, unranked 0. Origin rows by source: 2,291 template, 4,153
+etymon, 207 prose, 483 page. Referenced root keys dropped for want of a
+gloss: 0, so that hole is empty.
+
+New gates: every tier holds at least one word; the last cutoff equals
+RANK_CAP; lookup.js labels all four tiers; content.js TIER_LABEL agrees
+with lookup.js TIER_LABELS; morphs coverage of capped words inside 25 to
+45% at 33.7%; breakdown coverage of the top 10,000 ranks inside 30 to 55%
+at 38.3%.
+
+Curation firing: 60 entries over nine tables, 55 fired, 4 dead and 1
+superseded. Five entries are reported redundant, the superseded one and
+four that fire. All four dead entries are on report-only tables, so the
+build is green with the abort armed on the other five.
+
+No curation entry was added, removed or amended.
+
+### Sense one is what a name page is about (2026-09-07)
+
+The gloss ladder walks the senses in order and takes the first that fits the
+80-character card. On an ordinary page the senses are variations on one
+meaning, so a short early sense is a fair gloss. A name page is built the
+other way. Sense 1 is the referent the page is named for and the senses
+after it are unrelated homographs, nearly always small American towns.
+Preferring brevity therefore ships a different place, person or thing.
+
+Measured on the shipped data at 2026-09-07: 230 of the 1,338 name cards took
+a later sense, 222 English, 7 Latin and 1 Greek. egypt read "A town in
+Craighead County, Arkansas". asia read "An epithet of Athena". darwin read
+"A municipality of Río Negro province, Argentina".
+
+The rule. On a page whose pos is `name`, sense order outranks brevity. Where
+the ladder would walk past sense 1, the card takes sense 1 and trims it to
+the budget instead.
+
+- The trim cuts at a boundary the source wrote, never inside a word. The
+  boundary scan is `clause_bounds`, which is the build's copy of the cut
+  the renderer already makes on a chip: a comma, semicolon, colon or full
+  stop that closes a word, outside every bracket and quoted run, at least
+  CLAUSE_MIN characters in. `first_clause` read a regex of its own until
+  2026-09-07 and now reads the same scan; see "One clause scan, not
+  three".
+- Boundaries rank by strength. A full stop first, because these senses
+  often read "A country in North Africa. Official name: ... Capital: ..."
+  and the first sentence alone is the ideal gloss. Then a semicolon or
+  colon. Then a comma.
+- The first cut in the strongest tier that fits the 80-character card and
+  reads as a gloss wins. When none does, sense 1 goes whole if it is inside
+  the 160-character cap, and only then does a longer cut inside the cap get
+  a turn.
+- When nothing reads as a gloss the ladder answers as it always did, so no
+  card can lose its gloss to this rule. Six cards are in that state.
+- A name card whose gloss already comes from sense 1 keeps every word it
+  shows. Trimming those would lose wording for no gain: pilate would fall
+  from "Pontius Pilate, the man who, according to the Bible, ordered the
+  crucifixion of Jesus" to "Pontius Pilate".
+
+Reading as a gloss is six refusals, each one a case the census found.
+
+- It stops mid-thought, ending on a function word. mahdi cut to "A leader
+  who".
+- It opens a setting or a usage note rather than a definition. magi cut to
+  "Chiefly preceded by the (three)".
+- It leaves a relative clause open behind it, which is a comma cut past a
+  comma that follows a function word. mahdi again, at "A leader who,
+  according to Sunni eschatology".
+- It names a kind of thing rather than a thing. Two shapes, below.
+- It repeats the page's own title and adds at most one word. thanksgiving
+  cut to "Thanksgiving Day", which says nothing the card does not already
+  print above it.
+- For a comma only: the comma sits between two capitalised words, which
+  makes it a list or an address separator rather than a clause end. america
+  cut to "A supercontinent consisting of North America" and dropped the
+  other two.
+
+Naming a kind has two shapes. The first is the naming category the source
+opens a name sense with. Census of the first segment of sense 1 over the
+156,769 name entries in the three extracts that state a sense: 60,494 open
+with one of seven heads, being surname 49,934, given name 9,484, name 713,
+nickname 248, placename 74, patronymic 35 and toponym 6. Between the article
+and the head stand adjectives and nothing else, 308 distinct words over
+17,239 tokens, led by male 5,003, female 4,319, diminutive 704, English 358,
+Meitei 298, habitational 225 and unisex 193. After the head the segment ends
+there 32,777 times and carries an origin phrase 25,717 times, led by "from
+German" 3,755, "originating as" 1,316 and "transferred from" 699. None of
+that says whose name it is, so a segment of exactly that shape is a category
+and the trim carries past it. darwin stops one clause later, at "A surname,
+especially referring to Charles Darwin (1809–1882)".
+
+The second shape is a phrase with nothing in it that points at one thing. A
+phrase points at one thing when it opens with "the", carries a number, names
+something with a capital, or hangs a description on its head noun with a
+preposition or a relative pronoun. "A telescopic binary star" does none of
+them and is a kind of thing, so sirius keeps reading to "A telescopic binary
+star, visually the brightest star in the night sky". "A hammer-wielding god
+associated with thunder" has "with", "The largest continent" opens with the
+article, and "A river in Europe" has both a preposition and a name.
+
+### Measured after the name-gloss round (2026-09-07)
+
+Two --offline builds byte-identical. 120 spot checks in the build pass 0
+failed, `--verify` 0 failed. Gold 311 of 311, six card rows added, committed
+score raised from 305. Node 181, index harness 268, embed harness 209, 8
+screenshots regenerated with their scene checks passing and byte-identical
+to the set before the round.
+
+Data. roots.json: 224 cards change, every one of kind `name`, being 217
+English, 6 Latin and 1 Greek. Two fields move and no others: `gloss` on all
+224 and `lb` on 17 of them, 14 losing a marker and 3 gaining one, so cards
+carrying a register marker fall from 136 to 125. Araucania is the first
+proper-noun card to carry a warning marker, reading "offensive" over its
+family, because its sense 1 is tagged that way in the source and the card now
+takes it. words.json: 1 word changes, odessan, whose inert Odessa chip reads
+"A port city, the administrative center of Odessa Raion and Odesa Oblast,
+Ukraine" for "A raion of Odesa Oblast, Ukraine. Capital: Odessa." forms.json
+is byte-identical. Every other count in the build report is unchanged: 84,326
+words, 8,068 roots, 1,141 English name cards, 110,719 forms rows.
+
+Where the 230 went. 224 now read sense 1, 169 of them inside the 80-character
+card and 55 of them whole inside the 160-character cap. 6 have no cut that
+reads as a gloss and no sense 1 inside the cap, so the ladder still answers
+for them: abkhazia, lemuria, magi, marshall, pentecost and la:seres. Root
+glosses over 100 characters rise from 192 to 216 and over 120 from 91 to 104,
+which is the price of letting a name card keep the whole of sense 1.
+
+The hand checks. Thirty changed glosses read against the extracts: 30 are
+sense 1 whole or an exact prefix of it, cut at a boundary the source wrote.
+No shipped name gloss carries an unbalanced bracket, an odd quote count or a
+dangling separator, and none lost its gloss.
+
+One card got worse. la:atlas reads "a mountain in the Atlas Mountain Range in
+the former Kingdom of Mauretania" for "the Titan Atlas". The Latin page puts
+the mountain in sense 1 and the Titan in sense 2, and the English word atlas
+descends from the Titan, so sense order picks the wrong referent here. It is
+the one place in this round where a hand gloss would beat the rule, and it is
+reported rather than written. Two more are arguable and neither is wrong:
+grc:βερενίκη reads the given name where varnish descends from the city named
+after her, and australasia reads "Synonym of Oceania" where sense 2 described
+the region, though sense 1 of that page is half raw wikitext.
+
+What is left. 380 name cards read a bare category and nothing else, 284
+English, 46 Latin and 50 Greek, because that is the whole of the page's sense
+1 and no trim can help. 95 of them read "A surname." lamarck and mendel are
+both in this class, and a gold row pins lamarck so the accepted shape cannot
+drift: never-silent says a card with a thin gloss beats no card, so the thin
+gloss ships. Four more cards open sense 1 with a bare category and state more
+after it, being cyril, handel, sonia and yoruba, and the trim does not reach
+them because it fires only where the ladder walks past sense 1.
+
+No curation entry was added, removed or amended.
+
+### One clause scan, not three (2026-09-07)
+
+The build cut a clause in two places and the renderer in a third.
+`clause_bounds` skipped brackets and quoted runs, `chipGloss` in content.js
+did the same in JavaScript, and `first_clause` ran a regex that knew about
+neither. So the ladder's second rung cut "Erigeron canadensis (syn. Conyza
+canadensis), an annual weed" down to "Erigeron canadensis (syn" and
+"Alternative form of loos (“praise; fame; reputation”)" down to "Alternative
+form of loos (“praise".
+
+`first_clause` now walks `clause_bounds` and stops at the first semicolon or
+full stop. The Python cutter is one scan with two callers: the name trim
+wants the comma and the colon as well and walks every boundary, this one
+takes the first strong boundary and stops. content.js keeps its copy, which
+is the renderer's own cut of a chip and cannot call Python.
+
+What it does not take from the scan is `cut_tidy`. That reads "etc." and
+"Ms." as sentence stops and drops them, so "slaying by treachery, stealth,
+etc.; treacherous" would cut to "... stealth, etc" and "madam, Mrs. or Ms.;
+a title used with a woman's full name" to "... or Ms". The name trim can
+afford that on long name senses. This runs on every sense of every language,
+so it keeps its own tail rule: the boundary punctuation goes with the tail,
+and a whole line loses its sentence stop.
+
+Measured over every gloss line of all thirteen extracts, 2,937,525 distinct
+lines: 2,479 read differently, being English 1,919, Latin 421, Greek 65,
+French 49, Middle English 13, Old Norse 5, Old English 4, Middle French 2
+and Old French 1. Thirty read against the extracts, spread over four
+languages: 30 improve and 0 worsen, every one of them an old cut that landed
+inside a parenthesis or a quoted run. Applying `cut_tidy` as well would move
+3,731 further lines and was measured and refused for the reason above.
+
+Nothing ships differently. A build calls `first_clause` 31,604 times and 138
+of those calls now read a different clause, but all 138 are name-page senses,
+where the name trim of 2026-09-07 already takes sense 1 and cuts it on
+`clause_bounds`. All three output files are byte-identical to the build before
+the change. The fix is correctness where the build was wrong, not a change of
+what a reader sees, and it is cheap to keep because there is now one scan to
+maintain instead of two.
+
+Three counts inside the build report do move, and none of them reaches an
+output. 31 of the 138 clauses grew past the 160-character cap, so a page whose
+only sense is one of them is no longer a glossed page: glossed proper nouns
+138,144 to 138,125 over 137,643 to 137,626 card keys, Latin nodes 46,012 to
+46,010, French glossed pages 90,816 to 90,810. Every one of those pages was
+already unreached, which is why the outputs do not move.
+
+No curation entry was added, removed or amended.
+
+### A long root gloss is not cut (2026-09-07)
+
+230 of the 8,068 cards carry a gloss over 100 characters and 109 over 120.
+`ROOT_GLOSS_MAX` is 160 and it drops a sense rather than cutting it, so the
+question was whether a further rule should trim the long ones the way the
+name trim trims a long name sense. The answer is no, and the measurement is
+the reason.
+
+- 183 of the 216 measured before this round's sense rule already read short
+  on a chip, at a mean of 50.6 characters, because the renderer cuts a chip
+  gloss to its first clause past 90. The other 33 have no boundary at all, so
+  no rule can help them. The whole line is therefore only ever read on the
+  card, where the gloss renders as a sense list with as many lines as it
+  needs.
+- Applied to the 216, the name trim's tiers find a cut that reads as a gloss
+  for 117 of them, 64 name cards and 53 others. The 53 were read one by one:
+  33 improve, 2 are neither better nor worse and 18 make the card worse. The
+  damage lands on the affixes a reader meets most. -ful falls from "Used to
+  form adjectives from nouns, with the sense of being full of ..." to "Used
+  to form adjectives from nouns", which is the one thing -ful does not mean
+  on its own. -ality and -icity both fall to "Used to form nouns". -ism falls
+  to "Used to form nouns of action" and drops process and result. grc:ἀ-
+  falls to "The alpha privativum" and says nothing at all. -nik and -o and
+  -sies stop in the middle of a list.
+- The 112 name cards over 100 are the previous round's decision, taken
+  deliberately: a name card keeps the whole of sense 1 where no cut reads as
+  a gloss.
+
+So no rule is added. A card whose gloss is a whole clear sentence at 139
+characters is better than a mangled one at 34, the chip already shows the
+short form, and en:-ful is pinned in the gold set so the accepted shape
+cannot drift.
+
+The counts moved once this round, from the sense rule below and not from any
+trim: over 100 from 216 to 230 and over 120 from 104 to 109, because a card
+that changes to a fuller sense 1 is usually longer than the short later sense
+it replaces. Nothing is over the 160 cap.
+
+### The sense an ordinary card shows (2026-09-07)
+
+The budget ladder takes the first sense at or under 80 characters, so a page
+whose sense 1 runs long ships a later one. Measured over the 4,806 ordinary
+Latin and Greek cards, meaning every la or grc card whose entry is not a
+name page: 325 do not show, verbatim, sense 1 of the page's first entry.
+That number decomposes, and only one part of it is a problem.
+
+- 162 sit on a different ENTRY of the page. That is the homograph rule of
+  2026-09-05 doing its job, and la:-us is the clearest case: it shows "used
+  to derive adjectives from other parts of speech" and not the nominative
+  ending, which is right, because that is the sense conscious and
+  magnanimous use. A curated override said so until it was retired as
+  redundant on 2026-09-05, and it stays retired.
+- 69 show sense 1 cut to its first clause. Still sense 1.
+- 94 show a later sense of the entry the node settled on, because sense 1
+  did not fit the card. la:aestimo showed "to estimate the moral value of
+  something", la:agger the rubble rather than the earthwork, la:adumbro the
+  representation rather than the shadow. These are the problem.
+
+The name rule of this morning cannot be reused here, and that is the trap. On
+a name page sense 1 is the referent and the senses after it are unrelated
+homographs, so preferring sense 1 is right. On an ordinary page sense 1 is
+the most basic meaning, which is frequently not the meaning English took.
+Forcing sense 1 on the 94 moves 93 of them and turns la:catta into "The
+meaning of this term is uncertain", grc:κένταυρος into "Centaur, a member of
+a savage race dwelling between Mt", la:sacramentum into a sum of money
+deposited in a lawsuit and la:planta into "any vegetable production that
+serves to propagate the species".
+
+The rule is evidence, the shape the entry rule already uses. Where the ladder
+walked past sense 1, every sense of the entry becomes a candidate: whole when
+it fits the 80-character card, its first clause when that fits the 160
+character cap. Three things vote on which candidate English means, and each
+statement is one vote.
+
+- The gloss a source page gives the term where it is a part of another lemma
+  ("agger" glossed "rampart, bulwark" inside a compound).
+- The gloss an English page writes beside the term, its `t=`, `gloss=` or
+  quoted prose.
+- The first definition of the English word, weighted by its rank exactly as
+  the entry rule's rule c is.
+
+A vote that fits two candidates equally says nothing and is not counted,
+which is the `distinct` test of the entry rule. The candidate with the unique
+highest total wins.
+
+Two limits, both measured rather than reasoned.
+
+- It fires only where the ladder walked past sense 1. The evidence is usually
+  a translation of the LEMMA rather than of one sense, so it agrees with the
+  primary sense far more often than it separates a secondary one. Let it
+  re-rank every ordinary card and it moves 945 of the 4,806 with about a
+  third of the moves wrong, which is not shippable.
+- Two statements have to agree. The entry rule takes a unique maximum with no
+  floor and can afford to: two entries of a page are two different words. Two
+  senses of one entry are close, and one statement telling them apart is not
+  reliable. On one statement the rule moves 67 cards, 48 better, 5 neither
+  and 14 worse; on two it moves 47, 39 better, 2 neither and 6 worse. The net
+  gain is the same to within one card and the reader sees a third of the
+  damage.
+
+Outcome on the shipped data. 47 of the 4,806 ordinary cards change, 39
+better, 2 neither, 6 worse; 4,759 are untouched and no card lost its gloss.
+la:agger now reads the earthwork, la:experior "to attempt, to try" for "to
+do, fare", la:turris the tower for "rook", la:familia "a family, kin" for
+"the slaves of a household", la:consul the consul for "a proconsul",
+grc:χολέρα the disease for "vomit, nausea". The six that get worse are
+la:-ium, which reads the chemical-element sense over a family led by office,
+college and engine; la:planta, which reads "sole of the foot" over a family
+led by plant; la:forestis, la:genero, la:genius and la:quam, each of which
+takes a fuller sense 1 where the short later sense read better. All six are
+reported to the owner rather than curated.
+
+Two of the three cards the round was opened on are not reached. la:aestimo
+and la:adumbro have plenty of evidence, but only one statement in the corpus
+distinguishes their senses, so the two-vote floor holds them. Dropping the
+floor fixes both and costs 8 more wrong cards, which is the trade the
+measurement refuses. They are curation candidates and are reported as such.
+
+la:atlas is not reached either, and cannot be. It is a name card, so the name
+rule owns it and this rule skips it by construction. It reads "a mountain in
+the Atlas Mountain Range in the former Kingdom of Mauretania" where English
+atlas descends from the Titan, sense 2 of that page. The evidence there is
+empty: no source page glosses Ātlās as a part and no English page writes a
+gloss beside it, so a rule of this shape has nothing to read. It stays where
+the previous round left it, as the one place a hand gloss would beat the
+rule, and it stays a report rather than an entry.
+
+### Measured after the gloss round (2026-09-07)
+
+Two --offline builds byte-identical. 120 spot checks in the build pass 0
+failed, `--verify` 0 failed. Gold 314 of 314, three card rows added and two
+decomposed rows amended, committed score raised from 311. Node 181, index
+harness 268, embed harness 209, 8 screenshots regenerated with their scene
+checks passing and byte-identical to the set before the round.
+
+Data. roots.json: 50 cards change, 47 on `gloss` and 3 on `parts`, being 42
+Latin and 8 Greek, 46 of kind `root` and 4 of kind `suffix`. No key is added
+or dropped and no card lost its gloss. words.json: 17 words change, every one
+of them on `org` alone and every one a consequence of a card gloss moving,
+being annoy, consecrate, ennui, etude, exaggerate, familiary, hamamelis,
+noise, polonium, proverb, quasi, recollection, sacrament, sacramentum,
+studio, study and tellurium. Nine of those seventeen render identically,
+because the chip's own gloss and the card gloss it falls back to are now the
+same string. forms.json is byte-identical.
+
+Counts in the build report. The three counts the clause scan moved are listed
+in its own section above. The sense rule adds one report line and moves no
+other count: 84,326 words, 8,068 roots, 110,719 forms rows, 1,141 English
+name cards, 125 cards carrying a register marker.
+
+The hand checks. All 47 changed cards read against the extracts and against
+the English words that credit them, 39 better, 2 neither, 6 worse, listed
+above. Thirty first-clause cuts read against the extracts for the clause
+scan, 30 better and 0 worse. All 53 non-name comma trims read for the
+long-gloss decision, 33 better, 2 neither and 18 worse, which is why no trim
+was added.
+
+No curation entry was added, removed or amended. Three are reported: la:atlas
+above, and la:aestimo and la:adumbro, whose senses one statement each
+distinguishes.
 
 ## Naming (Jesse decision 2026-08-25)
 
@@ -1386,6 +3524,64 @@ tooling. Where those sections say hanja/hangul/eumhun, read
 word/root/gloss per this spec; where they name data files or message
 types that no longer exist, the feature is deleted.
 
+## The headless self-check runner
+
+    python pipeline/run_selfchecks.py [--page index|embed|both] [--port N]
+                                      [--timeout S] [--keep]
+
+Serves the repo root over http, launches one headless Chrome through
+pipeline/cdp.py, and runs both browser self-check pages unattended. It waits
+for readyState and for `#run` and `#out`, reads `#out`, clicks `#run` once,
+then polls until the text changes. Exit status is 0 only when every requested
+page completed with no failing line. Run as `python pipeline/run_selfchecks.py`
+so pipeline/ lands on sys.path and `from cdp import ...` resolves.
+
+The transcript is one contract, held by the page that writes it and the parser
+that reads it. A page writes the whole thing in one assignment to `#out` when
+it finishes:
+
+    PASS  <name>[   [detail]]     one line per passing check
+    FAIL  <name>[   [detail]]     one line per failing check
+    FAIL  threw: <stack>          an uncaught error inside the suite
+    SKIP  <name>   [why]          one line per skipped check
+    <blank>
+    <n> passed, <m> failed[, <k> skipped]
+
+A thrown error has no prefix of its own. "FAIL  threw: " starts with
+"FAIL  ", so the fail counter and the failing-line filter already carry it.
+The closing line is the completion signal: a transcript without it is
+reported as DID NOT COMPLETE, and the page's own words are printed.
+
+- The viewport is 1280x1000 at device scale 1, and the size is part of the
+  contract. index.html sizes the panel from the viewport
+  (`wide = min(760, floor(vw * 0.85))`) and skips two clamp checks when that
+  lands under 560. At 1280 it is 760 and both run. Several other checks
+  measure the popup against the viewport and were calibrated at scale 1.
+- Both pages have early-return paths that write ONE line to `#out`: the test
+  hooks are missing, or extension/lookup.js did not load. That write ends the
+  poll, there is no closing line, and the runner reports DID NOT COMPLETE
+  with the line. That is the contract, not a defect.
+- Downloads are denied at the browser level with
+  `Browser.setDownloadBehavior`, independent of the pages'
+  `__etymikonSuppressDownload` guard, so a change to that guard can never
+  write a file.
+- stdout is reconfigured to utf-8. Check names carry macrons (territōrium,
+  cēdō) and the Windows console default would throw on them.
+
+pipeline/cdp.py holds what both this runner and make_screenshots.py need: the
+websocket client, the synchronous JSON-RPC loop, the static file server, the
+Chrome launcher and the Tab wrapper. It defines its own ROOT from its own
+`__file__`, so serve_root always serves the repo and not the importing
+script's tree. `serve_root(port=0)` returns (server, port) so a caller can pin
+one, and pins its own extensions_map because the Windows registry maps .js to
+text/plain and that kills ES module loading. `Chrome(window=(w, h))` takes the
+window size rather than reading the screenshot constants, and kills the
+process and removes the temp profile if the websocket connect fails.
+`Chrome.close` tolerates a socket Browser.close has already torn down.
+`Tab(chrome, w, h, dark, scale)` takes the device scale factor, and PIL is
+imported inside `Tab.screenshot`, so a caller that never captures pixels runs
+on the standard library alone.
+
 ## Verification expectations
 
 - Pipeline: build report with counts, anchors green, determinism
@@ -1407,7 +3603,21 @@ types that no longer exist, the feature is deleted.
   chips exclusive, the root card MADE OF row (renders on an anchor
   root between gloss and family, absent on an affix root and a plain
   root, a chip pushes the part's root card root to root, the crumb
-  returns), on both pages.
+  returns), the register marker (in front of the definition, in the
+  muted style, inside the clamp, with the "more" control intact, and on
+  a card gloss the same way), the proper-noun card (its chip is a nav
+  chip, it opens a card labelled "Proper noun" with its one-word family
+  and a crumb, and the residue chip stays inert with its gloss), on
+  both pages.
+- Harness fakes: the fake worker imports extension/lookup.js and calls
+  its `resolve`, `tierOf` and `TIER_LABELS`. The page holds no second
+  copy of the token rule, the suffix rules or the tier cutoffs. The
+  fixtures stay the gate because the page hands them in as
+  `{ words: { words: WORDS }, forms: { map: FORMS } }`. The import is a
+  dynamic one and needs an http origin, so both pages must be served.
+- Both harness pages are run headless by pipeline/run_selfchecks.py, at
+  1280x1000, and the run is green when both report 0 failed. See "The
+  headless self-check runner" for the transcript contract.
 - Real-app pass: test-page/index.html rewritten with English staging
   content (paragraphs containing anchor words), screenshots via the
   carried-over CDP harness with English scenes.

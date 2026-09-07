@@ -125,25 +125,134 @@
   // derives one and joins it onto every word match and family row, so the
   // cutoffs live in exactly one place and this file never sees a rank. Roots
   // carry no tier, so a root card renders no chip by construction.
-  var TIER_ORDER = ["everyday", "common", "advanced", "rare"];
+  // TIER_ORDER and the keys below are the enum the worker joins on; the
+  // labels are the words a reader sees, and the two are allowed to differ.
+  // The fourth key stayed `rare` when its label became Uncommon on
+  // 2026-09-07.
+  var TIER_ORDER = ["everyday", "common", "uncommon", "rare"];
+  // The documented fallback for a response that predates the join. It is a
+  // second copy of lookup.js's TIER_LABELS, which this file cannot import,
+  // and the build fails when the two disagree: renaming one alone renders
+  // the old word on a stale response with nothing else failing.
   var TIER_LABEL = {
     everyday: "Everyday",
     common: "Common",
-    advanced: "Advanced",
+    uncommon: "Uncommon",
     rare: "Rare"
   };
-  // The Rare title names Etymikon as the classifier on purpose: the boundary
-  // is our own cutoff over one corpus, and the tooltip should say so.
+  // The fourth tier's title names Etymikon as the classifier on purpose: the
+  // boundary is our own cutoff over one corpus, and the tooltip should say
+  // so. The cutoff supports "less frequent than rank 50,000 in a subtitle
+  // corpus" and nothing more, and the bucket holds abscond and metallurgy
+  // beside modelicious and chossy, so the tooltip carries the qualifier the
+  // one-word chip cannot.
   var TIER_TITLE = {
     everyday: "Rank in the 3,000 most frequent English words " +
       "(OpenSubtitles corpus)",
     common: "Rank 3,001 to 15,000 by frequency",
-    advanced: "Rank 15,001 to 50,000 by frequency",
+    uncommon: "Rank 15,001 to 50,000 by frequency",
     rare: "Beyond the 50,000 most frequent words, or unranked " +
       "(Etymikon's classification)"
   };
   // Language names, for the root label line and the quiet origin rows.
-  var LANG_NAME = { la: "Latin", grc: "Greek", en: "English" };
+  // Every language code a card can print: the root languages, the pass-
+  // through French group, and every row-only language the build emits
+  // (SPEC "Origin subsystem, source graphs", 2026-09-05). The build
+  // reads this table and fails when it emits a code the table lacks, so
+  // this is the one copy; the tables in pipeline/build.py are its source.
+  var LANG_NAME = { la: "Latin", grc: "Greek", en: "English", ae: "Avestan",
+    af: "Afrikaans", akk: "Akkadian", am: "Amharic", ang: "Old English",
+    ar: "Arabic", arc: "Aramaic", az: "Azerbaijani", bar: "Bavarian",
+    be: "Belarusian", bg: "Bulgarian", bn: "Bengali", bo: "Tibetan",
+    br: "Breton", ca: "Catalan", ceb: "Cebuano", cim: "Cimbrian",
+    cmn: "Mandarin", cop: "Coptic", cr: "Cree", cs: "Czech",
+    cu: "Old Church Slavonic", cy: "Welsh", da: "Danish", de: "German",
+    dum: "Middle Dutch", dz: "Dzongkha", egy: "Egyptian", el: "Greek",
+    enm: "Middle English", "enm-nor": "Northern Middle English",
+    es: "Spanish", "es-MX": "Mexican Spanish", et: "Estonian",
+    ett: "Etruscan", eu: "Basque", fa: "Persian",
+    "fa-cls": "Classical Persian", "fa-ira": "Iranian Persian", fi: "Finnish",
+    fo: "Faroese", fr: "French", "fr-CA": "Canadian French",
+    "fr-aca": "Acadian French", frc: "Cajun French",
+    frk: "Frankish", frm: "Middle French",
+    fro: "Old French", "fro-nor": "Old French", frr: "North Frisian",
+    fy: "West Frisian", ga: "Irish", gd: "Scottish Gaelic", gl: "Galician",
+    gmh: "Middle High German", gml: "Middle Low German",
+    "gmq-oda": "Old Danish", "gmq-osw": "Old Swedish",
+    "gmw-cfr": "Central Franconian", "gmw-msc": "Middle Scots",
+    goh: "Old High German", got: "Gothic",
+    gsw: "Alemannic German", gu: "Gujarati", gv: "Manx", haw: "Hawaiian",
+    hbo: "Biblical Hebrew", he: "Hebrew", hi: "Hindi", hit: "Hittite",
+    hop: "Hopi", hu: "Hungarian", hy: "Armenian", ibl: "Ibaloi",
+    id: "Indonesian", is: "Icelandic", it: "Italian", iu: "Inuktitut",
+    ja: "Japanese", ka: "Georgian", kk: "Kazakh", km: "Khmer",
+    kmr: "Northern Kurdish", kn: "Kannada", ko: "Korean", kw: "Cornish",
+    lad: "Ladino", lb: "Luxembourgish", li: "Limburgish", lij: "Ligurian",
+    hni: "Hani", "yrk-tun": "Tundra Nenets",
+    lt: "Lithuanian",
+    ltc: "Middle Chinese", lv: "Latvian", mga: "Middle Irish", mhn: "Mòcheno",
+    mi: "Māori", mk: "Macedonian", ml: "Malayalam", mn: "Mongolian",
+    mni: "Manipuri", mr: "Marathi", ms: "Malay", my: "Burmese",
+    nah: "Nahuatl", "nan-hbl": "Hokkien", "nan-tws": "Teochew",
+    nb: "Norwegian Bokmål", nci: "Classical Nahuatl", nds: "Low German",
+    "nds-de": "German Low German", ne: "Nepali", nl: "Dutch",
+    nn: "Norwegian Nynorsk", no: "Norwegian", non: "Old Norse", nrf: "Norman",
+    nrn: "Norn", oc: "Occitan", odt: "Old Dutch", ofs: "Old Frisian",
+    oj: "Ojibwe", orv: "Old East Slavic", os: "Ossetian", osp: "Old Spanish",
+    osx: "Old Saxon", ota: "Ottoman Turkish", ovd: "Elfdalian", pa: "Punjabi",
+    pal: "Middle Persian", peo: "Old Persian", phn: "Phoenician",
+    pl: "Polish", prg: "Old Prussian", pro: "Old Occitan", ps: "Pashto",
+    pt: "Portuguese", "pt-BR": "Brazilian Portuguese", qu: "Quechua",
+    ro: "Romanian", "roa-oit": "Old Italian", rom: "Romani", ru: "Russian",
+    sa: "Sanskrit", scn: "Sicilian", sco: "Scots", sga: "Old Irish",
+    sh: "Serbo-Croatian", si: "Sinhalese", sk: "Slovak", sl: "Slovene",
+    sq: "Albanian", stq: "Saterland Frisian", sux: "Sumerian", sv: "Swedish",
+    sw: "Swahili", syc: "Classical Syriac", ta: "Tamil", te: "Telugu",
+    th: "Thai", tl: "Tagalog", tpw: "Old Tupi", tr: "Turkish",
+    txb: "Tocharian B", ug: "Uyghur", uk: "Ukrainian", ur: "Urdu",
+    vi: "Vietnamese", vls: "West Flemish", wym: "Vilamovian",
+    xcl: "Old Armenian", xno: "Anglo-Norman", xpg: "Phrygian",
+    xto: "Tocharian A", yi: "Yiddish", yo: "Yoruba", yol: "Yola",
+    yue: "Cantonese", zh: "Chinese", zu: "Zulu",
+    // Codes under the census threshold that reach a row (review finding 7,
+    // 2026-09-05), in the order of ROW_ONLY_LANGS in pipeline/build.py.
+    aa: "Afar", abe: "Abenaki", ace: "Acehnese", akz: "Alabama",
+    ale: "Aleut", alq: "Algonquin", ami: "Amis",
+    "ang-ang": "Anglian Old English", "ang-nor": "Northumbrian Old English",
+    apk: "Plains Apache", arn: "Mapudungun", arw: "Lokono",
+    arz: "Egyptian Arabic", ay: "Aymara", bft: "Balti", bm: "Bambara",
+    car: "Kari'na", cea: "Lower Chehalis", "cel-gau": "Gaulish",
+    cho: "Choctaw", chr: "Cherokee", cpi: "Chinese Pidgin English",
+    css: "Southern Ohlone", cuk: "Kuna", dak: "Dakota", dif: "Dieri",
+    dv: "Dhivehi", ee: "Ewe", "es-AR": "Rioplatense Spanish",
+    "es-CU": "Cuban Spanish", evn: "Evenki", ff: "Fula", for: "Fore",
+    frp: "Franco-Provençal", "gmw-ecg": "East Central German",
+    gug: "Paraguayan Guarani", gul: "Gullah", gwi: "Gwich'in", ha: "Hausa",
+    hid: "Hidatsa", hur: "Halkomelem", ibb: "Ibibio", ig: "Igbo",
+    ilo: "Ilocano", "inc-mbn": "Middle Bengali", jam: "Jamaican Creole",
+    kee: "Eastern Keres", kg: "Kongo", khy: "Ekele", kio: "Kiowa",
+    kky: "Guugu Yimidhirr", kld: "Gamilaraay", kmb: "Kimbundu",
+    kok: "Konkani", ky: "Kyrgyz", lkt: "Lakota", lmo: "Lombard",
+    lng: "Lombardic", lo: "Lao", lou: "Louisiana Creole", lre: "Laurentian",
+    lzz: "Laz", man: "Mandingo", mg: "Malagasy", mh: "Marshallese",
+    mia: "Miami", mic: "Mi'kmaq", "mns-nor": "Northern Mansi",
+    mrj: "Western Mari", mus: "Creek", "nrf-jer": "Jersey Norman",
+    nv: "Navajo", nys: "Nyunga", "oc-pro-old": "Old Provençal",
+    och: "Old Chinese", oma: "Omaha-Ponca", omr: "Old Marathi",
+    otk: "Old Turkic", otw: "Ottawa", owl: "Old Welsh",
+    pdc: "Pennsylvania German", pim: "Powhatan", pis: "Pijin",
+    pra: "Prakrit", qwc: "Classical Quechua", rap: "Rapa Nui",
+    rme: "Angloromani", "roa-poi": "Poitevin-Saintongeais",
+    rw: "Rwanda-Rundi", ryu: "Okinawan", sah: "Yakut", se: "Northern Sami",
+    sjw: "Shawnee", sm: "Samoan", so: "Somali", spo: "Spokane",
+    sth: "Shelta", swg: "Swabian", tew: "Tewa", ti: "Tigrinya", tig: "Tigre",
+    tlh: "Klingon", tli: "Tlingit", tnq: "Taíno", to: "Tongan",
+    "trk-oat": "Old Anatolian Turkish", unm: "Unami", vec: "Venetan",
+    wa: "Walloon", wam: "Massachusett", wnw: "Wintu", wo: "Wolof",
+    wth: "Wathaurong", xbc: "Bactrian", xdk: "Dharug", xh: "Xhosa",
+    xng: "Middle Mongol", xnt: "Narragansett", xpq: "Mohegan-Pequot",
+    yap: "Yapese", ynn: "Yana", yua: "Yucatec Maya", "zlw-ocs": "Old Czech",
+    zun: "Zuni", zza: "Zazaki", };
   // The Wiktionary section a root's own language lives under.
   var LANG_ANCHOR = { la: "Latin", grc: "Ancient_Greek", en: "English" };
   var SCROLL_SETTLE_MS = 700; // smooth-scroll watchdog (see scrollPanelTo)
@@ -172,15 +281,16 @@
     "  --flash: rgba(47, 87, 201, 0.16);",
     /* Tier-chip tints. Quiet enough to sit beside a headword without
        competing with it. The two frequent zones carry more saturation and a
-       stronger edge than advanced and rare, since those are the ones a reader
-       scans for. Rare is deliberately the flattest: it is information, not a
-       warning. */
+       stronger edge than uncommon and rare, since those are the ones a reader
+       scans for. The fourth tier (key rare, labelled Uncommon) is
+       deliberately the flattest: it is information, not a warning. The CSS
+       variable and class names carry the key, not the label. */
     "  --tier-everyday-bg: #e2f1e9; --tier-everyday-fg: #1f6b4d;",
     "  --tier-everyday-edge: rgba(31, 107, 77, 0.26);",
     "  --tier-common-bg: #e5ecfb; --tier-common-fg: #2a4ea6;",
     "  --tier-common-edge: rgba(42, 78, 166, 0.26);",
-    "  --tier-advanced-bg: #fbf1de; --tier-advanced-fg: #8a5810;",
-    "  --tier-advanced-edge: rgba(138, 88, 16, 0.20);",
+    "  --tier-uncommon-bg: #fbf1de; --tier-uncommon-fg: #8a5810;",
+    "  --tier-uncommon-edge: rgba(138, 88, 16, 0.20);",
     "  --tier-rare-bg: #f0f0f3; --tier-rare-fg: #74747e;",
     "  --tier-rare-edge: rgba(0, 0, 0, 0.10);",
     "  width: 340px;",
@@ -235,8 +345,8 @@
     "    --tier-everyday-fg: #7fd2ab; --tier-everyday-edge: rgba(127, 210, 171, 0.30);",
     "    --tier-common-bg: rgba(120, 160, 255, 0.15);",
     "    --tier-common-fg: #9fbcff; --tier-common-edge: rgba(159, 188, 255, 0.30);",
-    "    --tier-advanced-bg: rgba(230, 170, 70, 0.13);",
-    "    --tier-advanced-fg: #e0b271; --tier-advanced-edge: rgba(224, 178, 113, 0.24);",
+    "    --tier-uncommon-bg: rgba(230, 170, 70, 0.13);",
+    "    --tier-uncommon-fg: #e0b271; --tier-uncommon-edge: rgba(224, 178, 113, 0.24);",
     "    --tier-rare-bg: rgba(255, 255, 255, 0.06);",
     "    --tier-rare-fg: #9a9aa4; --tier-rare-edge: rgba(255, 255, 255, 0.13);",
     "  }",
@@ -396,7 +506,9 @@
     // word cards carry one over 80, so an unbounded chip would swallow the card
     // it belongs to. Width caps at a third of the default panel and the gloss
     // clamps to two lines: the chip names the part, the root card tells the
-    // whole story (SPEC, appendBreakdown).
+    // whole story (SPEC, appendBreakdown). chipGloss cuts a long gloss to its
+    // first clause before it gets here, so the clamp holds what is left rather
+    // than a sentence stopping mid-word.
     ".morph {",
     "  display: inline-flex; flex-direction: column; gap: 1px;",
     "  padding: 3px 8px 4px; border-radius: 8px; max-width: 120px;",
@@ -411,6 +523,10 @@
     "  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;",
     "  overflow: hidden; overflow-wrap: anywhere;",
     "}",
+    // The romanization line of a chip in a non-Latin script: the root card's
+    // muted `rom` register, sized for a chip, between the form and the gloss.
+    ".morph-rom { font-size: 10px; font-weight: 500; color: var(--muted);",
+    "  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
     // Chips that open a root card carry hover and a pointer. A chevron would
     // crowd a row of three or four chips, so the pill itself is the affordance.
     ".morph.nav { cursor: pointer; }",
@@ -442,6 +558,11 @@
     // the senses under it than a section label does to its section.
     ".label.pos { margin-top: 8px; }",
     ".label.pos + .glosses { margin-top: 2px; }",
+    // The register a sense carries, in front of the definition in the muted
+    // italic a printed dictionary uses for it. It sits INSIDE the clamped
+    // text, so it is the first thing the two-line clamp shows and the "more"
+    // control measures the line exactly as it did without it.
+    ".sense-lb { font-style: italic; color: var(--muted); }",
     /* ---- rows: the family list and the quiet origin lines ---- */
     // The negative side margins let a row's hover background bleed into the
     // card padding, so the row text still lines up with the label above.
@@ -482,6 +603,10 @@
     "  color: var(--muted); font-size: 12px;",
     "}",
     ".origin-row b { font-weight: 600; color: var(--fg-soft); }",
+    // A row-only origin has no card behind it. It is present and inert:
+    // no pointer, no hover, no chevron, nothing that suggests it goes
+    // somewhere (SPEC Principle 4, 2026-09-05).
+    ".origin-row.inert { cursor: default; }",
     /* ---- tier chips ---- */
     // Same quiet register everywhere it appears: beside a headword, and at the
     // end of a family row. The base look is the neutral default for any FUTURE
@@ -505,8 +630,8 @@
     "  background: var(--tier-everyday-bg); border-color: var(--tier-everyday-edge); }",
     ".tier-chip--common { color: var(--tier-common-fg);",
     "  background: var(--tier-common-bg); border-color: var(--tier-common-edge); }",
-    ".tier-chip--advanced { color: var(--tier-advanced-fg);",
-    "  background: var(--tier-advanced-bg); border-color: var(--tier-advanced-edge); }",
+    ".tier-chip--uncommon { color: var(--tier-uncommon-fg);",
+    "  background: var(--tier-uncommon-bg); border-color: var(--tier-uncommon-edge); }",
     ".tier-chip--rare { color: var(--tier-rare-fg);",
     "  background: var(--tier-rare-bg); border-color: var(--tier-rare-edge); }",
     /* ---- shared affordance for navigable rows ---- */
@@ -1006,17 +1131,39 @@
     return null;
   }
 
+  // The markers of one sense, joined as the card prints them: "obsolete",
+  // "vulgar, slang". The worker orders them, warnings first, so this joins
+  // and never sorts.
+  function senseLabel(labels) {
+    return asArray(labels).map(nonEmptyString).filter(Boolean).join(", ");
+  }
+
   // One numbered sense list with hanging indent; a lone sense needs no number.
   // Shared by the word card's POS sections and the root card's single gloss.
-  function appendSenseList(parent, defs) {
+  //
+  // `labels` is optional and parallel to `defs`: the register the source gave
+  // each sense, printed in front of the definition the way a dictionary does
+  // it. A reader shown an obsolete sense with nothing on it is misled, and a
+  // slur shown with nothing on it is worse (owner decision 2026-09-06). The
+  // marker goes INSIDE the clamped text rather than beside it, so the clamp
+  // and the geometry-derived "more" control need no change at all.
+  function appendSenseList(parent, defs, labels) {
     var list = asArray(defs).map(nonEmptyString).filter(Boolean);
     if (!list.length) return 0;
+    var marks = asArray(labels);
     var box = el("div", "glosses");
     if (list.length > 1) box.classList.add("numbered");
     list.forEach(function (text, i) {
       var row = el("div", "gloss");
       if (list.length > 1) row.appendChild(el("span", "gloss-num", (i + 1) + "."));
-      row.appendChild(clampWrap(el("span", "gloss-text", capitalizeSense(text)), 2));
+      var body = el("span", "gloss-text");
+      var mark = senseLabel(marks[i]);
+      if (mark) {
+        body.appendChild(el("span", "sense-lb", mark));
+        body.appendChild(document.createTextNode(" "));
+      }
+      body.appendChild(document.createTextNode(capitalizeSense(text)));
+      row.appendChild(clampWrap(body, 2));
       box.appendChild(row);
     });
     parent.appendChild(box);
@@ -1845,7 +1992,7 @@
       if (!defs.length) return;
       var label = posLabel(sense.pos);
       if (label) card.appendChild(el("div", "label pos", label));
-      appendSenseList(card, defs);
+      appendSenseList(card, defs, sense.lb);
     });
   }
 
@@ -1859,6 +2006,56 @@
     return asArray(list).filter(function (p) {
       return p && typeof p === "object" && nonEmptyString(p.f);
     });
+  }
+
+  // The chip's share of a gloss. A chip is bounded (see .morph above) and the
+  // gloss it shows was written for the card it opens, where the whole line
+  // belongs: the grc:-μα card reads "Added to verbal stems to form neuter
+  // nouns denoting the effect or result of an action, a particular instance of
+  // an action, or the object of an action" and the chip on system stopped
+  // mid-thought at the clamp. Past the budget the chip shows the first clause
+  // and the card keeps every word.
+  //
+  // A clause ends at a comma, semicolon, colon or full stop that closes a
+  // word, outside any bracket and outside a quoted run, so "1,000" and
+  // "(i.e., to whom)" are not clause ends. A boundary under CHIP_CLAUSE_MIN
+  // leaves a fragment rather than a clause ("forms nouns"), so the cut moves
+  // on to the next one. A gloss the source wrote with no clause to stop at is
+  // left whole and the clamp holds it, which is the case for 49 chip forms.
+  var CHIP_GLOSS_MAX = 90;
+  var CHIP_CLAUSE_MIN = 12;
+  var CHIP_OPEN = "([“";
+  var CHIP_CLOSE = ")]”";
+
+  // "U.S. Army" is not two clauses: a full stop closes an abbreviation when
+  // the word before it is a single letter or already carries a stop.
+  function abbrevDot(text, at) {
+    var parts = text.slice(0, at).split(" ");
+    var word = parts[parts.length - 1];
+    return word.length < 2 || word.indexOf(".") >= 0;
+  }
+
+  function chipGloss(gloss) {
+    if (gloss.length <= CHIP_GLOSS_MAX) return gloss;
+    var depth = 0;
+    var quoted = false;
+    for (var i = 0; i < gloss.length; i++) {
+      var ch = gloss.charAt(i);
+      if (CHIP_OPEN.indexOf(ch) >= 0) {
+        depth++;
+      } else if (CHIP_CLOSE.indexOf(ch) >= 0) {
+        depth = depth > 0 ? depth - 1 : 0;
+      } else if (ch === '"') {
+        quoted = !quoted;
+      } else if (depth === 0 && !quoted && ",;:.".indexOf(ch) >= 0) {
+        var next = gloss.charAt(i + 1);
+        if (next !== "" && next !== " ") continue;
+        if (i < CHIP_CLAUSE_MIN) continue;
+        if (ch === "." && abbrevDot(gloss, i)) continue;
+        return gloss.slice(0, i).replace(/[\s,;:.]+$/, "");
+      }
+    }
+    return gloss;
   }
 
   /**
@@ -1879,8 +2076,16 @@
     parts.forEach(function (p, i) {
       if (i) row.appendChild(el("span", "morph-plus", "+"));
       var chip = el("span", "morph");
-      chip.appendChild(el("span", "morph-form", nonEmptyString(p.f)));
-      var gloss = nonEmptyString(p.gloss);
+      var form = nonEmptyString(p.f);
+      chip.appendChild(el("span", "morph-form", form));
+      // A form in a non-Latin script carries its romanization as a line
+      // between the form and the gloss, in the muted style the root card
+      // uses for its own (Jesse decision 2026-09-05). One rule for Greek,
+      // Arabic, Hebrew and any script a row-only language brings; a
+      // Latin-script form carries no romanization line.
+      var rom = nonEmptyString(p.rom);
+      if (rom && nonLatinScript(form)) chip.appendChild(el("span", "morph-rom", rom));
+      var gloss = chipGloss(nonEmptyString(p.gloss));
       if (gloss) chip.appendChild(el("span", "morph-gloss", gloss));
       var rootKey = nonEmptyString(p.r);
       var wordKey = nonEmptyString(p.w);
@@ -1958,30 +2163,53 @@
     return true;
   }
 
-  // The single-lemma shape: one quiet nav row into the root card.
+  // The single-lemma shape: one quiet nav row into the root card. A row-only
+  // origin (SPEC Principle 4, 2026-09-05) has no card behind it: the row is
+  // present and inert, with no nav affordance, no chevron and no click.
   function appendOriginRow(card, org) {
     var key = nonEmptyString(org.r);
-    var parts = splitRootKey(key);
-    var form = nonEmptyString(org.f) || parts.form;
-    if (!key || !form) return;
-
-    var row = el("div", "entry-row origin-row nav");
-    row.appendChild(buildOriginText(parts.lang, form, org.gloss));
-    makeNavRow(row, function () { navigateToRoot(key); });
-    card.appendChild(row);
+    if (key) {
+      var parts = splitRootKey(key);
+      var form = nonEmptyString(org.f) || parts.form;
+      if (!form) return;
+      var row = el("div", "entry-row origin-row nav");
+      row.appendChild(buildOriginText(parts.lang, form, org.gloss, org.rom));
+      makeNavRow(row, function () { navigateToRoot(key); });
+      card.appendChild(row);
+      return;
+    }
+    var lang = nonEmptyString(org.lang);
+    var plain = nonEmptyString(org.f);
+    if (!lang || !plain || !langName(lang)) return;
+    var inert = el("div", "entry-row origin-row inert");
+    inert.appendChild(buildOriginText(lang, plain, org.gloss, org.rom));
+    card.appendChild(inert);
   }
 
   // "From Latin terra (earth, land)" as elements. Shared by the word card's
   // origin row and the affix card's source row, which say the same thing
-  // about two different kinds of card.
-  function buildOriginText(lang, form, gloss) {
+  // about two different kinds of card. A romanization goes first inside the
+  // parentheses, before the gloss: "From Greek ἰδέα (idéa; form, shape)".
+  function buildOriginText(lang, form, gloss, rom) {
     var name = langName(lang);
     var text = el("span", "origin-text");
     text.appendChild(document.createTextNode("From " + (name ? name + " " : "")));
     text.appendChild(el("b", null, form));
+    var inside = [];
+    var reading = nonEmptyString(rom);
+    if (reading && nonLatinScript(form)) inside.push(reading);
     var short = nonEmptyString(gloss);
-    if (short) text.appendChild(document.createTextNode(" (" + short + ")"));
+    if (short) inside.push(short);
+    if (inside.length) text.appendChild(document.createTextNode(" (" + inside.join("; ") + ")"));
     return text;
+  }
+
+  // A form carrying a letter outside the Latin ranges: Greek, Arabic, Hebrew,
+  // Cyrillic. Combining marks and the Latin extensions count as Latin, so a
+  // macron or a diaeresis never triggers a romanization line.
+  var NON_LATIN = /[^\u0020-\u024f\u1e00-\u1eff\u2000-\u206f\u02b0-\u02ff\u0300-\u036f]/;
+  function nonLatinScript(form) {
+    return NON_LATIN.test(nonEmptyString(form));
   }
 
   function usedInEnabled(settings) {
@@ -2090,6 +2318,9 @@
     if (kind === "prefix") return "Prefix";
     if (kind === "suffix") return "Suffix";
     var name = langName(r.lang);
+    if (kind === "name") {
+      return r.lang === "en" || !name ? "Proper noun" : name + " proper noun";
+    }
     return name ? name + " root" : "Root";
   }
 
@@ -2097,12 +2328,14 @@
     return true;
   }
 
-  // The gloss as a single sense line, clamped like any other sense.
+  // The gloss as a single sense line, clamped like any other sense, carrying
+  // the register of the sense it came from exactly as a definition does.
   function appendRootGloss(card, m) {
     if (!rootGlossEnabled(sectionSettings())) return;
-    var gloss = nonEmptyString(rootOf(m).gloss);
+    var r = rootOf(m);
+    var gloss = nonEmptyString(r.gloss);
     if (!gloss) return;
-    appendSenseList(card, [gloss]);
+    appendSenseList(card, [gloss], [r.lb]);
   }
 
   function rootPartsEnabled(settings) {
@@ -2147,7 +2380,7 @@
     if (!key || !form) return;
 
     var row = el("div", "entry-row origin-row nav");
-    row.appendChild(buildOriginText(parts.lang, form, src.gloss));
+    row.appendChild(buildOriginText(parts.lang, form, src.gloss, src.rom));
     makeNavRow(row, function () { navigateToRoot(key); });
     card.appendChild(row);
   }
@@ -2449,7 +2682,11 @@
       key: key,
       rows: r.family,
       total: r.familyCount,
-      label: function (total) { return "BUILDS " + total + " WORDS"; },
+      // A one-word family is a valid card under never-silent (SPEC
+      // Principle 4), so the label has a singular.
+      label: function (total) {
+        return "BUILDS " + total + (total === 1 ? " WORD" : " WORDS");
+      },
       fetch: fetchFamily,
       drill: {
         list: "family",

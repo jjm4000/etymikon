@@ -441,7 +441,7 @@ body {
 
 /* Folder bands read as structure, not content: a brand-colored left edge and
    the field tint set them off from the item rows, which indent underneath
-   (grouped mode only — see .saved-list--grouped). */
+   (see .saved-list--grouped). Every folder is a band, empty or not. */
 .saved-folder {
   display: flex;
   align-items: center;
@@ -494,8 +494,10 @@ body {
 
 .saved-row:hover { background: var(--action-hover); }
 
-/* Items sit visibly inside their folder in grouped lists. */
+/* Items sit visibly inside their folder in grouped lists, and so does the
+   line an empty folder shows in place of them. */
 .saved-list--grouped .saved-row { padding-left: 28px; }
+.saved-list--grouped .saved-empty--folder { padding-left: 28px; }
 
 /* A forgiving hit target around each checkbox: the label stretches to the
    full row height and absorbs near-misses, so aiming a few pixels off

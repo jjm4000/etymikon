@@ -1,41 +1,53 @@
-# Etymikon: Word Roots Popup Dictionary
+# Etymikon: Word Roots and Etymology Popup Dictionary
 
 Chrome extension (Manifest V3). Select an English word on any page and a
 popup card shows its definitions and its morpheme breakdown
-(subterranean = sub- + terra + -an). Words that English borrowed
-already assembled show the assembly instead: territory reads FROM LATIN
-territōrium, terra + -tōrium, and each part is clickable.
-
-Each morpheme opens a root card: the root's form, its source, its
-gloss, and the English words built on it, ranked by frequency and
-paginated. A Latin or Greek word that English borrowed already
-assembled carries its own breakdown on its card (accēdō reads ad- +
-cēdō), and the cēdō card still lists access, concede and precede below
-it. Word cards link upward too: "Used in N words" lists what
-English builds on the word, so the whole family can be walked in either
-direction with a breadcrumb trail. Every word carries a frequency tier
-chip (Everyday, Common, Advanced, Rare), and inflected selections
-resolve to their lemma: selecting "running" finds run, "territories"
-finds territory.
+(subterranean = sub- + terra + -an).
 
 ![Word breakdown](screenshots/1-word-breakdown.png)
 
+Words that English borrowed already assembled show the assembly instead:
+territory reads FROM LATIN territōrium over chips for terra ("dry land")
+and -tōrium ("used to form nouns denoting a place").
+
 ![Latin origin](screenshots/3-latin-origin.png)
+
+Each morpheme opens a root card: the root's form, its source, its gloss,
+and the English words built on it, ranked by frequency. The -ful card
+builds 360 of them.
 
 ![Root family](screenshots/2-root-family.png)
 
+A Latin or Greek word that English borrowed already assembled carries its
+own breakdown on its card. accēdō ("to go or come toward") reads ad- +
+cēdō, and the cēdō card lists the 44 English words that reach it,
+necessary and access among them. Word cards run the other way as well:
+absolute reads "Used in 4 words", which opens absolutely, absolutism,
+absoluteness and absolutist.
+
+Every word carries a frequency tier chip (Everyday, Common, Uncommon,
+Rare), and a definition states its register where the source marks
+one, so the fourth sense of accede reads "archaic To approach; to
+arrive, to come forward". Words whose source is neither Latin nor Greek
+still say where they came from on one quiet row: sky reads "From Old
+Norse ský (cloud)". A form in a non-Latin script carries its
+romanization, so the Greek chip under ephemeral reads ἡμέρα, hēmérā,
+"day".
+
 The toolbar icon opens a sidebar with typed search over the same cards,
-and the omnibox keyword `et` searches from the address bar. The star on
-any card saves it into folders; folders export to Anki or CSV.
+and the omnibox keyword `et` searches from the address bar. Cards save
+into folders, and folders export to Anki or CSV.
 
 ![Sidebar search](screenshots/4-sidebar-search.png)
 
-![Used in](screenshots/8-used-in.png)
+![Dark mode](screenshots/7-dark-mode.png)
 
-The shipped dictionary holds 82,843 words, 3,021 roots (English affixes
-beside Latin and Greek lemmas), and 108,401 inflection mappings, built
-from Wiktionary at build time. Lookups work offline. The extension
-makes no network requests of any kind.
+The shipped dictionary holds 84,326 words, 8,068 root cards (English
+affixes, Latin and Greek lemmas, and 1,338 proper nouns), and 110,719
+inflection and spelling mappings, so selecting "territories" opens
+territory. It is built from Wiktionary at build time. The data files come
+to 24.7 MB and ship inside the extension, so lookups run with no
+connection.
 
 The name is Greek: etymos ("true sense") + -ikon, the formation behind
 lexicon. The Byzantine etymological dictionaries were titled
@@ -51,9 +63,13 @@ Etymologikon.
   downloads the Wiktionary extracts from kaikki.org, parses and curates
   them, and emits `extension/data/`. Release tooling (icons, promo,
   screenshots, zip) lives here too. See `pipeline/README.md`.
+- `store-listing.md`: the record of what is in the Chrome Web Store
+  dashboard, updated after every upload.
 - `test/`: Node test suite, run with `node test/lookup.test.mjs`.
-- `test-page/`: browser self-check harness pages; serve the repo over
-  http and press each page's run button.
+- `test-page/`: browser self-check harness pages. Run them headless with
+  `python pipeline/run_selfchecks.py`, or serve the repo over http and
+  press each page's run button. They have to be served either way: the
+  pages import the extension's own modules.
 
 ## Provenance
 
@@ -62,5 +78,6 @@ This repository is a fork of [Okpyeon](https://github.com/jjm4000/okpyeon)
 saved words, navigation, tooling) carries over; the language core is
 new. Dictionary content is built from the English, Latin, and Ancient
 Greek editions of Wiktionary via kaikki.org extracts (CC BY-SA), with
-word frequencies from hermitdave/FrequencyWords (MIT). See
-`extension/data/DATA-LICENSE.md`.
+word frequencies from hermitdave/FrequencyWords (MIT). The derived
+dictionary data is distributed under CC BY-SA 4.0; the source code is
+GPL-3.0. See `extension/data/DATA-LICENSE.md`.

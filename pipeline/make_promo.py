@@ -51,7 +51,11 @@ MUTED = (74, 65, 59)
 FAINT = (150, 136, 126)
 
 WORDMARK = "Etymikon"
-TAGLINE = "Word Roots Popup Dictionary"
+# Shorter than the store name on purpose. The full name is 41 characters
+# of tagline and overflows the small tile, and a promo image is artwork
+# rather than an indexed field, so it carries the subject and drops the
+# format words the store title needs for search.
+TAGLINE = "Word Roots and Etymology"
 # The worked example from the manifest description: a real shipped breakdown,
 # not a slogan.
 EXAMPLE = "subterranean  =  sub-  +  terra  +  -an"

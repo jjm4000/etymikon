@@ -88,6 +88,15 @@ const words = {
       fr: 903,
     },
     big: { senses: [{ pos: "adj", defs: ["Of great size."] }], fr: 1200 },
+    // A chip with no link at all and a gloss of its own. A proper noun gets
+    // a card wherever the source glosses it; the residue is a page whose
+    // folded key another page already claimed, and its chip keeps the gloss
+    // it had (2026-09-06).
+    lappish: {
+      senses: [{ pos: "adj", defs: ["Of or relating to the Lapps."] }],
+      morphs: [{ f: "Lapp", g: "A region in northern Europe." }, { f: "-ish", r: "en:-ish" }],
+      fr: 41000,
+    },
     box: { senses: [{ pos: "noun", defs: ["A container with a flat base."] }], fr: 2500 },
     dialogue: {
       senses: [{ pos: "noun", defs: ["A conversation between two people."] }],
@@ -128,6 +137,26 @@ const words = {
         parts: [{ f: "memor", r: "la:memor" }, { f: "-ia" }],
       },
       fr: 1015,
+    },
+    // The register markers: a section where one definition carries them and
+    // another does not, and a second section carrying none at all.
+    grog: {
+      senses: [
+        {
+          pos: "noun",
+          defs: ["Rum cut with water.", "Any alcoholic drink."],
+          lb: [[], ["slang", "dialectal"]],
+        },
+        { pos: "verb", defs: ["To drink grog."] },
+      ],
+      fr: 30100,
+    },
+    // A word built on a proper noun. The Korea chip opens a card the same way
+    // the -an chip does (owner decision 2026-09-06).
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      morphs: [{ f: "Korea", r: "en:korea" }, { f: "-an", r: "en:-an" }],
+      fr: 4210,
     },
     muse: { senses: [{ pos: "noun", defs: ["A source of inspiration."] }], fr: 24810 },
     music: {
@@ -244,6 +273,7 @@ const roots = {
     // A Germanic affix: an ordinary en: root, with no src row.
     "en:-ful": { form: "-ful", lang: "en", gloss: "full of", kind: "suffix" },
     "en:-ic": { form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix" },
+    "en:-ish": { form: "-ish", lang: "en", gloss: "of the nature of", kind: "suffix" },
     "en:sub-": {
       form: "sub-",
       lang: "en",
@@ -257,6 +287,32 @@ const roots = {
       lang: "grc",
       gloss: "word, reason",
       kind: "root",
+    },
+    // An English affix whose source lemma is Greek: the src row carries the
+    // source root's romanization (review finding 12, 2026-09-05).
+    "en:logo-": {
+      form: "logo-",
+      lang: "en",
+      src: "grc:λόγος",
+      gloss: "word, speech",
+      kind: "prefix",
+    },
+    // A proper-noun card: a page a shipped word is built on, keyed by its
+    // folded title and displayed under the title itself.
+    "en:korea": {
+      form: "Korea",
+      lang: "en",
+      gloss: "A geographic region in East Asia.",
+      kind: "name",
+    },
+    // A card whose gloss came from a sense the source marked. The markers
+    // ride on the card exactly as they ride on a definition.
+    "la:caco": {
+      form: "cacō",
+      lang: "la",
+      gloss: "to defecate",
+      kind: "root",
+      lb: ["vulgar"],
     },
     // The Latin affix and base an org decomposition lands on.
     "la:memor": { form: "memor", lang: "la", gloss: "mindful", kind: "root" },
@@ -505,7 +561,7 @@ test("an unknown word resolves to no matches", () => {
 // --- the tier function ----------------------------------------------------
 
 test("tier cutoffs live in one place and read 3000/15000/50000", () => {
-  assert.deepEqual(TIER_CUTOFFS, { everyday: 3000, common: 15000, advanced: 50000 });
+  assert.deepEqual(TIER_CUTOFFS, { everyday: 3000, common: 15000, uncommon: 50000 });
 });
 
 test("tier boundaries fall on the documented side", () => {
@@ -513,12 +569,12 @@ test("tier boundaries fall on the documented side", () => {
   assert.equal(tierOf(3000), "everyday");
   assert.equal(tierOf(3001), "common");
   assert.equal(tierOf(15000), "common");
-  assert.equal(tierOf(15001), "advanced");
-  assert.equal(tierOf(50000), "advanced");
+  assert.equal(tierOf(15001), "uncommon");
+  assert.equal(tierOf(50000), "uncommon");
   assert.equal(tierOf(50001), "rare");
 });
 
-test("an unranked or unusable rank is Rare", () => {
+test("an unranked or unusable rank takes the fourth tier", () => {
   assert.equal(tierOf(undefined), "rare");
   assert.equal(tierOf(null), "rare");
   assert.equal(tierOf(0), "rare");
@@ -540,10 +596,13 @@ test("the match carries the tier's display label beside the tier", () => {
   assert.equal(one("terrarium").tierLabel, "Rare", "an unranked word is labelled too");
   // The label map has exactly one definition, and this field is how it leaves
   // the worker: no surface holds a second copy.
+  // One axis, frequency, after the rename of 2026-09-07: Everyday, Common,
+  // Uncommon, Rare. Key and label agree at every rung, which they did not
+  // while the third was Advanced and the fourth was labelled Uncommon.
   assert.deepEqual(TIER_LABELS, {
     everyday: "Everyday",
     common: "Common",
-    advanced: "Advanced",
+    uncommon: "Uncommon",
     rare: "Rare",
   });
   assert.equal(one("subterranean").tierLabel, TIER_LABELS[one("subterranean").tier]);
@@ -600,6 +659,84 @@ test("a w chip naming an unshipped word loses its key, so the chip is inert", ()
   assert.deepEqual(match.morphs[1], { f: "-ful", gloss: "full of", r: "en:-ful" });
 });
 
+test("a chip with no link states its own gloss and stays inert", () => {
+  const match = one("lappish");
+  assert.deepEqual(match.morphs[0], { f: "Lapp", gloss: "A region in northern Europe." });
+  assert.equal("r" in match.morphs[0], false);
+  assert.equal("w" in match.morphs[0], false);
+});
+
+test("a proper-noun chip names no word, so it opens no used-in list", () => {
+  assert.equal(usedInIndex.Korea, undefined);
+  assert.equal(usedInIndex.korea, undefined);
+});
+
+// --- proper-noun cards (owner decision 2026-09-06) ------------------------
+
+test("a proper-noun chip opens a card like any other chip", () => {
+  const match = one("korean");
+  assert.deepEqual(match.morphs[0], {
+    f: "Korea",
+    r: "en:korea",
+    gloss: "A geographic region in East Asia.",
+  });
+});
+
+test("a proper-noun card carries its page title, its label and its family", () => {
+  const root = buildRoot("en:korea", data, familyIndex);
+  assert.equal(root.form, "Korea");
+  assert.equal(root.label, "Proper noun");
+  assert.equal(root.gloss, "A geographic region in East Asia.");
+  assert.deepEqual(root.family.map((row) => row.word), ["korean"]);
+  assert.equal(root.familyCount, 1, "a family of one word is a card");
+});
+
+test("a proper-noun card answers to its folded key", () => {
+  assert.equal(buildRoot("en:Korea", data, familyIndex).key, "en:korea");
+});
+
+test("the label line names a proper noun in every language", () => {
+  assert.equal(rootLabel("en", "name"), "Proper noun");
+  assert.equal(rootLabel("la", "name"), "Latin proper noun");
+  assert.equal(rootLabel("grc", "name"), "Greek proper noun");
+});
+
+test("a proper-noun card is an omnibox row like any other root", () => {
+  const rows = buildOmniboxSuggestions("kore", { ...data, searchIndex: buildSearchIndex(data) });
+  const hit = rows.find((row) => row.content === "en:korea");
+  assert.ok(hit, "typing the form finds the card");
+  assert.match(hit.description, /Proper noun/);
+});
+
+// --- register markers (owner decision 2026-09-06) -------------------------
+
+test("a sense carries the markers the source gave it, parallel to the defs", () => {
+  const match = one("grog");
+  assert.deepEqual(match.senses[0].defs, ["Rum cut with water.", "Any alcoholic drink."]);
+  assert.deepEqual(match.senses[0].lb, [[], ["slang", "dialectal"]]);
+  assert.equal("lb" in match.senses[1], false, "a section with no marker carries no field");
+});
+
+test("a label array that does not run parallel to the defs is dropped whole", () => {
+  const ragged = {
+    words: {
+      x: { senses: [{ pos: "noun", defs: ["One.", "Two."], lb: [["slang"]] }], fr: 1 },
+      y: { senses: [{ pos: "noun", defs: ["One."], lb: [[]] }], fr: 2 },
+      z: { senses: [{ pos: "noun", defs: ["One."], lb: "slang" }], fr: 3 },
+    },
+  };
+  const bundle = { words: ragged, roots, forms };
+  for (const key of ["x", "y", "z"]) {
+    const match = buildMatches(key, bundle)[0];
+    assert.equal("lb" in match.senses[0], false, `${key} carries no label field`);
+  }
+});
+
+test("a root card carries the register of the sense its gloss came from", () => {
+  assert.deepEqual(buildRoot("la:caco", data, familyIndex).lb, ["vulgar"]);
+  assert.equal("lb" in buildRoot("la:terra", data, familyIndex), false);
+});
+
 test("a word with no split carries no morphs key", () => {
   assert.equal("morphs" in one("run"), false);
 });
@@ -648,6 +785,35 @@ test("a decomposed org part with no link at all renders inert", () => {
     lang: "la",
     parts: [{ f: "memor", r: "la:memor", gloss: "mindful" }, { f: "-ia" }],
   });
+});
+
+test("a part's own gloss wins over its root card's", () => {
+  // One card serves every parent and follows one sense, so the parent
+  // supplies the chip's wording where the two differ (SPEC "Origin
+  // subsystem", 2026-09-06). A part with no `g` still reads the card.
+  const wordish = {
+    words: {
+      v: 1,
+      words: {
+        x: {
+          senses: [{ pos: "noun", defs: ["A thing."] }],
+          org: {
+            l: "rememorārī",
+            lang: "la",
+            parts: [
+              { f: "re-", r: "la:re-", g: "again, once more" },
+              { f: "memor", r: "la:memor" },
+            ],
+          },
+        },
+      },
+    },
+    roots,
+  };
+  assert.deepEqual(buildMatches("x", wordish)[0].org.parts, [
+    { f: "re-", r: "la:re-", gloss: "again, once more" },
+    { f: "memor", r: "la:memor", gloss: "mindful" },
+  ]);
 });
 
 test("an org part never comes back as a word chip", () => {
@@ -872,8 +1038,79 @@ test("a shadow word inherits its lemma's decomposed origin", () => {
 test("a shadow word inherits a single origin the same way", () => {
   const match = one("dialogues");
   assert.equal(match.seeAlso, "dialogue");
-  assert.deepEqual(match.org, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason" });
+  assert.deepEqual(match.org, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos" });
   assert.deepEqual(match.org, one("dialogue").org);
+});
+
+// --- the source-graph origin shapes (SPEC 2026-09-05) ------------------------
+
+test("a single origin row joins the root's romanization beside its gloss", () => {
+  // The renderer prints it first inside the parentheses; the worker joins it
+  // from the root entry, the same place the gloss comes from.
+  assert.deepEqual(one("dialogue").org, {
+    r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos",
+  });
+  // A Latin root has no romanization, so the row carries none.
+  assert.equal("rom" in one("terrain").org, false);
+});
+
+test("a decomposed org part and a root's parts carry the root's romanization", () => {
+  const bundle = {
+    words: { v: 1, words: {
+      system: {
+        senses: [{ pos: "noun", defs: ["A whole of parts."] }],
+        org: { l: "σύστημα", lang: "grc", parts: [
+          { f: "συν-", r: "grc:συν-" }, { f: "ἵστημι", r: "grc:ἵστημι" }, { f: "-μα" },
+        ] },
+        fr: 752,
+      },
+    } },
+    roots: { v: 1, roots: {
+      "grc:συν-": { form: "συν-", rom: "sun-", lang: "grc", gloss: "with", kind: "prefix" },
+      "grc:ἵστημι": { form: "ἵστημι", rom: "hístēmi", lang: "grc", gloss: "to stand", kind: "root" },
+    } },
+    forms: { v: 1, map: {} },
+  };
+  assert.deepEqual(buildMatches("system", bundle)[0].org, {
+    l: "σύστημα", lang: "grc", parts: [
+      { f: "συν-", r: "grc:συν-", gloss: "with", rom: "sun-" },
+      { f: "ἵστημι", r: "grc:ἵστημι", gloss: "to stand", rom: "hístēmi" },
+      { f: "-μα" },
+    ],
+  });
+  const root = buildRoot("grc:ἵστημι", bundle, buildFamilyIndex(bundle.words, bundle.roots));
+  assert.equal(root.rom, "hístēmi");
+  assert.equal(root.familyCount, 1, "a one-word family is a valid card");
+});
+
+test("a row-only org passes through unjoined, with no r and no root behind it", () => {
+  const bundle = {
+    words: { v: 1, words: {
+      sky: {
+        senses: [{ pos: "noun", defs: ["The air above."] }],
+        org: { lang: "non", f: "ský", gloss: "cloud" },
+        fr: 1100,
+      },
+      // A romanization travels too, and a missing gloss is simply absent.
+      algebra: {
+        senses: [{ pos: "noun", defs: ["A branch of mathematics."] }],
+        org: { lang: "ar", f: "الجبر", rom: "al-jabr" },
+        fr: 9000,
+      },
+      // A row-only org with no form has nothing to print.
+      blank: { senses: [{ pos: "noun", defs: ["Nothing."] }], org: { lang: "non" }, fr: 9 },
+    } },
+    roots: { v: 1, roots: {} },
+    forms: { v: 1, map: {} },
+  };
+  assert.deepEqual(buildMatches("sky", bundle)[0].org, { lang: "non", f: "ský", gloss: "cloud" });
+  assert.deepEqual(buildMatches("algebra", bundle)[0].org, {
+    lang: "ar", f: "الجبر", rom: "al-jabr",
+  });
+  assert.equal("org" in buildMatches("blank", bundle)[0], false);
+  // A row-only row names no root, so it credits no family.
+  assert.deepEqual(Object.keys(buildFamilyIndex(bundle.words, bundle.roots)), []);
+  assert.deepEqual(Object.keys(buildFamilyCounts(bundle.words, bundle.roots)), []);
 });
 
 test("a shadow word whose lemma has no origin inherits nothing", () => {
@@ -1060,7 +1297,7 @@ test("an unusable wik is dropped rather than passed on", () => {
 // --- roots and families ---------------------------------------------------
 
 test("the family index is derived at runtime and credits every referenced key", () => {
-  assert.deepEqual(familyIndex["en:-an"], ["suburban", "subterranean"]);
+  assert.deepEqual(familyIndex["en:-an"], ["korean", "suburban", "subterranean"]);
   // The index credits every referenced key. roots.json decides which of them
   // has a card, and buildRoot is where an unshipped key stops.
   assert.deepEqual(familyIndex["en:way"], ["subway"]);
@@ -1256,6 +1493,9 @@ test("an affix card joins its source lemma, and a Greek card its romanization", 
   const logos = buildRoot("grc:λόγος", data, familyIndex);
   assert.equal(logos.rom, "logos");
   assert.deepEqual(logos.family.map((r) => r.word), ["logic", "dialogue"]);
+  const logo = buildRoot("en:logo-", data, familyIndex);
+  assert.deepEqual(logo.src, { r: "grc:λόγος", f: "λόγος", gloss: "word, reason", rom: "logos" },
+    "a Greek source under an English affix carries its romanization");
 });
 
 test("a root nothing references still builds, with an empty family", () => {
@@ -1428,7 +1668,7 @@ test("the prebuilt omnibox index answers exactly like a fresh one", () => {
   assert.equal(index.ranks.length, index.keys.length, "ranks run parallel to the keys");
   assert.deepEqual(
     index.roots.slice(0, 4).map((r) => r.key),
-    ["la:terra", "en:sub-", "en:-an", "en:-ful"],
+    ["la:terra", "en:-an", "en:sub-", "en:-ful"],
     "roots are pre-ranked by family size, then by key"
   );
 });
@@ -2103,7 +2343,8 @@ console.log("\nshipped data (skipped when extension/data is empty)");
 
 // --- smoke tests over the real files, asserting only SPEC anchors ---------
 
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), "..", "extension", "data");
+const here = dirname(fileURLToPath(import.meta.url));
+const dataDir = join(here, "..", "extension", "data");
 
 async function readBundle() {
   const [w, r, f] = await Promise.all([
@@ -2393,6 +2634,195 @@ await testAsync("smoke: used-in derives from the shipped w chips", async () => {
   console.log(`      (${keys.length} words are used in a bigger word)`);
 });
 
+await testAsync("smoke: every row-only code the data emits has a name in content.js", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  // The content script holds the one copy of the language-name table (it is
+  // a classic script and cannot import one), and the build fails when it
+  // emits a code the table lacks. This is the same check from the other side.
+  const source = await readFile(join(here, "..", "extension", "content", "content.js"), "utf8");
+  const table = /var LANG_NAME = \{([^}]*)\};/.exec(source);
+  assert.ok(table, "content.js declares LANG_NAME");
+  const names = new Set();
+  for (const m of table[1].matchAll(/(?:"([^"]+)"|([A-Za-z_]\w*))\s*:/g)) names.add(m[1] || m[2]);
+  const table2 = bundle.words.words;
+  const codes = new Set();
+  for (const key of Object.keys(table2)) {
+    const org = table2[key].org;
+    if (org && !org.r && !Array.isArray(org.parts) && typeof org.lang === "string") codes.add(org.lang);
+  }
+  const lacking = [...codes].filter((code) => !names.has(code)).sort();
+  assert.deepEqual(lacking, [], `${lacking.length} row-only codes have no name`);
+  // The rows themselves are the ratified shape and the worker passes them through.
+  const sample = [...Object.keys(table2)].find((key) => {
+    const org = table2[key].org;
+    return org && !org.r && !Array.isArray(org.parts);
+  });
+  if (sample) {
+    const match = lookup(sample, bundle).matches[0];
+    assert.deepEqual(match.org, table2[sample].org, `${sample} passes its row-only org through`);
+  }
+  console.log(`      (${codes.size} row-only codes, all named)`);
+});
+
+await testAsync("smoke: the gold set holds in the shipped data", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  // pipeline/gold.json is the build's own gate; the same exact-match rule
+  // (kind, language, lemma, ordered part forms) is applied here from the
+  // extension's side so the two can never read a row differently.
+  const gold = JSON.parse(await readFile(join(here, "..", "pipeline", "gold.json"), "utf8"));
+  const committed = JSON.parse(await readFile(join(here, "..", "pipeline", "gold-score.json"), "utf8"));
+  const table = bundle.words.words;
+  const rootTable = bundle.roots.roots;
+  const goldFamily = buildFamilyIndex(bundle.words, bundle.roots);
+  const labelsOf = (entry) => {
+    const out = [];
+    for (const sec of entry.senses) {
+      const lb = Array.isArray(sec.lb) ? sec.lb : sec.defs.map(() => []);
+      for (const one of lb) out.push(one);
+    }
+    return out;
+  };
+  const actualOf = (word) => {
+    // A row whose word carries a colon names a root key and pins that card.
+    if (word.includes(":")) {
+      const r = rootTable[word];
+      if (!r) return { kind: "none" };
+      return {
+        kind: "card",
+        lang: r.lang,
+        form: r.form,
+        rootkind: r.kind,
+        gloss: r.gloss,
+        lb: Array.isArray(r.lb) ? r.lb : [],
+        family: goldFamily[word] || [],
+      };
+    }
+    const entry = table[word];
+    if (!entry) return { kind: "none" };
+    if (Array.isArray(entry.morphs) && entry.morphs.length) {
+      return {
+        kind: "morphs",
+        parts: entry.morphs.map((m) => m.f),
+        inert: entry.morphs.filter((m) => !m.r && !m.w).map((m) => m.f),
+        labels: labelsOf(entry),
+      };
+    }
+    const org = entry.org;
+    if (!org) return { kind: "none", labels: labelsOf(entry) };
+    if (Array.isArray(org.parts)) {
+      return {
+        kind: "decomposed",
+        lang: org.lang,
+        lemma: org.l,
+        parts: org.parts.map((p) => p.f),
+        labels: labelsOf(entry),
+      };
+    }
+    if (org.r) {
+      return { kind: "single", lang: org.r.split(":")[0], lemma: org.f, labels: labelsOf(entry) };
+    }
+    return { kind: "rowonly", lang: org.lang, lemma: org.f, labels: labelsOf(entry) };
+  };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const matches = (row, actual) => {
+    if (row.kind !== actual.kind) return false;
+    if ("labels" in row && !same(row.labels, actual.labels || [])) return false;
+    if (row.kind === "card") {
+      return ["lang", "form", "rootkind", "gloss", "lb", "family"].every(
+        (field) => !(field in row) || same(row[field], actual[field])
+      );
+    }
+    if (row.kind === "none") return true;
+    if (row.kind === "morphs") {
+      return same(row.parts, actual.parts) && same([...row.inert].sort(), [...actual.inert].sort());
+    }
+    if (row.lang !== actual.lang || row.lemma !== actual.lemma) return false;
+    return row.kind !== "decomposed" || same(row.parts, actual.parts);
+  };
+  const failures = gold.rows.filter((row) => !matches(row, actualOf(row.word))).map((row) => row.word);
+  assert.ok(
+    gold.rows.length - failures.length >= committed.score,
+    `gold score ${gold.rows.length - failures.length} under the committed ${committed.score}: ${failures.join(", ")}`
+  );
+  console.log(`      (gold ${gold.rows.length - failures.length} of ${gold.rows.length}, committed ${committed.score})`);
+});
+
+await testAsync("smoke: the shipped data marks registers and cards proper nouns", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const table = bundle.words.words;
+  const roots = bundle.roots.roots;
+
+  // The register markers: every one is a plain lower-case label, every label
+  // array runs parallel to its definitions, and the worker hands them on.
+  const seen = new Set();
+  let marked = 0;
+  for (const key of Object.keys(table)) {
+    for (const sec of table[key].senses) {
+      if (!("lb" in sec)) continue;
+      assert.equal(
+        sec.lb.length,
+        sec.defs.length,
+        `${key} has a label list that does not run parallel to its definitions`
+      );
+      for (const one of sec.lb) {
+        for (const lab of one) {
+          seen.add(lab);
+          assert.equal(lab, lab.toLowerCase(), `${lab} is written in lower case`);
+          marked += 1;
+        }
+      }
+    }
+  }
+  assert.ok(seen.has("obsolete") && seen.has("slang"), "the shipped labels cover the groups");
+  const cat = lookup("cat", bundle).matches[0];
+  const catLabels = cat.senses.flatMap((sec) => sec.lb || sec.defs.map(() => []));
+  assert.ok(
+    catLabels.some((one) => one.includes("offensive")),
+    "cat carries the offensive sense marker the source gives it"
+  );
+
+  // The proper-noun card: korean's Korea chip opens it, it is labelled a
+  // proper noun, and it is an omnibox row like any other root card.
+  const korean = lookup("korean", bundle).matches[0];
+  assert.deepEqual(korean.morphs[0].f, "Korea");
+  assert.equal(korean.morphs[0].r, "en:korea", "the Korea chip opens a card");
+  const index = buildFamilyIndex(bundle.words, bundle.roots);
+  const korea = buildRoot("en:korea", bundle, index);
+  assert.equal(korea.form, "Korea");
+  assert.equal(korea.label, "Proper noun");
+  assert.ok(korea.familyCount >= 1, "a family of one word is a card");
+  const rows = buildOmniboxSuggestions("korea", {
+    ...bundle,
+    searchIndex: buildSearchIndex(bundle),
+  });
+  assert.ok(
+    rows.some((row) => row.content === "en:korea"),
+    "a proper-noun card is searchable exactly like any other root card"
+  );
+  const names = Object.keys(roots).filter((key) => roots[key].kind === "name");
+  console.log(
+    `      (${marked} markers over ${seen.size} labels; ${names.length} proper-noun cards)`
+  );
+});
+
 await testAsync("smoke: US-primary re-keyed words carry their page title", async () => {
   let bundle;
   try {
@@ -2467,7 +2897,7 @@ await testAsync("smoke: the shipped bundle folds, labels and indexes as specifie
     kinds[kind] = (kinds[kind] || 0) + 1;
     if (kinds[kind] > 1) continue;
     assert.ok(
-      ["prefix", "suffix", "infix", "circumfix", "root"].includes(kind),
+      ["prefix", "suffix", "infix", "circumfix", "root", "name"].includes(kind),
       `${key} carries kind ${JSON.stringify(kind)}`
     );
     assert.ok(buildRoot(key, bundle, {}).label !== "", `${key} must have a label line`);

@@ -228,6 +228,46 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
+    // A proper noun is no dictionary entry, and a proper noun a shipped word
+    // is BUILT ON gets a card like any other root (owner decision
+    // 2026-09-06). Korea is the morpheme korean is made of, so its chip
+    // opens the card the page carries.
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      fr: 4210,
+      morphs: [
+        { f: "Korea", r: "en:korea" },
+        { f: "-an", r: "en:-an" }
+      ]
+    },
+    // The register a sense carries (owner decision 2026-09-06). Both the
+    // word and the proper noun it is built on are marked archaic, so the
+    // marker has to render on a definition and on a card gloss alike. The
+    // definition is long, so the clamp and its "more" control have to live
+    // with the marker in front of the text.
+    serian: {
+      senses: [{ pos: "adj", defs: [
+        "Synonym of Chinese or Northern Chinese, chiefly in the context of " +
+          "ancient Greco-Roman knowledge of China and its role as the " +
+          "origin of silk."
+      ], lb: [["archaic"]] }],
+      fr: 761252,
+      morphs: [
+        { f: "Seres", r: "en:seres" },
+        { f: "-ian", r: "en:-ian" }
+      ]
+    },
+    // The residue of the proper-noun rule: a page whose folded key another
+    // page already claimed gets no card, because the key cannot say which
+    // page it names. The chip stays inert and keeps the gloss it had.
+    lappish: {
+      senses: [{ pos: "adj", defs: ["Of or relating to the Lapps."] }],
+      fr: 41000,
+      morphs: [
+        { f: "Lapp", g: "A region in northern Europe." },
+        { f: "-ish", r: "en:-ish" }
+      ]
+    },
     // The US-primary re-key case. "favorite" is the shipped key and
     // "favourite" maps to it, but the Wiktionary content lives on the British
     // page: the US page there is only a pointer, so the card carries `wik` and
@@ -319,6 +359,36 @@
       fr: 6100,
       org: { r: "grc:logos", f: "λόγος" }
     },
+    // A row-only origin (SPEC "Origin subsystem, source graphs", 2026-09-05):
+    // the deepest named origin is a language with no cards, so the entry
+    // carries {lang, f, gloss} with no r and the row renders present and
+    // inert.
+    sky: {
+      senses: [{ pos: "noun", defs: ["The atmosphere above a point on the earth."] }],
+      fr: 1100,
+      org: { lang: "non", f: "ský", gloss: "cloud" }
+    },
+    // A single origin row naming a Greek root: the romanization goes first
+    // inside the parentheses, before the gloss. The root builds one word,
+    // which is a valid card under never-silent.
+    idea: {
+      senses: [{ pos: "noun", defs: ["An image formed in the mind."] }],
+      fr: 285,
+      org: { r: "grc:idea", f: "ἰδέα" }
+    },
+    // A decomposed Greek origin: a chip in Greek script carries its
+    // romanization as a line between the form and the gloss.
+    system: {
+      senses: [{ pos: "noun", defs: ["A set of connected things forming a whole."] }],
+      fr: 752,
+      org: {
+        l: "σύστημα", lang: "grc",
+        parts: [
+          { f: "συν-", r: "grc:syn-" },
+          { f: "ἵστημι", r: "grc:histemi" }
+        ]
+      }
+    },
     // The long-gloss case. Real root glosses run to the 160-character safety
     // cap and thousands of word cards carry one past 80, so a chip here has a
     // gloss the clamp has to hold.
@@ -406,6 +476,32 @@
         { word: "subterranean", fr: 61254 }
       ]
     },
+    "en:-ian": {
+      form: "-ian", lang: "en", gloss: "forming adjectives and demonyms",
+      kind: "suffix",
+      family: [{ word: "serian", fr: 761252 }]
+    },
+    "en:-ish": {
+      form: "-ish", lang: "en", gloss: "of the nature of", kind: "suffix",
+      family: [{ word: "lappish", fr: 41000 }]
+    },
+    // A proper-noun card (owner decision 2026-09-06): the page title as the
+    // form, the folded title as the key, the page's own sense as the gloss,
+    // and a family of the one word that names it, which is a card.
+    "en:korea": {
+      form: "Korea", lang: "en", kind: "name",
+      gloss: "A geographic region in East Asia, consisting of two countries, " +
+        "commonly known as South Korea and North Korea",
+      family: [{ word: "korean", fr: 4210 }]
+    },
+    // The same, carrying the register of the sense its gloss came from: the
+    // card says archaic above its family.
+    "en:seres": {
+      form: "Seres", lang: "en", kind: "name", lb: ["archaic"],
+      gloss: "Synonym of Chinese or Northern Chinese, chiefly in the context " +
+        "of ancient Greco-Roman knowledge of China",
+      family: [{ word: "serian", fr: 761252 }]
+    },
     "en:-ic": {
       form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix",
       family: [
@@ -456,6 +552,22 @@
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
       ]
     },
+    // A one-word family: the card is valid and its label has a singular.
+    "grc:idea": {
+      form: "ἰδέα", rom: "idéa", lang: "grc", gloss: "form, shape", kind: "root",
+      family: [{ word: "idea", fr: 285 }]
+    },
+    // The Greek parts of system's row, each with a romanization for the chip.
+    "grc:syn-": {
+      form: "συν-", rom: "sun-", lang: "grc", gloss: "with, together",
+      kind: "prefix",
+      family: [{ word: "system", fr: 752 }]
+    },
+    "grc:histemi": {
+      form: "ἵστημι", rom: "hístēmi", lang: "grc", gloss: "to stand; to set",
+      kind: "root",
+      family: [{ word: "system", fr: 752 }]
+    },
     // The lemma remember's chain reaches, through a curated alias.
     "la:memor": {
       form: "memor", lang: "la", gloss: "mindful", kind: "root",
@@ -471,12 +583,14 @@
         { word: "kindly", def: "In a kind manner.", fr: 11000 }
       ]
     },
-    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    // A gloss at the safety cap whose FIRST CLAUSE is long, so both halves of
+    // the chip rule have something real to hold: the chip cuts to the clause
+    // and the clause is still long enough for the two-line clamp to bite.
     "grc:phos": {
       form: "φῶς", rom: "phos", lang: "grc",
-      gloss: "light, the light of day; the light of a torch or a fire, and " +
-        "by extension the light of life, of deliverance, of happiness, or of " +
-        "a great man who sheds light around him",
+      gloss: "the light of day and the light of a torch or of a fire alike, " +
+        "and by extension the light of life, of deliverance, or of a great " +
+        "man who sheds light around him",
       kind: "root",
       family: [
         { word: "photograph", fr: 7300 },
@@ -529,83 +643,74 @@
   var INLINE_FAMILY = 8;   // rows a root response carries (SPEC)
   var FAMILY_CHUNK = 200;  // rows one {type:"family"} chunk carries (SPEC)
 
-  // The tier the worker joins onto every word match and family row. The
-  // cutoffs live in lookup.js; this is the same rule, so the fixture speaks
-  // the protocol rather than the data.
-  function tier(fr) {
-    if (typeof fr !== "number" || fr <= 0) return "rare";
-    if (fr <= 3000) return "everyday";
-    if (fr <= 15000) return "common";
-    if (fr <= 50000) return "advanced";
-    return "rare";
-  }
-
-  // The worker joins the chip's WORDING beside the tier, so no surface has to
-  // re-word a classification. The protocol value stays lowercase.
-  function tierLabel(zone) {
-    return zone.charAt(0).toUpperCase() + zone.slice(1);
-  }
-
   /* ------------------------------------------------------------------ *
-   * The worker's lookup behavior, per SPEC:
-   * token extraction, case folding, forms map, then the suffix rules.
+   * The worker's lookup behavior is NOT reimplemented here.
+   *
+   * This block used to carry its own token rule, its own suffix rules and
+   * its own tier cutoffs. All three had drifted from extension/lookup.js,
+   * and the drift was invisible because the copied resolver never ran: every
+   * check reached its entry by an exact key or through the FORMS fixture.
+   * The page imports the shipped module and calls it, so a rule that moves
+   * there moves here.
+   *
+   * The fixtures are still the gate. resolve() reads whatever tables it is
+   * handed, and the page hands it WORDS and FORMS in the shape the shipped
+   * bundle has.
+   *
+   * A dynamic import needs an http origin, so the page has to be served, as
+   * the README already says. The import starts here and is exposed as
+   * __ready. The self-checks await it before their first check, because the
+   * builders below call tierOf synchronously.
    * ------------------------------------------------------------------ */
 
-  var TOKEN_RE = /[A-Za-z][A-Za-z'-]*/;
+  var DATA = { words: { words: WORDS }, forms: { map: FORMS } };
 
-  function extractWord(text) {
-    var hit = TOKEN_RE.exec(String(text || ""));
-    return hit ? hit[0].slice(0, 40) : "";
+  var REAL = null;
+  var READY = import("../extension/lookup.js").then(function (mod) {
+    REAL = mod;
+    return mod;
+  });
+
+  function real() {
+    if (REAL === null) {
+      throw new Error("extension/lookup.js has not loaded: await " +
+        "__etymikonTestRuntime.__ready, and serve this page over http");
+    }
+    return REAL;
   }
 
-  // Each rule turns a surface into a candidate lemma; the first candidate
-  // that is a shipped word wins.
-  function suffixCandidates(word) {
-    var out = [];
-    function add(value) { if (value && out.indexOf(value) < 0) out.push(value); }
-    if (/ies$/.test(word)) add(word.slice(0, -3) + "y");
-    if (/es$/.test(word)) add(word.slice(0, -2));
-    if (/s$/.test(word)) add(word.slice(0, -1));
-    if (/ed$/.test(word)) {
-      add(word.slice(0, -2));
-      add(word.slice(0, -1));
-    }
-    if (/ing$/.test(word)) {
-      add(word.slice(0, -3));
-      add(word.slice(0, -3) + "e");
-      // Doubled consonant: "running" -> "run".
-      var stem = word.slice(0, -3);
-      if (stem.length > 2 && stem.charAt(stem.length - 1) === stem.charAt(stem.length - 2)) {
-        add(stem.slice(0, -1));
-      }
-    }
-    if (/er$/.test(word)) add(word.slice(0, -2));
-    if (/est$/.test(word)) add(word.slice(0, -3));
-    return out;
-  }
+  // The tier the worker joins onto every word match and family row, and the
+  // wording it joins beside it. Both come from lookup.js, where TIER_CUTOFFS
+  // is the one place the cutoffs exist. The protocol value stays lowercase.
+  function tier(fr) { return real().tierOf(fr); }
 
-  function resolve(word) {
-    var lower = word.toLowerCase();
-    if (WORDS[lower]) return { lemma: lower, inflected: false };
-    if (FORMS[lower] && WORDS[FORMS[lower]]) {
-      return { lemma: FORMS[lower], inflected: true };
-    }
-    var candidates = suffixCandidates(lower);
-    for (var i = 0; i < candidates.length; i++) {
-      if (WORDS[candidates[i]]) return { lemma: candidates[i], inflected: true };
-    }
-    return null;
+  function tierLabel(zone) { return real().TIER_LABELS[zone]; }
+
+  // Token extraction, case folding, the forms map and the suffix rules, all
+  // of them the shipped ones. `lemma` is the words.json key, `surface` is the
+  // token with its selected casing, and `inflected` says the surface was not
+  // that key.
+  function resolve(text) {
+    var hit = real().resolve(text, DATA);
+    if (hit === null) return null;
+    return { surface: hit.surface, lemma: hit.canonical, inflected: !!hit.formOf };
   }
 
   // The worker joins each morph's gloss: the root gloss for an r chip, the
-  // word's first def for a w chip. A morph with neither comes back bare.
+  // word's first def for a w chip. A morph with neither states its own gloss
+  // in `g` or comes back bare.
   function joinMorphs(morphs) {
     return (morphs || []).map(function (part) {
       var out = { f: part.f };
       if (part.r) {
         out.r = part.r;
         var root = ROOTS[part.r];
-        if (root && root.gloss) out.gloss = root.gloss;
+        // A part that states its own sense wins over the root card's, which
+        // one card cannot follow for every parent at once.
+        var stated = part.g || (root && root.gloss);
+        if (stated) out.gloss = stated;
+        // The root's romanization rides on the chip, exactly like the worker.
+        if (root && root.rom) out.rom = root.rom;
         return out;
       }
       if (part.w) {
@@ -613,7 +718,9 @@
         var word = WORDS[part.w];
         var first = word && word.senses && word.senses[0];
         if (first && first.defs && first.defs[0]) out.gloss = first.defs[0];
+        return out;
       }
+      if (part.g) out.gloss = part.g;
       return out;
     });
   }
@@ -629,7 +736,11 @@
     var match = {
       kind: "word", surface: surface, canonical: lemma,
       senses: entry.senses.map(function (sense) {
-        return { pos: sense.pos, defs: sense.defs.slice() };
+        var out = { pos: sense.pos, defs: sense.defs.slice() };
+        // The register markers travel parallel to the definitions, exactly
+        // as the worker joins them, and only where a section has one.
+        if (sense.lb) out.lb = sense.lb.map(function (one) { return one.slice(); });
+        return out;
       })
     };
     if (typeof entry.fr === "number") match.fr = entry.fr;
@@ -644,10 +755,17 @@
         l: entry.org.l, lang: entry.org.lang,
         parts: joinMorphs(entry.org.parts)
       };
-    } else if (entry.org) {
+    } else if (entry.org && entry.org.r) {
       match.org = { r: entry.org.r, f: entry.org.f };
       var root = ROOTS[entry.org.r];
       if (root && root.gloss) match.org.gloss = root.gloss;
+      if (root && root.rom) match.org.rom = root.rom;
+    } else if (entry.org) {
+      // Row-only: no root entry to join from, so the row passes through
+      // unjoined, exactly like the worker.
+      match.org = { lang: entry.org.lang, f: entry.org.f };
+      if (entry.org.gloss) match.org.gloss = entry.org.gloss;
+      if (entry.org.rom) match.org.rom = entry.org.rom;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
     // Omitted when nothing is built on this word, exactly like the worker.
@@ -660,12 +778,10 @@
   }
 
   function lookup(text) {
-    var word = extractWord(text);
-    if (!word) return { ok: true, matches: [] };
-    var hit = resolve(word);
+    var hit = resolve(text);
     if (!hit) return { ok: true, matches: [] };
     // `surface` keeps the selected casing; `canonical` is the matched key.
-    return { ok: true, matches: [wordMatch(word, hit.lemma, hit.inflected)] };
+    return { ok: true, matches: [wordMatch(hit.surface, hit.lemma, hit.inflected)] };
   }
 
   /* ------------------------------------------------------------------ *
@@ -738,6 +854,9 @@
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
+    // The register of the sense the card's gloss came from, joined the way a
+    // definition's markers are so one renderer prints both.
+    if (root.lb) out.lb = root.lb.slice();
     // An anchor's own split, joined exactly as a word's org parts are.
     if (root.parts) out.parts = joinMorphs(root.parts);
     // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
@@ -887,7 +1006,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it.
+      // The export says what the chip says: the fourth tier is
+      // keyed `rare` and labelled Rare.
       row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
@@ -899,6 +1019,11 @@
   function rootLabel(root) {
     if (root.kind === "prefix") return "Prefix";
     if (root.kind === "suffix") return "Suffix";
+    if (root.kind === "name") {
+      if (root.lang === "la") return "Latin proper noun";
+      if (root.lang === "grc") return "Greek proper noun";
+      return "Proper noun";
+    }
     if (root.lang === "la") return "Latin root";
     if (root.lang === "grc") return "Greek root";
     return "English root";
@@ -1192,6 +1317,25 @@
     __lastOpenTabUrl: null,
     __failOpenTab: false,
     sendMessage: function (msg, cb) {
+      var self = this;
+      // The boot chain below runs as shipped, from plain script tags, so it
+      // can reach the fake before the dynamic import of lookup.js lands.
+      // real() throws then, the catch turns that into {ok:false}, and a
+      // read-once pending query is spent on a lookup that renders nothing:
+      // the panel stays unmounted for the rest of the run. Under load that
+      // failed two runs in five. Traffic arriving early waits for the module
+      // rather than being answered wrongly. Once it has landed this branch
+      // is never taken, so response timing is unchanged.
+      if (REAL === null) {
+        var pending = READY.then(function () {
+          return self.sendMessage(msg, undefined);
+        });
+        if (typeof cb === "function") {
+          pending.then(function (r) { setTimeout(function () { cb(r); }, 0); });
+          return undefined;
+        }
+        return pending;
+      }
       // Dictionary traffic only. The saved store keeps its own counters, so
       // every "this view was served from cache" proof stays a statement about
       // LOOKUPS and does not quietly start counting savedCheck round trips.
@@ -1234,6 +1378,9 @@
       if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
       return Promise.resolve(resp);
     },
+    // The real extension/lookup.js, once its dynamic import has landed. The
+    // fake cannot resolve or tier anything until it has.
+    __ready: READY,
     __lookup: lookup,
     __root: rootResponse,
     __family: rankedFamily,
@@ -1307,6 +1454,17 @@
   document.getElementById("run").addEventListener("click", async function () {
     var api = globalThis.__etymikon;
     if (!api) { out.textContent = "FAIL: __etymikon test hooks missing (is chrome.runtime present?)"; return; }
+    // The fake resolves and tiers through the real extension/lookup.js, which
+    // it loads by dynamic import. Await it before the first check, so no check
+    // races the module. A failure here is the file:// case: the module cannot
+    // load without an http origin.
+    try {
+      await globalThis.__etymikonTestRuntime.__ready;
+    } catch (e) {
+      out.textContent = "FAIL: extension/lookup.js did not load (" + e +
+        "); serve the repo over http, since file:// cannot import a module";
+      return;
+    }
     var lines = [], pass = 0, fail = 0, skipped = 0;
     function check(name, cond, detail) {
       (cond ? pass++ : fail++);
@@ -1379,8 +1537,14 @@
       r2.matches[0].formOf.surface === "territories" &&
       r2.matches[0].formOf.lemma === "territory",
       JSON.stringify(r2.matches[0].formOf));
-    check("the suffix rules cover running → run",
-      fake.__lookup("running").matches[0].canonical === "run");
+    // A surface the FORMS fixture does not carry, so it can only arrive
+    // through the suffix rules, and one that needs a repair to get there: the
+    // `er` rule proposes "runn", the doubled-consonant repair makes it "run".
+    var r3 = fake.__lookup("runner");
+    check("the suffix rules cover runner → run, through the doubled-consonant repair",
+      r3.matches.length === 1 && r3.matches[0].canonical === "run" &&
+      r3.matches[0].formOf.lemma === "run",
+      JSON.stringify(r3.matches.map(function (m) { return m.canonical; })));
     check("a word with no entry returns no matches",
       fake.__lookup("blorp").matches.length === 0);
 
@@ -1458,8 +1622,8 @@
       api.query(".tier-chip").textContent === "Common" &&
       api.query(".tier-chip").title === "Rank 3,001 to 15,000 by frequency");
     show("cranberry");
-    check("Advanced is the 15,001 to 50,000 chip",
-      api.query(".tier-chip").textContent === "Advanced" &&
+    check("Uncommon is the 15,001 to 50,000 chip",
+      api.query(".tier-chip").textContent === "Uncommon" &&
       api.query(".tier-chip").title === "Rank 15,001 to 50,000 by frequency");
 
     // --- the worker owns the wording -----------------------------------------
@@ -1520,16 +1684,148 @@
           chip.getAttribute("tabindex") === "0";
       }));
 
-    // --- a long chip gloss is bounded and clamped ------------------------
+    // --- the proper-noun card (owner decision 2026-09-06) -----------------
+    // A proper noun is no dictionary entry, and a proper noun a shipped word
+    // is BUILT ON is a card like any other root: the chip opens it, the label
+    // says what it is, and a family of one word is a family.
+    show("korean");
+    var properChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip is a nav chip like every other chip",
+      properChip.classList.contains("nav") &&
+      !properChip.classList.contains("inert") &&
+      properChip.getAttribute("role") === "button" &&
+      properChip.getAttribute("tabindex") === "0",
+      properChip.className + " tabindex=" + properChip.getAttribute("tabindex"));
+    check("the proper-noun chip shows the page's own sense",
+      properChip.querySelector(".morph-gloss") !== null &&
+      properChip.querySelector(".morph-gloss").textContent
+        .indexOf("A geographic region in East Asia") === 0,
+      texts(api.queryAll(".morph-gloss")).join(" | "));
+    properChip.click();
+    await checkSoon("the chip opens the proper noun's card",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.root") &&
+          api.query(".surface").textContent === "Korea";
+      },
+      function () {
+        return "depth=" + api.viewDepth() + " text=" + api.query(".surface").textContent;
+      });
+    check("the card names itself a proper noun and nothing else",
+      api.query(".rootlabel").textContent === "Proper noun",
+      api.query(".rootlabel").textContent);
+    check("a family of one word is a family",
+      labels().join("/").indexOf("BUILDS 1 WORD") >= 0 &&
+      texts(api.queryAll(".fam-word")).join(",") === "korean",
+      labels().join("/") + " rows=" + texts(api.queryAll(".fam-word")).join(","));
+    check("the trail reads korean \u203a Korea",
+      api.crumbLabels().join(" \u203a ") === "korean \u203a Korea",
+      api.crumbLabels().join(" \u203a "));
+
+    // --- the register a sense carries (owner decision 2026-09-06) ---------
+    // The source marks a sense obsolete, slang or a slur and the card says so
+    // in front of the definition, in the muted style a dictionary uses. The
+    // marker lives INSIDE the clamped text, so the two-line clamp and the
+    // geometry-derived "more" control read the line exactly as before.
+    api.resetPanelSize();
+    show("serian");
+    var senseText = api.query(".gloss-text");
+    var mark = senseText.querySelector(".sense-lb");
+    check("a marked sense states its register before the definition",
+      mark !== null && mark.textContent === "archaic" &&
+      senseText.firstChild === mark,
+      senseText.textContent.slice(0, 40));
+    check("the marker reads in the muted style, not the definition's",
+      getComputedStyle(mark).fontStyle === "italic" &&
+      getComputedStyle(mark).color !== getComputedStyle(senseText).color,
+      getComputedStyle(mark).fontStyle + " " + getComputedStyle(mark).color);
+    check("the definition itself is untouched behind the marker",
+      senseText.textContent.indexOf("archaic Synonym of Chinese") === 0,
+      senseText.textContent.slice(0, 40));
+    check("the marker sits inside the clamp, so the clamp still holds it",
+      senseText.classList.contains("clamp") &&
+      senseText.contains(mark),
+      senseText.className);
+    await checkSoon("a marked sense that overflows still offers its more control",
+      function () {
+        var more = api.query(".gloss .more");
+        return !!more && more.textContent.indexOf("more") >= 0;
+      },
+      function () {
+        return "control=" + (api.query(".gloss .more") || {}).textContent;
+      });
+    api.query(".gloss .more").click();
+    await checkSoon("expanding a marked sense shows the whole line, marker and all",
+      function () {
+        return senseText.classList.contains("expanded") &&
+          senseText.textContent.indexOf("origin of silk.") > 0;
+      },
+      function () { return senseText.className; });
+    show("run");
+    check("a word the source marked nothing on carries no markers",
+      api.queryAll(".sense-lb").length === 0,
+      "markers=" + api.queryAll(".sense-lb").length);
+
+    // The card a chip opens states its register the same way.
+    show("serian");
+    api.queryAll(".morph")[0].click();
+    await checkSoon("a card states the register of the sense its gloss came from",
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return !!m && m.textContent === "archaic" &&
+          api.query(".rootlabel").textContent === "Proper noun";
+      },
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return "marker=" + (m ? m.textContent : "none");
+      });
+
+    // --- the inert chip that still says something -------------------------
+    // The residue of the proper-noun rule: a page whose folded key another
+    // page already claimed gets no card, because the key cannot say which
+    // page it names. The chip keeps the gloss it had and opens nothing.
+    show("lappish");
+    var residueChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip with no card stays inert and clickable by nothing",
+      residueChip.classList.contains("inert") &&
+      !residueChip.classList.contains("nav") &&
+      !residueChip.hasAttribute("tabindex") && !residueChip.hasAttribute("role"),
+      residueChip.className + " tabindex=" + residueChip.getAttribute("tabindex"));
+    check("the inert proper-noun chip carries its own gloss",
+      residueChip.querySelector(".morph-gloss") !== null &&
+      residueChip.querySelector(".morph-gloss").textContent ===
+        "A region in northern Europe.",
+      texts(api.queryAll(".morph-gloss")).join(" | "));
+    var depthBeforeProper = api.viewDepth();
+    residueChip.click();
+    await elapse(40);
+    check("clicking the inert proper-noun chip navigates nowhere",
+      api.viewDepth() === depthBeforeProper, "depth=" + api.viewDepth());
+    show("cranberry");
+    check("an inert chip with no gloss of its own still renders bare",
+      api.queryAll(".morph")[0].classList.contains("inert") &&
+      api.queryAll(".morph")[0].querySelector(".morph-gloss") === null,
+      api.queryAll(".morph")[0].textContent);
+
+    // --- a long chip gloss is cut to its clause, bounded and clamped -----
     // The one place a root gloss could dominate the card it explains: real
-    // glosses reach the 160-character cap, so the chip caps its width and the
-    // gloss stops at two lines.
+    // glosses reach the 160-character cap, so the chip shows the first clause
+    // and no more, caps its width, and clamps what is left to two lines. The
+    // card the chip opens keeps every word of the same gloss.
     api.resetPanelSize();
     show("photograph");
     await until(function () { return api.queryAll(".morph-gloss").length === 2; });
     var longGloss = api.queryAll(".morph-gloss")[0];
-    check("test setup: the fixture chip really does carry a long gloss",
-      longGloss.textContent.length > 120, "chars=" + longGloss.textContent.length);
+    var wholeGloss = fake.__root("grc:phos").root.gloss;
+    check("test setup: the fixture root really does carry a long gloss",
+      wholeGloss.length > 120, "chars=" + wholeGloss.length);
+    check("a chip gloss past the budget is cut to its first clause",
+      longGloss.textContent === "the light of day and the light of a torch or of a fire alike",
+      longGloss.textContent);
+    check("the cut lands on a clause of the gloss and dangles no punctuation",
+      wholeGloss.indexOf(longGloss.textContent) === 0 &&
+      !/[\s,;:.]$/.test(longGloss.textContent) &&
+      wholeGloss.charAt(longGloss.textContent.length) === ",",
+      JSON.stringify(longGloss.textContent.slice(-12)));
     var chipBox = api.queryAll(".morph")[0].getBoundingClientRect();
     check("the chip is bounded and never spans the card",
       chipBox.width <= 121 && chipBox.width < api.hostRect().width / 2,
@@ -1548,6 +1844,24 @@
       "controls=" + api.queryAll(".morph .more").length);
     check("the whole card stays short despite the long gloss",
       api.hostRect().height <= 360.5, "h=" + Math.round(api.hostRect().height));
+    // The other half of the rule: the card the chip opens is where the whole
+    // definition belongs, and it keeps it.
+    api.showRoot(anchor, fake.__root("grc:phos").root);
+    await until(function () { return !!api.query(".card.root"); });
+    var cardGloss = api.query(".gloss-text").textContent;
+    check("the root card the chip opens keeps the gloss whole",
+      // The sense list capitalizes the first letter and touches nothing else,
+      // so every word after it has to match the gloss the chip cut.
+      cardGloss.slice(1) === wholeGloss.slice(1) && cardGloss.length > 120,
+      cardGloss);
+    // A gloss inside the budget is left exactly as the data wrote it, clause
+    // punctuation included: the trim is for the ones that overrun, not a
+    // rewrite of every chip.
+    show("system");
+    check("a gloss inside the budget keeps its own clauses",
+      texts(api.queryAll(".morph-gloss")).join(" | ") ===
+        "with, together | to stand; to set",
+      texts(api.queryAll(".morph-gloss")).join(" | "));
     show("subterranean");
 
     // --- a chip opens the root card --------------------------------------
@@ -1921,6 +2235,61 @@
       !api.query(".morphs") && !!api.query(".origin-row") &&
       api.query(".origin-row").textContent === "From Latin terra (earth, land)",
       api.query(".origin-row").textContent);
+
+    // --- row-only origins, romanized rows and chips (2026-09-05) ---------------
+    // A row-only origin has no card behind it: the row is present and inert.
+    show("sky");
+    var rowOnly = api.query(".origin-row");
+    check("a row-only origin renders one inert row naming the language",
+      !!rowOnly && rowOnly.classList.contains("inert") &&
+      rowOnly.textContent === "From Old Norse ský (cloud)",
+      rowOnly ? rowOnly.textContent + " / " + rowOnly.className : "no row");
+    check("the row-only row carries no nav affordance at all",
+      !rowOnly.classList.contains("nav") && !rowOnly.hasAttribute("tabindex") &&
+      !rowOnly.hasAttribute("role") &&
+      getComputedStyle(rowOnly, "::after").content === "none",
+      rowOnly.className + " after=" + getComputedStyle(rowOnly, "::after").content);
+    var callsBeforeRowOnly = fake.__calls + fake.__rootCalls;
+    rowOnly.click();
+    await elapse(40);
+    check("clicking the row-only row does nothing at all",
+      api.viewDepth() === 1 && fake.__calls + fake.__rootCalls === callsBeforeRowOnly,
+      "depth=" + api.viewDepth());
+    // A single row naming a Greek root puts the romanization first inside
+    // the parentheses, before the gloss.
+    show("idea");
+    var greekRow = api.query(".origin-row");
+    check("a single row in Greek script reads the romanization before the gloss",
+      !!greekRow && greekRow.classList.contains("nav") &&
+      greekRow.textContent === "From Greek ἰδέα (idéa; form, shape)",
+      greekRow ? greekRow.textContent : "no row");
+    check("a Latin-script single row carries no romanization",
+      (function () { show("terrain"); return api.query(".origin-row").textContent; })() ===
+        "From Latin terra (earth, land)",
+      api.query(".origin-row").textContent);
+    // A chip in Greek script carries its romanization as a line between the
+    // form and the gloss, in the root card's muted register.
+    show("system");
+    var greekChip = api.queryAll(".morph")[0];
+    check("a Greek chip carries a romanization line between form and gloss",
+      texts(api.queryAll(".morph-rom")).join(" ") === "sun- hístēmi" &&
+      texts(greekChip.children).join(" | ") === "συν- | sun- | with, together",
+      texts(greekChip.children).join(" | "));
+    check("the romanization line uses the muted colour of the root card's rom",
+      getComputedStyle(api.query(".morph-rom")).color ===
+        getComputedStyle(api.query(".morph-gloss")).color,
+      getComputedStyle(api.query(".morph-rom")).color);
+    show("territory");
+    check("a Latin-script chip carries no romanization line",
+      api.queryAll(".morph-rom").length === 0,
+      "rom lines=" + api.queryAll(".morph-rom").length);
+    // A root that builds one word is a valid card, labelled in the singular.
+    api.showRoot(anchor, fake.__root("grc:idea").root);
+    await until(function () { return !!api.query(".fam-row"); });
+    check("a one-word family renders its card with BUILDS 1 WORD",
+      labels().indexOf("BUILDS 1 WORD") >= 0 && api.queryAll(".fam-row").length === 1 &&
+      api.query(".surface").textContent === "ἰδέα" && api.query(".rom").textContent === "idéa",
+      labels().join("/") + " rows=" + api.queryAll(".fam-row").length);
 
     // --- used in N words -------------------------------------------------------
     show("absolute");

@@ -59,7 +59,7 @@
       key: "defaultFolderId",
       group: "Saving",
       type: "folder-select",
-      label: "By default, save new items to",
+      label: "By default, newly saved items go to",
       optionsFrom: "folders"
     },
     {

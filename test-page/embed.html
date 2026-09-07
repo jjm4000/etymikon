@@ -237,6 +237,46 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
+    // A proper noun is no dictionary entry, and a proper noun a shipped word
+    // is BUILT ON gets a card like any other root (owner decision
+    // 2026-09-06). Korea is the morpheme korean is made of, so its chip
+    // opens the card the page carries.
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      fr: 4210,
+      morphs: [
+        { f: "Korea", r: "en:korea" },
+        { f: "-an", r: "en:-an" }
+      ]
+    },
+    // The register a sense carries (owner decision 2026-09-06). Both the
+    // word and the proper noun it is built on are marked archaic, so the
+    // marker has to render on a definition and on a card gloss alike. The
+    // definition is long, so the clamp and its "more" control have to live
+    // with the marker in front of the text.
+    serian: {
+      senses: [{ pos: "adj", defs: [
+        "Synonym of Chinese or Northern Chinese, chiefly in the context of " +
+          "ancient Greco-Roman knowledge of China and its role as the " +
+          "origin of silk."
+      ], lb: [["archaic"]] }],
+      fr: 761252,
+      morphs: [
+        { f: "Seres", r: "en:seres" },
+        { f: "-ian", r: "en:-ian" }
+      ]
+    },
+    // The residue of the proper-noun rule: a page whose folded key another
+    // page already claimed gets no card, because the key cannot say which
+    // page it names. The chip stays inert and keeps the gloss it had.
+    lappish: {
+      senses: [{ pos: "adj", defs: ["Of or relating to the Lapps."] }],
+      fr: 41000,
+      morphs: [
+        { f: "Lapp", g: "A region in northern Europe." },
+        { f: "-ish", r: "en:-ish" }
+      ]
+    },
     // The US-primary re-key case. "favorite" is the shipped key and
     // "favourite" maps to it, but the Wiktionary content lives on the British
     // page: the US page there is only a pointer, so the card carries `wik` and
@@ -328,6 +368,36 @@
       fr: 6100,
       org: { r: "grc:logos", f: "λόγος" }
     },
+    // A row-only origin (SPEC "Origin subsystem, source graphs", 2026-09-05):
+    // the deepest named origin is a language with no cards, so the entry
+    // carries {lang, f, gloss} with no r and the row renders present and
+    // inert.
+    sky: {
+      senses: [{ pos: "noun", defs: ["The atmosphere above a point on the earth."] }],
+      fr: 1100,
+      org: { lang: "non", f: "ský", gloss: "cloud" }
+    },
+    // A single origin row naming a Greek root: the romanization goes first
+    // inside the parentheses, before the gloss. The root builds one word,
+    // which is a valid card under never-silent.
+    idea: {
+      senses: [{ pos: "noun", defs: ["An image formed in the mind."] }],
+      fr: 285,
+      org: { r: "grc:idea", f: "ἰδέα" }
+    },
+    // A decomposed Greek origin: a chip in Greek script carries its
+    // romanization as a line between the form and the gloss.
+    system: {
+      senses: [{ pos: "noun", defs: ["A set of connected things forming a whole."] }],
+      fr: 752,
+      org: {
+        l: "σύστημα", lang: "grc",
+        parts: [
+          { f: "συν-", r: "grc:syn-" },
+          { f: "ἵστημι", r: "grc:histemi" }
+        ]
+      }
+    },
     // The long-gloss case. Real root glosses run to the 160-character safety
     // cap and thousands of word cards carry one past 80, so a chip here has a
     // gloss the clamp has to hold.
@@ -415,6 +485,32 @@
         { word: "subterranean", fr: 61254 }
       ]
     },
+    "en:-ian": {
+      form: "-ian", lang: "en", gloss: "forming adjectives and demonyms",
+      kind: "suffix",
+      family: [{ word: "serian", fr: 761252 }]
+    },
+    "en:-ish": {
+      form: "-ish", lang: "en", gloss: "of the nature of", kind: "suffix",
+      family: [{ word: "lappish", fr: 41000 }]
+    },
+    // A proper-noun card (owner decision 2026-09-06): the page title as the
+    // form, the folded title as the key, the page's own sense as the gloss,
+    // and a family of the one word that names it, which is a card.
+    "en:korea": {
+      form: "Korea", lang: "en", kind: "name",
+      gloss: "A geographic region in East Asia, consisting of two countries, " +
+        "commonly known as South Korea and North Korea",
+      family: [{ word: "korean", fr: 4210 }]
+    },
+    // The same, carrying the register of the sense its gloss came from: the
+    // card says archaic above its family.
+    "en:seres": {
+      form: "Seres", lang: "en", kind: "name", lb: ["archaic"],
+      gloss: "Synonym of Chinese or Northern Chinese, chiefly in the context " +
+        "of ancient Greco-Roman knowledge of China",
+      family: [{ word: "serian", fr: 761252 }]
+    },
     "en:-ic": {
       form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix",
       family: [
@@ -465,6 +561,22 @@
         { word: "etymon", def: "The word a later word came from.", fr: 140000 }
       ]
     },
+    // A one-word family: the card is valid and its label has a singular.
+    "grc:idea": {
+      form: "ἰδέα", rom: "idéa", lang: "grc", gloss: "form, shape", kind: "root",
+      family: [{ word: "idea", fr: 285 }]
+    },
+    // The Greek parts of system's row, each with a romanization for the chip.
+    "grc:syn-": {
+      form: "συν-", rom: "sun-", lang: "grc", gloss: "with, together",
+      kind: "prefix",
+      family: [{ word: "system", fr: 752 }]
+    },
+    "grc:histemi": {
+      form: "ἵστημι", rom: "hístēmi", lang: "grc", gloss: "to stand; to set",
+      kind: "root",
+      family: [{ word: "system", fr: 752 }]
+    },
     // The lemma remember's chain reaches, through a curated alias.
     "la:memor": {
       form: "memor", lang: "la", gloss: "mindful", kind: "root",
@@ -480,12 +592,14 @@
         { word: "kindly", def: "In a kind manner.", fr: 11000 }
       ]
     },
-    // A gloss at the safety cap, so the chip clamp has something real to hold.
+    // A gloss at the safety cap whose FIRST CLAUSE is long, so both halves of
+    // the chip rule have something real to hold: the chip cuts to the clause
+    // and the clause is still long enough for the two-line clamp to bite.
     "grc:phos": {
       form: "φῶς", rom: "phos", lang: "grc",
-      gloss: "light, the light of day; the light of a torch or a fire, and " +
-        "by extension the light of life, of deliverance, of happiness, or of " +
-        "a great man who sheds light around him",
+      gloss: "the light of day and the light of a torch or of a fire alike, " +
+        "and by extension the light of life, of deliverance, or of a great " +
+        "man who sheds light around him",
       kind: "root",
       family: [
         { word: "photograph", fr: 7300 },
@@ -538,83 +652,74 @@
   var INLINE_FAMILY = 8;   // rows a root response carries (SPEC)
   var FAMILY_CHUNK = 200;  // rows one {type:"family"} chunk carries (SPEC)
 
-  // The tier the worker joins onto every word match and family row. The
-  // cutoffs live in lookup.js; this is the same rule, so the fixture speaks
-  // the protocol rather than the data.
-  function tier(fr) {
-    if (typeof fr !== "number" || fr <= 0) return "rare";
-    if (fr <= 3000) return "everyday";
-    if (fr <= 15000) return "common";
-    if (fr <= 50000) return "advanced";
-    return "rare";
-  }
-
-  // The worker joins the chip's WORDING beside the tier, so no surface has to
-  // re-word a classification. The protocol value stays lowercase.
-  function tierLabel(zone) {
-    return zone.charAt(0).toUpperCase() + zone.slice(1);
-  }
-
   /* ------------------------------------------------------------------ *
-   * The worker's lookup behavior, per SPEC:
-   * token extraction, case folding, forms map, then the suffix rules.
+   * The worker's lookup behavior is NOT reimplemented here.
+   *
+   * This block used to carry its own token rule, its own suffix rules and
+   * its own tier cutoffs. All three had drifted from extension/lookup.js,
+   * and the drift was invisible because the copied resolver never ran: every
+   * check reached its entry by an exact key or through the FORMS fixture.
+   * The page imports the shipped module and calls it, so a rule that moves
+   * there moves here.
+   *
+   * The fixtures are still the gate. resolve() reads whatever tables it is
+   * handed, and the page hands it WORDS and FORMS in the shape the shipped
+   * bundle has.
+   *
+   * A dynamic import needs an http origin, so the page has to be served, as
+   * the README already says. The import starts here and is exposed as
+   * __ready. The self-checks await it before their first check, because the
+   * builders below call tierOf synchronously.
    * ------------------------------------------------------------------ */
 
-  var TOKEN_RE = /[A-Za-z][A-Za-z'-]*/;
+  var DATA = { words: { words: WORDS }, forms: { map: FORMS } };
 
-  function extractWord(text) {
-    var hit = TOKEN_RE.exec(String(text || ""));
-    return hit ? hit[0].slice(0, 40) : "";
+  var REAL = null;
+  var READY = import("../extension/lookup.js").then(function (mod) {
+    REAL = mod;
+    return mod;
+  });
+
+  function real() {
+    if (REAL === null) {
+      throw new Error("extension/lookup.js has not loaded: await " +
+        "__etymikonTestRuntime.__ready, and serve this page over http");
+    }
+    return REAL;
   }
 
-  // Each rule turns a surface into a candidate lemma; the first candidate
-  // that is a shipped word wins.
-  function suffixCandidates(word) {
-    var out = [];
-    function add(value) { if (value && out.indexOf(value) < 0) out.push(value); }
-    if (/ies$/.test(word)) add(word.slice(0, -3) + "y");
-    if (/es$/.test(word)) add(word.slice(0, -2));
-    if (/s$/.test(word)) add(word.slice(0, -1));
-    if (/ed$/.test(word)) {
-      add(word.slice(0, -2));
-      add(word.slice(0, -1));
-    }
-    if (/ing$/.test(word)) {
-      add(word.slice(0, -3));
-      add(word.slice(0, -3) + "e");
-      // Doubled consonant: "running" -> "run".
-      var stem = word.slice(0, -3);
-      if (stem.length > 2 && stem.charAt(stem.length - 1) === stem.charAt(stem.length - 2)) {
-        add(stem.slice(0, -1));
-      }
-    }
-    if (/er$/.test(word)) add(word.slice(0, -2));
-    if (/est$/.test(word)) add(word.slice(0, -3));
-    return out;
-  }
+  // The tier the worker joins onto every word match and family row, and the
+  // wording it joins beside it. Both come from lookup.js, where TIER_CUTOFFS
+  // is the one place the cutoffs exist. The protocol value stays lowercase.
+  function tier(fr) { return real().tierOf(fr); }
 
-  function resolve(word) {
-    var lower = word.toLowerCase();
-    if (WORDS[lower]) return { lemma: lower, inflected: false };
-    if (FORMS[lower] && WORDS[FORMS[lower]]) {
-      return { lemma: FORMS[lower], inflected: true };
-    }
-    var candidates = suffixCandidates(lower);
-    for (var i = 0; i < candidates.length; i++) {
-      if (WORDS[candidates[i]]) return { lemma: candidates[i], inflected: true };
-    }
-    return null;
+  function tierLabel(zone) { return real().TIER_LABELS[zone]; }
+
+  // Token extraction, case folding, the forms map and the suffix rules, all
+  // of them the shipped ones. `lemma` is the words.json key, `surface` is the
+  // token with its selected casing, and `inflected` says the surface was not
+  // that key.
+  function resolve(text) {
+    var hit = real().resolve(text, DATA);
+    if (hit === null) return null;
+    return { surface: hit.surface, lemma: hit.canonical, inflected: !!hit.formOf };
   }
 
   // The worker joins each morph's gloss: the root gloss for an r chip, the
-  // word's first def for a w chip. A morph with neither comes back bare.
+  // word's first def for a w chip. A morph with neither states its own gloss
+  // in `g` or comes back bare.
   function joinMorphs(morphs) {
     return (morphs || []).map(function (part) {
       var out = { f: part.f };
       if (part.r) {
         out.r = part.r;
         var root = ROOTS[part.r];
-        if (root && root.gloss) out.gloss = root.gloss;
+        // A part that states its own sense wins over the root card's, which
+        // one card cannot follow for every parent at once.
+        var stated = part.g || (root && root.gloss);
+        if (stated) out.gloss = stated;
+        // The root's romanization rides on the chip, exactly like the worker.
+        if (root && root.rom) out.rom = root.rom;
         return out;
       }
       if (part.w) {
@@ -622,7 +727,9 @@
         var word = WORDS[part.w];
         var first = word && word.senses && word.senses[0];
         if (first && first.defs && first.defs[0]) out.gloss = first.defs[0];
+        return out;
       }
+      if (part.g) out.gloss = part.g;
       return out;
     });
   }
@@ -638,7 +745,11 @@
     var match = {
       kind: "word", surface: surface, canonical: lemma,
       senses: entry.senses.map(function (sense) {
-        return { pos: sense.pos, defs: sense.defs.slice() };
+        var out = { pos: sense.pos, defs: sense.defs.slice() };
+        // The register markers travel parallel to the definitions, exactly
+        // as the worker joins them, and only where a section has one.
+        if (sense.lb) out.lb = sense.lb.map(function (one) { return one.slice(); });
+        return out;
       })
     };
     if (typeof entry.fr === "number") match.fr = entry.fr;
@@ -653,10 +764,17 @@
         l: entry.org.l, lang: entry.org.lang,
         parts: joinMorphs(entry.org.parts)
       };
-    } else if (entry.org) {
+    } else if (entry.org && entry.org.r) {
       match.org = { r: entry.org.r, f: entry.org.f };
       var root = ROOTS[entry.org.r];
       if (root && root.gloss) match.org.gloss = root.gloss;
+      if (root && root.rom) match.org.rom = root.rom;
+    } else if (entry.org) {
+      // Row-only: no root entry to join from, so the row passes through
+      // unjoined, exactly like the worker.
+      match.org = { lang: entry.org.lang, f: entry.org.f };
+      if (entry.org.gloss) match.org.gloss = entry.org.gloss;
+      if (entry.org.rom) match.org.rom = entry.org.rom;
     }
     if (entry.seeAlso) match.seeAlso = entry.seeAlso;
     // Omitted when nothing is built on this word, exactly like the worker.
@@ -669,12 +787,10 @@
   }
 
   function lookup(text) {
-    var word = extractWord(text);
-    if (!word) return { ok: true, matches: [] };
-    var hit = resolve(word);
+    var hit = resolve(text);
     if (!hit) return { ok: true, matches: [] };
     // `surface` keeps the selected casing; `canonical` is the matched key.
-    return { ok: true, matches: [wordMatch(word, hit.lemma, hit.inflected)] };
+    return { ok: true, matches: [wordMatch(hit.surface, hit.lemma, hit.inflected)] };
   }
 
   /* ------------------------------------------------------------------ *
@@ -747,6 +863,9 @@
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
+    // The register of the sense the card's gloss came from, joined the way a
+    // definition's markers are so one renderer prints both.
+    if (root.lb) out.lb = root.lb.slice();
     // An anchor's own split, joined exactly as a word's org parts are.
     if (root.parts) out.parts = joinMorphs(root.parts);
     // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
@@ -896,7 +1015,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it.
+      // The export says what the chip says: the fourth tier is
+      // keyed `rare` and labelled Rare.
       row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
@@ -908,6 +1028,11 @@
   function rootLabel(root) {
     if (root.kind === "prefix") return "Prefix";
     if (root.kind === "suffix") return "Suffix";
+    if (root.kind === "name") {
+      if (root.lang === "la") return "Latin proper noun";
+      if (root.lang === "grc") return "Greek proper noun";
+      return "Proper noun";
+    }
     if (root.lang === "la") return "Latin root";
     if (root.lang === "grc") return "Greek root";
     return "English root";
@@ -1201,6 +1326,25 @@
     __lastOpenTabUrl: null,
     __failOpenTab: false,
     sendMessage: function (msg, cb) {
+      var self = this;
+      // The boot chain below runs as shipped, from plain script tags, so it
+      // can reach the fake before the dynamic import of lookup.js lands.
+      // real() throws then, the catch turns that into {ok:false}, and a
+      // read-once pending query is spent on a lookup that renders nothing:
+      // the panel stays unmounted for the rest of the run. Under load that
+      // failed two runs in five. Traffic arriving early waits for the module
+      // rather than being answered wrongly. Once it has landed this branch
+      // is never taken, so response timing is unchanged.
+      if (REAL === null) {
+        var pending = READY.then(function () {
+          return self.sendMessage(msg, undefined);
+        });
+        if (typeof cb === "function") {
+          pending.then(function (r) { setTimeout(function () { cb(r); }, 0); });
+          return undefined;
+        }
+        return pending;
+      }
       // Dictionary traffic only. The saved store keeps its own counters, so
       // every "this view was served from cache" proof stays a statement about
       // LOOKUPS and does not quietly start counting savedCheck round trips.
@@ -1243,6 +1387,9 @@
       if (typeof cb === "function") { setTimeout(function () { cb(resp); }, 0); return undefined; }
       return Promise.resolve(resp);
     },
+    // The real extension/lookup.js, once its dynamic import has landed. The
+    // fake cannot resolve or tier anything until it has.
+    __ready: READY,
     __lookup: lookup,
     __root: rootResponse,
     __family: rankedFamily,
@@ -1454,6 +1601,18 @@
       return;
     }
 
+    // The fake resolves and tiers through the real extension/lookup.js, which
+    // it loads by dynamic import. Await it before the first check, so no check
+    // races the module. A failure here is the file:// case: the module cannot
+    // load without an http origin.
+    try {
+      await globalThis.__etymikonTestRuntime.__ready;
+    } catch (e) {
+      out.textContent = "FAIL: extension/lookup.js did not load (" + e +
+        "); serve the repo over http, since file:// cannot import a module";
+      return;
+    }
+
     var controller = shell.controller();
     var DEBOUNCE = shell.DEBOUNCE_MS;
     // Seal settle: every seal assertion reads a COMPUTED opacity, so it has to
@@ -1499,7 +1658,24 @@
     await sidebar.ready;
     // The boot search is the first thing every later check stands on, so wait
     // for the CARD rather than for a clock.
-    await until(function () { return surfaceText() === "subterranean"; });
+    //
+    // This wait is LOUD and generous, unlike the rest. `until` reports a
+    // timeout by returning false, which every caller that waits for a
+    // positive ignores, so a boot that ran slow used to leave the panel
+    // unmounted and hand three later checks an empty one to measure: the
+    // pending query rendered no cards, the panel measured 0 wide against 358,
+    // and the dismissal check read a panel that was never there. That looked
+    // like three product defects and was one slow boot. It reproduced twice
+    // in five runs with a build running beside it. Nothing downstream is
+    // worth reading if this fails, so it says so and stops.
+    if (!(await until(function () {
+      return surfaceText() === "subterranean";
+    }, 20000))) {
+      throw new Error(
+        "boot search never rendered subterranean within 20s, so every check " +
+        "below it would measure an unmounted panel. Surface read " +
+        JSON.stringify(surfaceText()) + ".");
+    }
 
     // --- boot ----------------------------------------------------------
     check("the sidebar surface exposes its registries and view controls",
@@ -1756,6 +1932,125 @@
           api.crumbLabels().join(" › ") === "territory › terra";
       },
       function () { return api.crumbLabels().join(" › "); });
+
+    // --- row-only origins, romanized rows and chips on this surface ----------
+    // All three are renderer-side, so the sidebar gets them with no code of
+    // its own: the inert row-only row, the romanization inside a single
+    // row's parentheses, and the romanization line on a Greek chip.
+    await search("sky");
+    var rowOnly = api.query(".origin-row");
+    check("a row-only origin renders one inert row in the sidebar",
+      !!rowOnly && rowOnly.classList.contains("inert") &&
+      !rowOnly.classList.contains("nav") && !rowOnly.hasAttribute("tabindex") &&
+      rowOnly.textContent === "From Old Norse ský (cloud)",
+      rowOnly ? rowOnly.textContent + " / " + rowOnly.className : "no row");
+    var depthBeforeRowOnly = api.viewDepth();
+    rowOnly.click();
+    await elapse(40);
+    check("clicking the row-only row navigates nowhere",
+      api.viewDepth() === depthBeforeRowOnly,
+      "depth=" + api.viewDepth());
+    // The proper-noun card on this surface (owner decision 2026-09-06): a
+    // proper noun a shipped word is built on is a card like any other root,
+    // and the sidebar gets it with no code of its own.
+    await search("korean");
+    var properChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip is a nav chip here too",
+      properChip.classList.contains("nav") &&
+      !properChip.classList.contains("inert") &&
+      properChip.getAttribute("tabindex") === "0" &&
+      properChip.querySelector(".morph-gloss") !== null &&
+      properChip.querySelector(".morph-gloss").textContent
+        .indexOf("A geographic region in East Asia") === 0,
+      properChip.className + " :: " + properChip.textContent);
+    properChip.click();
+    await checkSoon("the chip drills into the proper noun's card with a crumb",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.root") &&
+          api.query(".surface").textContent === "Korea" &&
+          api.crumbLabels().join(" \u203a ") === "korean \u203a Korea";
+      },
+      function () { return api.crumbLabels().join(" \u203a "); });
+    check("the card names itself a proper noun and builds its one word",
+      api.query(".rootlabel").textContent === "Proper noun" &&
+      texts(api.queryAll(".fam-word")).join(",") === "korean",
+      api.query(".rootlabel").textContent + " rows=" +
+      texts(api.queryAll(".fam-word")).join(","));
+
+    // The register a sense carries, on this surface: the marker renders in
+    // front of the definition and in front of a card's gloss, in the muted
+    // style, and the clamp still holds the line.
+    await search("serian");
+    var senseText = api.query(".gloss-text");
+    var mark = senseText.querySelector(".sense-lb");
+    check("a marked sense states its register before the definition here too",
+      mark !== null && mark.textContent === "archaic" &&
+      senseText.firstChild === mark &&
+      senseText.classList.contains("clamp") &&
+      getComputedStyle(mark).fontStyle === "italic",
+      senseText.textContent.slice(0, 40));
+    api.queryAll(".morph")[0].click();
+    await checkSoon("the card states the register of the sense its gloss came from",
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return !!m && m.textContent === "archaic" &&
+          api.query(".rootlabel").textContent === "Proper noun";
+      },
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return "marker=" + (m ? m.textContent : "none");
+      });
+
+    // The residue: a proper-noun page whose folded key another page already
+    // claimed gets no card, so the chip stays inert and keeps its gloss.
+    await search("lappish");
+    var residueChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip with no card stays inert and carries its gloss",
+      residueChip.classList.contains("inert") &&
+      !residueChip.classList.contains("nav") &&
+      !residueChip.hasAttribute("tabindex") &&
+      residueChip.querySelector(".morph-gloss") !== null &&
+      residueChip.querySelector(".morph-gloss").textContent ===
+        "A region in northern Europe.",
+      residueChip.className + " :: " + residueChip.textContent);
+    var depthBeforeProper = api.viewDepth();
+    residueChip.click();
+    await elapse(40);
+    check("clicking the inert proper-noun chip navigates nowhere",
+      api.viewDepth() === depthBeforeProper, "depth=" + api.viewDepth());
+
+    await search("idea");
+    check("a single row in Greek script reads the romanization before the gloss",
+      !!api.query(".origin-row") &&
+      api.query(".origin-row").textContent === "From Greek ἰδέα (idéa; form, shape)",
+      api.query(".origin-row") ? api.query(".origin-row").textContent : "no row");
+    await search("system");
+    var greekChip = api.queryAll(".morph")[0];
+    check("a Greek chip carries a romanization line between form and gloss",
+      texts(api.queryAll(".morph-rom")).join(" ") === "sun- hístēmi" &&
+      texts(greekChip.children).join(" | ") === "συν- | sun- | with, together",
+      texts(greekChip.children).join(" | "));
+    // The chip trim is renderer-side too, so the sidebar gets it with no code
+    // of its own: the chip shows the first clause of a gloss past the budget
+    // and the root card the chip opens keeps every word of it.
+    await search("photograph");
+    var longChip = api.queryAll(".morph-gloss")[0];
+    check("a long chip gloss is cut to its first clause in the sidebar too",
+      longChip.textContent === "the light of day and the light of a torch or of a fire alike",
+      longChip.textContent);
+    await search("grc:phos");
+    var cardGloss = api.query(".gloss-text").textContent;
+    check("the root card the chip opens keeps the gloss whole",
+      // The sense list capitalizes the first letter and touches nothing else.
+      cardGloss.slice(1) === fake.__root("grc:phos").root.gloss.slice(1) &&
+      cardGloss.length > 120,
+      cardGloss);
+
+    await search("grc:idea");
+    check("a one-word family renders its card with BUILDS 1 WORD",
+      texts(api.queryAll(".label")).indexOf("BUILDS 1 WORD") >= 0 &&
+      api.queryAll(".fam-row").length === 1 && surfaceText() === "ἰδέα",
+      texts(api.queryAll(".label")).join("/") + " rows=" + api.queryAll(".fam-row").length);
 
     // An anchor root card carries its own breakdown, and the section is
     // renderer-side, so the sidebar gets it with no code of its own: MADE OF
@@ -2164,6 +2459,57 @@
       !!savedView && !!settingsView);
 
     store.reset();
+
+    // --- empty folders ------------------------------------------------------------
+    // User-reported: with nothing saved every folder vanished from the list and
+    // came back with the first save. Showing a folder is not gated on its
+    // contents. State-restoring: the store is reset again at the end, so the
+    // rows below start from the same place they always did.
+    await fake.sendMessage({ type: "folderCreate", name: "Exam words" });
+    await fake.sendMessage({ type: "folderCreate", name: "Latin roots" });
+    sidebar.showView("saved");
+    await savedView.refresh();
+    var zeroList = document.getElementById("ety-saved-list");
+    var zeroNames = texts(zeroList.querySelectorAll(".saved-folder-name")).join("/");
+    check("with nothing saved, every folder still renders as a band, in folder order",
+      savedView.items().length === 0 &&
+      zeroList.querySelectorAll(".saved-folder").length === 3 &&
+      zeroNames === "Saved/Exam words/Latin roots",
+      zeroNames);
+    check("the nothing-saved hint prints once above the bands, not instead of them",
+      zeroList.firstElementChild.classList.contains("saved-empty") &&
+      zeroList.firstElementChild.textContent ===
+        "Nothing saved yet. Tap the ☆ on a card to save it." &&
+      zeroList.querySelectorAll(".saved-empty:not(.saved-empty--folder)").length === 1,
+      zeroList.firstElementChild.textContent);
+    check("each empty band prints one line under it, at the item-row indent",
+      zeroList.querySelectorAll(".saved-empty--folder").length === 3 &&
+      texts(zeroList.querySelectorAll(".saved-empty--folder")).join("|") ===
+        "This folder is empty.|This folder is empty.|This folder is empty." &&
+      zeroList.querySelectorAll(".saved-folder")[0].nextElementSibling
+        .classList.contains("saved-empty--folder") &&
+      zeroList.classList.contains("saved-list--grouped"),
+      zeroList.textContent);
+    // The collapse `continue` sits above the append, so a folded empty folder
+    // shows nothing at all rather than a line with no folder open over it.
+    zeroList.querySelectorAll(".saved-folder")[1]
+      .querySelector(".saved-folder-name").click();
+    check("a collapsed empty folder prints nothing under its band",
+      savedView.collapsed().length === 1 &&
+      zeroList.querySelectorAll(".saved-empty--folder").length === 2 &&
+      zeroList.querySelectorAll(".saved-folder")[1].nextElementSibling
+        .classList.contains("saved-folder"),
+      zeroList.textContent);
+    zeroList.querySelectorAll(".saved-folder")[1]
+      .querySelector(".saved-folder-name").click();
+    var zeroChecks = zeroList.querySelectorAll(".saved-folder-check");
+    check("an empty default folder's box is inert and every other empty band's is live",
+      zeroChecks.length === 3 && zeroChecks[0].disabled === true &&
+      zeroChecks[1].disabled === false && zeroChecks[2].disabled === false,
+      "disabled=" + zeroChecks[0].disabled + "," + zeroChecks[1].disabled +
+        "," + zeroChecks[2].disabled);
+    store.reset();
+    await savedView.refresh();
     fake.sendMessage({ type: "savedToggle", kind: "word", key: "subterranean" });
     fake.sendMessage({ type: "savedToggle", kind: "root", key: "la:terra" });
     fake.sendMessage({ type: "savedToggle", kind: "word", key: "notaword" });
@@ -2360,6 +2706,179 @@
         return "folders=" + savedView.folders().length +
           " items=" + savedView.items().length;
       });
+
+    // --- empty folders in a populated store ---------------------------------------
+    // A folder is selectable whether or not it has items, and that is how an
+    // empty one gets deleted from the list. State-restoring: the folders and
+    // items this block adds are gone by its end and the two folders and three
+    // items it found are back, so the row clicks below still find their rows.
+    // The item selection it found is dropped rather than restored: the items
+    // that carried it are deleted and remade here, under new ids.
+    var examId = savedView.folders()[1].id;
+    var savedList = document.getElementById("ety-saved-list");
+    var selectAll = document.getElementById("ety-saved-selectall");
+    var filterSel = document.getElementById("ety-saved-filter");
+    var removeBtn = document.getElementById("ety-saved-remove");
+    function bandFor(id) {
+      return savedList.querySelector('.saved-folder[data-folder="' + id + '"]');
+    }
+    function countText() {
+      return document.querySelector("#ety-saved-actions .saved-count").textContent;
+    }
+    savedView.selection().forEach(function (id) {
+      savedList.querySelector('.saved-row[data-id="' + id + '"] .saved-check').click();
+    });
+    // The "Moved 1 to Exam words" note holds the count slot for 2.5s, and the
+    // count assertions below need the slot back.
+    await until(function () { return countText().indexOf("Moved") < 0; });
+
+    filterSel.value = examId;
+    fire(filterSel, "change");
+    check("a single-folder filter renders that folder's band over its rows",
+      savedView.filter() === examId &&
+      savedList.querySelectorAll(".saved-folder").length === 1 &&
+      savedList.querySelector(".saved-folder").getAttribute("data-folder") === examId &&
+      savedList.querySelectorAll(".saved-row").length === 1 &&
+      savedList.querySelector(".saved-row").getAttribute("data-key") === "subterranean" &&
+      savedList.classList.contains("saved-list--grouped"),
+      "bands=" + savedList.querySelectorAll(".saved-folder").length +
+        " rows=" + savedList.querySelectorAll(".saved-row").length);
+    // The cheap re-sync used to run only under All, which left a filtered
+    // band's checkbox reading the selection it had at build time.
+    savedList.querySelector(".saved-row .saved-check").click();
+    check("a filtered band's checkbox re-syncs with the rows under it",
+      savedList.querySelector(".saved-folder-check").checked === true &&
+      savedView.selection().length === 1 && savedView.selectedFolders().length === 0,
+      "checked=" + savedList.querySelector(".saved-folder-check").checked);
+    savedList.querySelector(".saved-row .saved-check").click();
+    filterSel.value = "";
+    fire(filterSel, "change");
+
+    bandFor("f0").querySelector(".saved-folder-check").click();
+    check("the default folder's box picks its items and never the folder itself",
+      savedView.selection().length === 2 && savedView.selectedFolders().length === 0 &&
+      countText() === "2 selected",
+      "folders=" + savedView.selectedFolders().join(",") + " count=" + countText());
+    bandFor("f0").querySelector(".saved-folder-check").click();
+
+    var emptyId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Empty shelf" })).folder.id;
+    await savedView.refresh();
+    check("an empty folder joins the bands under All, with a live box and its own line",
+      savedList.querySelectorAll(".saved-folder").length === 3 && !!bandFor(emptyId) &&
+      bandFor(emptyId).querySelector(".saved-folder-check").disabled === false &&
+      bandFor(emptyId).nextElementSibling.classList.contains("saved-empty--folder"),
+      savedList.textContent);
+    bandFor(emptyId).querySelector(".saved-folder-check").click();
+    check("checking an empty folder selects the folder, so no action widens to the filter",
+      savedView.selectedFolders().join(",") === emptyId &&
+      savedView.selection().length === 0 && savedView.effectiveIds().length === 0 &&
+      countText() === "1 folder selected",
+      "count=" + countText() + " effective=" + savedView.effectiveIds().length);
+    check("a checked folder alone arms Delete and leaves Move and Export inert",
+      removeBtn.disabled === false &&
+      document.getElementById("ety-saved-move").disabled === true &&
+      document.getElementById("ety-saved-export").disabled === true,
+      "remove=" + removeBtn.disabled);
+    // Select-all is about items; folders are picked one by one. The clearing
+    // gesture still has to leave nothing armed behind it.
+    selectAll.click();
+    var armedBoth = countText() === "3 selected, 1 folder selected";
+    selectAll.click();
+    check("clearing select-all clears the folder selection with it",
+      armedBoth && savedView.selection().length === 0 &&
+      savedView.selectedFolders().length === 0 &&
+      bandFor(emptyId).querySelector(".saved-folder-check").checked === false,
+      "armed=" + armedBoth + " count=" + countText());
+    bandFor(emptyId).querySelector(".saved-folder-check").click();
+
+    // The destination is the default folder's CURRENT name: saved.js lets f0
+    // be renamed, and this copy used to write "Saved." out flat.
+    await fake.sendMessage({ type: "folderRename", id: "f0", name: "Keepsakes" });
+    await savedView.refresh();
+    filterSel.value = examId;
+    fire(filterSel, "change");
+    document.getElementById("ety-saved-delete").click();
+    await until(function () { return !!document.querySelector(".saved-confirm--folder"); });
+    check("the per-folder delete names the default folder by the name it now has",
+      document.querySelector(".saved-confirm--folder .saved-confirm-text").textContent ===
+        "Delete Exam words? 1 item moves to Keepsakes.",
+      document.querySelector(".saved-confirm--folder .saved-confirm-text").textContent);
+    document.querySelector(".saved-confirm--folder .saved-confirm-no").click();
+    filterSel.value = "";
+    fire(filterSel, "change");
+
+    bandFor(examId).querySelector(".saved-folder-check").click();
+    check("a populated folder's box selects the folder and its items, counted apart",
+      savedView.selectedFolders().join(",") === examId + "," + emptyId &&
+      savedView.selection().length === 1 &&
+      countText() === "1 selected, 2 folders selected",
+      "count=" + countText() + " folders=" + savedView.selectedFolders().join(","));
+    savedList.querySelector('.saved-row[data-key="subterranean"] .saved-check').click();
+    check("unchecking an item under a checked folder takes the folder out of the set",
+      savedView.selectedFolders().join(",") === emptyId &&
+      savedView.selection().length === 0 &&
+      bandFor(examId).querySelector(".saved-folder-check").checked === false,
+      "folders=" + savedView.selectedFolders().join(","));
+    bandFor(examId).querySelector(".saved-folder-check").click();
+
+    // A save landing in a checked folder from a page: the folder stays checked,
+    // the newcomer is not, and the confirmation says where it goes.
+    var landed = await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
+    await fake.sendMessage({ type: "savedMove", ids: [landed.item.id], folderId: examId });
+    await savedView.refresh();
+    removeBtn.click();
+    await until(function () { return !!document.querySelector(".saved-confirm--remove"); });
+    check("the confirmation is one sentence per part, the items then each folder in order",
+      document.querySelector(".saved-confirm--remove .saved-confirm-text").textContent ===
+        "Delete 1 item? Delete Exam words? 1 item moves to Keepsakes. Delete Empty shelf?",
+      document.querySelector(".saved-confirm--remove .saved-confirm-text").textContent);
+    // Every write in the chain goes through mutate(), so each one leaves a
+    // claim: three writes, three claims, three storage echoes dropped.
+    savedView.setStorageSync(true);
+    document.querySelector(".saved-confirm--remove .saved-confirm-yes").click();
+    await checkSoon("confirming removes the items first and the folders second",
+      function () {
+        var st = store.state();
+        return st.folders.length === 1 && st.items.length === 3 &&
+          st.items.filter(function (i) { return i.folderId === "f0"; }).length === 3 &&
+          savedView.selection().length === 0 &&
+          savedView.selectedFolders().length === 0 &&
+          savedView.pendingSelfWrites() === 3;
+      },
+      function () {
+        return JSON.stringify(store.state().items) +
+          " claims=" + savedView.pendingSelfWrites();
+      });
+    savedView.setStorageSync(false);
+
+    await fake.sendMessage({ type: "folderRename", id: "f0", name: "Saved" });
+    await fake.sendMessage({ type: "savedRemove", ids: [landed.item.id] });
+    var backId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Exam words" })).folder.id;
+    var backSub =
+      (await fake.sendMessage({ type: "savedToggle", kind: "word", key: "subterranean" }))
+        .item.id;
+    await fake.sendMessage({ type: "savedMove", ids: [backSub], folderId: backId });
+    await savedView.refresh();
+    check("the block puts the two folders and the three items back as it found them",
+      savedView.folders().length === 2 && savedView.folders()[1].name === "Exam words" &&
+      savedView.items().length === 3 && savedView.selection().length === 0 &&
+      savedView.selectedFolders().length === 0,
+      "folders=" + savedView.folders().length + " items=" + savedView.items().length);
+
+    // Pruned on each read, the way the item selection already is: a folder
+    // deleted under us must not sit in the delete set and resurrect the action.
+    var ghostId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Ghost" })).folder.id;
+    await savedView.refresh();
+    bandFor(ghostId).querySelector(".saved-folder-check").click();
+    await fake.sendMessage({ type: "folderDelete", id: ghostId });
+    await savedView.refresh();
+    check("a folder deleted under us is pruned out of the folder selection on the read",
+      savedView.selectedFolders().length === 0 && !bandFor(ghostId) &&
+      savedView.folders().length === 2 && countText() === "all 3 shown",
+      "folders=" + savedView.selectedFolders().join(",") + " count=" + countText());
 
     // A row click lands in the search view with the card rendered.
     var firstRow = document.querySelectorAll("#ety-saved-list .saved-row")[0];
