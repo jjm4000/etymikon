@@ -245,7 +245,10 @@ RANK_CAP = 50000        # hybrid cap: everything to here ships unconditionally
 RANK_UNRANKED = float("inf")   # an unranked word sorts last in every list
 MAX_POS = 4             # POS sections per word
 MAX_DEFS = 4            # definitions per POS section
-DEF_MAX_CHARS = 400     # a longer sense is dropped whole, never cut
+# A longer sense is dropped whole, never cut, unless it is the only sense
+# its word has: the cap chooses among senses and never leaves a word with
+# none (2026-09-07). See the fallback in harvest_english.
+DEF_MAX_CHARS = 400
 ROOT_GLOSS_CARD = 80    # the card budget a root gloss should fit
 ROOT_GLOSS_MAX = 160    # safety cap: a longer root gloss is dropped, never cut
 MAX_ALT = 8             # alias forms listed on a root card
@@ -2258,6 +2261,89 @@ def harvest_english(path, cand, origin):
     """
     out = {}
     stats = collections.Counter()
+    # Entries whose every sense ran past DEF_MAX_CHARS, held by word for the
+    # fallback below the loop. The set is tiny (2 words at 2026-09-07), so
+    # holding the entries costs nothing.
+    verbose = {}
+
+    def absorb(e, wl, defs):
+        """Fold one entry's definitions, split and attachment into out[wl]."""
+        rec = out.get(wl)
+        if rec is None:
+            rec = {"pos": [], "defs": {}, "lb": {}, "ns": -1, "sp": None,
+                   "att": None, "ety": None, "clash": False,
+                   "first_n": 0, "other_n": collections.Counter()}
+            out[wl] = rec
+        pos = e.get("pos") or "other"
+        if pos not in rec["defs"]:
+            if len(rec["pos"]) >= MAX_POS:
+                pos = None
+            else:
+                rec["pos"].append(pos)
+                rec["defs"][pos] = []
+                rec["lb"][pos] = []
+        added = 0
+        if pos is not None:
+            bucket = rec["defs"][pos]
+            for d, lb in defs:
+                if len(bucket) >= MAX_DEFS:
+                    break
+                if d not in bucket:
+                    bucket.append(d)
+                    rec["lb"][pos].append(lb)
+                    added += 1
+
+        ns = len(e.get("senses") or [])
+        if ns > rec["ns"]:
+            rec["ns"] = ns
+            rec["sp"] = entry_split(e, "en")
+        # The senses a reader sees first are the first sense list's, and
+        # the origin row follows the etymology section that supplies
+        # them. A later entry that fills more of that list from another
+        # section takes the list away from the first one.
+        if not added or pos != rec["pos"][0]:
+            return
+        text = e.get("etymology_text") or ""
+        if rec["ety"] is not None:
+            if text == rec["ety"]:
+                rec["first_n"] += added
+            elif rec["att"] is not None:
+                # Another section fills the same sense list. Only a
+                # section that names an origin of its own makes the row
+                # ambiguous; one with nothing to say leaves the first
+                # section speaking alone.
+                ms2, ch2, st2 = page_mentions(
+                    e.get("etymology_templates") or [], text, "en", wl)
+                other = origin.attach(ms2, ch2, wl, None, st2)
+                if other is not None and "miss" not in other \
+                        and att_key(other) != att_key(rec["att"]):
+                    rec["clash"] = True
+                    rec["other_n"][text] += added
+            return
+        rec["ety"] = text
+        rec["first_n"] = added
+        mentions, chains, settled = page_mentions(
+            e.get("etymology_templates") or [], text, "en", wl)
+        # The page's homograph evidence: read once, used for this
+        # attachment now and merged for the node's pick later.
+        terms = page_evidence(e.get("etymology_templates") or [],
+                              text, "en", wl)
+        dw = def_words(defs[0][0])
+        ev = origin.evidence_of(terms, mentions, dw)
+        origin.merge_evidence(ev, origin.ranks.get(wl))
+        origin.note_senses(terms, defs[0][0], origin.ranks.get(wl))
+        # The row gloss votes on the word itself as well as its
+        # first definition: an inherited word usually glosses its
+        # own ancestor (good reads Old English gōd "good", love
+        # lufu "love"). The root homograph vote above keeps the
+        # definition alone, as it has since 2026-09-05.
+        rec["att"] = origin.attach(mentions, chains, wl, ev, settled,
+                                   dw | def_words(wl))
+        rec["cogonly"] = origin.cognate_only(mentions)
+        if rec["att"] is not None:
+            stats["attached" if "key" in rec["att"] else
+                  "rowonly" if "row" in rec["att"] else "missed"] += 1
+
     with gzip.open(path, "rb") as f:
         for line in f:
             stats["lines"] += 1
@@ -2275,6 +2361,7 @@ def harvest_english(path, cand, origin):
             if pure_form_of(e):
                 continue
             defs = []
+            over = []
             for s in e.get("senses") or []:
                 gl = s.get("glosses") or []
                 if not gl or not gl[0]:
@@ -2285,7 +2372,8 @@ def harvest_english(path, cand, origin):
                 if not d:
                     continue
                 if len(d) > DEF_MAX_CHARS:
-                    stats["dropped_long"] += 1
+                    stats["over_long"] += 1
+                    over.append((d, sense_labels(s.get("tags"))))
                     continue
                 if d.endswith("…"):
                     # A handful of source glosses trail off mid-sentence.
@@ -2294,83 +2382,34 @@ def harvest_english(path, cand, origin):
                     continue
                 defs.append((d, sense_labels(s.get("tags"))))
             if not defs:
+                if over:
+                    verbose.setdefault(wl, []).append((e, over[0]))
                 continue
+            absorb(e, wl, defs)
 
-            rec = out.get(wl)
-            if rec is None:
-                rec = {"pos": [], "defs": {}, "lb": {}, "ns": -1, "sp": None,
-                       "att": None, "ety": None, "clash": False,
-                       "first_n": 0, "other_n": collections.Counter()}
-                out[wl] = rec
-            pos = e.get("pos") or "other"
-            if pos not in rec["defs"]:
-                if len(rec["pos"]) >= MAX_POS:
-                    pos = None
-                else:
-                    rec["pos"].append(pos)
-                    rec["defs"][pos] = []
-                    rec["lb"][pos] = []
-            added = 0
-            if pos is not None:
-                bucket = rec["defs"][pos]
-                for d, lb in defs:
-                    if len(bucket) >= MAX_DEFS:
-                        break
-                    if d not in bucket:
-                        bucket.append(d)
-                        rec["lb"][pos].append(lb)
-                        added += 1
-
-            ns = len(e.get("senses") or [])
-            if ns > rec["ns"]:
-                rec["ns"] = ns
-                rec["sp"] = entry_split(e, "en")
-            # The senses a reader sees first are the first sense list's, and
-            # the origin row follows the etymology section that supplies
-            # them. A later entry that fills more of that list from another
-            # section takes the list away from the first one.
-            if not added or pos != rec["pos"][0]:
-                continue
-            text = e.get("etymology_text") or ""
-            if rec["ety"] is not None:
-                if text == rec["ety"]:
-                    rec["first_n"] += added
-                elif rec["att"] is not None:
-                    # Another section fills the same sense list. Only a
-                    # section that names an origin of its own makes the row
-                    # ambiguous; one with nothing to say leaves the first
-                    # section speaking alone.
-                    ms2, ch2, st2 = page_mentions(
-                        e.get("etymology_templates") or [], text, "en", wl)
-                    other = origin.attach(ms2, ch2, wl, None, st2)
-                    if other is not None and "miss" not in other \
-                            and att_key(other) != att_key(rec["att"]):
-                        rec["clash"] = True
-                        rec["other_n"][text] += added
-                continue
-            rec["ety"] = text
-            rec["first_n"] = added
-            mentions, chains, settled = page_mentions(
-                e.get("etymology_templates") or [], text, "en", wl)
-            # The page's homograph evidence: read once, used for this
-            # attachment now and merged for the node's pick later.
-            terms = page_evidence(e.get("etymology_templates") or [],
-                                  text, "en", wl)
-            dw = def_words(defs[0][0])
-            ev = origin.evidence_of(terms, mentions, dw)
-            origin.merge_evidence(ev, origin.ranks.get(wl))
-            origin.note_senses(terms, defs[0][0], origin.ranks.get(wl))
-            # The row gloss votes on the word itself as well as its
-            # first definition: an inherited word usually glosses its
-            # own ancestor (good reads Old English gōd "good", love
-            # lufu "love"). The root homograph vote above keeps the
-            # definition alone, as it has since 2026-09-05.
-            rec["att"] = origin.attach(mentions, chains, wl, ev, settled,
-                                       dw | def_words(wl))
-            rec["cogonly"] = origin.cognate_only(mentions)
-            if rec["att"] is not None:
-                stats["attached" if "key" in rec["att"] else
-                      "rowonly" if "row" in rec["att"] else "missed"] += 1
+    # No word vanishes for want of a short enough sense (owner decision
+    # 2026-09-07). DEF_MAX_CHARS chooses among a word's senses; where it
+    # would choose none, it chooses the first, whole. journalism at rank
+    # 11,461 has one sense of 435 characters and shipped nothing at all,
+    # and nitroglycerine at 49,295 went the same way; both are well inside
+    # the cap that is supposed to ship a word unconditionally.
+    #
+    # The sense is kept whole rather than cut at a sentence boundary. The
+    # card clamps a definition to two lines behind a "more" control, so
+    # length is a display concern the card already answers, and no output
+    # string in this build is ever a cut string.
+    #
+    # The fallback is per WORD, not per entry. An entry whose senses all
+    # run long beside another entry that carries short ones is left alone:
+    # its word ships either way, and folding it in would move the section
+    # the card opens with, and with it the etymology section the origin row
+    # comes from.
+    for wl, entries in verbose.items():
+        if wl in out:
+            continue
+        for e, d in entries:
+            absorb(e, wl, [d])
+            stats["kept_long"] += 1
     # A section owns the card's first senses when it supplies the first one
     # and no disagreeing section supplies more of that list than it does.
     # The row is withheld where a later section supplies more, because the
@@ -8652,11 +8691,14 @@ def main(argv):
 
     log("[5/7] harvesting senses, splits and attachments")
     harvest, s2 = harvest_english(ENGLISH_FILE, cand, origin)
-    log("  %s words with at least one shippable sense (%s senses dropped "
-        "over %d chars); %s attach to a root graph, %s row-only, %s name a "
-        "classical origin nothing reaches"
-        % (format(len(harvest), ","), format(s2["dropped_long"], ","),
-           DEF_MAX_CHARS, format(s2["attached"], ","),
+    log("  %s words with at least one shippable sense (%s senses run over %d "
+        "chars: %s dropped, %s kept whole where the word had no other); %s "
+        "attach to a root graph, %s row-only, %s name a classical origin "
+        "nothing reaches"
+        % (format(len(harvest), ","), format(s2["over_long"], ","),
+           DEF_MAX_CHARS,
+           format(s2["over_long"] - s2["kept_long"], ","),
+           format(s2["kept_long"], ","), format(s2["attached"], ","),
            format(s2["rowonly"], ","), format(s2["missed"], ",")))
     for code in PASS_ORDER:
         log("  %s %s pass-through pages walked" % (
