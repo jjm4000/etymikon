@@ -153,11 +153,31 @@ definition. Three consequences are worth naming.
 
 ## Under consideration, in rough order of pull
 
-- **Old English as a root language, phase two.** Middle English walked as
-  pass-through beside it. 1,751 origin rows name Old English and cannot
-  be clicked, 1,109 of them inside the top 10,000 ranks, which is the
-  largest single hole left in the origin subsystem. SPEC "Origin
-  subsystem, source graphs" holds the phasing.
+- **Old English as a root language, phase two.** Middle English is already
+  walked as pass-through, landed 2026-09-06, so half the phase is done.
+  1,751 origin rows name Old English and cannot be clicked, 1,109 of them
+  inside the top 10,000 ranks. SPEC "Origin subsystem, source graphs"
+  holds the phasing.
+
+  The code is cheap. The Old English extract is already downloaded and
+  parsed for row glosses, and `parse_classical` already takes its language
+  as an argument, so the work is a role-table move, one more graph, about
+  six hardcoded `("la", "grc")` loops, an `ang` branch in `norm_key` where
+  a third language currently falls through to `grc_key`, a macron decision
+  in `display_form`, and two one-line changes in the extension for the
+  kind label and the Wiktionary anchor. The verification cycle is the
+  expensive half, not the code.
+
+  The value is smaller than 1,751 suggests, measured 2026-09-07. 95% of
+  the 1,668 Old English terms are named by exactly one English word,
+  against 79% for Latin, and the graph is what rescues Latin: crediting
+  through anchors takes it to 50% singletons at a mean family of 4.6.
+  English took Latin by derivation, so access and necessary both sit on
+  cēdō. It took Old English by descent, so the word is the root. The
+  commonest rows are closed-class function words (you ēow, the þē) with no
+  morphology to show. Never-silent makes this 1,668 cards or none, so the
+  subset that would earn a card cannot be taken alone. Ship it against
+  real user reports rather than before a first release.
 - **The section-clash words.** 56 words state a classical origin and show
   nothing, because the card's first senses come from more than one
   etymology section and a later section supplies more of them than the
