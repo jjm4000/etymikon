@@ -81,8 +81,8 @@ SEPARATOR_DARK = (60, 64, 67)
 # minus the margins tall, centred on a flat warm backdrop.
 #
 # 680 is the narrowest width at which all three panel views reach their settled
-# layout. The search view's four `beautiful` definitions each fit one line from
-# 600 up; the saved list's longest definition (memory) stops wrapping into a
+# layout. The search card's definitions stop asking for a "more" control from
+# 640 up; the saved list's longest definition (memory) stops wrapping into a
 # two-line block at 680; the settings view is 456px tall at every width. Past
 # 680 nothing improves until 760, which only trims the saved list further while
 # adding trailing space to every line. Widening does not enlarge the type, and
@@ -345,14 +345,20 @@ SHOTS = [
         "name": "4-sidebar-search.png",
         "kind": "solo",
         # Solo mount: the panel is the subject, so no article shares the frame.
-        # The sidebar answering a typed word. The search view renders through
-        # content.js, so its nodes live in the embedded panel's shadow root and
-        # only its own query hook sees them; the seal is the panel's own DOM.
-        "panel": {"view": "search", "q": "beautiful"},
+        # The sidebar answering a typed word. butter is an everyday word with a
+        # Greek origin row under it: βοῦς + τυρός, cow and cheese, both glossed
+        # roots rather than affixes. Its card ends 493px down the 752px panel,
+        # which fills the frame and still leaves the seal 259px of clear space
+        # against the 230 the room rule wants.
+        # The search view renders through content.js, so its nodes live in the
+        # embedded panel's shadow root and only its own query hook sees them;
+        # the seal is the panel's own DOM.
+        "panel": {"view": "search", "q": "butter"},
         "checks": [
-            head_is("beautiful"),
-            label_is("MADE OF"),
-            chip_forms("beauty", "-ful"),
+            head_is("butter"),
+            label_is("FROM GREEK βούτυρον"),
+            chip_forms("βοῦς", "τυρός"),
+            has_text("chips carry their glosses", ".morph-gloss", "cheese"),
             seal_has_room("search"),
         ],
         "pixels": "seal",

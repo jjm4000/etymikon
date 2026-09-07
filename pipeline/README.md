@@ -1444,15 +1444,15 @@ passed every check, so a failed run leaves the committed set exactly as it was.
 
 The solo width came from trial captures rather than from Okpyeon, whose own
 solo mount is 640 on a cool grey. 680 is the narrowest width at which all three
-panel views reach their settled layout: the search view's four `beautiful`
-definitions each hold one line, the saved list's longest definition stops
-wrapping into a two-line block, and the settings view is 456px tall at every
-width. The mount stays 1:1. Widening does not enlarge the type, and capturing
-narrower at a device scale above 1 would, but past about 1.09 the settings
-view's CSS height drops under the panel's own `SEAL_ROOM` and the corner seal
-goes out. At 680 by 752 the clear space under the content is 365px for search,
-345px for saved and 296px for settings, against the 230 the room rule wants,
-so all three keep the seal.
+panel views reach their settled layout: the search card's definitions stop
+asking for a "more" control from 640 up, the saved list's longest definition
+stops wrapping into a two-line block at 680, and the settings view is 456px
+tall at every width. The mount stays 1:1. Widening does not enlarge the type,
+and capturing narrower at a device scale above 1 would, but past about 1.09 the
+settings view's CSS height drops under the panel's own `SEAL_ROOM` and the
+corner seal goes out. At 680 by 752 the clear space under the content is 259px
+for the search shot, which searches `butter`, 345px for saved and 296px for
+settings, against the 230 the room rule wants, so all three keep the seal.
 
 Adding a scene. A scene is one entry in the `SHOTS` list:
 
