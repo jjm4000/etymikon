@@ -129,7 +129,7 @@
   // labels are the words a reader sees, and the two are allowed to differ.
   // The fourth key stayed `rare` when its label became Uncommon on
   // 2026-09-07.
-  var TIER_ORDER = ["everyday", "common", "advanced", "rare"];
+  var TIER_ORDER = ["everyday", "common", "uncommon", "rare"];
   // The documented fallback for a response that predates the join. It is a
   // second copy of lookup.js's TIER_LABELS, which this file cannot import,
   // and the build fails when the two disagree: renaming one alone renders
@@ -137,20 +137,20 @@
   var TIER_LABEL = {
     everyday: "Everyday",
     common: "Common",
-    advanced: "Advanced",
-    rare: "Uncommon"
+    uncommon: "Uncommon",
+    rare: "Rare"
   };
   // The fourth tier's title names Etymikon as the classifier on purpose: the
   // boundary is our own cutoff over one corpus, and the tooltip should say
-  // so. That is also why the label is Uncommon rather than Rare. The cutoff
-  // supports "less frequent than rank 50,000 in a subtitle corpus" and
-  // nothing more, and the bucket holds abscond and metallurgy beside
-  // modelicious and chossy.
+  // so. The cutoff supports "less frequent than rank 50,000 in a subtitle
+  // corpus" and nothing more, and the bucket holds abscond and metallurgy
+  // beside modelicious and chossy, so the tooltip carries the qualifier the
+  // one-word chip cannot.
   var TIER_TITLE = {
     everyday: "Rank in the 3,000 most frequent English words " +
       "(OpenSubtitles corpus)",
     common: "Rank 3,001 to 15,000 by frequency",
-    advanced: "Rank 15,001 to 50,000 by frequency",
+    uncommon: "Rank 15,001 to 50,000 by frequency",
     rare: "Beyond the 50,000 most frequent words, or unranked " +
       "(Etymikon's classification)"
   };
@@ -281,7 +281,7 @@
     "  --flash: rgba(47, 87, 201, 0.16);",
     /* Tier-chip tints. Quiet enough to sit beside a headword without
        competing with it. The two frequent zones carry more saturation and a
-       stronger edge than advanced and rare, since those are the ones a reader
+       stronger edge than uncommon and rare, since those are the ones a reader
        scans for. The fourth tier (key rare, labelled Uncommon) is
        deliberately the flattest: it is information, not a warning. The CSS
        variable and class names carry the key, not the label. */
@@ -289,8 +289,8 @@
     "  --tier-everyday-edge: rgba(31, 107, 77, 0.26);",
     "  --tier-common-bg: #e5ecfb; --tier-common-fg: #2a4ea6;",
     "  --tier-common-edge: rgba(42, 78, 166, 0.26);",
-    "  --tier-advanced-bg: #fbf1de; --tier-advanced-fg: #8a5810;",
-    "  --tier-advanced-edge: rgba(138, 88, 16, 0.20);",
+    "  --tier-uncommon-bg: #fbf1de; --tier-uncommon-fg: #8a5810;",
+    "  --tier-uncommon-edge: rgba(138, 88, 16, 0.20);",
     "  --tier-rare-bg: #f0f0f3; --tier-rare-fg: #74747e;",
     "  --tier-rare-edge: rgba(0, 0, 0, 0.10);",
     "  width: 340px;",
@@ -345,8 +345,8 @@
     "    --tier-everyday-fg: #7fd2ab; --tier-everyday-edge: rgba(127, 210, 171, 0.30);",
     "    --tier-common-bg: rgba(120, 160, 255, 0.15);",
     "    --tier-common-fg: #9fbcff; --tier-common-edge: rgba(159, 188, 255, 0.30);",
-    "    --tier-advanced-bg: rgba(230, 170, 70, 0.13);",
-    "    --tier-advanced-fg: #e0b271; --tier-advanced-edge: rgba(224, 178, 113, 0.24);",
+    "    --tier-uncommon-bg: rgba(230, 170, 70, 0.13);",
+    "    --tier-uncommon-fg: #e0b271; --tier-uncommon-edge: rgba(224, 178, 113, 0.24);",
     "    --tier-rare-bg: rgba(255, 255, 255, 0.06);",
     "    --tier-rare-fg: #9a9aa4; --tier-rare-edge: rgba(255, 255, 255, 0.13);",
     "  }",
@@ -630,8 +630,8 @@
     "  background: var(--tier-everyday-bg); border-color: var(--tier-everyday-edge); }",
     ".tier-chip--common { color: var(--tier-common-fg);",
     "  background: var(--tier-common-bg); border-color: var(--tier-common-edge); }",
-    ".tier-chip--advanced { color: var(--tier-advanced-fg);",
-    "  background: var(--tier-advanced-bg); border-color: var(--tier-advanced-edge); }",
+    ".tier-chip--uncommon { color: var(--tier-uncommon-fg);",
+    "  background: var(--tier-uncommon-bg); border-color: var(--tier-uncommon-edge); }",
     ".tier-chip--rare { color: var(--tier-rare-fg);",
     "  background: var(--tier-rare-bg); border-color: var(--tier-rare-edge); }",
     /* ---- shared affordance for navigable rows ---- */

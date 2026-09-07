@@ -1007,7 +1007,7 @@
       });
       row.defs = defs;
       // The export says what the chip says: the fourth tier is
-      // keyed `rare` and labelled Uncommon.
+      // keyed `rare` and labelled Rare.
       row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
@@ -1602,7 +1602,7 @@
       api.queryAll(".tier-chip").length === 1,
       "chips=" + api.queryAll(".tier-chip").length);
     check("the chip is the match's tier, worded as the SPEC words it",
-      api.query(".tier-chip").textContent === "Uncommon" &&
+      api.query(".tier-chip").textContent === "Rare" &&
       api.query(".tier-chip").title ===
         "Beyond the 50,000 most frequent words, or unranked " +
         "(Etymikon's classification)",
@@ -1622,8 +1622,8 @@
       api.query(".tier-chip").textContent === "Common" &&
       api.query(".tier-chip").title === "Rank 3,001 to 15,000 by frequency");
     show("cranberry");
-    check("Advanced is the 15,001 to 50,000 chip",
-      api.query(".tier-chip").textContent === "Advanced" &&
+    check("Uncommon is the 15,001 to 50,000 chip",
+      api.query(".tier-chip").textContent === "Uncommon" &&
       api.query(".tier-chip").title === "Rank 15,001 to 50,000 by frequency");
 
     // --- the worker owns the wording -----------------------------------------

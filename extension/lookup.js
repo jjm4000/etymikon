@@ -43,8 +43,8 @@ export const MAX_OMNIBOX_SUGGESTIONS = 5;
 /**
  * The word tiers, by frequency rank. THE ONE PLACE these cutoffs exist: the
  * response carries the derived tier so no surface has to hold a copy of them.
- * A rank is Everyday up to and including 3000, Common up to 15000, Advanced up
- * to 50000, Uncommon beyond that and when the word is unranked.
+ * A rank is Everyday up to and including 3000, Common up to 15000,
+ * Uncommon up to 50000, Rare beyond that and when the word is unranked.
  *
  * 50000 is also the shipping cap, so moving the last cutoff moves the
  * dictionary. The build asserts the two are the same number.
@@ -52,25 +52,27 @@ export const MAX_OMNIBOX_SUGGESTIONS = 5;
 export const TIER_CUTOFFS = Object.freeze({
   everyday: 3000,
   common: 15000,
-  advanced: 50000,
+  uncommon: 50000,
 });
 
 /**
  * Display names of the four tiers, for the exporters and the chips.
  *
- * The KEY is the enum; the LABEL is the word a reader sees, and the two are
- * allowed to differ. The fourth key stayed `rare` when its label became
- * Uncommon on 2026-09-07, because the key is what words.json ranks resolve
- * to, what saved.json stores and what the SPEC enum names, and none of that
- * is visible to a reader. Never write the fourth tier's word by hand: read it
- * from here, or from content.js's copy, which the build checks against this
- * one.
+ * The ladder runs on ONE axis, frequency, because a rank in a subtitle
+ * corpus is the only signal behind it (Jesse decision 2026-09-07). It read
+ * Everyday, Common, Advanced, Uncommon until then, which mixed a difficulty
+ * word into a frequency scale and made the fourth rung sound milder than the
+ * third. Advanced also claimed difficulty from a frequency count, which is
+ * the same overclaim Rare was renamed to avoid.
+ *
+ * Key and label agree again. Never write a tier's word by hand: read it from
+ * here, or from content.js's copy, which the build checks against this one.
  */
 export const TIER_LABELS = Object.freeze({
   everyday: "Everyday",
   common: "Common",
-  advanced: "Advanced",
-  rare: "Uncommon",
+  uncommon: "Uncommon",
+  rare: "Rare",
 });
 
 const hasOwn = (obj, key) =>
@@ -134,7 +136,7 @@ export function tierOf(fr) {
   if (!Number.isInteger(fr) || fr <= 0) return "rare";
   if (fr <= TIER_CUTOFFS.everyday) return "everyday";
   if (fr <= TIER_CUTOFFS.common) return "common";
-  if (fr <= TIER_CUTOFFS.advanced) return "advanced";
+  if (fr <= TIER_CUTOFFS.uncommon) return "uncommon";
   return "rare";
 }
 

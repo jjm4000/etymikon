@@ -561,7 +561,7 @@ test("an unknown word resolves to no matches", () => {
 // --- the tier function ----------------------------------------------------
 
 test("tier cutoffs live in one place and read 3000/15000/50000", () => {
-  assert.deepEqual(TIER_CUTOFFS, { everyday: 3000, common: 15000, advanced: 50000 });
+  assert.deepEqual(TIER_CUTOFFS, { everyday: 3000, common: 15000, uncommon: 50000 });
 });
 
 test("tier boundaries fall on the documented side", () => {
@@ -569,8 +569,8 @@ test("tier boundaries fall on the documented side", () => {
   assert.equal(tierOf(3000), "everyday");
   assert.equal(tierOf(3001), "common");
   assert.equal(tierOf(15000), "common");
-  assert.equal(tierOf(15001), "advanced");
-  assert.equal(tierOf(50000), "advanced");
+  assert.equal(tierOf(15001), "uncommon");
+  assert.equal(tierOf(50000), "uncommon");
   assert.equal(tierOf(50001), "rare");
 });
 
@@ -593,17 +593,17 @@ test("the match carries both fr and the derived tier", () => {
 test("the match carries the tier's display label beside the tier", () => {
   assert.equal(one("teach").tierLabel, "Everyday");
   assert.equal(one("territory").tierLabel, "Common");
-  assert.equal(one("terrarium").tierLabel, "Uncommon", "an unranked word is labelled too");
+  assert.equal(one("terrarium").tierLabel, "Rare", "an unranked word is labelled too");
   // The label map has exactly one definition, and this field is how it leaves
   // the worker: no surface holds a second copy.
-  // The fourth key is `rare` and its label is "Uncommon": the key is the
-  // enum the data and the saved store use, the label is the visible word,
-  // and the rename of 2026-09-07 moved only the label.
+  // One axis, frequency, after the rename of 2026-09-07: Everyday, Common,
+  // Uncommon, Rare. Key and label agree at every rung, which they did not
+  // while the third was Advanced and the fourth was labelled Uncommon.
   assert.deepEqual(TIER_LABELS, {
     everyday: "Everyday",
     common: "Common",
-    advanced: "Advanced",
-    rare: "Uncommon",
+    uncommon: "Uncommon",
+    rare: "Rare",
   });
   assert.equal(one("subterranean").tierLabel, TIER_LABELS[one("subterranean").tier]);
 });
@@ -612,7 +612,7 @@ test("family rows carry the tier label the word matches carry", () => {
   const root = buildRoot("la:terra", data, familyIndex);
   assert.deepEqual(
     root.family.map((r) => r.tierLabel),
-    ["Common", "Common", "Uncommon", "Uncommon", "Uncommon"]
+    ["Common", "Common", "Rare", "Rare", "Rare"]
   );
   const chunk = buildFamily("la:terra", data, familyIndex);
   assert.equal(chunk.rows[0].tierLabel, "Common");
@@ -1522,7 +1522,7 @@ test("the family index is read directly, with no per-request filter pass", () =>
   const stale = { "la:terra": ["terrain", "ghost", "territory"] };
   const { rows } = buildFamily("la:terra", data, stale);
   assert.deepEqual(rows.map((r) => r.word), ["terrain", "ghost", "territory"]);
-  assert.deepEqual(rows[1], { word: "ghost", def: "", tier: "rare", tierLabel: "Uncommon" });
+  assert.deepEqual(rows[1], { word: "ghost", def: "", tier: "rare", tierLabel: "Rare" });
 });
 
 test("root label lines read in plain English, one per kind in the enum", () => {
@@ -2023,7 +2023,7 @@ test("the Anki file follows the field settings", () => {
     },
   };
   const lines = buildAnkiTsv(savedRows(exportItems), settings, exportFolders).split("\n");
-  assert.equal(lines[3], "1. Below the ground; underground.\tsubterranean · Uncommon\tGRE_words_2");
+  assert.equal(lines[3], "1. Below the ground; underground.\tsubterranean · Rare\tGRE_words_2");
   assert.equal(lines[4], "earth, land\tterra · Latin root\tSaved");
 });
 
@@ -2060,7 +2060,7 @@ test("the CSV writes every column, with the gloss in the text column for roots",
   assert.deepEqual(CSV_COLUMNS, ["kind", "key", "defs", "breakdown", "tier", "folder", "added"]);
   assert.equal(
     lines[1],
-    'word,subterranean,1. Below the ground; underground.,sub- + terra + -an,Uncommon,GRE words 2,2023-11-14'
+    'word,subterranean,1. Below the ground; underground.,sub- + terra + -an,Rare,GRE words 2,2023-11-14'
   );
   assert.equal(lines[2], 'root,la:terra,"earth, land",,,Saved,2023-11-14');
   assert.equal(lines[3], "", "the missing row is skipped");

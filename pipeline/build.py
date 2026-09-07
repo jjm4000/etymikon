@@ -7085,7 +7085,7 @@ RE_JS_STR_PAIR = re.compile(r"([A-Za-z_]\w*)\s*:\s*\"([^\"]*)\"")
 # differ (the fourth key stayed `rare` when its label became Uncommon on
 # 2026-09-07). Nothing here may hold a copy of either: both tables are read
 # off the extension.
-TIER_KEYS = ("everyday", "common", "advanced", "rare")
+TIER_KEYS = ("everyday", "common", "uncommon", "rare")
 
 
 def extension_tiers():
@@ -7132,8 +7132,8 @@ def tier_of(fr, cutoffs):
         return "everyday"
     if fr <= cutoffs["common"]:
         return "common"
-    if fr <= cutoffs["advanced"]:
-        return "advanced"
+    if fr <= cutoffs["uncommon"]:
+        return "uncommon"
     return "rare"
 
 
@@ -7760,9 +7760,9 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
             % ("  ".join("%s %s" % (labels.get(k, k), format(tc[k], ","))
                          for k in TIER_KEYS), format(unranked, ",")))
         add("the last tier cutoff is the shipping cap",
-            cutoffs.get("advanced") == RANK_CAP,
-            "TIER_CUTOFFS.advanced=%s RANK_CAP=%s"
-            % (cutoffs.get("advanced"), RANK_CAP))
+            cutoffs.get("uncommon") == RANK_CAP,
+            "TIER_CUTOFFS.uncommon=%s RANK_CAP=%s"
+            % (cutoffs.get("uncommon"), RANK_CAP))
         missing_label = [k for k in TIER_KEYS if not labels.get(k)]
         add("lookup.js labels all four tiers", not missing_label,
             "labels %s%s" % (json.dumps(labels, ensure_ascii=False),

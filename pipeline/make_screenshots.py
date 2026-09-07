@@ -252,7 +252,7 @@ SHOTS = [
             label_is("MADE OF"),
             chip_forms("sub-", "terra", "-an"),
             has_text("chips carry their glosses", ".morph-gloss", "dry land"),
-            has_text("tier chip reads Advanced", ".tier-chip", "Advanced"),
+            has_text("tier chip reads Uncommon", ".tier-chip", "Uncommon"),
             IN_FRAME,
         ],
     },
