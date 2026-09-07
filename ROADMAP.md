@@ -95,9 +95,10 @@ words are new. 5,097 root cards are new. 6,744 words that main already
 had gain a working chip. Against that:
 
 - 43 words lose their card. The commonest of them ranks 52,222
-  (fondant) and the rest are rarer. Several were wrong on main:
-  portcullis read Latin colō, a card glossed "to cultivate the land,
-  till", and falciparum read pariō split into pār and -iō.
+  (fondant) and the rest are rarer. Two were read against main and both
+  were wrong there: portcullis read Latin colō, a card glossed "to
+  cultivate the land, till", and falciparum read pariō split into pār
+  and -iō. The other 41 were not read one by one.
 - 30 words keep their card and lose their origin row. The row is
   withheld because the card's first senses come from more than one
   etymology section and a later section supplies more of them than the
@@ -110,10 +111,11 @@ had gain a working chip. Against that:
   a source language that has no cards until Old English lands, and the
   row is right where main was wrong: long, beer and offer read Old
   English where main read Latin. 30 are the withheld rows above. 28 show
-  a single lemma where main showed a split, and several of those splits
-  were wrong, as pizza reading Latin pictus was. 20 are an English
-  breakdown whose chip lost its target, 10 of them a capitalised chip
-  that was opening a page it does not name.
+  a single lemma where main showed a split, and the split main showed
+  was sometimes wrong: it read pizza as Latin pictus, where the branch
+  reads Greek πίτα. 20 are an English breakdown whose chip lost its
+  target, 10 of them a capitalised chip that was opening a page it does
+  not name.
 
 ## Under consideration, in rough order of pull
 
