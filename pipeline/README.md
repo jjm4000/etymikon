@@ -129,8 +129,11 @@ form-of sense defines nothing of its own and contributes no `senses`.
 
 Definitions are the first gloss line of each sense, grouped by part of speech
 in source order, capped at four POS sections and four definitions each. A
-definition longer than 400 characters is dropped whole. So is one that trails
-off in an ellipsis. Nothing is ever cut mid-string.
+definition longer than 400 characters is dropped whole, unless it is the only
+sense its word has: the cap chooses among a word's senses and never chooses
+none (2026-09-07), so a word whose every sense runs long keeps the first one
+whole rather than vanishing. A definition that trails off in an ellipsis is
+dropped with no such fallback. Nothing is ever cut mid-string.
 
 Word keys are restricted to the shape the runtime can reach: a lowercase
 letter followed by letters, apostrophes and internal hyphens. Affix pages and
@@ -859,8 +862,9 @@ or more words reach is a card the reader wants, so recursion stops at it
 and its card carries the split (owner decisions 2026-09-01; the reach
 rule widened to the attached lemma under review finding 4, 2026-09-05,
 after justice flattened through iūstus while just attached to it).
-3,158 anchors at 2026-09-06. A chain-only tail word whose row will not
-decompose is dropped, so its attachment is no reach. `ROOT_ALIASES` and
+3,742 anchors at 2026-09-07. A chain-only tail word that will be dropped is
+no reach, so the test is whether its row names a card, which is what it
+ships on. `ROOT_ALIASES` and
 `ROOT_SKIPS` apply at every level, and a curated alias stops the recursion
 where it lands.
 
@@ -1081,16 +1085,22 @@ the exact key and the exact refusal.
 ## The dictionary cap
 
 Every word ranked in the top 50,000 ships unconditionally. Past that a word
-ships only if it carries a breakdown **and** the frequency corpus attests it
-at all.
+ships only if it has something to show **and** the frequency corpus attests
+it at all.
 
-A breakdown is either an English-surface split or a classical origin that
-decomposes (owner decision 2026-09-01). The origin half is provisional at
-survey time: whether an attachment flattens depends on the dominant entry,
+Something to show is an English-surface split, or an origin row with a card
+behind it: a classical origin that decomposes, or a single row on a lemma
+that ships (owner decision 2026-09-01, widened 2026-09-07 from decomposition
+to any row with a card, because the decomposed-only test disagreed with
+never-silent and a reader could see it). The origin half is provisional at
+survey time: what an attachment resolves to depends on the dominant entry,
 on the source graphs and on the anchor set, none of which pass 1 has. So a
 word naming a root or pass-through language becomes a candidate and emit
-drops it again unless its final org row decomposes. 9,474 candidates, 3,713
-ship, 5,761 dropped at 2026-09-05. A rank floor for these candidates was
+drops it again unless its final org row has a card behind it. 10,407
+candidates at 2026-09-07: 6,613 ship, 3,784 of them on a decomposed row and
+2,829 on a single lemma, and 3,794 are dropped, 2,908 because their row
+names a language with no cards and 886 because they resolve to no row at
+all. A rank floor for these candidates was
 considered and decided against (owner decision 2026-09-01): attestation is
 the edge, the same edge the split half has.
 
@@ -1114,7 +1124,9 @@ one occurrence in OpenSubtitles.
 
 The no-truncation rule carries over from Okpyeon. No string in any output file
 is a cut string. An overlong definition is dropped whole rather than shortened,
-and so is one that trails off in a source ellipsis.
+and so is one that trails off in a source ellipsis. Where dropping it would
+leave a word with no senses at all, the definition is kept whole instead, which
+is the one place length loses to presence.
 
 Root glosses are selected rather than cut. The chip subtext is one short line,
 so a budget decides which sense gets the card:

@@ -80,7 +80,7 @@ Where the source marks a sense as archaic, informal or one of fourteen other lab
 Every word carries one of four frequency tiers, counted over a corpus of film subtitles. subterranean reads Uncommon.
 
 --- THE WHOLE DICTIONARY IS INSIDE THE EXTENSION ---
-84,326 words, 8,068 root cards and 110,719 inflection and spelling mappings, 24.7 MB of dictionary data. Etymikon works with no connection and makes no network requests.
+87,161 words, 9,223 root cards and 114,842 inflection and spelling mappings, 25.6 MB of dictionary data. Etymikon works with no connection and makes no network requests.
 
 --- SOURCES ---
 Definitions, morpheme breakdowns and inflected forms: English Wiktionary, through the machine-readable extracts published by kaikki.org, under CC BY-SA.
@@ -243,16 +243,16 @@ block agrees with all of them.
 
 | Number | Claim | Source |
 | --- | --- | --- |
-| 84,326 | words | `words.json`, length of `words` |
-| 8,068 | root cards | `roots.json`, length of `roots` |
-| 110,719 | inflection and spelling mappings | `forms.json`, length of `map` |
-| 24.7 MB | the three data files | 25,931,083 bytes on disk, which is 24.73 MiB |
+| 87,161 | words | `words.json`, length of `words` |
+| 9,223 | root cards | `roots.json`, length of `roots` |
+| 114,842 | inflection and spelling mappings | `forms.json`, length of `map` |
+| 25.6 MB | the three data files | 26,852,983 bytes on disk, which is 25.61 MiB |
 | 44 | words on the cēdō card | `buildFamilyIndex` in `extension/lookup.js` over the shipped bundle, key `la:cedo`, which is what the card renders |
 | 360 | words on the -ful card | same index, key `en:-ful`, and the number rendered in `2-root-family.png` |
 | 4 | words absolute is used in | `buildUsedInIndex` over the shipped bundle, and the number rendered in `8-used-in.png` |
 | 4 | frequency tiers | `TIER_CUTOFFS` and `TIER_LABELS` in `extension/lookup.js` |
 | 16 | sense markers | `SENSE_LABELS` in `pipeline/build.py` |
-| 1,338 | proper-noun cards | `roots.json`, entries with `kind: "name"`, being 1,141 English, 109 Latin and 88 Greek |
+| 1,414 | proper-noun cards | `roots.json`, entries with `kind: "name"`, being 1,138 English, 162 Latin and 114 Greek |
 
 Each worked example in the description was rendered from the shipped
 bundle before it was written down: the subterranean and territory chips,

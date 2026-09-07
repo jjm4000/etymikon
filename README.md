@@ -42,11 +42,11 @@ into folders, and folders export to Anki or CSV.
 
 ![Dark mode](screenshots/7-dark-mode.png)
 
-The shipped dictionary holds 84,326 words, 8,068 root cards (English
-affixes, Latin and Greek lemmas, and 1,338 proper nouns), and 110,719
+The shipped dictionary holds 87,161 words, 9,223 root cards (English
+affixes, Latin and Greek lemmas, and 1,414 proper nouns), and 114,842
 inflection and spelling mappings, so selecting "territories" opens
 territory. It is built from Wiktionary at build time. The data files come
-to 24.7 MB and ship inside the extension, so lookups run with no
+to 25.6 MB and ship inside the extension, so lookups run with no
 connection.
 
 The name is Greek: etymos ("true sense") + -ikon, the formation behind

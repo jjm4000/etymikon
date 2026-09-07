@@ -51,13 +51,19 @@ needs its full binding detail.
   2026-09-06, the proper-noun pages a word is built on.
 - Dictionary cap, the hybrid rule: every dictionary word ranked in the
   top 50,000 of the frequency list ships unconditionally; beyond rank
-  50,000 a word ships only if it carries a morpheme breakdown AND is
-  attested anywhere in the frequency corpus. The attestation clause was
+  50,000 a word ships only if it is attested anywhere in the frequency
+  corpus AND has something to show, meaning a morpheme breakdown or an
+  origin row with a card behind it. The attestation clause was
   added at build bring-up (2026-08-24, flagged for owner ratification):
   without it Wiktionary's ~270k unattested affix coinages
   (nanovoltmeter, extremistical) ship and words.json is 53 MB; with it
   the dictionary is 76,496 words at 17.9 MB and the tail stays real
   (snarkiness, parapsychological, glucoside).
+  Amended 2026-09-07 (owner decision): the second clause read "carries
+  a morpheme breakdown", which past the cap meant an org row that
+  DECOMPOSES. That test predates never-silent and disagrees with it, so
+  a single row on a lemma with a card now qualifies too (see "Chain
+  candidacy past the cap").
   Proper-noun-only entries never ship as WORDS. Amended 2026-09-06
   (owner decision, ratified twice): a proper noun a shipped word is
   BUILT ON ships as a root card, family and all (see "A proper noun a
@@ -125,7 +131,11 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 - `senses`: one entry per part of speech, source order, max 4 POS
   sections, max 4 defs each, defs in full (the no-truncation rule
   carries over: never emit a cut string; a whole overlong sense may be
-  dropped by a ~400 char safety cap).
+  dropped by a ~400 char safety cap). Amended 2026-09-07 (owner
+  decision): the cap chooses among a word's senses and never chooses
+  none. Where every sense of a word runs past it, the word keeps the
+  first one whole rather than shipping nothing (see "No word vanishes
+  for want of a short enough sense").
 - `lb` on a POS section (2026-09-06): the register markers of that
   section's definitions, one list per definition, parallel to `defs`
   and present only where at least one definition carries a marker:
@@ -942,9 +952,10 @@ Parsing rules, English extract:
   the most frequent `t=` arg among referencing templates; a root with
   no gloss from either source is dropped and its references lose `r`.
 - Hybrid cap, applied after all harvesting: ship words with fr <=
-  50000; ship deeper words only when they carry morphs or a decomposed
-  org row (see the chain-candidacy section); never ship an unranked
-  word; then drop roots that fell under 2 references, then drop
+  50000; ship deeper words only when they carry morphs or an org row
+  with a card behind it, which is a decomposed row or a single row on a
+  lemma that ships (see the chain-candidacy section); never ship an
+  unranked word; then drop roots that fell under 2 references, then drop
   forms.json entries whose lemma dropped.
 
 ### Template census gate (2026-09-01)
@@ -1127,12 +1138,14 @@ the lemma stays whole. 8 rows carried one (arrant, caligo, err, palp,
 palpate, pigeon, seraglio, uncus). The same refusal covers a cycle two
 pages long (serō = sera + -ō and sera = serō + -a), where the inner
 split is refused and seraglio reads sera + -ō. Effects under the
-chain-only drop rule: arrant, caligo, palpate and uncus are past the
-cap and their only row was the self-split, so they no longer ship;
-err and palp are inside the cap and keep their cards with a single
-"From Latin" row; pigeon keeps its card and loses its row (pīpiō is
-credited by nothing else). Verify asserts no org row names its own
-lemma as a part.
+chain-only drop rule as it stood on 2026-09-01: arrant, caligo,
+palpate and uncus are past the cap and their only row was the
+self-split, so they no longer ship; err and palp are inside the cap and
+keep their cards with a single "From Latin" row. Since 2026-09-07 the
+first four ship again, each on the single row the refusal leaves:
+arrant on iterō, caligo on cālīgō, palpate on palpō, uncus on uncus.
+pigeon keeps its card and its row on pīpiō. Verify asserts no org row
+names its own lemma as a part.
 
 ### Chain candidacy past the cap (2026-09-01)
 
@@ -1148,6 +1161,9 @@ character rules stand. At emit the word ships only if its final org row
 is DECOMPOSED (`l`, `lang`, `parts`), and it is dropped otherwise. A
 single "From Latin x" row past the cap is a card with no breakdown on
 it, which is what the cap exists to keep out.
+
+The emit test is superseded 2026-09-07: see "Something to show, not a
+decomposition" below. The candidacy rule is unchanged.
 
 Two details carry the rule.
 
@@ -1239,12 +1255,15 @@ silently diverged from):
   (both widened 2026-09-05 to anchors and the nodes the chip cap kept
   whole, review finding 4).
 - Distribution sanity, printed in the build report: total words around
-  83k (29k ranked lemma pages inside the top 50,000, since inflection
+  87k (29k ranked lemma pages inside the top 50,000, since inflection
   pages live in forms.json, plus the attested tail that carries a split
-  or a decomposed chain; all moving with the corpus), morphs coverage
-  around a third of capped
-  words with Germanic affixes in, roots in the low thousands, en:
-  roots outnumber la:, no words.json entry with both morphs and org,
+  or a chain that resolves to a card; all moving with the corpus; 83k
+  under the decomposed-only tail rule, before 2026-09-07), morphs
+  coverage around a third of capped words with Germanic affixes in,
+  roots in the high thousands, la: roots outnumber en: (they passed
+  each other on 2026-09-05 when the source graphs landed, and the note
+  said otherwise until 2026-09-07),
+  no words.json entry with both morphs and org,
   no root under 2 distinct referencing words (superseded 2026-09-05
   by never-silent: every referenced root ships), no PIE key anywhere.
 - A 10 plus 10 random sample per zone (ranked/unranked, split/no-split)
@@ -3489,6 +3508,118 @@ was added.
 No curation entry was added, removed or amended. Three are reported: la:atlas
 above, and la:aestimo and la:adumbro, whose senses one statement each
 distinguishes.
+
+### Something to show, not a decomposition (owner decision 2026-09-07)
+
+Two rules of this SPEC disagreed and a reader could see it. The tail test of
+2026-09-01 says a word past `RANK_CAP` ships only if its org row DECOMPOSES.
+Never silent, ratified four days later, says a word whose origin does not
+split keeps its card and shows the quiet single row. Inside the cap sock
+reads "From Latin soccus". Past the cap the identical word was deleted from
+the dictionary. The owner found it by selecting errata and getting nothing.
+
+Rule: past `RANK_CAP` a word ships when its org row has a card behind it,
+meaning a decomposed row or a single row on a lemma that ships. Decomposition
+stops being the test; having something to show is the test. Two things do not
+move. A word whose chain resolves to nothing still does not ship, and a word
+the frequency corpus does not attest still does not ship. A row-only row is
+nothing to open, so it is not enough either.
+
+`org_has_card` is the one test and it runs twice, on the row as resolved and
+again on the row as emitted, because a single row whose lemma has no gloss to
+carry a card is deleted during linking. That is the same before and after
+shape the 2026-09-01 rule already needed.
+
+The anchor set moves with it. `find_anchors` skipped the attachment of a
+chain-only candidate that was going to be dropped, so it asked whether the
+candidate's row decomposes. It now asks whether the row names a card, since
+that is what the candidate ships on. 3,190 anchors to 3,742. No row that was
+already shipping changed shape as a result, decomposed or single.
+
+Not widened to pure attestation. The owner considered and declined it on
+2026-09-07: dropping the origin clause and shipping every attested word adds
+a further 30,305 definition-only words, bramble, tarpaulin and swatch among
+them, for about 11 MB. The cap exists to keep the dictionary the size the
+SPEC predicts, and a word with neither a breakdown nor an origin row has
+nothing this product is for.
+
+### No word vanishes for want of a short enough sense (owner decision 2026-09-07)
+
+`DEF_MAX_CHARS` is 400 and a longer sense was dropped whole. A word whose
+every sense runs long therefore had no senses, and a word with no senses is
+no word: journalism ranks 11,461, well inside the cap that ships a word
+unconditionally, has one sense of 435 characters, and shipped nothing at all.
+nitroglycerine at 49,295 went the same way. Those two are the only ones
+inside the cap and the count moves with the corpus.
+
+Rule: the cap chooses among a word's senses and never chooses none. Where
+every sense of a word runs past it, the word keeps the first one, whole.
+
+Nothing is cut. The card already clamps a definition to two lines behind a
+"more" control, so length is a display concern the card answers, and a cut
+string is the one thing no output file in this build carries. A sentence
+boundary trim was considered and refused: it would rewrite 58 senses on words
+that already read well, it cannot promise to land under the cap, and
+journalism's sense is one sentence with no boundary to cut at.
+
+The fallback is per WORD, not per entry. An entry whose senses all run long
+beside another entry carrying short ones is left alone. Its word ships
+either way, and folding the long sense in would move the section the card
+opens with, and with it the etymology section the origin row comes from.
+
+### Measured after the tail round (2026-09-07)
+
+Two --offline builds byte-identical. 120 spot checks in the build pass 0
+failed, `--verify` 114 checks 0 failed. Gold 318 of 318, four rows added and
+one amended, committed score raised from 314. Node 181, index harness 268,
+embed harness 209, 8 screenshots regenerated with their scene checks passing
+and byte-identical to the set before the round.
+
+Data. 84,326 words to 87,161, 8,068 roots to 9,223, 110,719 forms rows to
+114,842, 14,733 origin rows to 17,562. The origin rows are 7,134 decomposed
+(unchanged), 5,076 single (2,247) and 5,352 row-only (unchanged): every row
+the round adds is a single row that was already being resolved and thrown
+away. words.json 21.3 MB to 22.0, roots.json 0.9 to 1.1, forms.json 2.5
+unchanged, 24.7 MB to 25.6 MB total, which is 916,306 bytes.
+
+The tail. The chain-only pool is 10,407 candidates. 6,613 ship, 3,784 of them
+on a decomposed row and 2,829 on a single lemma, and 3,794 are dropped, 2,908
+because their row names a language that has no cards and 886 because they
+resolve to no row at all. The estimate before the work was about 4,194 new
+cards; the measured number is 2,829, and the difference is the 2,908 row-only
+rows, which the ratified rule does not admit. Admitting them would cost about
+another 0.7 MB, estimated from the measured per-word cost rather than built.
+
+The definition cap. 67 senses run past 400 characters, 58 still dropped and 9
+kept whole because their word had no other. Six of those nine words ship:
+journalism, nitroglycerine, streptomycin, sildenafil, diethylstilbestrol and
+lienholder. The other three are past the cap and carry no origin row with a
+card.
+
+No regression. No word that was already shipping lost its card, its split,
+its origin row, a chip or a definition, and no chip went inert. Three
+exceptions are changes rather than losses. 3 proper-noun root cards go,
+en:batavia, en:gascon and en:golgotha, each because the word itself now ships
+and a chip prefers a shipped word to a name card, so batavian now opens the
+lettuce and golgothan the charnel house. 9 chips change target, every one
+onto a newly shipping word and every one a correction: fusty pointed at
+first and now points at fust. 45 forms.json rows go, because a shipped word
+is never a forms.json key, and 33 change target, because an inflection whose
+real lemma now ships stops falling through to a spelling that was never its
+lemma: fusting resolved to first and now resolves to fust.
+
+The hand checks. Twenty newly shipping words read against the English
+extract: the five the owner named, lyssa, and fourteen sampled at a fixed
+seed. Seventeen read correctly. Three are reported rather than fixed, since
+each is an existing rule meeting a bigger word set. errata reads errō, the
+verb its participle steps to, where the reader would expect errātum, which
+erratum beside it already reads. falciparum reads a single row on the suffix
+la:-parus, and a row whose whole content is an affix says little. chroma
+reads χρῶμα glossed "skin", which is the Greek page's headline sense where
+the English page means colour.
+
+No curation entry was added, removed or amended, and all 54 entries over the
+nine tables still fire.
 
 ## Naming (Jesse decision 2026-08-25)
 

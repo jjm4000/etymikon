@@ -12,15 +12,16 @@ The manifest reads 1.0.0, so `pipeline/make_zip.ps1` writes
 etymikon-1.0.0.zip and the sidebar footer reads "Etymikon 1.0.0". This is
 the first store submission, so this block is the whole product and there
 is no earlier release to compare against. It is written against this
-commit on `origin-graphs`, which is the tree that merges to `main`;
-`main` on its own still holds the data the costs section below measures
-against. The work runs from 2026-08-24 to 2026-09-07. Suite counts on
-this commit: 120 spot checks in a full build and 114 under `--verify`,
-gold 305 of 305, 181 Node checks, 268 index-harness checks, 209
-embed-harness checks, and 8 screenshots with their scene checks. The
-counts in the bullets come from `extension/data/` and
-`pipeline/cache/build-report.txt`, and are re-measured before every
-upload, because one data rule change moves several of them at once. The
+commit on `main`, which is the origin-graphs tree plus the tail round of
+2026-09-07; the costs section below measures against the tree as it
+stood before origin-graphs merged. The work runs from 2026-08-24 to
+2026-09-07. Suite counts on this commit: 120 spot checks in a full build
+and 114 under `--verify`, gold 318 of 318, 181 Node checks, 268
+index-harness checks, 209 embed-harness checks, and 8 screenshots with
+their scene checks. The counts in the bullets come from
+`extension/data/` and `pipeline/cache/build-report.txt`, and are
+re-measured before every upload, because one data rule change moves
+several of them at once. The
 upload has an order of its own: declutter the README, write the store
 listing from it, build the zip, smoke it in a clean Chrome profile, then
 submit. The rest of the collateral is ready: the icon set and the promo
@@ -28,52 +29,52 @@ tiles.
 
 - **The core loop.** Select a word, read its definitions and its morpheme
   breakdown, click any morpheme to its root card, walk the root's family,
-  and come back on the breadcrumb trail. 61,137 words carry a breakdown
-  and 14,733 carry an origin row. SPEC "UI, in-page popup and sidebar".
+  and come back on the breadcrumb trail. 61,143 words carry a breakdown
+  and 17,562 carry an origin row. SPEC "UI, in-page popup and sidebar".
 - **The origin subsystem, built from source graphs.** Latin and Greek are
   built as standalone graphs from templates and etymology prose, English
   attaches by any classical mention, the French group is walked as
-  pass-through, and no origin is silenced. 14,733 origin rows: 7,134
-  decomposed, 2,247 single, 5,352 naming a language that has no cards.
+  pass-through, and no origin is silenced. 17,562 origin rows: 7,134
+  decomposed, 5,076 single, 5,352 naming a language that has no cards.
   Of the decomposed rows, 2,291 were answered by a template, 4,153 by an
   etymon field, 207 by prose, and 483 by parts the English page supplied.
-  A gold set of 305 hand-verified rows scores every build and the score
+  A gold set of 318 hand-verified rows scores every build and the score
   may not drop. Of the 1,752 words that named a classical origin and
   showed nothing under the old machinery, 553 now decompose, 1,016 show
   a single row, and 183 still show nothing. SPEC "Origin subsystem,
   source graphs".
-- **Root cards.** 8,068 of them, 3,060 English, 3,542 Latin, 1,466 Greek.
-  1,178 carry their own breakdown, 3,190 are anchors that recursion stops
-  at, and 4,160 hold a one-word family. SPEC "Root card".
+- **Root cards.** 9,223 of them, 3,057 English, 4,298 Latin, 1,868 Greek.
+  1,178 carry their own breakdown, 3,742 are anchors that recursion stops
+  at, and 4,803 hold a one-word family. SPEC "Root card".
 - **Proper nouns get cards.** A word built on a name reaches the name:
   tantalize opens Tantalus, the Phrygian king, and darwinism opens
   Charles Darwin. A name page states its referent in sense 1 and its
   homographs after it, so the card takes sense 1 and trims it to the
-  budget rather than walking past it to a shorter later sense. 1,141
-  English name cards ship, and 197 Latin and Greek cards are labelled
+  budget rather than walking past it to a shorter later sense. 1,138
+  English name cards ship, and 276 Latin and Greek cards are labelled
   names rather than roots. SPEC "A proper noun a word is built on is a
   card".
 - **Register labels.** A definition states its register where the page
-  marks one. 27,291 of the 185,487 shipped definitions carry a marker,
-  spread over 17,567 words, and 125 root cards carry one. SPEC "Sense
+  marks one. 28,107 of the 191,009 shipped definitions carry a marker,
+  spread over 18,147 words, and 131 root cards carry one. SPEC "Sense
   register labels".
 - **Bidirectional families.** Word cards carry "Used in N words", the
   reverse of the morpheme graph, so the list of what English builds on a
   word is on the card instead of being something the reader has to guess
   exists. SPEC "Word card".
 - **Lemmatization.** Inflected selections resolve to their lemma through
-  110,719 mappings, 97,818 of them inflections and 12,901 alternative
-  spellings. 5,612 shipped words shadow a lemma (ran, running) and carry
+  114,842 mappings, 101,463 of them inflections and 13,379 alternative
+  spellings. 5,695 shipped words shadow a lemma (ran, running) and carry
   an "Also a form of" row plus their lemma's origin row. SPEC "Data
   files (produced by pipeline/build.py)".
-- **A general dictionary under the etymology.** 84,326 words in 24.7 MB
+- **A general dictionary under the etymology.** 87,161 words in 25.6 MB
   of data, under the hybrid cap: everything attested in the top 50,000
-  ranks, plus every rarer word carrying a breakdown, whether that
-  breakdown is an English split or a classical origin chain that
-  decomposes. American spellings are primary and British spellings
+  ranks, plus every rarer word with something to show, whether that is an
+  English split, a classical origin chain that decomposes, or a single
+  row on a lemma that has a card. American spellings are primary and British spellings
   resolve to them. SPEC "Product decisions".
-- **Tier chips.** Everyday 2,649, Common 8,419, Uncommon 18,190,
-  Rare 55,068, nothing unranked. The ladder runs on one axis,
+- **Tier chips.** Everyday 2,649, Common 8,420, Uncommon 18,191,
+  Rare 57,901, nothing unranked. The ladder runs on one axis,
   frequency, because a rank in a subtitle corpus is the only signal
   behind it. The cutoffs live in one function, and the build asserts
   every tier holds a word and that both label tables agree. SPEC
@@ -96,9 +97,12 @@ tiles.
 
 ### What this release costs a reader
 
-Measured against `main`, which holds 82,843 words and 3,021 roots. 1,526
-words are new. 5,097 root cards are new. 6,744 words that main already
-had gain a working chip. Against that:
+Two rounds, measured separately.
+
+The origin-graphs round, measured against the tree before it merged,
+which held 82,843 words and 3,021 roots. 1,526 words are new. 5,097 root
+cards are new. 6,744 words that tree already had gain a working chip.
+Against that:
 
 - 43 words lose their card. The commonest of them ranks 52,222
   (fondant) and the rest are rarer. Two were read against main and both
@@ -123,6 +127,30 @@ had gain a working chip. Against that:
   target, 10 of them a capitalised chip that was opening a page it does
   not name.
 
+The tail round of 2026-09-07, measured against the origin-graphs tree.
+2,835 words are new, 2,829 of them past the cap on a single origin row
+that has a card and 6 of them words whose only sense ran past the
+definition cap. 1,158 root cards are new. Nothing costs a reader
+anything: no word lost its card, its split, its origin row, a chip or a
+definition. Three consequences are worth naming.
+
+- 3 proper-noun root cards go, en:batavia, en:gascon and en:golgotha.
+  Each lost its last referring chip because the word itself now ships
+  and a chip prefers a shipped word to a name card. The chip on batavian
+  now opens the lettuce rather than the place, and the chip on golgothan
+  opens the charnel house rather than the hill. The precedence is the
+  ratified one and the words are new, so this is reported rather than
+  fixed.
+- 9 chips change target, every one of them onto a word that now ships
+  and every one a correction: fusty pointed at first and now points at
+  fust, humic and humusy pointed at hummus and now point at humus,
+  legerity pointed at ledger and now points at leger.
+- 45 forms.json rows go and 33 change target, all for the same reason: a
+  shipped word is never a forms.json key, and an inflection whose real
+  lemma now ships stops falling through to a spelling that was never its
+  lemma. fusting resolved to first and now resolves to fust; scullions
+  resolved to macaroni and now resolves to scullion.
+
 ## Under consideration, in rough order of pull
 
 - **Old English as a root language, phase two.** Middle English walked as
@@ -138,11 +166,11 @@ had gain a working chip. Against that:
   no origin at all. The list with reasons is in
   `pipeline/cache/misses-report.txt`.
 - **Cards that render nothing under the definitions.** 8,456 words carry
-  neither a breakdown nor an origin row. 3,361 of those inherit a row
-  from the lemma they shadow, which leaves 5,095 cards saying nothing
+  neither a breakdown nor an origin row. 3,383 of those inherit a row
+  from the lemma they shadow, which leaves 5,073 cards saying nothing
   about where the word came from, 198 of them inside the top 3,000 ranks.
-  None are tail words: a word ships beyond rank 50,000 only by carrying a
-  breakdown, so the whole set is inside the cap. The fix is more origin
+  None are tail words: a word ships beyond rank 50,000 only by having
+  something to show, so the whole set is inside the cap. The fix is more origin
   coverage rather than a new surface.
 - **Pages that lead with section headings.** cat's noun senses read
   "Terms relating to animals" and the like, which is Wiktionary's page
