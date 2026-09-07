@@ -1154,6 +1154,11 @@ equally is not counted. Order decides nothing here, because sense 1 of an
 ordinary page is the most basic meaning rather than the meaning English took.
 47 cards move, 39 for the better. SPEC "The sense an ordinary card shows".
 
+A long gloss is left long. 230 cards carry one over 100 characters and the
+build does not trim them: the renderer already cuts a chip gloss to its first
+clause past 90, so the whole line is only read on the card, and a comma trim
+was measured over the 53 non-name cards it would reach and made 18 of them
+worse. SPEC "A long root gloss is not cut".
 
 A trailing parenthetical clarifier and a leading usage label are dropped
 before any of this, so `terra` reads "dry land" instead of "dry land (as

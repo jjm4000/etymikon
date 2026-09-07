@@ -3294,6 +3294,44 @@ already unreached, which is why the outputs do not move.
 
 No curation entry was added, removed or amended.
 
+### A long root gloss is not cut (2026-09-07)
+
+230 of the 8,068 cards carry a gloss over 100 characters and 109 over 120.
+`ROOT_GLOSS_MAX` is 160 and it drops a sense rather than cutting it, so the
+question was whether a further rule should trim the long ones the way the
+name trim trims a long name sense. The answer is no, and the measurement is
+the reason.
+
+- 183 of the 216 measured before this round's sense rule already read short
+  on a chip, at a mean of 50.6 characters, because the renderer cuts a chip
+  gloss to its first clause past 90. The other 33 have no boundary at all, so
+  no rule can help them. The whole line is therefore only ever read on the
+  card, where the gloss renders as a sense list with as many lines as it
+  needs.
+- Applied to the 216, the name trim's tiers find a cut that reads as a gloss
+  for 117 of them, 64 name cards and 53 others. The 53 were read one by one:
+  33 improve, 2 are neither better nor worse and 18 make the card worse. The
+  damage lands on the affixes a reader meets most. -ful falls from "Used to
+  form adjectives from nouns, with the sense of being full of ..." to "Used
+  to form adjectives from nouns", which is the one thing -ful does not mean
+  on its own. -ality and -icity both fall to "Used to form nouns". -ism falls
+  to "Used to form nouns of action" and drops process and result. grc:ἀ-
+  falls to "The alpha privativum" and says nothing at all. -nik and -o and
+  -sies stop in the middle of a list.
+- The 112 name cards over 100 are the previous round's decision, taken
+  deliberately: a name card keeps the whole of sense 1 where no cut reads as
+  a gloss.
+
+So no rule is added. A card whose gloss is a whole clear sentence at 139
+characters is better than a mangled one at 34, the chip already shows the
+short form, and en:-ful is pinned in the gold set so the accepted shape
+cannot drift.
+
+The counts moved once this round, from the sense rule below and not from any
+trim: over 100 from 216 to 230 and over 120 from 104 to 109, because a card
+that changes to a fuller sense 1 is usually longer than the short later sense
+it replaces. Nothing is over the 160 cap.
+
 ### The sense an ordinary card shows (2026-09-07)
 
 The budget ladder takes the first sense at or under 80 characters, so a page
@@ -3382,6 +3420,40 @@ empty: no source page glosses Ātlās as a part and no English page writes a
 gloss beside it, so a rule of this shape has nothing to read. It stays where
 the previous round left it, as the one place a hand gloss would beat the
 rule, and it stays a report rather than an entry.
+
+### Measured after the gloss round (2026-09-07)
+
+Two --offline builds byte-identical. 120 spot checks in the build pass 0
+failed, `--verify` 0 failed. Gold 314 of 314, three card rows added and two
+decomposed rows amended, committed score raised from 311. Node 181, index
+harness 268, embed harness 209, 8 screenshots regenerated with their scene
+checks passing and byte-identical to the set before the round.
+
+Data. roots.json: 50 cards change, 47 on `gloss` and 3 on `parts`, being 42
+Latin and 8 Greek, 46 of kind `root` and 4 of kind `suffix`. No key is added
+or dropped and no card lost its gloss. words.json: 17 words change, every one
+of them on `org` alone and every one a consequence of a card gloss moving,
+being annoy, consecrate, ennui, etude, exaggerate, familiary, hamamelis,
+noise, polonium, proverb, quasi, recollection, sacrament, sacramentum,
+studio, study and tellurium. Nine of those seventeen render identically,
+because the chip's own gloss and the card gloss it falls back to are now the
+same string. forms.json is byte-identical.
+
+Counts in the build report. The three counts the clause scan moved are listed
+in its own section above. The sense rule adds one report line and moves no
+other count: 84,326 words, 8,068 roots, 110,719 forms rows, 1,141 English
+name cards, 125 cards carrying a register marker.
+
+The hand checks. All 47 changed cards read against the extracts and against
+the English words that credit them, 39 better, 2 neither, 6 worse, listed
+above. Thirty first-clause cuts read against the extracts for the clause
+scan, 30 better and 0 worse. All 53 non-name comma trims read for the
+long-gloss decision, 33 better, 2 neither and 18 worse, which is why no trim
+was added.
+
+No curation entry was added, removed or amended. Three are reported: la:atlas
+above, and la:aestimo and la:adumbro, whose senses one statement each
+distinguishes.
 
 ## Naming (Jesse decision 2026-08-25)
 
