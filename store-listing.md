@@ -135,6 +135,14 @@ All eight are 1280x800, which is the larger of the two sizes the store
 accepts. Both promo tiles are built at the required dimensions:
 `screenshots/promo-440x280.png` and `screenshots/promo-1400x560.png`.
 
+The marquee tile carries two figures, 85,000+ words and 6,000+ Latin and
+Greek roots. They are floors rather than counts, for the reason the rule
+at the top of this file exists: a tile is uploaded by hand and cannot be
+corrected by a rebuild. `make_promo.py` checks both against
+`extension/data/` and refuses to render below either, so the tile cannot
+be built with a false claim on it. If it ever does refuse, lower the
+floor in that file and upload the new tile with the release.
+
 ## Dashboard form answers
 
 ### Store listing tab
