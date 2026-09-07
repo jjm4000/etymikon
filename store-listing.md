@@ -20,10 +20,16 @@ Canonical in `extension/manifest.json`. This is a copy, not a second
 original.
 
 ```
-Etymikon: Word Roots Popup Dictionary
+Etymikon: Word Roots and Etymology Popup Dictionary
 ```
 
-37 characters, inside the manifest's 75-character limit.
+51 characters, inside the manifest's 75-character limit. Set by the
+2026-09-07 decision recorded in SPEC "Name", which widened it from 37
+characters so the store indexes "etymology". The title names the subject
+and does not promise the genre, so the description below says what a card
+shows and never claims a complete etymology. Browse-rail cards truncate
+long titles, so check how 51 characters read on the store card after the
+first upload.
 
 ## Short description (dashboard field: Summary)
 
@@ -222,10 +228,15 @@ them.
 
 | Chars | Phrasing | Why it lost |
 | --- | --- | --- |
-| 45 | Etymikon: English Word Roots Popup Dictionary | "English" is redundant beside "Word Roots" in an English-language store. |
+| 37 | Etymikon: Word Roots Popup Dictionary | The shipped name until 2026-09-07. Superseded: the store indexes the title, and this one carried no term a reader searches for except "dictionary". |
+| 45 | Etymikon: English Word Roots Popup Dictionary | "English" is redundant beside "Word Roots" in an English-language store, and it adds no search term the 37-character name lacked. |
 | 40 | Etymikon: Popup Dictionary of Word Roots | Puts the weakest word, "Popup", ahead of the subject. |
 | 36 | Etymikon: Word Roots and Definitions | Loses "Dictionary", which is the search term. |
 | 8 | Etymikon | Says nothing to a reader who has not heard of it. |
+
+The four below the current name were drafted against the superseded
+37-character title and are kept so they are not re-derived. None of them
+carries "etymology", which is the term the current name exists to hold.
 
 ## Numbers, and where each came from
 

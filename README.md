@@ -1,4 +1,4 @@
-# Etymikon: Word Roots Popup Dictionary
+# Etymikon: Word Roots and Etymology Popup Dictionary
 
 Chrome extension (Manifest V3). Select an English word on any page and a
 popup card shows its definitions and its morpheme breakdown
