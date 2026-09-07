@@ -4774,6 +4774,12 @@ class Origin:
         self.stats = collections.Counter()
         self.walked_pages = {}   # (code, term) -> that page's own mentions
         self.last_refusal = ""   # why the last row chain refused its term
+        # Which source answered, per word: the split source of the lemma a
+        # decomposed row reads, or the shape when nothing decomposed. Two
+        # sources can answer the same question here, so the report says
+        # which one did and a corpus refresh moves a number instead of
+        # swapping a source in silence (2026-09-07).
+        self.answered = {}       # word key -> template | etymon | prose | page
         self.ev = {}             # fam:key -> merged homograph evidence
         self.ctx = None          # the attaching page's own evidence, during attach
         self.ranks = {}          # word -> rank, for the weight of its vote
@@ -5974,7 +5980,22 @@ class Origin:
                 self.stats["rowrom"] += 1
         return row
 
-    def resolve(self, att, count=True):
+    def split_source(self, lang, key):
+        """Which source supplied the top-level split of a decomposed row.
+
+        The graph records template, etymon or prose per node. A lemma with
+        no graph edge decomposes on the parts the English page supplied for
+        it, which is a fourth answer and the one a corpus refresh moves
+        first.
+        """
+        if key is None:
+            return "page"
+        g = self.g.get(lang)
+        if g is None or key not in g.split:
+            return "page"
+        return g.split_src.get(key) or "page"
+
+    def resolve(self, att, count=True, wl=None):
         """The `org` value for an attachment: decomposed, single, row-only."""
         if not att:
             return None
@@ -5993,6 +6014,8 @@ class Origin:
             if count:
                 self.stats["decomposed"] += 1
                 self.stats["unwritten"] += 1
+            if wl is not None:
+                self.answered[wl] = "page"
             return {"l": att["label"], "lang": lang,
                     "parts": [org_part(f, r, gl) for f, r, gl in flat]}
         if att.get("first") and att["first"] != key:
@@ -6010,6 +6033,8 @@ class Origin:
             if count:
                 self.stats["decomposed"] += 1
                 self.stats["parts_%d" % min(len(flat), 6)] += 1
+            if wl is not None:
+                self.answered[wl] = self.split_source(lang, key)
             disp = self.g[lang].form.get(key) or key
             return {"l": disp, "lang": lang,
                     "parts": [org_part(f, r, gl) for f, r, gl in flat]}
@@ -8303,7 +8328,7 @@ def main(argv):
 
     org_rows = {}
     for wl, att in pending.items():
-        org = origin.resolve(att)
+        org = origin.resolve(att, wl=wl)
         if org:
             org_rows[wl] = org
     log("  origin rows: %s decomposed, %s single, %s row-only"
@@ -8368,6 +8393,12 @@ def main(argv):
            format(lp["inertpart"], ","), format(lp["orgwhole"], ","),
            format(lp["orgdrop"], ","), format(lp["repeat"], ","),
            format(lp["routed"], ","), format(lp["namegloss"], ",")))
+    # Every referenced key with no gloss is a reference that renders as an
+    # inert chip, so the size of this hole is the size of a hole in the
+    # product's main surface. Its neighbours above all reached the report
+    # and it reached none until 2026-09-07.
+    log("  %s referenced root keys dropped for want of a gloss (every "
+        "reference to one renders inert)" % format(lp["noglossroot"], ","))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader
@@ -8511,6 +8542,18 @@ def main(argv):
         % (format(n_org, ","), 100.0 * n_org / max(1, len(shipped)),
            format(n_dec, ","), format(n_org - n_dec - n_row, ","),
            format(n_row, ",")))
+    # Which of the three graph sources answered, for the rows that
+    # decomposed. The shape breakdown above says what a row looks like; this
+    # says where it came from, so a corpus refresh that swaps a template
+    # split for a prose one shows as a number moving (2026-09-07). "page" is
+    # the fourth answer: the lemma has no graph edge and decomposed on parts
+    # the English page supplied for it.
+    ans = collections.Counter(
+        origin.answered.get(k, "page") for k, w in shipped.items()
+        if (w.get("org") or {}).get("parts"))
+    log("  by source   : %s"
+        % ", ".join("%s %s" % (format(ans[s], ","), s)
+                    for s in ("template", "etymon", "prose", "page")))
     log("roots         : %s (en=%s la=%s grc=%s); %s anchors; %s nodes the "
         "chip cap kept whole; %s one-word families"
         % (format(len(roots), ","), format(langs["en"], ","),

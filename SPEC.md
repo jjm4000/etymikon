@@ -2786,8 +2786,11 @@ phase reading φάσις = φαίνω + -σις where it read a single row befor
 
 ### Measured after the register round (2026-09-07)
 
-Two --offline builds byte-identical, verify 114 spot checks 0 failed (110
-before, 4 added), gold 304 of 304 (11 rows added and 3 amended), Node 181,
+Two --offline builds byte-identical, 114 spot checks in the build pass 0
+failed (110 before, 4 added), of which `--verify` runs 108: six checks read
+the build's in-memory anchor set and are skipped against a stale data file.
+Both counts are correct and they are not the same measurement. Gold 304 of
+304 (11 rows added and 3 amended), Node 181,
 index harness 268, embed harness 190, 8 screenshots regenerated with their
 scene checks passing. Data: 84,326 words (84,321 before), 8,068 roots
 (6,743), 110,719 forms rows (110,717), 14,733 origin rows (14,730): 7,134
@@ -3014,6 +3017,36 @@ same lemma; the deponens entry already carries a note saying the owner kept
 it for that reason, and the same reading applies to the other two.
 `SOURCE_SPLITS["la:mentalis"]`, since the page's own template split now
 resolves to the same two parts.
+
+### Two reporting gaps closed (2026-09-07)
+
+`noglossroot` counts a referenced root key dropped for want of a gloss. Every
+reference to such a key renders as an inert chip, so the counter measures a
+hole in the product's main surface, and it reached no log line while every
+neighbouring counter reached the report. It has one now. The hole measures 0
+at 2026-09-07.
+
+The COUNTS block broke origin rows down by shape and never by which source
+answered, though the graph coverage table two lines up already tracked
+template, etymon tree and prose separately. Decomposed rows now carry a `by
+source` line. When two sources can answer the same question the report says
+which one did, so a corpus refresh moves a number instead of swapping a
+source in silence. A fourth answer, `page`, is the lemma with no graph edge
+that decomposed on parts the English page supplied for it.
+
+### Two spot-check counts (2026-09-07)
+
+The round note above records 114 spot checks while `--verify` prints 108.
+Both are correct and they measure different runs. Six checks read state that
+only a build pass holds, the anchor set, the carried nodes, the computed
+splits and the harvest, and `verify_only()` reads three JSON files and has
+none of it. The six are: every anchor lemma a row or a card names as a part
+ships as a root card; no org part or morph chip naming an anchor is inert;
+every anchor or carried node whose lemma decomposes carries parts, and no
+other; only anchors and nodes the chip cap kept whole carry parts; no shipped
+row names a lemma the page carries only in a cognate template; no word with a
+classified origin ships with neither morphs nor org. A round note should say
+which of the two counts it means.
 
 ## Naming (Jesse decision 2026-08-25)
 

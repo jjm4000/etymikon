@@ -40,9 +40,17 @@ streaming passes over the English extract dominate the time. It exits
 non-zero if any verification check fails or the gold score drops.
 
 Every run prints a build report and writes the same text to
-`cache/build-report.txt`: counts, output sizes, the distribution numbers, the
-spot-checks, and a fixed-seed sample of ten words from each of the four cap
-zones for eyeball review.
+`cache/build-report.txt`: counts, the four tier counts, output sizes, the
+distribution numbers, the curation firing sweep, the spot-checks, and a
+fixed-seed sample of ten words from each of the four cap zones for eyeball
+review.
+
+The COUNTS block reports the origin rows twice, once by shape (decomposed,
+single, row-only) and once by which source answered a decomposed row
+(template, etymon, prose, page). Two sources can answer the same question
+here, so the report says which one did and a corpus refresh moves a number
+instead of swapping a source in silence. `page` names the lemma with no graph
+edge that decomposed on parts the English page supplied for it.
 
 ### Flags
 
