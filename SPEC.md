@@ -699,6 +699,57 @@ tier chip; the family count line is the root's weight signal.
   docstring. The 16px asset drops the ring and enlarges the glyph.
   The bare epsilon is binding: no diacritics at icon size.
 
+### The saved view's folder bands (2026-09-07)
+
+User-reported, fixed in 85e340d: with nothing saved every folder vanished
+from the saved list and came back on the first save, and an empty folder
+could not be selected or deleted. This is the contract that fix settled.
+
+- Showing a folder is never gated on its contents. Every folder renders as
+  a band, under All and under a single-folder filter alike, in folder
+  order. The grouped class is unconditional, so a filtered band sits over
+  its rows the way an All band does.
+- An empty band prints one line under it, "This folder is empty.", at the
+  item-row indent. A collapsed band prints nothing at all: the collapse
+  `continue` sits above that append.
+- The nothing-saved hint prints once, above the bands, never instead of
+  them.
+- Folder selection is its own map beside the item selection and is never
+  derived from it. The default folder is never in that map: its checkbox
+  picks its items and never the folder, and it is inert only while the
+  folder is empty. Every other empty band's box is live.
+- Checking a folder counts as a selection, so no action widens to the
+  filter. A checked folder alone arms Delete; Move and Export stay inert.
+  Select-all is about items, and clearing it clears the folder map with it.
+- One function computes a band's check state for both the build and the
+  cheap re-sync, and that re-sync runs under a filter too.
+- The confirmation is one sentence per part, the items first and then each
+  folder in order. The per-folder sentence names the default folder by the
+  name it has now, read through `folderName(DEFAULT_FOLDER_ID)`, because
+  saved.js lets that folder be renamed.
+- Delete removes the items first and the folders second. The other order
+  moves a deleted folder's items into the default folder before the item
+  delete reaches them.
+- The folder map is pruned in `refresh()` beside the item selection, so a
+  folder deleted under the view cannot sit in the delete set and re-arm the
+  action. Every write in the chain goes through `mutate()`, so each one
+  leaves a self-write claim and the storage echo it causes is dropped.
+- The corner seal. sidepanel.js keeps SEAL_ROOM at 230 and the saved view
+  declares no seal box, so it is measured against its own container. An
+  empty saved view is no longer one line of text: it is the hint plus one
+  band and one empty line per folder. Measured in the 360x600 panel the
+  embed harness frames, the view has 356px of room with the default folder
+  alone, and each further empty folder costs 65px, so the seal shows at one
+  and two folders and is gone at three (226px). The clearance stays at 230
+  (decision 2026-09-07). The seal is a fit-gated ornament and the rule that
+  drops it when a view fills is the rule; tuning the number per view would
+  make the seal say something about the view instead of about the fit.
+
+19 checks in test-page/embed.html pin this: the bands, the hint, the empty
+line, the collapsed case, the inert default box, the filter band, the
+selection map, the arming rule, the confirmation copy, the delete
+ordering, the prune, and the claims `mutate()` leaves.
+
 ## Pipeline (build.py rewrite)
 
 Skeleton carries over: download-if-missing with curl resume and remote
@@ -2917,6 +2968,12 @@ on the standard library alone.
   chip, it opens a card labelled "Proper noun" with its one-word family
   and a crumb, and the residue chip stays inert with its gloss), on
   both pages.
+- Harness fakes: the fake worker imports extension/lookup.js and calls
+  its `resolve`, `tierOf` and `TIER_LABELS`. The page holds no second
+  copy of the token rule, the suffix rules or the tier cutoffs. The
+  fixtures stay the gate because the page hands them in as
+  `{ words: { words: WORDS }, forms: { map: FORMS } }`. The import is a
+  dynamic one and needs an http origin, so both pages must be served.
 - Both harness pages are run headless by pipeline/run_selfchecks.py, at
   1280x1000, and the run is green when both report 0 failed. See "The
   headless self-check runner" for the transcript contract.

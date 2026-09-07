@@ -2422,6 +2422,57 @@
       !!savedView && !!settingsView);
 
     store.reset();
+
+    // --- empty folders ------------------------------------------------------------
+    // User-reported: with nothing saved every folder vanished from the list and
+    // came back with the first save. Showing a folder is not gated on its
+    // contents. State-restoring: the store is reset again at the end, so the
+    // rows below start from the same place they always did.
+    await fake.sendMessage({ type: "folderCreate", name: "Exam words" });
+    await fake.sendMessage({ type: "folderCreate", name: "Latin roots" });
+    sidebar.showView("saved");
+    await savedView.refresh();
+    var zeroList = document.getElementById("ety-saved-list");
+    var zeroNames = texts(zeroList.querySelectorAll(".saved-folder-name")).join("/");
+    check("with nothing saved, every folder still renders as a band, in folder order",
+      savedView.items().length === 0 &&
+      zeroList.querySelectorAll(".saved-folder").length === 3 &&
+      zeroNames === "Saved/Exam words/Latin roots",
+      zeroNames);
+    check("the nothing-saved hint prints once above the bands, not instead of them",
+      zeroList.firstElementChild.classList.contains("saved-empty") &&
+      zeroList.firstElementChild.textContent ===
+        "Nothing saved yet. Tap the ☆ on a card to save it." &&
+      zeroList.querySelectorAll(".saved-empty:not(.saved-empty--folder)").length === 1,
+      zeroList.firstElementChild.textContent);
+    check("each empty band prints one line under it, at the item-row indent",
+      zeroList.querySelectorAll(".saved-empty--folder").length === 3 &&
+      texts(zeroList.querySelectorAll(".saved-empty--folder")).join("|") ===
+        "This folder is empty.|This folder is empty.|This folder is empty." &&
+      zeroList.querySelectorAll(".saved-folder")[0].nextElementSibling
+        .classList.contains("saved-empty--folder") &&
+      zeroList.classList.contains("saved-list--grouped"),
+      zeroList.textContent);
+    // The collapse `continue` sits above the append, so a folded empty folder
+    // shows nothing at all rather than a line with no folder open over it.
+    zeroList.querySelectorAll(".saved-folder")[1]
+      .querySelector(".saved-folder-name").click();
+    check("a collapsed empty folder prints nothing under its band",
+      savedView.collapsed().length === 1 &&
+      zeroList.querySelectorAll(".saved-empty--folder").length === 2 &&
+      zeroList.querySelectorAll(".saved-folder")[1].nextElementSibling
+        .classList.contains("saved-folder"),
+      zeroList.textContent);
+    zeroList.querySelectorAll(".saved-folder")[1]
+      .querySelector(".saved-folder-name").click();
+    var zeroChecks = zeroList.querySelectorAll(".saved-folder-check");
+    check("an empty default folder's box is inert and every other empty band's is live",
+      zeroChecks.length === 3 && zeroChecks[0].disabled === true &&
+      zeroChecks[1].disabled === false && zeroChecks[2].disabled === false,
+      "disabled=" + zeroChecks[0].disabled + "," + zeroChecks[1].disabled +
+        "," + zeroChecks[2].disabled);
+    store.reset();
+    await savedView.refresh();
     fake.sendMessage({ type: "savedToggle", kind: "word", key: "subterranean" });
     fake.sendMessage({ type: "savedToggle", kind: "root", key: "la:terra" });
     fake.sendMessage({ type: "savedToggle", kind: "word", key: "notaword" });
@@ -2618,6 +2669,179 @@
         return "folders=" + savedView.folders().length +
           " items=" + savedView.items().length;
       });
+
+    // --- empty folders in a populated store ---------------------------------------
+    // A folder is selectable whether or not it has items, and that is how an
+    // empty one gets deleted from the list. State-restoring: the folders and
+    // items this block adds are gone by its end and the two folders and three
+    // items it found are back, so the row clicks below still find their rows.
+    // The item selection it found is dropped rather than restored: the items
+    // that carried it are deleted and remade here, under new ids.
+    var examId = savedView.folders()[1].id;
+    var savedList = document.getElementById("ety-saved-list");
+    var selectAll = document.getElementById("ety-saved-selectall");
+    var filterSel = document.getElementById("ety-saved-filter");
+    var removeBtn = document.getElementById("ety-saved-remove");
+    function bandFor(id) {
+      return savedList.querySelector('.saved-folder[data-folder="' + id + '"]');
+    }
+    function countText() {
+      return document.querySelector("#ety-saved-actions .saved-count").textContent;
+    }
+    savedView.selection().forEach(function (id) {
+      savedList.querySelector('.saved-row[data-id="' + id + '"] .saved-check').click();
+    });
+    // The "Moved 1 to Exam words" note holds the count slot for 2.5s, and the
+    // count assertions below need the slot back.
+    await until(function () { return countText().indexOf("Moved") < 0; });
+
+    filterSel.value = examId;
+    fire(filterSel, "change");
+    check("a single-folder filter renders that folder's band over its rows",
+      savedView.filter() === examId &&
+      savedList.querySelectorAll(".saved-folder").length === 1 &&
+      savedList.querySelector(".saved-folder").getAttribute("data-folder") === examId &&
+      savedList.querySelectorAll(".saved-row").length === 1 &&
+      savedList.querySelector(".saved-row").getAttribute("data-key") === "subterranean" &&
+      savedList.classList.contains("saved-list--grouped"),
+      "bands=" + savedList.querySelectorAll(".saved-folder").length +
+        " rows=" + savedList.querySelectorAll(".saved-row").length);
+    // The cheap re-sync used to run only under All, which left a filtered
+    // band's checkbox reading the selection it had at build time.
+    savedList.querySelector(".saved-row .saved-check").click();
+    check("a filtered band's checkbox re-syncs with the rows under it",
+      savedList.querySelector(".saved-folder-check").checked === true &&
+      savedView.selection().length === 1 && savedView.selectedFolders().length === 0,
+      "checked=" + savedList.querySelector(".saved-folder-check").checked);
+    savedList.querySelector(".saved-row .saved-check").click();
+    filterSel.value = "";
+    fire(filterSel, "change");
+
+    bandFor("f0").querySelector(".saved-folder-check").click();
+    check("the default folder's box picks its items and never the folder itself",
+      savedView.selection().length === 2 && savedView.selectedFolders().length === 0 &&
+      countText() === "2 selected",
+      "folders=" + savedView.selectedFolders().join(",") + " count=" + countText());
+    bandFor("f0").querySelector(".saved-folder-check").click();
+
+    var emptyId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Empty shelf" })).folder.id;
+    await savedView.refresh();
+    check("an empty folder joins the bands under All, with a live box and its own line",
+      savedList.querySelectorAll(".saved-folder").length === 3 && !!bandFor(emptyId) &&
+      bandFor(emptyId).querySelector(".saved-folder-check").disabled === false &&
+      bandFor(emptyId).nextElementSibling.classList.contains("saved-empty--folder"),
+      savedList.textContent);
+    bandFor(emptyId).querySelector(".saved-folder-check").click();
+    check("checking an empty folder selects the folder, so no action widens to the filter",
+      savedView.selectedFolders().join(",") === emptyId &&
+      savedView.selection().length === 0 && savedView.effectiveIds().length === 0 &&
+      countText() === "1 folder selected",
+      "count=" + countText() + " effective=" + savedView.effectiveIds().length);
+    check("a checked folder alone arms Delete and leaves Move and Export inert",
+      removeBtn.disabled === false &&
+      document.getElementById("ety-saved-move").disabled === true &&
+      document.getElementById("ety-saved-export").disabled === true,
+      "remove=" + removeBtn.disabled);
+    // Select-all is about items; folders are picked one by one. The clearing
+    // gesture still has to leave nothing armed behind it.
+    selectAll.click();
+    var armedBoth = countText() === "3 selected, 1 folder selected";
+    selectAll.click();
+    check("clearing select-all clears the folder selection with it",
+      armedBoth && savedView.selection().length === 0 &&
+      savedView.selectedFolders().length === 0 &&
+      bandFor(emptyId).querySelector(".saved-folder-check").checked === false,
+      "armed=" + armedBoth + " count=" + countText());
+    bandFor(emptyId).querySelector(".saved-folder-check").click();
+
+    // The destination is the default folder's CURRENT name: saved.js lets f0
+    // be renamed, and this copy used to write "Saved." out flat.
+    await fake.sendMessage({ type: "folderRename", id: "f0", name: "Keepsakes" });
+    await savedView.refresh();
+    filterSel.value = examId;
+    fire(filterSel, "change");
+    document.getElementById("ety-saved-delete").click();
+    await until(function () { return !!document.querySelector(".saved-confirm--folder"); });
+    check("the per-folder delete names the default folder by the name it now has",
+      document.querySelector(".saved-confirm--folder .saved-confirm-text").textContent ===
+        "Delete Exam words? 1 item moves to Keepsakes.",
+      document.querySelector(".saved-confirm--folder .saved-confirm-text").textContent);
+    document.querySelector(".saved-confirm--folder .saved-confirm-no").click();
+    filterSel.value = "";
+    fire(filterSel, "change");
+
+    bandFor(examId).querySelector(".saved-folder-check").click();
+    check("a populated folder's box selects the folder and its items, counted apart",
+      savedView.selectedFolders().join(",") === examId + "," + emptyId &&
+      savedView.selection().length === 1 &&
+      countText() === "1 selected, 2 folders selected",
+      "count=" + countText() + " folders=" + savedView.selectedFolders().join(","));
+    savedList.querySelector('.saved-row[data-key="subterranean"] .saved-check').click();
+    check("unchecking an item under a checked folder takes the folder out of the set",
+      savedView.selectedFolders().join(",") === emptyId &&
+      savedView.selection().length === 0 &&
+      bandFor(examId).querySelector(".saved-folder-check").checked === false,
+      "folders=" + savedView.selectedFolders().join(","));
+    bandFor(examId).querySelector(".saved-folder-check").click();
+
+    // A save landing in a checked folder from a page: the folder stays checked,
+    // the newcomer is not, and the confirmation says where it goes.
+    var landed = await fake.sendMessage({ type: "savedToggle", kind: "word", key: "music" });
+    await fake.sendMessage({ type: "savedMove", ids: [landed.item.id], folderId: examId });
+    await savedView.refresh();
+    removeBtn.click();
+    await until(function () { return !!document.querySelector(".saved-confirm--remove"); });
+    check("the confirmation is one sentence per part, the items then each folder in order",
+      document.querySelector(".saved-confirm--remove .saved-confirm-text").textContent ===
+        "Delete 1 item? Delete Exam words? 1 item moves to Keepsakes. Delete Empty shelf?",
+      document.querySelector(".saved-confirm--remove .saved-confirm-text").textContent);
+    // Every write in the chain goes through mutate(), so each one leaves a
+    // claim: three writes, three claims, three storage echoes dropped.
+    savedView.setStorageSync(true);
+    document.querySelector(".saved-confirm--remove .saved-confirm-yes").click();
+    await checkSoon("confirming removes the items first and the folders second",
+      function () {
+        var st = store.state();
+        return st.folders.length === 1 && st.items.length === 3 &&
+          st.items.filter(function (i) { return i.folderId === "f0"; }).length === 3 &&
+          savedView.selection().length === 0 &&
+          savedView.selectedFolders().length === 0 &&
+          savedView.pendingSelfWrites() === 3;
+      },
+      function () {
+        return JSON.stringify(store.state().items) +
+          " claims=" + savedView.pendingSelfWrites();
+      });
+    savedView.setStorageSync(false);
+
+    await fake.sendMessage({ type: "folderRename", id: "f0", name: "Saved" });
+    await fake.sendMessage({ type: "savedRemove", ids: [landed.item.id] });
+    var backId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Exam words" })).folder.id;
+    var backSub =
+      (await fake.sendMessage({ type: "savedToggle", kind: "word", key: "subterranean" }))
+        .item.id;
+    await fake.sendMessage({ type: "savedMove", ids: [backSub], folderId: backId });
+    await savedView.refresh();
+    check("the block puts the two folders and the three items back as it found them",
+      savedView.folders().length === 2 && savedView.folders()[1].name === "Exam words" &&
+      savedView.items().length === 3 && savedView.selection().length === 0 &&
+      savedView.selectedFolders().length === 0,
+      "folders=" + savedView.folders().length + " items=" + savedView.items().length);
+
+    // Pruned on each read, the way the item selection already is: a folder
+    // deleted under us must not sit in the delete set and resurrect the action.
+    var ghostId =
+      (await fake.sendMessage({ type: "folderCreate", name: "Ghost" })).folder.id;
+    await savedView.refresh();
+    bandFor(ghostId).querySelector(".saved-folder-check").click();
+    await fake.sendMessage({ type: "folderDelete", id: ghostId });
+    await savedView.refresh();
+    check("a folder deleted under us is pruned out of the folder selection on the read",
+      savedView.selectedFolders().length === 0 && !bandFor(ghostId) &&
+      savedView.folders().length === 2 && countText() === "all 3 shown",
+      "folders=" + savedView.selectedFolders().join(",") + " count=" + countText());
 
     // A row click lands in the search view with the card rendered.
     var firstRow = document.querySelectorAll("#ety-saved-list .saved-row")[0];
