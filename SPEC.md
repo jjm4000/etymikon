@@ -2411,6 +2411,52 @@ sex.)".
   the American way, so the British spelling has no lower-case evidence
   and keeps a capital it should not have. It is one row of 209.
 
+### A chip takes a recorded form and refuses a guessed one (2026-09-06)
+
+resolve_part asks one question of a chip that is no affix: is this
+spelling itself a shipped word. A reader selecting the same text is
+asked more, because the runtime resolver falls through to forms.json and
+then to the suffix rules. So a selection of "struck" reached strike
+while the struck chip on awestruck opened nothing.
+
+Measured over the 7,172 inert chips: 1,525 name a proper noun and the
+rule above glosses them; of the 5,647 that do not, the recorded steps
+reach 1,119 and the suffix rules 60 more.
+
+- The RECORDED steps are taken: the shipped key and the forms.json map,
+  both of which are Wiktionary saying that this spelling is a form of
+  that word. Thirty read against the extracts: 30 right. seemeth reaches
+  seem, pence reaches penny, haemoglobin reaches hemoglobin, sung
+  reaches sing, learnt reaches learn.
+- The suffix rules are REFUSED. A selection may guess, because the
+  reader chose the text and gets an answer or none; a chip is the
+  dictionary stating what a word is made of, and a guess there is a
+  wrong statement. All 60 read against the extracts: 39 right, 21 wrong.
+  The wrong ones are the -er, -ed and -est strips landing on a short
+  stem that happens to ship: adulterer's adulter to adult, attercop's
+  atter to att, yammerer's yammer to yam, juddery's judder to jud,
+  natterer's natter to nat, dickerer's dicker to dick, congestive's
+  congest to cong, divestment's divest to div, tetterwort's tetter to
+  tet, tabid's tabes to tab, multihued's hued to hu, bilobed's lobed to
+  lob, addlepated's pated to pat, twitterpated the same, brilliant's
+  briller to brill, aniseedy's aniseed to anise, stockbroking's broking
+  to broke, and the plurals of adulteress and attery and rose-hued.
+  There is no length or shape that separates them from the 39; the
+  difference is that the source recorded one relation and not the other.
+- A chip written with a capital is refused as well. forms.json is keyed
+  by the folded spelling, so folding a capitalised chip changes which
+  page it names: Ares lands on are, Aten on eat, Yeats on gate, Paris on
+  peri and Mary on marry. All 30 of those are proper nouns whose own
+  gloss the chip already carries.
+- The step runs at emit, after forms.json is assembled and after the
+  US-primary re-keying, so both tables are the ones that ship. That is
+  also what reaches the 20 chips whose spelling only became a shipped
+  key when the record moved to it: distill, humor, favorable, somber.
+- Outcome: 1,202 chips gain a word card and 5,970 stay inert, 1,084 of
+  them glossed. No chip lost a target and no row changed. awestruck
+  reads awe + struck with struck opening strike, and thoroughbred reads
+  thorough + bred with bred opening breed.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

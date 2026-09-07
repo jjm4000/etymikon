@@ -5693,6 +5693,57 @@ def root_kind(pos, form):
     return "root"
 
 
+def relink_recorded_chips(shipped, fmap):
+    """Give an inert chip the card its form is RECORDED as a form of.
+
+    resolve_part asks one question of a chip that is no affix: is this
+    spelling itself a shipped word. A reader selecting the same text is
+    asked more, because the runtime resolver falls through to forms.json
+    and then to the suffix rules, so "struck" on a page reached strike
+    while the struck chip on awestruck opened nothing.
+
+    Only the RECORDED steps are taken here: the shipped key and the
+    forms.json map, both of which are Wiktionary saying that this spelling
+    is a form of that word. The suffix rules are refused. A selection may
+    guess, because the reader chose the text and gets an answer or none; a
+    chip is the dictionary stating what a word is made of, and a guess
+    there is a wrong statement. Measured 2026-09-06 over the 5,647 inert
+    chips that name no proper noun: the recorded steps reach 1,119 and the
+    suffix rules 60 more, of which 21 are wrong (adulterer's adulter to
+    adult, attercop's atter to att, yammerer's yammer to yam, bilobed's
+    lobed to lob).
+
+    A hyphen in the chip keeps its refusal from resolve_part: an affix
+    that reached no affix page is not a word, and the runtime's token
+    rule would read -odon as odon.
+
+    A chip written with a capital is refused too. forms.json is keyed by
+    the folded spelling, so folding a capitalised chip changes which page
+    it names, exactly as folding one did for the proper-noun glosses: Ares
+    lands on are, Aten on eat, Yeats on gate, Paris on peri and Mary on
+    marry. All 30 of those are proper nouns whose own gloss the chip
+    already carries.
+
+    Runs after forms.json is assembled and after the US-primary re-keying,
+    so both tables are the ones that ship. That is also what reaches the
+    20 chips whose spelling only became a shipped key when the record
+    moved to it (distill, humor, favorable, somber).
+
+    Returns the number of chips that gained a card.
+    """
+    n = 0
+    for wl, w in shipped.items():
+        for m in w.get("morphs") or ():
+            f = m["f"]
+            if m.get("r") or m.get("w") or "-" in f or f[:1].isupper():
+                continue
+            target = f if f in shipped else fmap.get(f)
+            if target and target != wl and target in shipped:
+                m["w"] = target
+                n += 1
+    return n
+
+
 # -------------------------------------------------- the register of a row
 #
 # A row gloss is a fragment, not a sentence. Most are ("bowl"), because a
@@ -7501,6 +7552,17 @@ def main(argv):
     for us, brit in us_pairs:
         log("      %-18s <- %-18s fr %s -> %s"
             % (us, brit, before.get(brit), shipped[us].get("fr")))
+
+    # ---- inert chips that name a recorded form --------------------------
+    n_relink = relink_recorded_chips(shipped, fmap)
+    n_inert = sum(1 for w in shipped.values() for m in w.get("morphs") or ()
+                  if not m.get("r") and not m.get("w"))
+    log("  %s inert chips gained a word card from a recorded form; %s chips "
+        "stay inert (%s of them glossed as proper nouns)"
+        % (format(n_relink, ","), format(n_inert, ","),
+           format(sum(1 for w in shipped.values()
+                      for m in w.get("morphs") or ()
+                      if m.get("g") and not m.get("r") and not m.get("w")), ",")))
 
     # ---- the register of a row gloss ------------------------------------
     n_frag = fragment_row_glosses(shipped)
