@@ -25,7 +25,9 @@ needs its full binding detail.
   a definition card. The breakdown row renders when a split exists,
   whatever the split's origin (Latinate and Germanic alike).
 - Root node set: English affix entries (sub-, -an) and Latin/Greek
-  lemmas (terra, logos). Drill-down stops there. Proto-Indo-European is
+  lemmas (terra, logos). Drill-down stops there. Extended 2026-09-06:
+  a proper-noun PAGE any shipped word is built on joins the root set
+  under the `name` kind, in every language. Proto-Indo-European is
   out of scope everywhere, permanently for v1. Extended 2026-09-05:
   Old English lemmas join the root set in phase two of the origin
   subsystem (see "Origin subsystem, source graphs").
@@ -38,7 +40,8 @@ needs its full binding detail.
   source graphs").
 - Morpheme chips split by target: a part that is itself a shipped word
   (muse in music, beauty in beautiful) links to that WORD card, not a
-  root card. Root cards are for affixes and Latin/Greek lemmas only.
+  root card. Root cards are for affixes, Latin/Greek lemmas and, from
+  2026-09-06, the proper-noun pages a word is built on.
 - Dictionary cap, the hybrid rule: every dictionary word ranked in the
   top 50,000 of the frequency list ships unconditionally; beyond rank
   50,000 a word ships only if it carries a morpheme breakdown AND is
@@ -48,7 +51,10 @@ needs its full binding detail.
   (nanovoltmeter, extremistical) ship and words.json is 53 MB; with it
   the dictionary is 76,496 words at 17.9 MB and the tail stays real
   (snarkiness, parapsychological, glucoside).
-  Proper-noun-only entries never ship.
+  Proper-noun-only entries never ship as WORDS. Amended 2026-09-06
+  (owner decision, ratified twice): a proper noun a shipped word is
+  BUILT ON ships as a root card, family and all (see "A proper noun a
+  word is built on is a card").
 - Word tiers, from frequency rank: Everyday (rank 1 to 3,000), Common
   (to 15,000), Advanced (to 50,000), Rare (beyond, and unranked). Roots
   are not tiered; a root card shows how many shipped words it builds.
@@ -111,6 +117,12 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   sections, max 4 defs each, defs in full (the no-truncation rule
   carries over: never emit a cut string; a whole overlong sense may be
   dropped by a ~400 char safety cap).
+- `lb` on a POS section (2026-09-06): the register markers of that
+  section's definitions, one list per definition, parallel to `defs`
+  and present only where at least one definition carries a marker:
+  `{ "pos": "noun", "defs": ["Rum cut with water.", "Any alcoholic
+  drink."], "lb": [[], ["slang", "dialectal"]] }`. The vocabulary and
+  the order are in "Sense register labels".
 - `morphs`: the breakdown, present only when the word has an accepted
   English-surface split (acceptance rules under Pipeline). `f` is the
   display form in split order. Exactly one of two link fields, or
@@ -314,15 +326,22 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   dots) and only then fall back to the 160 character safety cap. ROOT_GLOSSES overrides win over everything
   (review finding 2026-08-24: 92 shipped roots carried sentence-length
   usage notes into the chip subtext).
-- `kind`: `prefix`, `suffix`, `infix`, `circumfix`, or `root`, taken
-  from the harvested entry pos, never re-derived from hyphen shape
+- `lb` (2026-09-06): the register markers of the sense the card's
+  gloss came from, in the same vocabulary and order a definition's
+  are, absent when the sense carried none and on every hand gloss.
+- `kind`: `prefix`, `suffix`, `infix`, `circumfix`, `name` or `root`,
+  taken from the harvested entry pos, never re-derived from hyphen shape
   (review finding 2026-08-24: shape-guessing labeled 10 interfixes as
   suffixes and the one circumfix as a root). Label lines compose
   language and kind: en affixes say just "Prefix", "Suffix",
   "Interfix", "Circumfix"; classical roots always name their
   language, whatever the kind: "Latin root", "Latin prefix", "Greek
   suffix", "Greek root"; a plain English combining form says "English
-  root". Anchor: en:-o- ships with kind infix.
+  root". A `name` card says "Proper noun" in English and "Latin proper
+  noun", "Greek proper noun" elsewhere (2026-09-06): the English card
+  is reached from an English word's breakdown and is the only English
+  card that would otherwise name its own language. Anchor: en:-o-
+  ships with kind infix.
 - `src`: for `en:` affixes whose entry derives from a Latin/Greek
   lemma, the key of that lemma's card when shipped. Renders as one line
   on the affix card ("From Latin sub ›") and navigates to it.
@@ -379,6 +398,10 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
 }
 ```
 
+- Sense sections pass `lb` through beside `defs` when the entry
+  carries one, parallel to it and filtered to non-empty strings; a
+  ragged or junk array is dropped whole rather than sliding a marker
+  onto the wrong definition. A root response passes `lb` the same way.
 - The worker joins each morph's gloss into the response (the content
   script never reads roots.json): `r` chips get the root gloss, `w`
   chips get the word's first def. Morphs with neither come back as
@@ -491,7 +514,10 @@ Sections in order:
 - `appendGlosses`: per POS section, a small uppercase POS label (NOUN,
   VERB, ADJECTIVE, ADVERB, other tags as harvested), then the numbered
   sense list. Numbering, 2-line clamp, geometry-derived "more" expander
-  all carried over.
+  all carried over. A definition carrying `lb` prints its markers in
+  front of the text, comma-joined, in muted italic, INSIDE the clamped
+  span, so the clamp and the expander measure the line exactly as they
+  did without it (2026-09-06).
 - `appendBreakdown`: the morpheme row, label "MADE OF" in the house
   label style. Chips joined by "+": each chip shows `f` on top and the
   root gloss beneath in small muted text (gloss absent: form only).
@@ -552,7 +578,8 @@ Sections in order:
   the form: "Latin root", "Greek root", "Prefix", "Suffix" (kind and
   lang joined in plain English; en affixes say just "Prefix"/"Suffix").
 - `appendRootGloss`: the gloss as a single sense line ("earth, land"),
-  same clamp rules.
+  same clamp rules, through the same appendSenseList, so a card's `lb`
+  prints in front of its gloss exactly as a definition's does.
 - `appendRootParts` (owner decision 2026-09-01): for anchor roots
   carrying `parts`, the chip row under the label "MADE OF", the same
   buildChipRow and the same label the word card uses. Chips with `r`
@@ -701,7 +728,9 @@ Sources:
 Parsing rules, English extract:
 
 - An entry counts toward a word when `word` lowercases to the key and
-  `pos` is not `name`. A word whose entries are all `name` never ships.
+  `pos` is not `name`. A word whose entries are all `name` never ships
+  as a word; from 2026-09-06 its page ships as a root card wherever a
+  shipped word is built on it.
   Senses harvest: first gloss line of each sense, per POS, caps as in
   the schema. Entries that are pure form-of (every sense carries
   form_of/alt_of) contribute to forms.json, not senses.
@@ -1031,7 +1060,8 @@ breakdown too, and it is the same breakdown the card would show.
 
 Rule: a corpus-attested word above `RANK_CAP` carrying a classical
 origin template becomes a candidate. Every other candidacy rule is
-unchanged: no rank, no card; proper nouns are excluded; the hyphen and
+unchanged: no rank, no card; a proper noun is no word here (it may
+still be a card); the hyphen and
 character rules stand. At emit the word ships only if its final org row
 is DECOMPOSED (`l`, `lang`, `parts`), and it is dropped otherwise. A
 single "From Latin x" row past the cap is a card with no breakdown on
@@ -2309,9 +2339,12 @@ nothing. 1,525 of them name a proper noun, and on korean an empty box
 labelled Korea sat beside a filled, glossed, clickable -an, which reads
 as broken rather than as out of scope.
 
-The scope decision does not change. A proper noun gets no card, no
+The scope decision as it stood: a proper noun gets no card, no
 family, no search presence and no clickable chip. What it gets is a
-gloss.
+gloss. SUPERSEDED the same week by "A proper noun a word is built on
+is a card" (owner decision 2026-09-06); the harvest below is what that
+card is built from, and the `g` field it describes now carries only the
+residue, the pages whose folded key another page already claimed.
 
 - Pass 1 harvests one line per proper-noun page, from the entry with
   the most senses, through best_gloss and the same 80-character card
@@ -2512,6 +2545,157 @@ its first clause is 84 characters and the source wrote no earlier one.
 
 No curation entry was added in this round. Every change is a rule.
 
+### Sense register labels (2026-09-06)
+
+An owner decision. The build read every sense tag the source carries and
+threw all of them away, so 27,291 shipped definitions arrived as plain
+text: 6,238 obsolete, 6,051 slang, 1,927 derogatory, 173 ethnic slurs.
+A reader shown an obsolete sense with nothing on it is misled, and a slur
+shown with nothing on it is worse.
+
+The SHOWN set is four groups, and each group is a reason not to take the
+definition at face value. The order they read in is the group order, so a
+warning is the first thing on the line.
+
+| group | labels | what it says |
+|---|---|---|
+| warning | ethnic slur, slur, offensive, derogatory, pejorative, vulgar | using the sense harms the people it names |
+| currency | obsolete, archaic, dated, rare | the sense is not current English |
+| register | slang, informal, colloquial, dialectal | the sense is not standard English |
+| tone | humorous, euphemistic | the sense is not meant literally |
+
+The wording is the source's own tag, lower case, one word each. `ethnic`
+is the one exception: 833 of the 834 senses that carry it carry `slur`
+beside it, so it reads "ethnic slur" and subsumes the plain `slur`.
+`pejorative` is in the table and fires 9 times; the extract writes
+`derogatory` for nearly the whole class, and a tag that fires nine times
+still reaches nine readers.
+
+The classification is under a census gate, the template gate's twin.
+`SENSE_LABELS` and `SENSE_IGNORED` between them have to name every tag at
+or above `SENSE_CENSUS_MIN` uses on a sense the dictionary could ship, and
+a tag in neither fails the build before the expensive passes run. The
+threshold is 500 rather than the template gate's 1,000 because the tag
+vocabulary is smaller and its counts are an order of magnitude smaller: at
+500 every shown label except `pejorative` is under the gate, `slur` (621)
+and `ethnic` (555) included, and 59 of the 527 tags the extract carries
+need a line, 16 shown and 44 ignored. At 1,000 the whole warning group
+would sit under the gate, which is the group a new source tag must never
+be able to add in silence.
+
+The ignored side is 44 entries, each stating what the tag is: grammar
+(uncountable, transitive, plural-only), the scope of a definition (usually,
+broadly, especially), how to read it (figuratively, idiomatic), the age of
+the THING rather than the word (historical), the kind of writing it belongs
+to (poetic, literary, formal), and geography (US, UK, Scotland, Internet).
+A geography tag says where a sense is used, which is a note and not a
+warning; showing sixty of them would need a display name apiece and would
+bury the four groups that matter.
+
+Three near misses were measured and left out, and are recorded here so a
+later round can take them without re-measuring: `nonstandard` (1,647), a
+judgment on the form rather than the register of the sense; `proscribed`
+(431), the same from a usage guide; `uncommon` (2,245), a frequency note a
+step short of rare that the source uses beside it. The shown set is the one
+the owner enumerated.
+
+Data and rendering:
+
+- `lb` on a POS section of words.json, parallel to `defs`, written only
+  where a section has at least one marked definition. It costs 0.58 MB
+  over 20,606 sections.
+- `lb` on a roots.json card, the markers of the sense `best_gloss` took
+  the card's line from. 136 cards carry one. A `ROOT_GLOSSES` hand gloss
+  carries none: the marker states what the source said about a sense, and
+  a hand gloss came from nobody's sense.
+- The renderer prints them comma-joined in muted italic in front of the
+  definition, INSIDE the clamped span. That is the whole reason the clamp
+  and the geometry-derived "more" control need no change: they measure the
+  line they always measured.
+- Chips carry no marker. A chip is 120 pixels with a two-line clamp and
+  the card it opens states the register in full.
+
+Anchors: cat noun 2 reads "offensive, derogatory Terms relating to
+people."; gay adjective 2 reads "derogatory, pejorative, slang"; jap noun 1
+reads "ethnic slur, derogatory"; methinks reads "archaic, humorous"; gosh
+reads "euphemistic"; en:-fag's card reads "offensive, derogatory" above
+its family.
+
+### A proper noun a word is built on is a card (2026-09-06)
+
+An owner decision, ratified twice. The product decision said proper nouns
+never ship, and the round before this one had given their chips a gloss and
+left them unclickable. That was the exception, not the rule: never-silent
+already ships a one-word family for a Latin root, and refusing the same for
+Korea was the divergence the owner did not want.
+
+The rule is the one that already governs every root card, and there is no
+second rule: a card needs a gloss. A proper-noun page a shipped word is
+built on ships a card wherever the source supplies a usable gloss, with a
+family, a search presence and a clickable chip, and the rest stay inert
+chips carrying whatever gloss they have. No family-size threshold, no hand
+glosses.
+
+- The key folds the page title, the way la:terra folds the form it
+  displays with macrons: `en:korea` displays Korea. The gloss and the
+  register markers are the page's own, through the same `best_gloss` and
+  the same 80-character card budget every other card runs through.
+- The label line says "Proper noun" in English, "Latin proper noun" and
+  "Greek proper noun" elsewhere. The `name` kind is applied in every
+  language, so 169 Latin and Greek cards that read "Latin root" over a
+  person or a place now read what they are.
+- An affix page owns its key outright: an affix is a morpheme and a name
+  is a page a morpheme happens to name. Two titles that fold together get
+  no card at all, because the key cannot say which page it names and a
+  card carrying the other page's gloss is worse than an inert chip
+  carrying the right one. Those chips keep the `g` gloss they had, which
+  is what the field now carries: 5 chips, from 1,084.
+- The word-key charset does not gate the harvest. A name is no word key
+  and never was, and the gate barred Ivory Coast, Third World, Córdoba
+  and eight more from ever being glossed.
+- Outcome: 1,141 English proper-noun cards ship, 1,011 of them with a
+  family of one word and the largest with 14. 1,338 cards carry the
+  `name` kind once the Latin and Greek pages are relabelled.
+
+### A chip is a page name (2026-09-06)
+
+An owner decision, from a field report on jacobite: the chip read Iacobus
+as a blank box while la:iacobus was a shipped, glossed card under the same
+spelling. 17 chips were in that state.
+
+resolve_part's last question was "is this spelling a shipped English word",
+and for a spelling an English word key cannot hold, because it carries a
+capital or is written in another script, the answer is structurally no. The
+resolver had no question left and gave up.
+
+A chip is the dictionary naming a page, so the question is which page, and
+the answer is read off the tables rather than guessed. In order:
+
+1. An English page under that exact spelling, when its word ships. The
+   word card carries that page's own senses, which is why Roman opens the
+   roman card and T-shirt the t-shirt card. A capitalised spelling is
+   only taken when the extract recorded a page under it: folding a
+   capitalised chip changes which page it names, and Ares would land on
+   are.
+2. A spelling an English word key could hold is asked of nothing else.
+   Reading a lower-case chip against the source languages would call
+   bulla, carō and fīnis references to Latin cards they are not.
+3. The proper-noun card for that title.
+4. A node in a source-language graph under that spelling, Greek first for
+   a Greek-script spelling.
+
+An affix shape is refused throughout: an affix that reached no affix page
+is not a word, and Latin carries pages at -a and -o that an English chip
+does not name. An INTERNAL hyphen is not an affix shape and never was, so
+x-ray and t-shirt are word keys; the same correction applies to the
+recorded-form step of the round before.
+
+Outcome: 1,621 chips gain a target and 254 change one, every one of the 254
+from a lower-case word the chip does not name to the page it does (Bacon to
+the surname, Babylon to the city, August to the month). 10 chips lose a
+target, each of them a fold onto a different page, and they are listed in
+the measured note below. All 17 of the reported chips gain a card.
+
 ### A modifier opens at "<" (2026-09-06)
 
 A parsing defect, found while reading the inert chips. `clean_part` swept
@@ -2598,7 +2782,12 @@ types that no longer exist, the feature is deleted.
   chips exclusive, the root card MADE OF row (renders on an anchor
   root between gloss and family, absent on an affix root and a plain
   root, a chip pushes the part's root card root to root, the crumb
-  returns), on both pages.
+  returns), the register marker (in front of the definition, in the
+  muted style, inside the clamp, with the "more" control intact, and on
+  a card gloss the same way), the proper-noun card (its chip is a nav
+  chip, it opens a card labelled "Proper noun" with its one-word family
+  and a crumb, and the residue chip stays inert with its gloss), on
+  both pages.
 - Real-app pass: test-page/index.html rewritten with English staging
   content (paragraphs containing anchor words), screenshots via the
   carried-over CDP harness with English scenes.

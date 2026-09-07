@@ -237,16 +237,44 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
-    // The other inert case: Korea is a proper noun, which the scope decision
-    // keeps out of the dictionary, so the chip opens nothing. It still says
-    // what it names, from the `g` the build harvested off the page it skipped.
+    // A proper noun is no dictionary entry, and a proper noun a shipped word
+    // is BUILT ON gets a card like any other root (owner decision
+    // 2026-09-06). Korea is the morpheme korean is made of, so its chip
+    // opens the card the page carries.
     korean: {
       senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
       fr: 4210,
       morphs: [
-        { f: "Korea", g: "A geographic region in East Asia, consisting of " +
-          "two countries, commonly known as South Korea and North Korea" },
+        { f: "Korea", r: "en:korea" },
         { f: "-an", r: "en:-an" }
+      ]
+    },
+    // The register a sense carries (owner decision 2026-09-06). Both the
+    // word and the proper noun it is built on are marked archaic, so the
+    // marker has to render on a definition and on a card gloss alike. The
+    // definition is long, so the clamp and its "more" control have to live
+    // with the marker in front of the text.
+    serian: {
+      senses: [{ pos: "adj", defs: [
+        "Synonym of Chinese or Northern Chinese, chiefly in the context of " +
+          "ancient Greco-Roman knowledge of China and its role as the " +
+          "origin of silk."
+      ], lb: [["archaic"]] }],
+      fr: 761252,
+      morphs: [
+        { f: "Seres", r: "en:seres" },
+        { f: "-ian", r: "en:-ian" }
+      ]
+    },
+    // The residue of the proper-noun rule: a page whose folded key another
+    // page already claimed gets no card, because the key cannot say which
+    // page it names. The chip stays inert and keeps the gloss it had.
+    lappish: {
+      senses: [{ pos: "adj", defs: ["Of or relating to the Lapps."] }],
+      fr: 41000,
+      morphs: [
+        { f: "Lapp", g: "A region in northern Europe." },
+        { f: "-ish", r: "en:-ish" }
       ]
     },
     // The US-primary re-key case. "favorite" is the shipped key and
@@ -456,6 +484,32 @@
         { word: "human", def: "A member of our species.", fr: 1500 },
         { word: "subterranean", fr: 61254 }
       ]
+    },
+    "en:-ian": {
+      form: "-ian", lang: "en", gloss: "forming adjectives and demonyms",
+      kind: "suffix",
+      family: [{ word: "serian", fr: 761252 }]
+    },
+    "en:-ish": {
+      form: "-ish", lang: "en", gloss: "of the nature of", kind: "suffix",
+      family: [{ word: "lappish", fr: 41000 }]
+    },
+    // A proper-noun card (owner decision 2026-09-06): the page title as the
+    // form, the folded title as the key, the page's own sense as the gloss,
+    // and a family of the one word that names it, which is a card.
+    "en:korea": {
+      form: "Korea", lang: "en", kind: "name",
+      gloss: "A geographic region in East Asia, consisting of two countries, " +
+        "commonly known as South Korea and North Korea",
+      family: [{ word: "korean", fr: 4210 }]
+    },
+    // The same, carrying the register of the sense its gloss came from: the
+    // card says archaic above its family.
+    "en:seres": {
+      form: "Seres", lang: "en", kind: "name", lb: ["archaic"],
+      gloss: "Synonym of Chinese or Northern Chinese, chiefly in the context " +
+        "of ancient Greco-Roman knowledge of China",
+      family: [{ word: "serian", fr: 761252 }]
     },
     "en:-ic": {
       form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix",
@@ -706,7 +760,11 @@
     var match = {
       kind: "word", surface: surface, canonical: lemma,
       senses: entry.senses.map(function (sense) {
-        return { pos: sense.pos, defs: sense.defs.slice() };
+        var out = { pos: sense.pos, defs: sense.defs.slice() };
+        // The register markers travel parallel to the definitions, exactly
+        // as the worker joins them, and only where a section has one.
+        if (sense.lb) out.lb = sense.lb.map(function (one) { return one.slice(); });
+        return out;
       })
     };
     if (typeof entry.fr === "number") match.fr = entry.fr;
@@ -822,6 +880,9 @@
       family: family.slice(0, INLINE_FAMILY)
     };
     if (root.rom) out.rom = root.rom;
+    // The register of the sense the card's gloss came from, joined the way a
+    // definition's markers are so one renderer prints both.
+    if (root.lb) out.lb = root.lb.slice();
     // An anchor's own split, joined exactly as a word's org parts are.
     if (root.parts) out.parts = joinMorphs(root.parts);
     // `src` is JOINED, exactly like a word's `org`: the key to navigate to,
@@ -983,6 +1044,11 @@
   function rootLabel(root) {
     if (root.kind === "prefix") return "Prefix";
     if (root.kind === "suffix") return "Suffix";
+    if (root.kind === "name") {
+      if (root.lang === "la") return "Latin proper noun";
+      if (root.lang === "grc") return "Greek proper noun";
+      return "Proper noun";
+    }
     if (root.lang === "la") return "Latin root";
     if (root.lang === "grc") return "Greek root";
     return "English root";
@@ -1849,23 +1915,73 @@
     check("clicking the row-only row navigates nowhere",
       api.viewDepth() === depthBeforeRowOnly,
       "depth=" + api.viewDepth());
-    // The inert chip that still says something: Korea is a proper noun, kept
-    // out of the dictionary by the scope decision, so the chip opens nothing
-    // and carries the sense the build read off the page it skipped.
+    // The proper-noun card on this surface (owner decision 2026-09-06): a
+    // proper noun a shipped word is built on is a card like any other root,
+    // and the sidebar gets it with no code of its own.
     await search("korean");
     var properChip = api.queryAll(".morph")[0];
-    check("a proper-noun chip stays inert and carries its own gloss here too",
-      properChip.classList.contains("inert") &&
-      !properChip.classList.contains("nav") &&
-      !properChip.hasAttribute("tabindex") &&
+    check("a proper-noun chip is a nav chip here too",
+      properChip.classList.contains("nav") &&
+      !properChip.classList.contains("inert") &&
+      properChip.getAttribute("tabindex") === "0" &&
       properChip.querySelector(".morph-gloss") !== null &&
       properChip.querySelector(".morph-gloss").textContent
         .indexOf("A geographic region in East Asia") === 0,
       properChip.className + " :: " + properChip.textContent);
-    var depthBeforeProper = api.viewDepth();
     properChip.click();
+    await checkSoon("the chip drills into the proper noun's card with a crumb",
+      function () {
+        return api.viewDepth() === 2 && !!api.query(".card.root") &&
+          api.query(".surface").textContent === "Korea" &&
+          api.crumbLabels().join(" \u203a ") === "korean \u203a Korea";
+      },
+      function () { return api.crumbLabels().join(" \u203a "); });
+    check("the card names itself a proper noun and builds its one word",
+      api.query(".rootlabel").textContent === "Proper noun" &&
+      texts(api.queryAll(".fam-word")).join(",") === "korean",
+      api.query(".rootlabel").textContent + " rows=" +
+      texts(api.queryAll(".fam-word")).join(","));
+
+    // The register a sense carries, on this surface: the marker renders in
+    // front of the definition and in front of a card's gloss, in the muted
+    // style, and the clamp still holds the line.
+    await search("serian");
+    var senseText = api.query(".gloss-text");
+    var mark = senseText.querySelector(".sense-lb");
+    check("a marked sense states its register before the definition here too",
+      mark !== null && mark.textContent === "archaic" &&
+      senseText.firstChild === mark &&
+      senseText.classList.contains("clamp") &&
+      getComputedStyle(mark).fontStyle === "italic",
+      senseText.textContent.slice(0, 40));
+    api.queryAll(".morph")[0].click();
+    await checkSoon("the card states the register of the sense its gloss came from",
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return !!m && m.textContent === "archaic" &&
+          api.query(".rootlabel").textContent === "Proper noun";
+      },
+      function () {
+        var m = api.query(".card.root .sense-lb");
+        return "marker=" + (m ? m.textContent : "none");
+      });
+
+    // The residue: a proper-noun page whose folded key another page already
+    // claimed gets no card, so the chip stays inert and keeps its gloss.
+    await search("lappish");
+    var residueChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip with no card stays inert and carries its gloss",
+      residueChip.classList.contains("inert") &&
+      !residueChip.classList.contains("nav") &&
+      !residueChip.hasAttribute("tabindex") &&
+      residueChip.querySelector(".morph-gloss") !== null &&
+      residueChip.querySelector(".morph-gloss").textContent ===
+        "A region in northern Europe.",
+      residueChip.className + " :: " + residueChip.textContent);
+    var depthBeforeProper = api.viewDepth();
+    residueChip.click();
     await elapse(40);
-    check("clicking the proper-noun chip navigates nowhere",
+    check("clicking the inert proper-noun chip navigates nowhere",
       api.viewDepth() === depthBeforeProper, "depth=" + api.viewDepth());
 
     await search("idea");

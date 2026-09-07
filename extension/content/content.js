@@ -545,6 +545,11 @@
     // the senses under it than a section label does to its section.
     ".label.pos { margin-top: 8px; }",
     ".label.pos + .glosses { margin-top: 2px; }",
+    // The register a sense carries, in front of the definition in the muted
+    // italic a printed dictionary uses for it. It sits INSIDE the clamped
+    // text, so it is the first thing the two-line clamp shows and the "more"
+    // control measures the line exactly as it did without it.
+    ".sense-lb { font-style: italic; color: var(--muted); }",
     /* ---- rows: the family list and the quiet origin lines ---- */
     // The negative side margins let a row's hover background bleed into the
     // card padding, so the row text still lines up with the label above.
@@ -1113,17 +1118,39 @@
     return null;
   }
 
+  // The markers of one sense, joined as the card prints them: "obsolete",
+  // "vulgar, slang". The worker orders them, warnings first, so this joins
+  // and never sorts.
+  function senseLabel(labels) {
+    return asArray(labels).map(nonEmptyString).filter(Boolean).join(", ");
+  }
+
   // One numbered sense list with hanging indent; a lone sense needs no number.
   // Shared by the word card's POS sections and the root card's single gloss.
-  function appendSenseList(parent, defs) {
+  //
+  // `labels` is optional and parallel to `defs`: the register the source gave
+  // each sense, printed in front of the definition the way a dictionary does
+  // it. A reader shown an obsolete sense with nothing on it is misled, and a
+  // slur shown with nothing on it is worse (owner decision 2026-09-06). The
+  // marker goes INSIDE the clamped text rather than beside it, so the clamp
+  // and the geometry-derived "more" control need no change at all.
+  function appendSenseList(parent, defs, labels) {
     var list = asArray(defs).map(nonEmptyString).filter(Boolean);
     if (!list.length) return 0;
+    var marks = asArray(labels);
     var box = el("div", "glosses");
     if (list.length > 1) box.classList.add("numbered");
     list.forEach(function (text, i) {
       var row = el("div", "gloss");
       if (list.length > 1) row.appendChild(el("span", "gloss-num", (i + 1) + "."));
-      row.appendChild(clampWrap(el("span", "gloss-text", capitalizeSense(text)), 2));
+      var body = el("span", "gloss-text");
+      var mark = senseLabel(marks[i]);
+      if (mark) {
+        body.appendChild(el("span", "sense-lb", mark));
+        body.appendChild(document.createTextNode(" "));
+      }
+      body.appendChild(document.createTextNode(capitalizeSense(text)));
+      row.appendChild(clampWrap(body, 2));
       box.appendChild(row);
     });
     parent.appendChild(box);
@@ -1952,7 +1979,7 @@
       if (!defs.length) return;
       var label = posLabel(sense.pos);
       if (label) card.appendChild(el("div", "label pos", label));
-      appendSenseList(card, defs);
+      appendSenseList(card, defs, sense.lb);
     });
   }
 
@@ -2278,6 +2305,9 @@
     if (kind === "prefix") return "Prefix";
     if (kind === "suffix") return "Suffix";
     var name = langName(r.lang);
+    if (kind === "name") {
+      return r.lang === "en" || !name ? "Proper noun" : name + " proper noun";
+    }
     return name ? name + " root" : "Root";
   }
 
@@ -2285,12 +2315,14 @@
     return true;
   }
 
-  // The gloss as a single sense line, clamped like any other sense.
+  // The gloss as a single sense line, clamped like any other sense, carrying
+  // the register of the sense it came from exactly as a definition does.
   function appendRootGloss(card, m) {
     if (!rootGlossEnabled(sectionSettings())) return;
-    var gloss = nonEmptyString(rootOf(m).gloss);
+    var r = rootOf(m);
+    var gloss = nonEmptyString(r.gloss);
     if (!gloss) return;
-    appendSenseList(card, [gloss]);
+    appendSenseList(card, [gloss], [r.lb]);
   }
 
   function rootPartsEnabled(settings) {

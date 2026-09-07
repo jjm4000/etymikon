@@ -174,6 +174,7 @@ MISSES_BASELINE_FILE = os.path.join(HERE, "misses-2026-09-01.txt")
 # ---------------------------------------------------------------- shape caps
 
 RANK_CAP = 50000        # hybrid cap: everything to here ships unconditionally
+RANK_UNRANKED = float("inf")   # an unranked word sorts last in every list
 MAX_POS = 4             # POS sections per word
 MAX_DEFS = 4            # definitions per POS section
 DEF_MAX_CHARS = 400     # a longer sense is dropped whole, never cut
@@ -334,6 +335,15 @@ def grc_key(s: str) -> str:
     return unicodedata.normalize("NFC", RE_MACRON.sub("", d)).lower()
 
 
+def en_key(s: str) -> str:
+    """English page key: NFC, lowercased. The fold lookup.js applies.
+
+    A proper-noun card is keyed by its page title folded, the way la:terra
+    is keyed by the macron-stripped form it displays with macrons.
+    """
+    return unicodedata.normalize("NFC", s or "").lower()
+
+
 def strip_marks(s: str) -> str:
     """Every combining mark removed: the loose key behind the accent and
     breathing fallback (πάπας reaches πάππας, coërceō reaches coerceo)."""
@@ -432,6 +442,179 @@ def first_clause(g: str) -> str:
             continue
         return g[:m.start()].strip()
     return g.rstrip(".").strip()
+
+
+# ------------------------------------------------- the register of a sense
+#
+# The source marks a sense obsolete, slang or a slur and the build threw the
+# mark away, so every sense shipped as a plain definition. A reader shown an
+# obsolete sense with nothing on it is misled, and a slur shipped with
+# nothing on it is worse (owner decision 2026-09-06).
+#
+# What is SHOWN is four groups, and each group is a reason a reader must not
+# take the definition at face value:
+#   warning   the sense harms someone when it is used
+#   currency  the sense is not current English
+#   register  the sense is not standard English
+#   tone      the sense is not meant literally
+# A tag that states grammar (uncountable, transitive), geography (US, UK),
+# the scope of a sense (usually, broadly) or the kind of writing it belongs
+# to (poetic, formal) is none of those, and is listed in SENSE_IGNORED with
+# the reason. The set is the one the owner enumerated; the near misses that
+# a later round may want are recorded in the SPEC with their counts.
+#
+# The order the markers read in is the group order: a warning comes first,
+# then how old the sense is, then how standard, then how literal.
+LB_WARN, LB_TIME, LB_REG, LB_TONE = 0, 1, 2, 3
+
+SENSE_LABELS = {
+    # warning: using the sense harms the people it names
+    "ethnic": ("ethnic slur", LB_WARN),
+    "slur": ("slur", LB_WARN),
+    "offensive": ("offensive", LB_WARN),
+    "derogatory": ("derogatory", LB_WARN),
+    "pejorative": ("pejorative", LB_WARN),
+    "vulgar": ("vulgar", LB_WARN),
+    # currency: the sense is not current English
+    "obsolete": ("obsolete", LB_TIME),
+    "archaic": ("archaic", LB_TIME),
+    "dated": ("dated", LB_TIME),
+    "rare": ("rare", LB_TIME),
+    # register: the sense is not standard English
+    "slang": ("slang", LB_REG),
+    "informal": ("informal", LB_REG),
+    "colloquial": ("colloquial", LB_REG),
+    "dialectal": ("dialectal", LB_REG),
+    # tone: the sense is not meant literally
+    "humorous": ("humorous", LB_TONE),
+    "euphemistic": ("euphemistic", LB_TONE),
+}
+
+# `pejorative` sits far under the census threshold: the extract writes
+# `derogatory` for nearly the whole class and `pejorative` on 9 shipped
+# definitions. It is classified anyway, because it is the word the owner's
+# decision uses and a tag that fires nine times still reaches nine readers.
+
+# A label that already contains another one. Measured 2026-09-06: `ethnic`
+# never appears without `slur` in the extract, over 555 senses, so a sense
+# carrying both would read "ethnic slur, slur".
+SENSE_SUBSUMES = {"ethnic slur": ("slur",)}
+
+_SENSE_RANK = {t: i for i, t in enumerate(SENSE_LABELS)}
+
+
+def sense_labels(tags):
+    """The register markers one sense carries, warnings first.
+
+    Deduplicated and ordered by group, so two senses carrying the same tags
+    in a different order read the same on the card.
+    """
+    hit = sorted({t for t in (tags or ()) if t in SENSE_LABELS},
+                 key=lambda t: (SENSE_LABELS[t][1], _SENSE_RANK[t]))
+    out = [SENSE_LABELS[t][0] for t in hit]
+    drop = set()
+    for lab in out:
+        drop.update(SENSE_SUBSUMES.get(lab, ()))
+    return [lab for lab in out if lab not in drop]
+
+
+# The sense-tag census, the template census's twin. Every tag at or above
+# SENSE_CENSUS_MIN uses has to be classified, shown or ignored with a
+# reason, or the build fails. The threshold is 500 rather than the template
+# gate's 1,000 because the tag vocabulary is smaller and its counts are an
+# order of magnitude smaller: at 500 every tag in the shown set except
+# `pejorative` is under the gate, `slur` (621) and `ethnic` (555) included,
+# and 59 of the 528 tags the extract carries need a line. At 1,000 the whole
+# warning group would sit under the gate, which is the group a new source
+# tag must never be able to add in silence.
+SENSE_CENSUS_MIN = 500
+
+SENSE_IGNORED = {
+    # grammar: how the word behaves, not how the sense reads
+    "uncountable": "grammar: the noun takes no plural in this sense",
+    "countable": "grammar: the noun takes a plural in this sense",
+    "not-comparable": "grammar: the adjective forms no comparative",
+    "transitive": "grammar: the verb takes an object",
+    "intransitive": "grammar: the verb takes no object",
+    "ambitransitive": "grammar: the verb works with an object or without",
+    "plural": "grammar: the sense belongs to the plural form",
+    "plural-only": "grammar: the noun has no singular in this sense",
+    "plural-normally": "grammar: the noun is usually met in the plural",
+    "plural-normally-in": "grammar: the same, written the other way round",
+    "in-plural": "grammar: the sense appears when the noun is plural",
+    "no-plural": "grammar: the noun forms no plural in this sense",
+    "attributive": "grammar: the noun stands in front of another noun",
+    "relational": "grammar: the adjective relates rather than describes",
+    "in-compounds": "grammar: the sense appears inside a compound",
+    # scope: which uses the definition covers
+    "usually": "narrows the definition to the usual case",
+    "often": "the same hedge, one step weaker",
+    "sometimes": "the same hedge, weaker again",
+    "especially": "narrows what the sense is used of",
+    "broadly": "widens what the sense is used of",
+    "also": "marks a further reading of the sense above it",
+    "specifically": "narrows the sense to one case",
+    # reading: how to take the words, which the definition itself says
+    "figuratively": "the sense is a figure of speech, which its wording shows",
+    "idiomatic": "the phrase means more than its words, not a register",
+    "rhetoric": "names the rhetorical figure the sense belongs to",
+    # the thing, not the word
+    "historical": "the THING belongs to the past; the word is current for it",
+    # kind of writing, not register: a reader may use any of these
+    "poetic": "names the kind of writing the sense belongs to",
+    "literary": "the same, in prose",
+    "formal": "the same, at the other end of the scale",
+    "neologism": "says the sense is new, not that it is non-standard",
+    "uncommon": "a frequency note a step short of rare, used beside it",
+    "nonstandard": "a judgment on the form, not the register of the sense",
+    # geography: where the sense is used, not how it reads
+    "US": "names where the sense is used, not its register",
+    "UK": "names where the sense is used, not its register",
+    "Australia": "names where the sense is used, not its register",
+    "Canada": "names where the sense is used, not its register",
+    "Ireland": "names where the sense is used, not its register",
+    "Scotland": "names where the sense is used, not its register",
+    "India": "names where the sense is used, not its register",
+    "New-Zealand": "names where the sense is used, not its register",
+    "South-Africa": "names where the sense is used, not its register",
+    "Philippines": "names where the sense is used, not its register",
+    "Northern-England": "names where the sense is used, not its register",
+    "Commonwealth": "names where the sense is used, not its register",
+    "regional": "says the sense is local without naming where",
+    "Internet": "names where the sense is used, not its register",
+}
+
+
+def sense_census_gate(counts):
+    """Fail the build on a high-count sense tag nobody has classified.
+
+    Returns the top-30 table for the report. Raises when a tag at or above
+    SENSE_CENSUS_MIN is in neither SENSE_LABELS nor SENSE_IGNORED, which
+    means the source grew a label the pipeline has never been told whether
+    to show.
+    """
+    def klass(tag):
+        if tag in SENSE_LABELS:
+            return "SHOWN as \"%s\"" % SENSE_LABELS[tag][0]
+        if tag in SENSE_IGNORED:
+            return "ignored: " + SENSE_IGNORED[tag]
+        return "UNCLASSIFIED"
+
+    top = [(t, c, klass(t)) for t, c in counts.most_common(30)]
+    unknown = sorted(((c, t) for t, c in counts.items()
+                      if c >= SENSE_CENSUS_MIN and t not in SENSE_LABELS
+                      and t not in SENSE_IGNORED), reverse=True)
+    if unknown:
+        log("=========== SENSE TAG CENSUS FAILED ========")
+        for c, t in unknown:
+            log("  %8s  %s" % (format(c, ","), t))
+        log("Every sense tag at or above %s uses must be listed in "
+            "SENSE_LABELS or SENSE_IGNORED in build.py. Classify the tags "
+            "above, then rebuild." % format(SENSE_CENSUS_MIN, ","))
+        write_report()
+        raise SystemExit("sense census: %d unclassified tag(s) at or above "
+                         "%d uses" % (len(unknown), SENSE_CENSUS_MIN))
+    return top
 
 
 # ------------------------------------------------------------- template sets
@@ -1333,26 +1516,42 @@ def best_gloss(e) -> str:
     contradicts the pinned la:terra anchor, whose gloss is sense 1 ("dry
     land", 8 characters) while the shortest is sense 5 ("earth").
     """
-    for g in gloss_lines(e):
+    return best_gloss_row(e)[0]
+
+
+def best_gloss_row(e):
+    """(gloss, register labels) for one entry: best_gloss and its sense's marks.
+
+    The labels travel with the line the card takes, so an obsolete or
+    derogatory root gloss says so on the card the same way a word's
+    definition does (owner decision 2026-09-06).
+    """
+    for g, lb in gloss_rows(e):
         if len(g) <= ROOT_GLOSS_CARD:
-            return g
-    for g in gloss_lines(e):
+            return g, lb
+    for g, lb in gloss_rows(e):
         head = first_clause(g)
         if head and len(head) <= ROOT_GLOSS_MAX:
-            return head
-    return ""
+            return head, lb
+    return "", []
 
 
 def gloss_lines(e):
-    """Every sense of one entry as a normalised card line, in source order.
+    """Every sense of one entry as a normalised card line, in source order."""
+    return [g for g, _ in gloss_rows(e)]
+
+
+def gloss_rows(e):
+    """Every sense of one entry as (card line, register labels), source order.
 
     best_gloss picks the card's line from here, and the part-sense rule
     (review 2, cause 1, 2026-09-06) picks a chip's line from the same list,
     so a chip never shows wording a card could not show.
     """
-    lines = []
+    rows = []
     for s in e.get("senses") or []:
         gl = s.get("glosses") or []
+        lb = sense_labels(s.get("tags"))
         for i, raw in enumerate(gl):
             # A sense written as a heading and a child ("a foot, in its
             # senses as:", "the body part") glosses with the child; the
@@ -1362,8 +1561,8 @@ def gloss_lines(e):
                 continue
             g = gloss_line(raw)
             if g:
-                lines.append(g)
-    return lines
+                rows.append((g, lb))
+    return rows
 
 
 def card_lines(e):
@@ -1486,7 +1685,14 @@ def survey_english(path, ranks):
     The template-name census rides along here rather than in a pass of its
     own. It counts every etymology template name on every English entry,
     including the ones no rule reads, which is the point: census_gate needs
-    the names the pipeline has never heard of.
+    the names the pipeline has never heard of. The sense-tag census rides
+    along beside it, over the senses that can become a shipped definition:
+    an ordinary word page, a sense of its own rather than a form-of link.
+
+    The capitalised page titles come back too. A chip is a page name, and
+    the only way to know that the chip "T-shirt" names the shipped word
+    t-shirt while "Bacon" does not name the shipped word bacon is that the
+    source recorded a page under one spelling and not the other.
 
     Returns the chain-only candidates beside the candidate set. Those are
     the words past RANK_CAP that no English-surface split nominates and a
@@ -1504,8 +1710,10 @@ def survey_english(path, ranks):
     us_raw = {}
     mixed_raw = {}
     affixes = {}
-    names = {}              # proper-noun page title -> (sense count, gloss)
+    names = {}              # proper-noun page title -> (sense count, gloss, labels)
+    caps = {}               # word key -> {page titles carrying a capital}
     tnames = collections.Counter()
+    stags = collections.Counter()
     lcodes = collections.Counter()
     stats = collections.Counter()
     with gzip.open(path, "rb") as f:
@@ -1531,15 +1739,35 @@ def survey_english(path, ranks):
                 # combining form defines itself that way: every sense of
                 # electro- reads "Combining form of electricity".
                 ns = len(e.get("senses") or [])
-                g = best_gloss(e)
+                g, lb = best_gloss_row(e)
                 cur = affixes.get(wl)
                 if g and (cur is None or ns > cur["ns"]):
-                    affixes[wl] = {"ns": ns, "pos": pos, "gloss": g,
+                    affixes[wl] = {"ns": ns, "pos": pos, "gloss": g, "lb": lb,
                                    "src": entry_chain(e)}
                 continue
 
-            if not RE_WORD_KEY.match(wl):
+            # The word-key charset gates the dictionary, and a proper noun
+            # is not in the dictionary: Ivory Coast and Third World are
+            # pages a shipped word is built on, and this gate barred all
+            # eleven such chips from ever being glossed (2026-09-06). The
+            # three relations below still ask it, so nothing else moves.
+            if pos != "name" and not RE_WORD_KEY.match(wl):
                 continue
+
+            if pos != "name":
+                # The sense-tag census, over the senses that could become a
+                # shipped definition. A pure form-of page states none of
+                # its own, and every sense of one is skipped here anyway.
+                for s in e.get("senses") or ():
+                    gl = s.get("glosses") or ()
+                    if not gl or not gl[0]:
+                        continue
+                    if s.get("form_of") or s.get("alt_of"):
+                        continue
+                    for t in s.get("tags") or ():
+                        stags[t] += 1
+                if w != wl:
+                    caps.setdefault(wl, set()).add(w)
 
             # Three relations reach a lemma, and they are kept apart. An
             # inflection on a pure form-of page may become `fo` or a
@@ -1548,7 +1776,12 @@ def survey_english(path, ranks):
             # may only become `fo`, since the surface has a card of its own.
             # Nothing else maps at all.
             alt = None if fo else alt_spelling_of(e)
-            if fo:
+            if not RE_WORD_KEY.match(wl):
+                # Only a proper noun spelled with a space or a diacritic
+                # reaches here with a title that is no word key, and a
+                # proper noun is no lemma, so it maps nothing.
+                pass
+            elif fo:
                 t = fo.lower()
                 if t != wl and RE_WORD_KEY.match(t) and wl not in forms_raw:
                     forms_raw[wl] = t
@@ -1573,26 +1806,38 @@ def survey_english(path, ranks):
                         seen.append(t)
                         stats["mixed"] += 1
 
-            # A proper noun is outside the dictionary by scope: no card, no
-            # family, no search row, and a chip naming one stays unclickable
-            # (SPEC "Product decisions"). It is still a morpheme a reader
-            # meets, so the page's first sense is harvested for the chip's
-            # gloss and for nothing else. The entry with the most senses
-            # wins, the way an affix page's does; a page that only points at
-            # another page states no sense of its own.
+            # A proper noun is no dictionary entry: it gets no words.json
+            # key and no definition list. A proper noun a shipped word is
+            # BUILT ON gets a root card, family and all, on the one rule
+            # that governs every root card, which is that a card needs a
+            # gloss (owner decision 2026-09-06, ratified twice). Korea is
+            # the morpheme korean is made of and the reader who asks what
+            # korean is made of is owed an answer.
+            #
+            # The page's own sense is what the card carries. The entry with
+            # the most senses wins, the way an affix page's does; a page
+            # that only points at another page states no sense of its own
+            # and gets no card, so its chip stays inert.
             #
             # The table is keyed by the page TITLE, not by the folded key.
             # Wiktionary titles are case sensitive and a chip has to name
-            # the page it is glossed from: spangle splits as spang + -le and
-            # Spang is a surname, ghastly as gast + -ly and Gast is one too.
-            # A chip written in lower case names neither.
+            # the page it opens: spangle splits as spang + -le and Spang is
+            # a surname, ghastly as gast + -ly and Gast is one too. A chip
+            # written in lower case names neither. The card key folds the
+            # title, the way every other root key folds its form.
+            #
+            # The word-key charset does not gate this. A name is no
+            # word key and never was: Ivory Coast, Third World and
+            # Córdoba are pages a shipped word is built on, and the
+            # gate below barred all eleven of them from ever being
+            # glossed (2026-09-06).
             if pos == "name":
                 if not pure_form_of(e):
                     ns = len(e.get("senses") or [])
-                    g = best_gloss(e)
+                    g, lb = best_gloss_row(e)
                     cur = names.get(w)
                     if g and (cur is None or ns > cur[0]):
-                        names[w] = (ns, g)
+                        names[w] = (ns, g, lb)
                 continue
             # A word already nominated by a split, or by its rank, is
             # settled. A chain-only nomination is provisional, so a later
@@ -1633,7 +1878,7 @@ def survey_english(path, ranks):
     cand |= set(curation.FORCED_SPLITS)
     chain_only -= set(curation.FORCED_SPLITS)
     return (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes,
-            names, tnames, lcodes, stats)
+            names, caps, tnames, stags, lcodes, stats)
 
 
 # ------------------------------------------------------- English pass 2
@@ -1715,13 +1960,13 @@ def harvest_english(path, cand, origin):
                     # They read as truncation on a card, so they go.
                     stats["dropped_elided"] += 1
                     continue
-                defs.append(d)
+                defs.append((d, sense_labels(s.get("tags"))))
             if not defs:
                 continue
 
             rec = out.get(wl)
             if rec is None:
-                rec = {"pos": [], "defs": {}, "ns": -1, "sp": None,
+                rec = {"pos": [], "defs": {}, "lb": {}, "ns": -1, "sp": None,
                        "att": None, "ety": None, "clash": False,
                        "first_n": 0, "other_n": collections.Counter()}
                 out[wl] = rec
@@ -1732,14 +1977,16 @@ def harvest_english(path, cand, origin):
                 else:
                     rec["pos"].append(pos)
                     rec["defs"][pos] = []
+                    rec["lb"][pos] = []
             added = 0
             if pos is not None:
                 bucket = rec["defs"][pos]
-                for d in defs:
+                for d, lb in defs:
                     if len(bucket) >= MAX_DEFS:
                         break
                     if d not in bucket:
                         bucket.append(d)
+                        rec["lb"][pos].append(lb)
                         added += 1
 
             ns = len(e.get("senses") or [])
@@ -1777,7 +2024,7 @@ def harvest_english(path, cand, origin):
             # attachment now and merged for the node's pick later.
             terms = page_evidence(e.get("etymology_templates") or [],
                                   text, "en", wl)
-            dw = def_words(defs[0])
+            dw = def_words(defs[0][0])
             ev = origin.evidence_of(terms, mentions, dw)
             origin.merge_evidence(ev, origin.ranks.get(wl))
             # The row gloss votes on the word itself as well as its
@@ -3388,6 +3635,7 @@ class Graph:
     def __init__(self, lang):
         self.lang = lang
         self.gloss = {}          # key -> gloss (the card's)
+        self.lb = {}             # key -> the gloss sense's register labels
         self.cands = {}          # key -> [Entry], the lemma entries of the page
         self.esplit = {}         # key -> [split or None], one per entry
         self.esense = {}         # key -> [{part key: stated gloss}], one per entry
@@ -3487,14 +3735,15 @@ class Entry:
     entry. `forms` holds the distinguishing forms (canonical, infinitive,
     supine) a mention can name, "fundāre" against "fundere".
     """
-    __slots__ = ("weight", "gloss", "form", "pos", "rom", "words", "forms",
-                 "parts", "src", "prose", "pglosses", "order", "lines")
+    __slots__ = ("weight", "gloss", "lb", "form", "pos", "rom", "words",
+                 "forms", "parts", "src", "prose", "pglosses", "order", "lines")
 
     def __init__(self, weight, gloss, form, pos, rom, words, forms, parts, src,
-                 prose, pglosses, order, lines=()):
+                 prose, pglosses, order, lines=(), lb=()):
         self.weight = weight
         self.lines = lines
         self.gloss = gloss
+        self.lb = lb
         self.form = form
         self.pos = pos
         self.rom = rom
@@ -3616,7 +3865,7 @@ def parse_classical(path, lang):
                         g.alt[k] = tk
                 continue
             ns = len(senses)
-            gl = best_gloss(e)
+            gl, glb = best_gloss_row(e)
             head = ((e.get("head_templates") or [{}])[0].get("name") or "")
             weight = ns if pos != "name" else -1000 + ns
             if gl:
@@ -3644,7 +3893,7 @@ def parse_classical(path, lang):
                     src, (e.get("etymology_templates") or [], text)
                     if " + " in prose or (parts and len(parts) >= 2) else None,
                     entry_part_glosses(e, lang) if parts else [], order,
-                    card_lines(e)))
+                    card_lines(e), glb))
             # A participle page with a gloss of its own is a lemma page to
             # the parser; its step comes from the etymon's ":from" text or
             # from the prose ("Present active participle of dēpōnō").
@@ -3703,6 +3952,7 @@ def build_graph(g, part_steps):
         cands.sort(key=lambda c: (-c.weight, c.order))
         c = cands[0]
         g.gloss[k] = c.gloss
+        g.lb[k] = c.lb
         g.form[k] = c.form
         g.pos[k] = c.pos
         if c.rom:
@@ -4651,6 +4901,7 @@ class Origin:
                 self.stats["homograph_changed"] += 1
                 c = cands[i]
                 g.gloss[key] = c.gloss
+                g.lb[key] = c.lb
                 g.form[key] = c.form
                 g.pos[key] = c.pos
                 if c.rom:
@@ -5674,14 +5925,104 @@ class Origin:
         return {"r": lang + ":" + key}
 
 
-def resolve_part(part, word, affixes, shipped, chain_roots=()):
+class Pages:
+    """The page tables a chip is resolved against.
+
+    `caps` maps a word key to the page titles carrying a capital that the
+    extract recorded for it, `cards` maps a folded proper-noun title to the
+    card built from that page, and `graphs` is the source-language graphs.
+    A chip is a page name, and these are the tables that say which page.
+    """
+
+    __slots__ = ("caps", "cards", "graphs")
+
+    def __init__(self, caps, cards, graphs):
+        self.caps = caps
+        self.cards = cards
+        self.graphs = graphs
+
+
+def name_cards(names, affixes):
+    """The proper-noun cards, keyed the way every other root key is keyed.
+
+    A card key folds its form (la:terra displays terra, grc:λόγος displays
+    the Greek), so a name card key folds its page title. Two things can
+    claim one key and neither is settled by guessing. An affix page wins
+    outright, because an affix is a morpheme and a name is a page a morpheme
+    happens to name. Two titles that fold together (Lapp and LAPP, 246 pairs
+    at 2026-09-06) get no card at all: the key cannot say which page it
+    names, and a card carrying the other page's gloss is worse than an inert
+    chip carrying the right one. Those chips keep the gloss they had.
+    """
+    out = {}
+    clash = set()
+    for title, (ns, gloss, lb) in names.items():
+        key = en_key(title)
+        if key in affixes:
+            continue
+        if key in out:
+            clash.add(key)
+            continue
+        out[key] = {"title": title, "gloss": gloss, "lb": lb, "ns": ns}
+    for key in clash:
+        del out[key]
+    return out
+
+
+def resolve_page(part, word, shipped, pages):
+    """The card a chip that is no affix and no route names, by its spelling.
+
+    A chip is the dictionary naming a page, so the question is which page,
+    and the answer is read off the tables rather than guessed (the rule of
+    2026-09-06, carried one step earlier into resolve_part).
+
+    A spelling an English word key can hold is asked of words.json and of
+    nothing else: reading a chip's spelling against the source languages
+    would call bulla, carō and fīnis references to Latin cards they are
+    not. A spelling it cannot hold, because it carries a capital or is
+    written in another script, is a page name in some other table, and the
+    resolver used to give up on it: jacobite's Iacobus rendered as a blank
+    box beside a shipped, glossed la:iacobus card.
+
+    The order is the order of what the spelling names. An English page under
+    that exact spelling comes first, because the shipped word card carries
+    that page's own senses (Roman is a section of the roman card). Then the
+    proper-noun card, then a node in a source-language graph.
+
+    An affix shape is refused throughout: an affix that reached no affix
+    page is not a word, and Latin carries pages at -a and -o that an English
+    chip does not name.
+    """
+    key = en_key(part)
+    if part.startswith("-") or part.endswith("-"):
+        return None, None
+    if key != word and key in shipped and (part == key or
+                                           part in pages.caps.get(key, ())):
+        return "w", key
+    if RE_WORD_KEY.match(part):
+        return None, None       # spelled as a word key; nothing else to ask
+    card = pages.cards.get(key)
+    if card and card["title"] == part:
+        return "r", "en:" + key
+    order = ("grc", "la") if is_greek(part) else ("la", "grc")
+    for lang in order:
+        g = pages.graphs.get(lang)
+        if g is None:
+            continue
+        k, _ = g.lookup(part, alt_ok=True)
+        if k and g.gloss.get(k):
+            return "r", lang + ":" + k
+    return None, None
+
+
+def resolve_part(part, word, affixes, shipped, chain_roots=(), pages=None):
     """Link target for one morpheme: ("r", key), ("w", key), or (None, None).
 
     A curated alias overrides everything. After that an affix part takes the
-    affix root card, a curated base route takes the classical root that the
-    part really names, and a hyphen-free part that is itself a shipped word
-    takes that word card. Anything else leaves the chip inert. Origin is
-    never consulted for affixes: un- resolves the same way sub- does.
+    affix root card and a curated base route takes the classical root the
+    part really names. Anything left is a page name and resolve_page reads
+    it. Origin is never consulted for affixes: un- resolves the same way
+    sub- does.
 
     `chain_roots` is the set of root keys this word's own etymology chain
     reaches. It gates BASE_ROUTES and nothing else.
@@ -5700,9 +6041,9 @@ def resolve_part(part, word, affixes, shipped, chain_roots=()):
     routed = curation.BASE_ROUTES.get(p)
     if routed and routed in chain_roots:
         return "r", routed
-    if "-" not in p and p != word and p in shipped:
-        return "w", p
-    return None, None
+    if pages is None:
+        return None, None
+    return resolve_page(part, word, shipped, pages)
 
 
 def shape_kind(form):
@@ -5726,7 +6067,15 @@ def root_kind(pos, form):
     Shape survives for the one pos that does not settle the question: a
     combining form is a root unless its own page is written with a hyphen
     (electro-, -phile).
+
+    A proper-noun page is a `name`, in every language (owner decision
+    2026-09-06). Latin and Greek name pages carried kind `root` and read
+    "Latin root" on cards that are a person or a place, and a card the
+    reader reaches from Korea must not say something different from one he
+    reaches from Iācōbus.
     """
+    if pos == "name":
+        return "name"
     kind = AFFIX_KIND.get(pos)
     if kind:
         return kind
@@ -5755,9 +6104,10 @@ def relink_recorded_chips(shipped, fmap):
     adult, attercop's atter to att, yammerer's yammer to yam, bilobed's
     lobed to lob).
 
-    A hyphen in the chip keeps its refusal from resolve_part: an affix
-    that reached no affix page is not a word, and the runtime's token
-    rule would read -odon as odon.
+    An affix shape keeps its refusal from resolve_part: an affix that
+    reached no affix page is not a word, and the runtime's token rule would
+    read -odon as odon. An internal hyphen is not an affix shape and never
+    was: x-ray and t-shirt are word keys (2026-09-06).
 
     A chip written with a capital is refused too. forms.json is keyed by
     the folded spelling, so folding a capitalised chip changes which page
@@ -5777,7 +6127,7 @@ def relink_recorded_chips(shipped, fmap):
     for wl, w in shipped.items():
         for m in w.get("morphs") or ():
             f = m["f"]
-            if m.get("r") or m.get("w") or "-" in f or f[:1].isupper():
+            if m.get("r") or m.get("w") or f[:1].isupper()                     or f.startswith("-") or f.endswith("-"):
                 continue
             target = f if f in shipped else fmap.get(f)
             if target and target != wl and target in shipped:
@@ -5959,7 +6309,8 @@ def rekey_us_primary(shipped, fmap, us_raw, ranks):
     return pairs
 
 
-def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
+def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
+                   pages):
     """Resolve every chip, build the root set, link what ships.
 
     Re-runnable, and it has to be. Dropping a word changes who credits what,
@@ -5973,10 +6324,11 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
     to carry a card (an English affix page with no usable sense) or is in
     ROOT_SKIPS, and a reference to it renders inert.
 
-    An inert chip that names a proper noun carries that page's gloss in `g`
-    (2026-09-06). The scope decision keeps proper nouns out of the
-    dictionary, so the chip still opens nothing; what changes is that it
-    stops being a blank box beside a glossed neighbour.
+    A chip naming a proper-noun page opens that page's card (owner decision
+    2026-09-06). The card ships on the one rule every root card ships on,
+    which is that it has a gloss; a name page with none leaves its chip
+    inert, and the chip still carries whatever gloss the page gave it in
+    `g`, which is where the fold and affix collisions land too.
 
     Returns (roots, counters).
     """
@@ -6033,7 +6385,8 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
         chain_roots = origin.chain_roots(harvest.get(wl, {}).get("att")) \
             if w.get("morphs") else ()
         for m in w.get("morphs") or ():
-            field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots)
+            field, k = resolve_part(m["f"], wl, affixes, shipped, chain_roots,
+                                    pages)
             if field == "r" and curation.BASE_ROUTES.get(m["f"].lower()) == k:
                 c["routed"] += 1
             if field == "r" and k not in curation.ROOT_SKIPS:
@@ -6045,9 +6398,10 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
                 m["w"] = k
                 c["wchip"] += 1
             else:
-                # Nowhere to go, so the chip says what it is instead. Only a
-                # proper noun has an answer here: every other inert form is
-                # a morpheme with no page of its own.
+                # Nowhere to go, so the chip says what it is instead. Only
+                # a proper noun has an answer here, and only the few whose
+                # page lost its key to an affix or to another title: every
+                # other inert form is a morpheme with no page of its own.
                 n = names.get(m["f"])
                 if n:
                     m["g"] = n[1]
@@ -6078,9 +6432,18 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
         lang, form = key.split(":", 1)
         if lang == "en":
             a = affixes.get(form)
-            if not a:
-                continue
-            gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
+            if a:
+                gloss, disp, rom, pos = a["gloss"], form, "", a["pos"]
+                lb = a["lb"]
+            else:
+                # A proper-noun card: the page's own sense, under the page's
+                # own title, keyed by the folded title.
+                n = pages.cards.get(form)
+                if not n:
+                    continue
+                gloss, disp, rom, pos = n["gloss"], n["title"], "", "name"
+                lb = n["lb"]
+                c["namecard"] += 1
         else:
             g = graphs[lang]
             # The node's entry was fixed by choose_homographs: gloss, form,
@@ -6089,13 +6452,22 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
             disp = g.form.get(form) or form
             rom = g.rom.get(form, "")
             pos = g.pos.get(form, "")
+            lb = g.lb.get(form) or ()
         # A hand gloss overrides the harvest and can carry a card on its own.
-        gloss = curation.ROOT_GLOSSES.get(key) or gloss
+        # It carries no register marker: the marker states what the source
+        # said about the sense the gloss came from, and a hand gloss came
+        # from nobody's sense.
+        hand = curation.ROOT_GLOSSES.get(key)
+        if hand:
+            gloss, lb = hand, ()
         if not gloss:
             c["noglossroot"] += 1
             continue
         r = {"form": disp, "lang": lang, "gloss": gloss,
              "kind": root_kind(pos, disp)}
+        if lb:
+            r["lb"] = list(lb)
+            c["rootlb"] += 1
         if rom:
             r["rom"] = rom
         roots[key] = r
@@ -6950,7 +7322,7 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
             "template", not cogrows,
             "%d rows%s" % (len(cogrows), (": " + ", ".join(cogrows[:8])) if cogrows else ""))
 
-    KINDS = ("prefix", "suffix", "infix", "circumfix", "root")
+    KINDS = ("prefix", "suffix", "infix", "circumfix", "root", "name")
     badkind = sorted(k for k, r in roots.items() if r.get("kind") not in KINDS)
     add("every root kind is one of the SPEC enum", not badkind,
         "%d offenders%s" % (len(badkind),
@@ -6969,12 +7341,53 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         "%d dangling%s" % (len(badw), (": " + ", ".join(badw[:5])) if badw else ""))
 
     enroots = [k for k, r in roots.items()
-               if r["lang"] == "en" and "-" not in r["form"]
-               and r["form"] in words]
-    add("roots.json en: keys are affixes and combining forms only",
+               if r["lang"] == "en" and r["kind"] != "name"
+               and "-" not in r["form"] and r["form"] in words]
+    add("roots.json en: keys are affixes, combining forms and proper nouns",
         not enroots,
         "%d ordinary words as roots%s"
         % (len(enroots), (": " + ", ".join(enroots[:5])) if enroots else ""))
+
+    # A card key folds its form, whatever the language: la:terra displays
+    # terra, la:iacobus displays Iācōbus, en:korea displays Korea.
+    unfolded = sorted(k for k, r in roots.items()
+                      if r["kind"] == "name" and r["lang"] == "en"
+                      and k != "en:" + en_key(r["form"]))
+    add("every proper-noun card key is its page title folded", not unfolded,
+        "%d offenders%s"
+        % (len(unfolded), (": " + ", ".join(unfolded[:5])) if unfolded else ""))
+
+    # The register markers. A marker is one of the shown labels and nothing
+    # else, on a card as on a definition, and a definition list's markers run
+    # parallel to it so no definition can wear another one's label.
+    shown = {lab for lab, _ in SENSE_LABELS.values()}
+    badlb = sorted(k for k, r in roots.items()
+                   if any(x not in shown for x in (r.get("lb") or ())))
+    add("every root register marker is one of the shown labels", not badlb,
+        "%d offenders%s"
+        % (len(badlb), (": " + ", ".join(badlb[:5])) if badlb else ""))
+
+    ragged = []
+    unknown_lb = []
+    for k, w in words.items():
+        for sec in w["senses"]:
+            lb = sec.get("lb")
+            if lb is None:
+                continue
+            if len(lb) != len(sec["defs"]) or not any(lb):
+                ragged.append(k)
+            for one in lb:
+                if any(x not in shown for x in one):
+                    unknown_lb.append(k)
+    add("every sense label list runs parallel to its definitions and is "
+        "written only when it says something", not ragged,
+        "%d offenders%s"
+        % (len(ragged), (": " + ", ".join(sorted(set(ragged))[:5])) if ragged else ""))
+    add("every sense register marker is one of the shown labels",
+        not unknown_lb,
+        "%d offenders%s"
+        % (len(unknown_lb),
+           (": " + ", ".join(sorted(set(unknown_lb))[:5])) if unknown_lb else ""))
 
     bad_lang = sorted({k for k in roots if k.split(":", 1)[0]
                        not in ("en", "la", "grc")})
@@ -7126,18 +7539,48 @@ def load_gold():
         return json.load(fh).get("rows") or []
 
 
-def gold_actual(word, words, roots=None):
+def def_labels(w):
+    """The register markers of every shipped definition, in card order."""
+    out = []
+    for sec in w["senses"]:
+        lb = sec.get("lb") or [[] for _ in sec["defs"]]
+        out.extend(list(x) for x in lb)
+    return out
+
+
+def gold_actual(word, words, roots=None, fam=None):
     """What the shipped data says about a gold word, in the gold row shape.
+
+    A row whose `word` carries a colon names a ROOT KEY and pins the card:
+    its form, label kind, gloss, register markers and family (2026-09-06).
+    That is how a proper-noun card and a card carrying a warning are pinned,
+    since neither is a word.
 
     `glosses` is the chip subtext a reader sees, joined the way lookup.js
     joins it: the part's own gloss where it carries one, else the root
-    card's (review 2, cause 1, 2026-09-06). A gold row pins it only when
-    the row carries the field, so the older rows are unaffected.
+    card's (review 2, cause 1, 2026-09-06). `labels` is the register marker
+    of every shipped definition in card order. A gold row pins either only
+    when the row carries the field, so the older rows are unaffected.
     """
     roots = roots or {}
+    if ":" in word:
+        r = roots.get(word)
+        if not r:
+            return {"kind": "none"}
+        out = {"kind": "card", "lang": r["lang"], "form": r["form"],
+               "rootkind": r["kind"], "gloss": r["gloss"],
+               "lb": list(r.get("lb") or ())}
+        if fam is not None:
+            # Ranked as the card ranks it: `fr` ascending, unranked last,
+            # ties by key (lookup.js rankedIndex).
+            out["family"] = sorted(
+                fam.get(word) or (),
+                key=lambda k: (words[k].get("fr", RANK_UNRANKED), k))
+        return out
     w = words.get(word)
     if not w:
         return {"kind": "none"}
+    labels = def_labels(w)
 
     def chip_gloss(m):
         """What lookup.js joins onto one morph chip: its own gloss, else the
@@ -7157,21 +7600,24 @@ def gold_actual(word, words, roots=None):
         return {"kind": "morphs", "parts": [m["f"] for m in w["morphs"]],
                 "inert": [m["f"] for m in w["morphs"]
                           if not m.get("r") and not m.get("w")],
-                "glosses": [chip_gloss(m) for m in w["morphs"]]}
+                "glosses": [chip_gloss(m) for m in w["morphs"]],
+                "labels": labels}
     org = w.get("org")
     if not org:
-        return {"kind": "none"}
+        return {"kind": "none", "labels": labels}
     if "parts" in org:
         return {"kind": "decomposed", "lang": org["lang"], "lemma": org["l"],
                 "parts": [p["f"] for p in org["parts"]],
                 "glosses": [p.get("g") or (roots.get(p.get("r")) or {}).get("gloss", "")
-                            for p in org["parts"]]}
+                            for p in org["parts"]],
+                "labels": labels}
     if org.get("r"):
         return {"kind": "single", "lang": org["r"].split(":", 1)[0],
                 "lemma": org.get("f") or org["r"].split(":", 1)[1],
-                "glosses": [(roots.get(org["r"]) or {}).get("gloss", "")]}
+                "glosses": [(roots.get(org["r"]) or {}).get("gloss", "")],
+                "labels": labels}
     return {"kind": "rowonly", "lang": org.get("lang"), "lemma": org.get("f"),
-            "glosses": [org.get("gloss") or ""]}
+            "glosses": [org.get("gloss") or ""], "labels": labels}
 
 
 def gold_match(row, actual):
@@ -7179,6 +7625,13 @@ def gold_match(row, actual):
     if row.get("kind") != actual.get("kind"):
         return False
     kind = row["kind"]
+    if "labels" in row and             list(row["labels"]) != list(actual.get("labels") or []):
+        return False
+    if kind == "card":
+        for field in ("lang", "form", "rootkind", "gloss", "lb", "family"):
+            if field in row and row[field] != actual.get(field):
+                return False
+        return True
     if kind == "none":
         return True
     if kind == "morphs":
@@ -7203,9 +7656,13 @@ def score_gold(words, roots=None):
     per = collections.OrderedDict()
     failures = []
     matched = 0
+    # The family list a card row pins is the one the reader sees, so it comes
+    # from the same index verify and the runtime build.
+    fam = (family_index(words, roots or {})
+           if any(":" in r["word"] for r in rows) else None)
     for row in rows:
         kind = row.get("kind", "?")
-        actual = gold_actual(row["word"], words, roots)
+        actual = gold_actual(row["word"], words, roots, fam)
         ok = gold_match(row, actual)
         n, m = per.get(kind, (0, 0))
         per[kind] = (n + 1, m + (1 if ok else 0))
@@ -7320,16 +7777,19 @@ def main(argv):
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
     (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, names,
-     tnames, lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
+     caps, tnames, stags, lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits, "
         "%s tail chains still to prove they flatten)"
         % (format(s1["lines"], ","), format(len(cand), ","),
            format(s1["tail_split"], ","), format(len(chain_only), ",")))
+    namecard = name_cards(names, affixes)
     log("  %s inflection pages, %s alternative-spelling pages, %s mixed pages, "
-        "%s affix entries, %s glossed proper nouns"
+        "%s affix entries, %s glossed proper nouns over %s card keys, "
+        "%s word keys with a capitalised page title"
         % (format(len(forms_raw), ","), format(len(alt_raw), ","),
            format(len(mixed_raw), ","), format(len(affixes), ","),
-           format(len(names), ",")))
+           format(len(names), ","), format(len(namecard), ","),
+           format(len(caps), ",")))
 
     # The gates run here, before the expensive passes: an unclassified
     # template name or language code is a question about how to read the
@@ -7344,6 +7804,13 @@ def main(argv):
     log("  %s distinct language codes, %s at or above %s uses, all in a role"
         % (format(len(lcodes), ","), format(n_lhigh, ","),
            format(CENSUS_MIN, ",")))
+    sense_top = sense_census_gate(stags)
+    n_shigh = sum(1 for c in stags.values() if c >= SENSE_CENSUS_MIN)
+    log("  %s distinct sense tags, %s at or above %s uses, all classified "
+        "(%s of them shown as a register marker)"
+        % (format(len(stags), ","), format(n_shigh, ","),
+           format(SENSE_CENSUS_MIN, ","),
+           format(sum(1 for t in stags if t in SENSE_LABELS), ",")))
 
     log("[4/7] building the source graphs and the pass-through tables")
     graphs = {"la": parse_classical(LATIN_FILE, "la"),
@@ -7424,8 +7891,20 @@ def main(argv):
         if rank is None or (rank > RANK_CAP and not parts
                             and wl not in chain_only):
             continue
-        senses = [{"pos": p, "defs": rec["defs"][p]} for p in rec["pos"]
-                  if rec["defs"][p]]
+        # `lb` runs parallel to `defs`: the register markers the source put
+        # on the sense that definition came from, empty for a definition
+        # that carries none. The field is written only when a section has
+        # at least one marked definition, so an unmarked card costs nothing.
+        senses = []
+        for p in rec["pos"]:
+            ds = rec["defs"][p]
+            if not ds:
+                continue
+            sec = {"pos": p, "defs": ds}
+            lb = rec["lb"][p]
+            if any(lb):
+                sec["lb"] = lb
+            senses.append(sec)
         if not senses:
             continue
         w = {"senses": senses}
@@ -7483,6 +7962,7 @@ def main(argv):
     # one word from a finite set. A dropped word takes nothing with it: all
     # of this happens before forms.json is assembled, so it credits no root,
     # it is no form target, and it cannot be a forms.json row.
+    pages = Pages(caps, namecard, graphs)
     n_chaindrop = 0
     for wl in list(chain_only):
         if wl in shipped and not (org_rows.get(wl) or {}).get("parts"):
@@ -7492,7 +7972,7 @@ def main(argv):
     while True:
         passes += 1
         roots, lp = link_and_prune(shipped, org_rows, harvest, origin,
-                                   affixes, names, graphs)
+                                   affixes, names, graphs, pages)
         stale = [wl for wl in chain_only if wl in shipped
                  and not (shipped[wl].get("org") or {}).get("parts")]
         if not stale:
@@ -7504,13 +7984,15 @@ def main(argv):
         "for want of one (%d linking pass%s)"
         % (format(sum(1 for wl in chain_only if wl in shipped), ","),
            format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
-    log("  %s roots ship (%s src links, %s anchor cards carrying parts); "
+    log("  %s roots ship (%s src links, %s anchor cards carrying parts, "
+        "%s proper-noun cards, %s cards carrying a register marker); "
         "%s word chips, %s morph chips left inert, %s org parts inert, %s "
         "org rows kept whole, %s org rows dropped, %s repeated morphs "
         "credited once, %s base chips routed to a classical root, %s inert "
         "chips glossed as proper nouns"
         % (format(len(roots), ","), format(lp["src"], ","),
-           format(lp["rootparts"], ","),
+           format(lp["rootparts"], ","), format(lp["namecard"], ","),
+           format(lp["rootlb"], ","),
            format(lp["wchip"], ","), format(lp["inert"], ","),
            format(lp["inertpart"], ","), format(lp["orgwhole"], ","),
            format(lp["orgdrop"], ","), format(lp["repeat"], ","),
@@ -7752,6 +8234,9 @@ def main(argv):
     log("=========== LANGUAGE CENSUS (top 40) =======")
     for code, count, role in lang_top:
         log("  %8s  %-12s %s" % (format(count, ","), code, role))
+    log("=========== SENSE TAG CENSUS (top 30) ======")
+    for tag, count, kind in sense_top:
+        log("  %8s  %-18s %s" % (format(count, ","), tag, kind))
     log("================= SIZES ====================")
     log("words.json    : %s" % mb(s_w))
     log("roots.json    : %s" % mb(s_r))

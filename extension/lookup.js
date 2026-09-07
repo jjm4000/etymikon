@@ -212,12 +212,40 @@ export function resolve(text, data) {
   return null;
 }
 
+/**
+ * The register markers of one definition list, parallel to it.
+ *
+ * `lb[i]` is what the source said about the sense `defs[i]` came from, as
+ * plain lower-case words the card prints in front of the definition
+ * ("obsolete", "ethnic slur"). The field is absent on a section where no
+ * definition carries one, so most sections come back without it. A ragged
+ * or junk array is dropped whole rather than sliding a marker onto the
+ * wrong definition.
+ */
+function labelRows(sense, count) {
+  if (!Array.isArray(sense.lb) || sense.lb.length !== count) return null;
+  const rows = sense.lb.map((one) =>
+    (Array.isArray(one) ? one : []).filter(
+      (lab) => typeof lab === "string" && lab !== ""
+    )
+  );
+  return rows.some((one) => one.length > 0) ? rows : null;
+}
+
 /** One POS section, copied field by field so junk data cannot reach the card. */
 function senseRow(sense) {
-  const defs = (Array.isArray(sense.defs) ? sense.defs : []).filter(
-    (def) => typeof def === "string" && def !== ""
-  );
-  return { pos: str(sense.pos), defs };
+  const all = Array.isArray(sense.defs) ? sense.defs : [];
+  const lb = labelRows(sense, all.length);
+  const defs = [];
+  const labels = [];
+  for (let i = 0; i < all.length; i += 1) {
+    if (typeof all[i] !== "string" || all[i] === "") continue;
+    defs.push(all[i]);
+    if (lb !== null) labels.push(lb[i]);
+  }
+  const row = { pos: str(sense.pos), defs };
+  if (lb !== null && labels.some((one) => one.length > 0)) row.lb = labels;
+  return row;
 }
 
 /** The senses of a words.json entry, as the response carries them. */
@@ -742,6 +770,12 @@ export function buildRoot(key, data, familyIndex) {
   // Greek forms show their romanization beside the form.
   const rom = str(entry.rom);
   if (rom !== "") root.rom = rom;
+  // The register the source gave the sense this gloss came from, joined the
+  // way a word's definition markers are, so one renderer prints both.
+  const lb = (Array.isArray(entry.lb) ? entry.lb : []).filter(
+    (lab) => typeof lab === "string" && lab !== ""
+  );
+  if (lb.length > 0) root.lb = lb;
   // An anchor's own breakdown: the source lemma's split, in the org.parts
   // shape, joined exactly as org parts are (an `r` part carries its root
   // gloss, anything else comes back as the form alone). Only anchors carry
@@ -841,12 +875,17 @@ export function rootLabel(lang, kind) {
     kind === "prefix" ? "prefix" :
     kind === "suffix" ? "suffix" :
     kind === "infix" ? "interfix" :
-    kind === "circumfix" ? "circumfix" : "root";
+    kind === "circumfix" ? "circumfix" :
+    kind === "name" ? "proper noun" : "root";
   // Classical roots keep their language on the label whatever the kind: a
   // Greek suffix card says "Greek suffix", never a bare "Suffix" that could
   // be mistaken for an English affix.
   if (lang === "la") return "Latin " + kindWord;
   if (lang === "grc") return "Greek " + kindWord;
+  // An English proper noun says what it is and nothing else. "English
+  // proper noun" would be the only English card naming its language, and
+  // the card is reached from an English word's breakdown.
+  if (kindWord === "proper noun") return "Proper noun";
   if (kindWord === "root") return "English root";
   return kindWord.charAt(0).toUpperCase() + kindWord.slice(1);
 }

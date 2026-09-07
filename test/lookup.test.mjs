@@ -88,13 +88,14 @@ const words = {
       fr: 903,
     },
     big: { senses: [{ pos: "adj", defs: ["Of great size."] }], fr: 1200 },
-    // A chip with no link at all and a gloss of its own: Korea is a proper
-    // noun, out of the dictionary by scope, so nothing resolves it and the
-    // build hands the chip the sense of the page it skipped.
-    korean: {
-      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
-      morphs: [{ f: "Korea", g: "A region in East Asia." }, { f: "-an", r: "en:-an" }],
-      fr: 4210,
+    // A chip with no link at all and a gloss of its own. A proper noun gets
+    // a card wherever the source glosses it; the residue is a page whose
+    // folded key another page already claimed, and its chip keeps the gloss
+    // it had (2026-09-06).
+    lappish: {
+      senses: [{ pos: "adj", defs: ["Of or relating to the Lapps."] }],
+      morphs: [{ f: "Lapp", g: "A region in northern Europe." }, { f: "-ish", r: "en:-ish" }],
+      fr: 41000,
     },
     box: { senses: [{ pos: "noun", defs: ["A container with a flat base."] }], fr: 2500 },
     dialogue: {
@@ -136,6 +137,26 @@ const words = {
         parts: [{ f: "memor", r: "la:memor" }, { f: "-ia" }],
       },
       fr: 1015,
+    },
+    // The register markers: a section where one definition carries them and
+    // another does not, and a second section carrying none at all.
+    grog: {
+      senses: [
+        {
+          pos: "noun",
+          defs: ["Rum cut with water.", "Any alcoholic drink."],
+          lb: [[], ["slang", "dialectal"]],
+        },
+        { pos: "verb", defs: ["To drink grog."] },
+      ],
+      fr: 30100,
+    },
+    // A word built on a proper noun. The Korea chip opens a card the same way
+    // the -an chip does (owner decision 2026-09-06).
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      morphs: [{ f: "Korea", r: "en:korea" }, { f: "-an", r: "en:-an" }],
+      fr: 4210,
     },
     muse: { senses: [{ pos: "noun", defs: ["A source of inspiration."] }], fr: 24810 },
     music: {
@@ -252,6 +273,7 @@ const roots = {
     // A Germanic affix: an ordinary en: root, with no src row.
     "en:-ful": { form: "-ful", lang: "en", gloss: "full of", kind: "suffix" },
     "en:-ic": { form: "-ic", lang: "en", gloss: "forming adjectives", kind: "suffix" },
+    "en:-ish": { form: "-ish", lang: "en", gloss: "of the nature of", kind: "suffix" },
     "en:sub-": {
       form: "sub-",
       lang: "en",
@@ -274,6 +296,23 @@ const roots = {
       src: "grc:λόγος",
       gloss: "word, speech",
       kind: "prefix",
+    },
+    // A proper-noun card: a page a shipped word is built on, keyed by its
+    // folded title and displayed under the title itself.
+    "en:korea": {
+      form: "Korea",
+      lang: "en",
+      gloss: "A geographic region in East Asia.",
+      kind: "name",
+    },
+    // A card whose gloss came from a sense the source marked. The markers
+    // ride on the card exactly as they ride on a definition.
+    "la:caco": {
+      form: "cacō",
+      lang: "la",
+      gloss: "to defecate",
+      kind: "root",
+      lb: ["vulgar"],
     },
     // The Latin affix and base an org decomposition lands on.
     "la:memor": { form: "memor", lang: "la", gloss: "mindful", kind: "root" },
@@ -618,8 +657,8 @@ test("a w chip naming an unshipped word loses its key, so the chip is inert", ()
 });
 
 test("a chip with no link states its own gloss and stays inert", () => {
-  const match = one("korean");
-  assert.deepEqual(match.morphs[0], { f: "Korea", gloss: "A region in East Asia." });
+  const match = one("lappish");
+  assert.deepEqual(match.morphs[0], { f: "Lapp", gloss: "A region in northern Europe." });
   assert.equal("r" in match.morphs[0], false);
   assert.equal("w" in match.morphs[0], false);
 });
@@ -627,6 +666,72 @@ test("a chip with no link states its own gloss and stays inert", () => {
 test("a proper-noun chip names no word, so it opens no used-in list", () => {
   assert.equal(usedInIndex.Korea, undefined);
   assert.equal(usedInIndex.korea, undefined);
+});
+
+// --- proper-noun cards (owner decision 2026-09-06) ------------------------
+
+test("a proper-noun chip opens a card like any other chip", () => {
+  const match = one("korean");
+  assert.deepEqual(match.morphs[0], {
+    f: "Korea",
+    r: "en:korea",
+    gloss: "A geographic region in East Asia.",
+  });
+});
+
+test("a proper-noun card carries its page title, its label and its family", () => {
+  const root = buildRoot("en:korea", data, familyIndex);
+  assert.equal(root.form, "Korea");
+  assert.equal(root.label, "Proper noun");
+  assert.equal(root.gloss, "A geographic region in East Asia.");
+  assert.deepEqual(root.family.map((row) => row.word), ["korean"]);
+  assert.equal(root.familyCount, 1, "a family of one word is a card");
+});
+
+test("a proper-noun card answers to its folded key", () => {
+  assert.equal(buildRoot("en:Korea", data, familyIndex).key, "en:korea");
+});
+
+test("the label line names a proper noun in every language", () => {
+  assert.equal(rootLabel("en", "name"), "Proper noun");
+  assert.equal(rootLabel("la", "name"), "Latin proper noun");
+  assert.equal(rootLabel("grc", "name"), "Greek proper noun");
+});
+
+test("a proper-noun card is an omnibox row like any other root", () => {
+  const rows = buildOmniboxSuggestions("kore", { ...data, searchIndex: buildSearchIndex(data) });
+  const hit = rows.find((row) => row.content === "en:korea");
+  assert.ok(hit, "typing the form finds the card");
+  assert.match(hit.description, /Proper noun/);
+});
+
+// --- register markers (owner decision 2026-09-06) -------------------------
+
+test("a sense carries the markers the source gave it, parallel to the defs", () => {
+  const match = one("grog");
+  assert.deepEqual(match.senses[0].defs, ["Rum cut with water.", "Any alcoholic drink."]);
+  assert.deepEqual(match.senses[0].lb, [[], ["slang", "dialectal"]]);
+  assert.equal("lb" in match.senses[1], false, "a section with no marker carries no field");
+});
+
+test("a label array that does not run parallel to the defs is dropped whole", () => {
+  const ragged = {
+    words: {
+      x: { senses: [{ pos: "noun", defs: ["One.", "Two."], lb: [["slang"]] }], fr: 1 },
+      y: { senses: [{ pos: "noun", defs: ["One."], lb: [[]] }], fr: 2 },
+      z: { senses: [{ pos: "noun", defs: ["One."], lb: "slang" }], fr: 3 },
+    },
+  };
+  const bundle = { words: ragged, roots, forms };
+  for (const key of ["x", "y", "z"]) {
+    const match = buildMatches(key, bundle)[0];
+    assert.equal("lb" in match.senses[0], false, `${key} carries no label field`);
+  }
+});
+
+test("a root card carries the register of the sense its gloss came from", () => {
+  assert.deepEqual(buildRoot("la:caco", data, familyIndex).lb, ["vulgar"]);
+  assert.equal("lb" in buildRoot("la:terra", data, familyIndex), false);
 });
 
 test("a word with no split carries no morphs key", () => {
@@ -2576,7 +2681,31 @@ await testAsync("smoke: the gold set holds in the shipped data", async () => {
   const gold = JSON.parse(await readFile(join(here, "..", "pipeline", "gold.json"), "utf8"));
   const committed = JSON.parse(await readFile(join(here, "..", "pipeline", "gold-score.json"), "utf8"));
   const table = bundle.words.words;
+  const rootTable = bundle.roots.roots;
+  const goldFamily = buildFamilyIndex(bundle.words, bundle.roots);
+  const labelsOf = (entry) => {
+    const out = [];
+    for (const sec of entry.senses) {
+      const lb = Array.isArray(sec.lb) ? sec.lb : sec.defs.map(() => []);
+      for (const one of lb) out.push(one);
+    }
+    return out;
+  };
   const actualOf = (word) => {
+    // A row whose word carries a colon names a root key and pins that card.
+    if (word.includes(":")) {
+      const r = rootTable[word];
+      if (!r) return { kind: "none" };
+      return {
+        kind: "card",
+        lang: r.lang,
+        form: r.form,
+        rootkind: r.kind,
+        gloss: r.gloss,
+        lb: Array.isArray(r.lb) ? r.lb : [],
+        family: goldFamily[word] || [],
+      };
+    }
     const entry = table[word];
     if (!entry) return { kind: "none" };
     if (Array.isArray(entry.morphs) && entry.morphs.length) {
@@ -2584,19 +2713,34 @@ await testAsync("smoke: the gold set holds in the shipped data", async () => {
         kind: "morphs",
         parts: entry.morphs.map((m) => m.f),
         inert: entry.morphs.filter((m) => !m.r && !m.w).map((m) => m.f),
+        labels: labelsOf(entry),
       };
     }
     const org = entry.org;
-    if (!org) return { kind: "none" };
+    if (!org) return { kind: "none", labels: labelsOf(entry) };
     if (Array.isArray(org.parts)) {
-      return { kind: "decomposed", lang: org.lang, lemma: org.l, parts: org.parts.map((p) => p.f) };
+      return {
+        kind: "decomposed",
+        lang: org.lang,
+        lemma: org.l,
+        parts: org.parts.map((p) => p.f),
+        labels: labelsOf(entry),
+      };
     }
-    if (org.r) return { kind: "single", lang: org.r.split(":")[0], lemma: org.f };
-    return { kind: "rowonly", lang: org.lang, lemma: org.f };
+    if (org.r) {
+      return { kind: "single", lang: org.r.split(":")[0], lemma: org.f, labels: labelsOf(entry) };
+    }
+    return { kind: "rowonly", lang: org.lang, lemma: org.f, labels: labelsOf(entry) };
   };
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const matches = (row, actual) => {
     if (row.kind !== actual.kind) return false;
+    if ("labels" in row && !same(row.labels, actual.labels || [])) return false;
+    if (row.kind === "card") {
+      return ["lang", "form", "rootkind", "gloss", "lb", "family"].every(
+        (field) => !(field in row) || same(row[field], actual[field])
+      );
+    }
     if (row.kind === "none") return true;
     if (row.kind === "morphs") {
       return same(row.parts, actual.parts) && same([...row.inert].sort(), [...actual.inert].sort());
@@ -2610,6 +2754,70 @@ await testAsync("smoke: the gold set holds in the shipped data", async () => {
     `gold score ${gold.rows.length - failures.length} under the committed ${committed.score}: ${failures.join(", ")}`
   );
   console.log(`      (gold ${gold.rows.length - failures.length} of ${gold.rows.length}, committed ${committed.score})`);
+});
+
+await testAsync("smoke: the shipped data marks registers and cards proper nouns", async () => {
+  let bundle;
+  try {
+    bundle = await readBundle();
+  } catch (err) {
+    console.log(`      (skipped, data unreadable: ${err.code || err.name})`);
+    return;
+  }
+  const table = bundle.words.words;
+  const roots = bundle.roots.roots;
+
+  // The register markers: every one is a plain lower-case label, every label
+  // array runs parallel to its definitions, and the worker hands them on.
+  const seen = new Set();
+  let marked = 0;
+  for (const key of Object.keys(table)) {
+    for (const sec of table[key].senses) {
+      if (!("lb" in sec)) continue;
+      assert.equal(
+        sec.lb.length,
+        sec.defs.length,
+        `${key} has a label list that does not run parallel to its definitions`
+      );
+      for (const one of sec.lb) {
+        for (const lab of one) {
+          seen.add(lab);
+          assert.equal(lab, lab.toLowerCase(), `${lab} is written in lower case`);
+          marked += 1;
+        }
+      }
+    }
+  }
+  assert.ok(seen.has("obsolete") && seen.has("slang"), "the shipped labels cover the groups");
+  const cat = lookup("cat", bundle).matches[0];
+  const catLabels = cat.senses.flatMap((sec) => sec.lb || sec.defs.map(() => []));
+  assert.ok(
+    catLabels.some((one) => one.includes("offensive")),
+    "cat carries the offensive sense marker the source gives it"
+  );
+
+  // The proper-noun card: korean's Korea chip opens it, it is labelled a
+  // proper noun, and it is an omnibox row like any other root card.
+  const korean = lookup("korean", bundle).matches[0];
+  assert.deepEqual(korean.morphs[0].f, "Korea");
+  assert.equal(korean.morphs[0].r, "en:korea", "the Korea chip opens a card");
+  const index = buildFamilyIndex(bundle.words, bundle.roots);
+  const korea = buildRoot("en:korea", bundle, index);
+  assert.equal(korea.form, "Korea");
+  assert.equal(korea.label, "Proper noun");
+  assert.ok(korea.familyCount >= 1, "a family of one word is a card");
+  const rows = buildOmniboxSuggestions("korea", {
+    ...bundle,
+    searchIndex: buildSearchIndex(bundle),
+  });
+  assert.ok(
+    rows.some((row) => row.content === "en:korea"),
+    "a proper-noun card is searchable exactly like any other root card"
+  );
+  const names = Object.keys(roots).filter((key) => roots[key].kind === "name");
+  console.log(
+    `      (${marked} markers over ${seen.size} labels; ${names.length} proper-noun cards)`
+  );
 });
 
 await testAsync("smoke: US-primary re-keyed words carry their page title", async () => {
@@ -2686,7 +2894,7 @@ await testAsync("smoke: the shipped bundle folds, labels and indexes as specifie
     kinds[kind] = (kinds[kind] || 0) + 1;
     if (kinds[kind] > 1) continue;
     assert.ok(
-      ["prefix", "suffix", "infix", "circumfix", "root"].includes(kind),
+      ["prefix", "suffix", "infix", "circumfix", "root", "name"].includes(kind),
       `${key} carries kind ${JSON.stringify(kind)}`
     );
     assert.ok(buildRoot(key, bundle, {}).label !== "", `${key} must have a label line`);
