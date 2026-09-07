@@ -7558,6 +7558,43 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
     with_morphs = [k for k, w in words.items() if w.get("morphs")]
     capped_morphs = sum(1 for k in capped if words[k].get("morphs"))
     langs = collections.Counter(k.split(":", 1)[0] for k in roots)
+
+    # ---- the two coverage ratios, gated (2026-09-07) --------------------
+    # Both were printed beside a sentence a human was supposed to read.
+    # A ratio that moves with the corpus cannot be pinned, so each takes a
+    # two-sided band: the floor sits under every value the project has
+    # measured, so only a collapse reaches it, and the ceiling sits far
+    # enough above that no harvest improvement reaches it but a counting
+    # bug does. Both bands are stated here and in SPEC with the date.
+    pct_capped_morphs = 100.0 * capped_morphs / max(1, len(capped))
+    # 33.7% at 2026-09-07. The share of the words inside the shipping cap
+    # that carry an English-surface split. It rose from about 20% to 33.7%
+    # over the etymon-tree and `+`-variant rounds, and the floor of 25%
+    # sits under the whole of that run: the split harvest breaking takes
+    # this to near zero, and a legitimate rule change has never moved it
+    # by more than 5 points.
+    add("morphs coverage of capped words is inside 25% to 45%",
+        25.0 <= pct_capped_morphs <= 45.0,
+        "%.1f%% (%s of %s), band 25-45, measured 33.7%% on 2026-09-07"
+        % (pct_capped_morphs, format(capped_morphs, ","), format(len(capped), ",")))
+
+    top_band = [k for k, w in words.items()
+                if w.get("fr") is not None and w["fr"] <= COVERAGE_TOP]
+    top_covered = sum(1 for k in top_band
+                      if words[k].get("morphs")
+                      or (words[k].get("org") or {}).get("parts"))
+    pct_top = 100.0 * top_covered / max(1, len(top_band))
+    # 38.3% at 2026-09-07, from 33.5% at bring-up through 33.8, 37.9, 38.1,
+    # 38.2. The series has only ever risen, and the largest single move was
+    # the 4 points the `+` variants bought. The floor of 30% is under the
+    # earliest measurement the project recorded, so reaching it means a
+    # source stopped answering rather than drifting.
+    add("breakdown coverage of the top %s ranks is inside 30%% to 55%%"
+        % format(COVERAGE_TOP, ","),
+        30.0 <= pct_top <= 55.0,
+        "%.1f%% (%s of %s), band 30-55, measured 38.3%% on 2026-09-07"
+        % (pct_top, format(top_covered, ","), format(len(top_band), ",")))
+
     dist = [
         ("total words", format(len(words), ","), "SPEC says around 83k"),
         ("words inside rank 50,000", format(len(capped), ","),
@@ -7565,10 +7602,10 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         ("breakdown-bearing tail", format(len(words) - len(capped), ","), ""),
         ("words with morphs", format(len(with_morphs), ","), ""),
         ("morphs coverage of capped words",
-         "%.1f%% (%s of %s)" % (100.0 * capped_morphs / max(1, len(capped)),
+         "%.1f%% (%s of %s)" % (pct_capped_morphs,
                                 format(capped_morphs, ","),
                                 format(len(capped), ",")),
-         "SPEC says 18 to 25%"),
+         "gated 25 to 45% in the checks above"),
         ("roots", "%s (en=%s la=%s grc=%s)"
          % (format(len(roots), ","), format(langs["en"], ","),
             format(langs["la"], ","), format(langs["grc"], ",")),
@@ -8335,7 +8372,7 @@ def main(argv):
         for _, _, r in misses)
     log("=============== COVERAGE ===================")
     log("breakdown coverage, top %s ranks : %.1f%% (%s of %s carry morphs or "
-        "a decomposed org)"
+        "a decomposed org; gated 30 to 55%% in the checks)"
         % (format(COVERAGE_TOP, ","),
            100.0 * len(covered) / max(1, len(top_band)),
            format(len(covered), ","), format(len(top_band), ",")))

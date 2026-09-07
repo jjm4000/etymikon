@@ -1199,8 +1199,14 @@ words as lookup.js's `TIER_LABELS`, since content.js cannot import it and
 holds a documented second copy. The build reads both tables off the extension
 source, the way it already reads `LANG_NAME`.
 
-Distribution numbers are printed next to the SPEC's expectation rather than
-asserted. They move with the corpus.
+Gated ratios (2026-09-07): morphs coverage of capped words inside 25% to 45%
+(measured 33.7%), and breakdown coverage of the top 10,000 ranks inside 30%
+to 55% (measured 38.3%). Each floor sits under every value the project has
+measured, so only a collapse reaches it, and each ceiling sits far enough
+above that no harvest improvement reaches it while a counting bug does.
+
+The other distribution numbers are printed next to the SPEC's expectation
+rather than asserted. They move with the corpus.
 
 Determinism is checked by hand rather than by the build: run it twice and
 compare hashes (byte-identical at 2026-09-05, misses file included).

@@ -2914,6 +2914,27 @@ scene checks name Advanced and Common and needed nothing. The gold rows carry
 no tier. Both self-check pages import the real lookup.js for tierOf and
 TIER_LABELS, so only their expected strings moved.
 
+### Two coverage ratios are gated (2026-09-07)
+
+The build printed two ratios beside a sentence a person was supposed to read,
+and gated on neither. Both are now two-sided bands in the spot checks. A
+ratio that moves with the corpus cannot be pinned, so each floor sits under
+every value the project has measured and each ceiling sits far enough above
+that no harvest improvement reaches it while a counting bug does.
+
+- Morphs coverage of capped words: band 25% to 45%, measured 33.7%. This is
+  the share of words inside the shipping cap carrying an English-surface
+  split. It rose from about 20% to 33.7% over the etymon-tree and `+`-variant
+  rounds. The split harvest breaking takes it to near zero, and no legitimate
+  rule change has moved it by more than 5 points. The stale prose beside it
+  read "SPEC says 18 to 25%", which the SPEC had already superseded with
+  "around a third".
+- Breakdown coverage of the top 10,000 ranks: band 30% to 55%, measured
+  38.3%. The series reads 33.5, 33.8, 37.9, 38.1, 38.2, 38.3 and has only
+  ever risen. The largest single move was the 4 points the `+` variants
+  bought. The floor sits under the earliest measurement recorded, so reaching
+  it means a source stopped answering rather than drifting.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
