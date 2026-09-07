@@ -1317,6 +1317,25 @@
     __lastOpenTabUrl: null,
     __failOpenTab: false,
     sendMessage: function (msg, cb) {
+      var self = this;
+      // The boot chain below runs as shipped, from plain script tags, so it
+      // can reach the fake before the dynamic import of lookup.js lands.
+      // real() throws then, the catch turns that into {ok:false}, and a
+      // read-once pending query is spent on a lookup that renders nothing:
+      // the panel stays unmounted for the rest of the run. Under load that
+      // failed two runs in five. Traffic arriving early waits for the module
+      // rather than being answered wrongly. Once it has landed this branch
+      // is never taken, so response timing is unchanged.
+      if (REAL === null) {
+        var pending = READY.then(function () {
+          return self.sendMessage(msg, undefined);
+        });
+        if (typeof cb === "function") {
+          pending.then(function (r) { setTimeout(function () { cb(r); }, 0); });
+          return undefined;
+        }
+        return pending;
+      }
       // Dictionary traffic only. The saved store keeps its own counters, so
       // every "this view was served from cache" proof stays a statement about
       // LOOKUPS and does not quietly start counting savedCheck round trips.

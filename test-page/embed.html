@@ -1326,6 +1326,25 @@
     __lastOpenTabUrl: null,
     __failOpenTab: false,
     sendMessage: function (msg, cb) {
+      var self = this;
+      // The boot chain below runs as shipped, from plain script tags, so it
+      // can reach the fake before the dynamic import of lookup.js lands.
+      // real() throws then, the catch turns that into {ok:false}, and a
+      // read-once pending query is spent on a lookup that renders nothing:
+      // the panel stays unmounted for the rest of the run. Under load that
+      // failed two runs in five. Traffic arriving early waits for the module
+      // rather than being answered wrongly. Once it has landed this branch
+      // is never taken, so response timing is unchanged.
+      if (REAL === null) {
+        var pending = READY.then(function () {
+          return self.sendMessage(msg, undefined);
+        });
+        if (typeof cb === "function") {
+          pending.then(function (r) { setTimeout(function () { cb(r); }, 0); });
+          return undefined;
+        }
+        return pending;
+      }
       // Dictionary traffic only. The saved store keeps its own counters, so
       // every "this view was served from cache" proof stays a statement about
       // LOOKUPS and does not quietly start counting savedCheck round trips.
@@ -1639,7 +1658,24 @@
     await sidebar.ready;
     // The boot search is the first thing every later check stands on, so wait
     // for the CARD rather than for a clock.
-    await until(function () { return surfaceText() === "subterranean"; });
+    //
+    // This wait is LOUD and generous, unlike the rest. `until` reports a
+    // timeout by returning false, which every caller that waits for a
+    // positive ignores, so a boot that ran slow used to leave the panel
+    // unmounted and hand three later checks an empty one to measure: the
+    // pending query rendered no cards, the panel measured 0 wide against 358,
+    // and the dismissal check read a panel that was never there. That looked
+    // like three product defects and was one slow boot. It reproduced twice
+    // in five runs with a build running beside it. Nothing downstream is
+    // worth reading if this fails, so it says so and stops.
+    if (!(await until(function () {
+      return surfaceText() === "subterranean";
+    }, 20000))) {
+      throw new Error(
+        "boot search never rendered subterranean within 20s, so every check " +
+        "below it would measure an unmounted panel. Surface read " +
+        JSON.stringify(surfaceText()) + ".");
+    }
 
     // --- boot ----------------------------------------------------------
     check("the sidebar surface exposes its registries and view controls",

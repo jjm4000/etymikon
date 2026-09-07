@@ -113,6 +113,17 @@ def run_page(chrome, port, name, timeout):
                       ' && !!document.getElementById("run")'
                       ' && !!document.getElementById("out")',
                  LOAD_TIMEOUT, f"{name}: page never finished loading")
+        # The suites measure geometry and lean on timers, so they need a tab
+        # that is really visible, laid out and focused, and activation is
+        # asynchronous inside Chrome. This states that precondition rather
+        # than assuming it. It was added while chasing a flake under load and
+        # did NOT fix it; the cause was a silent timeout in embed.html's boot
+        # wait. Kept because the precondition is real, not because it was the
+        # bug.
+        wait_for(tab, 'document.visibilityState === "visible"'
+                      ' && document.hasFocus()'
+                      ' && document.documentElement.clientWidth > 0',
+                 LOAD_TIMEOUT, f"{name}: tab never became the active one")
         before = tab.evaluate('document.getElementById("out").textContent')
         started = time.time()
         tab.evaluate('document.getElementById("run").click(); true')
@@ -123,7 +134,17 @@ def run_page(chrome, port, name, timeout):
             timeout, f"{name}: self-checks did not finish")
         elapsed = time.time() - started
     finally:
+        target = tab.target
         tab.close()
+        # Closing the websocket does not wait for Chrome to tear the target
+        # down, and a lingering one competes with the next tab for activation.
+        # The next page does not open until this one is really gone.
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            live = chrome.call("Target.getTargets").get("targetInfos") or []
+            if not any(t.get("targetId") == target for t in live):
+                break
+            time.sleep(0.1)
     return text, elapsed
 
 
