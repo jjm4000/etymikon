@@ -130,7 +130,7 @@ Against that:
 The tail round of 2026-09-07, measured against the origin-graphs tree.
 2,835 words are new, 2,829 of them past the cap on a single origin row
 that has a card and 6 of them words whose only sense ran past the
-definition cap. 1,158 root cards are new. Nothing costs a reader
+definition cap. A seventh such word, cerebrum, needed both rules. 1,158 root cards are new. Nothing costs a reader
 anything: no word lost its card, its split, its origin row, a chip or a
 definition. Three consequences are worth naming.
 

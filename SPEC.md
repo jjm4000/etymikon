@@ -3591,10 +3591,11 @@ rows, which the ratified rule does not admit. Admitting them would cost about
 another 0.7 MB, estimated from the measured per-word cost rather than built.
 
 The definition cap. 67 senses run past 400 characters, 58 still dropped and 9
-kept whole because their word had no other. Six of those nine words ship:
-journalism, nitroglycerine, streptomycin, sildenafil, diethylstilbestrol and
-lienholder. The other three are past the cap and carry no origin row with a
-card.
+kept whole because their word had no other. Seven of those words ship, one
+long definition each: journalism, nitroglycerine, cerebrum, streptomycin,
+sildenafil, diethylstilbestrol and lienholder. Six of the seven ship on the
+definition rule alone; cerebrum at rank 55,246 needed the tail rule as well.
+The remaining two are past the cap and carry no origin row with a card.
 
 No regression. No word that was already shipping lost its card, its split,
 its origin row, a chip or a definition, and no chip went inert. Three
