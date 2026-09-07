@@ -2032,8 +2032,8 @@ def survey_english(path, ranks):
     Returns the chain-only candidates beside the candidate set. Those are
     the words past RANK_CAP that no English-surface split nominates and a
     classical origin chain does. They are provisional: emit keeps the ones
-    whose org row decomposes and drops the rest, and the set is what tells
-    emit which words that rule may touch.
+    whose org row has a card behind it and drops the rest, and the set is
+    what tells emit which words that rule may touch.
 
     The proper-noun table comes back too. Those pages are candidates for
     nothing; the table exists so a chip naming one can say what it names.
@@ -2199,12 +2199,13 @@ def survey_english(path, ranks):
                 cand.add(wl)
                 chain_only.discard(wl)
             elif wl not in cand and names_classical(e):
-                # A flattenable classical origin is a breakdown too (owner
-                # decision 2026-09-01). Whether this one flattens is not
-                # knowable here: it depends on the dominant entry, on the
-                # source graphs and on the anchor set, none of which pass 1
-                # has. So the word becomes a candidate and emit drops it
-                # again unless its org row decomposes.
+                # A classical origin chain is something to show too (owner
+                # decision 2026-09-01, widened 2026-09-07 from a chain that
+                # flattens to one that reaches a card). What this one
+                # reaches is not knowable here: it depends on the dominant
+                # entry, on the source graphs and on the anchor set, none of
+                # which pass 1 has. So the word becomes a candidate and emit
+                # drops it again unless its org row has a card behind it.
                 cand.add(wl)
                 chain_only.add(wl)
                 stats["tail_chain"] += 1
@@ -5066,6 +5067,19 @@ def org_part(form, rkey, gloss=""):
     return part
 
 
+def org_has_card(org):
+    """True when an org row puts a card in front of the reader.
+
+    A decomposed row does it through its chips and a single row through its
+    lemma. A row-only row names a language and a form with no card behind
+    either, so it shows nothing to open. This is the test the tail half of
+    the hybrid cap runs (owner decision 2026-09-07); it reads the same
+    shapes before linking and after it, since linking only ever removes an
+    `r` that lost its card.
+    """
+    return bool(org) and ("parts" in org or bool(org.get("r")))
+
+
 class Origin:
     """English attaches to the source graphs, and rows are read off them.
 
@@ -6086,6 +6100,20 @@ class Origin:
         if att.get("extra"):
             return att["key"] is None or not self.g[att["lang"]].rejects(att["key"])
         return att["key"] is not None and self.decomposes(att["lang"], att["key"])
+
+    def shows_card(self, att):
+        """True when an attachment renders a row with a card behind it.
+
+        A named lemma is a card whether or not it decomposes, so it shows
+        one either way; a lemma the source never wrote is no card, and
+        shows one only where the English page's own parts flatten. A
+        row-only attachment names no card at all. This runs before the
+        anchor set exists, so it asks about the attachment rather than
+        about the resolved row; org_has_card asks the resolved row.
+        """
+        if not att or "key" not in att:
+            return False
+        return att["key"] is not None or self.splits(att)
 
     def pick_both(self, named, parts_by, owner):
         """The strict pick, unless only the alternative-form pick splits."""
@@ -8188,7 +8216,7 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         % (pct_top, format(top_covered, ","), format(len(top_band), ",")))
 
     dist = [
-        ("total words", format(len(words), ","), "SPEC says around 83k"),
+        ("total words", format(len(words), ","), "SPEC says around 87k"),
         ("words inside rank 50,000", format(len(capped), ","),
          "SPEC says around 29k"),
         ("breakdown-bearing tail", format(len(words) - len(capped), ","), ""),
@@ -8201,7 +8229,7 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
         ("roots", "%s (en=%s la=%s grc=%s)"
          % (format(len(roots), ","), format(langs["en"], ","),
             format(langs["la"], ","), format(langs["grc"], ",")),
-         "SPEC says low thousands, en over la"),
+         "SPEC says high thousands, la over en"),
         ("forms", format(len(fmap), ","), ""),
         ("shipped words carrying fo",
          format(sum(1 for w in words.values() if w.get("fo")), ","),
@@ -8623,7 +8651,7 @@ def main(argv):
     (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, names,
      caps, tnames, stags, lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits, "
-        "%s tail chains still to prove they flatten)"
+        "%s tail chains still to prove they resolve to a card)"
         % (format(s1["lines"], ","), format(len(cand), ","),
            format(s1["tail_split"], ","), format(len(chain_only), ",")))
     namecard = name_cards(names, affixes)
@@ -8750,11 +8778,12 @@ def main(argv):
             else:
                 n_infl += 1
         # The hybrid cap. Everything inside rank 50,000 ships. Past it a word
-        # needs a breakdown to earn a card, and it needs the frequency corpus
-        # to have seen it at all: Wiktionary carries about 270,000 affixed
-        # coinages (nanovoltmeter, nonradiometric) that no corpus attests,
-        # and they are 45 MB of dictionary nobody looks up. Attestation is
-        # what lands the total on the size the SPEC predicts.
+        # needs something to show and it needs the frequency corpus to have
+        # seen it at all: Wiktionary carries about 270,000 affixed coinages
+        # (nanovoltmeter, nonradiometric) that no corpus attests, and they
+        # are 45 MB of dictionary nobody looks up. Attestation is what lands
+        # the total on the size the SPEC predicts. What counts as something
+        # to show is settled below, after the rows are resolved.
         rank = ranks.get(wl)
         if rank is None or (rank > RANK_CAP and not parts
                             and wl not in chain_only):
@@ -8789,12 +8818,14 @@ def main(argv):
            format(n_blocked, ","), format(n_infl, ",")))
 
     # ---- which source lemmas are anchors in their own right --------------
-    # A chain-only candidate whose row will not decompose is dropped below,
-    # so its attachment is no reach: counting it made 863 anchors that no
-    # shipped word names (review finding 4 rebuild, 2026-09-05).
+    # A chain-only candidate that will be dropped below is no reach:
+    # counting one made 863 anchors that no shipped word names (review
+    # finding 4 rebuild, 2026-09-05). The test moved with the tail rule on
+    # 2026-09-07: a candidate whose row names a card reaches that card
+    # whether or not the row decomposes, and it now ships on it.
     n_anchor = origin.find_anchors(
         att for wl, att in pending.items()
-        if wl not in chain_only or origin.splits(att))
+        if wl not in chain_only or origin.shows_card(att))
     log("  %s source lemmas are anchors (reached by %d or more words), so "
         "recursion stops at them" % (format(n_anchor, ","), ORG_ANCHOR_MIN))
 
@@ -8819,11 +8850,23 @@ def main(argv):
            format(sum(r.stats["missed"] for r in rowg.values()), ",")))
 
     # ---- the chain-only rule, and the linking it feeds -------------------
-    # A chain-only candidate earns its card with a DECOMPOSED org row and
-    # nothing else (owner decision 2026-09-01). A single "From Latin x" row
-    # past the cap is a card with no breakdown on it, which is what the cap
-    # exists to keep out. The row that decides is the row as EMITTED, so the
-    # test runs after linking as well as before it.
+    # A chain-only candidate earns its card with an org row that has a card
+    # behind it: a decomposed row, or a single row on a lemma that ships
+    # (owner decision 2026-09-07, replacing the decomposed-only rule of
+    # 2026-09-01). Decomposition is not the test; having something to show
+    # is. The 2026-09-01 rule and the never-silent principle of 2026-09-05
+    # disagreed, and a reader could see it: inside the cap a word whose
+    # origin does not split keeps its card and shows the quiet single row,
+    # so sock reads "From Latin soccus", while the same word past the cap
+    # was deleted from the dictionary. errata was the field report.
+    #
+    # A word whose chain resolves to nothing still does not ship, and a
+    # word the corpus does not attest still does not ship. A row-only row
+    # is nothing to open, so it is not enough either.
+    #
+    # The row that decides is the row as EMITTED, so the test runs after
+    # linking as well as before it: a single row whose lemma has no gloss
+    # to carry a card is deleted there.
     #
     # Dropping a word changes who credits what, so linking runs again on the
     # smaller set. It terminates because every extra pass removes at least
@@ -8831,27 +8874,44 @@ def main(argv):
     # of this happens before forms.json is assembled, so it credits no root,
     # it is no form target, and it cannot be a forms.json row.
     pages = Pages(caps, namecard, graphs)
-    n_chaindrop = 0
+    n_chaindrop = collections.Counter()
+
+    def drop_reason(org):
+        """Why a chain-only candidate has nothing to show."""
+        if not org:
+            return "no row at all"
+        if "parts" in org or org.get("r"):
+            return "a lemma with no card"
+        return "a row-only row"
+
     for wl in list(chain_only):
-        if wl in shipped and not (org_rows.get(wl) or {}).get("parts"):
+        if wl in shipped and not org_has_card(org_rows.get(wl)):
+            n_chaindrop[drop_reason(org_rows.get(wl))] += 1
             del shipped[wl]
-            n_chaindrop += 1
     passes = 0
     while True:
         passes += 1
         roots, lp = link_and_prune(shipped, org_rows, harvest, origin,
                                    affixes, names, graphs, pages)
         stale = [wl for wl in chain_only if wl in shipped
-                 and not (shipped[wl].get("org") or {}).get("parts")]
+                 and not org_has_card(shipped[wl].get("org"))]
         if not stale:
             break
         for wl in stale:
+            n_chaindrop[drop_reason(shipped[wl].get("org"))] += 1
             del shipped[wl]
-        n_chaindrop += len(stale)
-    log("  chain-only candidates: %s ship on a decomposed org, %s dropped "
-        "for want of one (%d linking pass%s)"
-        % (format(sum(1 for wl in chain_only if wl in shipped), ","),
-           format(n_chaindrop, ","), passes, "" if passes == 1 else "es"))
+    n_chainship = sum(1 for wl in chain_only if wl in shipped)
+    n_chainsplit = sum(1 for wl in chain_only
+                       if wl in shipped and "parts" in shipped[wl]["org"])
+    log("  chain-only candidates: %s ship on an org row with a card behind "
+        "it (%s decomposed, %s a single lemma), %s dropped for want of one "
+        "(%s) (%d linking pass%s)"
+        % (format(n_chainship, ","), format(n_chainsplit, ","),
+           format(n_chainship - n_chainsplit, ","),
+           format(sum(n_chaindrop.values()), ","),
+           ", ".join("%s %s" % (format(v, ","), k)
+                     for k, v in sorted(n_chaindrop.items())),
+           passes, "" if passes == 1 else "es"))
     log("  %s roots ship (%s src links, %s anchor cards carrying parts, "
         "%s proper-noun cards, %s cards carrying a register marker); "
         "%s word chips, %s morph chips left inert, %s org parts inert, %s "

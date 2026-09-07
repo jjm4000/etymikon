@@ -177,7 +177,8 @@
     {"word": "mango", "kind": "rowonly", "lang": "ml", "lemma": "മാങ്ങ", "why": "bor pt manga, from der ml മാങ്ങ / der ta மாங்காய், possibly via der ms mangga: Malayalam first, Tamil an alternative, Malay a via stage (review finding 7)"},
     {"word": "antelope", "kind": "single", "lang": "grc", "lemma": "ἀνθόλοψ", "why": "der grc ἀνθόλοψ; the Greek page carries {{unk}} and calls ἄνθος + ὤψ a superficial resemblance and a corruption, so the af template's split is refused (review finding 8)"},
     {"word": "squirrel", "kind": "single", "lang": "grc", "lemma": "σκίουρος", "why": "der grc σκίουρος; the Greek page says the σκιά + οὐρά reading could be a folk etymology, and the English page's repeat of it is not shown (review finding 8)"},
-    {"word": "lyssa", "kind": "none", "why": "der grc λύσσα; the Greek page carries {{unc|grc|disputedly}}, so its λύκος + -ια split is refused, and a tail word needs a decomposed row to ship (review finding 8)"},
+    {"word": "lyssa", "kind": "single", "lang": "grc", "lemma": "λύσσα", "glosses": ["rage; fury"],
+     "why": "der grc λύσσα; the Greek page carries {{unc|grc|disputedly}}, so its λύκος + -ια split is refused and the lemma stays whole. The row was kind none until 2026-09-07, when a tail word stopped needing a DECOMPOSED row and started needing a row with a card behind it (owner decision, SPEC \"Something to show, not a decomposition\")"},
     {"word": "race", "kind": "rowonly", "lang": "ang", "lemma": "rǣs",
      "why": "the card opens with the contest senses, which are etymology 1: \"from Middle English ras, from Old English rǣs and Old Norse rás\". The Italian razza of the review-fix row is etymology 2, the group-of-people senses (second review, cause 3)."},
     {"word": "tuesday", "kind": "rowonly", "lang": "ang", "lemma": "tīwesdæġ", "why": "inh enm Tewesday, inh ang tīwesdæġ (Tuesday), then Proto-West Germanic ends the walk; Latin diēs Mārtis is a cog template after \"interpretation of\" (review finding 8)"},
@@ -514,6 +515,14 @@
     {"word": "grc:-ακός", "kind": "card", "lang": "grc", "form": "-ακός", "rootkind": "suffix",
      "gloss": "added to noun stems to form adjectives: of or pertaining to, in the manner of",
      "lb": [],
-     "why": "the ladder's clause arm, pinned. The page has one entry with one sense, \"added to noun stems to form adjectives: of or pertaining to, in the manner of; -ac\" at 81 characters, so no sense fits the 80-character card and the card takes the first clause. first_clause stops at a semicolon or a full stop only, so the colon after \"adjectives\" stays in the gloss where the name trim would have cut on it"}
+     "why": "the ladder's clause arm, pinned. The page has one entry with one sense, \"added to noun stems to form adjectives: of or pertaining to, in the manner of; -ac\" at 81 characters, so no sense fits the 80-character card and the card takes the first clause. first_clause stops at a semicolon or a full stop only, so the colon after \"adjectives\" stays in the gloss where the name trim would have cut on it"},
+    {"word": "errata", "kind": "single", "lang": "la", "lemma": "errō", "glosses": ["to wander, rove, stray, roam"],
+     "why": "the field report behind the 2026-09-07 tail rule: the owner selected errata and got nothing. bor+ la errāta, which the Latin extract carries as a form of errātus, which steps to the verb errō, and errō does not decompose. At rank 211,584 it is past the cap, so under the 2026-09-01 rule the single row was not enough and the word was deleted. Note the lemma: erratum beside it reads its own row on la errātum, because its page names errātum and not errāta"},
+    {"word": "thesaurus", "kind": "single", "lang": "grc", "lemma": "θησαυρός", "glosses": ["treasure"],
+     "why": "bor+ la thēsaurus, der grc θησαυρός: the deepest run is Greek and θησαυρός has no split. At rank 50,043 it is 43 ranks past the cap, which is why it shipped nothing before 2026-09-07. The card gloss is the Greek page's own \"treasure\", not the \"storehouse, treasure\" the English page writes beside the term"},
+    {"word": "sputum", "kind": "single", "lang": "la", "lemma": "spūtum", "glosses": ["spittle"],
+     "why": "bor la-new with no term, der la sputum: New Latin names nothing to attach to, so the row is the Latin one. spūtum is a supine noun the extract does not split, so the row is single. Rank 50,284, past the cap"},
+    {"word": "journalism", "kind": "morphs", "parts": ["journal", "-ism"], "inert": [],
+     "why": "the DEF_MAX_CHARS report of 2026-09-07. surf journal + -ism, and journalism ranks 11,461, well inside the cap that ships a word unconditionally. It shipped nothing at all, because its one sense runs 435 characters against a 400 character cap and a word with no senses left is no word. The cap now keeps the first sense whole where a word has no other"}
   ]
 }
