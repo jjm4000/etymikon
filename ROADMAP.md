@@ -47,9 +47,9 @@ promo tiles, and eight screenshot scenes with wording checks.
   and Greek cards are labelled names rather than roots. SPEC "A proper
   noun a word is built on is a card".
 - **Register labels.** A definition states its register where the page
-  marks one. 27,291 definitions over 17,567 words carry a marker, 14.7%
-  of the dictionary, and 136 root cards carry one. SPEC "Sense register
-  labels".
+  marks one. 27,291 of the 185,487 shipped definitions carry a marker,
+  spread over 17,567 words, and 136 root cards carry one. SPEC "Sense
+  register labels".
 - **Bidirectional families.** Word cards carry "Used in N words", the
   reverse of the morpheme graph, so the list of what English builds on a
   word is on the card instead of being something the reader has to guess
