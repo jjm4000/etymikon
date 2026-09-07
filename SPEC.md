@@ -2406,10 +2406,24 @@ sex.)".
   Navajos, Arabs, Algonquin language, Latin American, British, Norse,
   Friday, Boche, POW camp, Dittrichia viscosa and the pronoun I among
   them. No row ends in a full stop now, and no row lost a gloss.
-- The one the test gets wrong is enamored, whose Anglo-Norman row reads
-  "Enamoured, lovestruck; deep in love". The definitions spell the word
-  the American way, so the British spelling has no lower-case evidence
-  and keeps a capital it should not have. It is one row of 209.
+- All 141 rows whose capital was lowered were read back. Four are
+  wrong, and all four are homographs: moloch reads "ammonite god" where
+  Ammonite is the people, winnebago "winnebago person", moro "moor"
+  where Moor is the demonym, and pagoda "holy One". The definitions
+  write ammonite of the fossil, winnebago of the motorhome and moor of
+  the heath, so the lower-case evidence is real and says the wrong
+  thing.
+- One row keeps a capital it should not have: enamored, whose
+  Anglo-Norman row reads "Enamoured, lovestruck; deep in love". The
+  definitions spell the word the American way, so the British spelling
+  has no lower-case evidence at all.
+- An evidence floor was measured and refused. Requiring two lower-case
+  uses rather than one rescues Ammonite and Winnebago and capitalises
+  "Purifying; removal of impurities" wrongly; a floor of three adds
+  Cheddar and Yelling; four adds Idiocy, Gibbon and Gnawing. The best
+  of them trades three wrong rows for two, which is a tuned constant
+  bought with one row, so the rule stays as written and the five rows
+  are recorded here instead.
 
 ### A chip takes a recorded form and refuses a guessed one (2026-09-06)
 
@@ -2456,6 +2470,47 @@ reach 1,119 and the suffix rules 60 more.
   them glossed. No chip lost a target and no row changed. awestruck
   reads awe + struck with struck opening strike, and thoroughbred reads
   thorough + bred with bred opening breed.
+
+### Measured after the reading round (2026-09-06)
+
+Two --offline builds byte-identical, verify 110 spot checks 0 failed,
+gold 293 of 293 (9 rows added and 3 amended), Node 172, index harness
+254, embed harness 185, 8 screenshots regenerated with their scene
+checks passing and byte-identical to the ones before. Data: 84,321
+words, 6,743 roots, 110,717 forms rows, 14,730 origin rows unchanged;
+20.8 MB, 0.8 MB and 2.5 MB, 24.1 MB total (24.0 before). Breakdown
+coverage of the top 10,000 ranks 38.3%, and the 1,752 misses of
+2026-09-01 render 552 decomposed, 1,017 single, 183 nothing, all
+unchanged: this round moved no row and no card, only their wording and
+their links.
+
+What moved. 1,084 inert chips gained a gloss, 1,202 inert chips gained a
+word card, 151 row glosses were put in the fragment register, and 21,748
+chip joins are cut to a clause at render. Chips over 90 characters fall
+from 22,384 to 4,045. Words carrying a used-in list rise from 17,867 to
+18,006 and used-in rows from 61,688 to 62,890.
+
+The regression check against the build before this round: 0 words, roots
+or forms rows lost, 0 chips lost a target, 0 chips changed target, 0 rows
+lost, 0 rows lost a gloss or a romanization, 0 org rows changed shape and
+0 root glosses changed. There are no exceptions to list. No word lost a
+used-in row either, and the lists grow from 17,867 words to 18,006.
+
+The hand checks. Twenty proper-noun chips: 13 right, 6 degraded, 1
+wrong. Thirty recorded chip targets: 30 right, and the 60 the suffix
+rules would have added were all read, 39 right and 21 wrong. All 141
+lowered row glosses: 137 right, 4 wrong, each of the four a homograph
+whose lower-case sense is a different word.
+
+What is left. The two-line clamp still bites on a first clause longer
+than about 44 characters, which is what a chip 120 pixels wide can show.
+Cutting to the clause takes chip joins over that width from 74,389 to
+64,791; a budget of 44 rather than 90 would take it to 39,808 but would
+cut 68,008 joins, half of every chip in the dictionary, including the
+ones that render whole today. The -μα chip on system is in the residue:
+its first clause is 84 characters and the source wrote no earlier one.
+
+No curation entry was added in this round. Every change is a rule.
 
 ## Naming (Jesse decision 2026-08-25)
 
