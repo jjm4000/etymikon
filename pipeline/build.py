@@ -5693,6 +5693,117 @@ def root_kind(pos, form):
     return "root"
 
 
+# -------------------------------------------------- the register of a row
+#
+# A row gloss is a fragment, not a sentence. Most are ("bowl"), because a
+# source page writes its senses that way, but 218 of 3,300 arrive from a
+# definition field written as a sentence, so bowl read "(bowl)" and girl
+# "(A child; a young person of either sex.)" side by side (2026-09-06).
+#
+# Lowering the first letter is only safe where the word has a lower-case
+# life. The evidence is the dictionary's own definition text, which is
+# English prose of the same register: a word the definitions write in lower
+# case MID-SENTENCE at least as often as they capitalise it there is an
+# ordinary word, and anything else is left alone. A word the definitions
+# never use at all keeps its capital, so the test errs toward names.
+
+RE_CASE_TOKEN = re.compile(r"^[A-Za-z][A-Za-z'-]*$")
+# A token after one of these opened a new sentence, so its case says nothing.
+CASE_SENTENCE_END = (".", "?", "!", ":", ";", '"')
+
+
+def case_evidence(shipped):
+    """(capitalised, lower-case) counters over every shipped definition.
+
+    Only tokens INSIDE a sentence are counted. A definition's first word is
+    capitalised by the sentence and is exactly the question being asked, so
+    counting it would answer with itself.
+    """
+    cap = collections.Counter()
+    low = collections.Counter()
+    for w in shipped.values():
+        for s in w.get("senses") or ():
+            for d in s.get("defs") or ():
+                toks = d.split()
+                for i in range(1, len(toks)):
+                    if toks[i - 1].endswith(CASE_SENTENCE_END):
+                        continue
+                    t = case_word(toks[i])
+                    if not t:
+                        continue
+                    if t[0].isupper():
+                        cap[t.lower()] += 1
+                    elif t.islower():
+                        low[t] += 1
+    return cap, low
+
+
+def case_word(token) -> str:
+    """One token stripped of the punctuation around it, or "" if it is none."""
+    t = token.strip("“”\"'()[]").strip("(),;:.")
+    return t if RE_CASE_TOKEN.match(t.split("-")[0] or " ") else ""
+
+
+def is_case_name(token, cap, low) -> bool:
+    """True when a capitalised token is a name rather than a sentence start.
+
+    An initialism (POW, U.S.) is one. So is any word the definitions do not
+    write in lower case inside a sentence at least as often as they
+    capitalise it there.
+    """
+    t = case_word(token)
+    if not t or not t[0].isupper():
+        return False
+    flat = t.replace(".", "")
+    if len(flat) >= 2 and flat.isupper():
+        return True
+    key = t.split("-")[0].lower()
+    return not (low[key] > 0 and low[key] >= cap[key])
+
+
+def fragment_gloss(gloss, cap, low) -> str:
+    """A row gloss in the fragment register the other rows are written in.
+
+    The trailing full stop goes unless it closes an abbreviation. The first
+    letter is lowered unless the word is a name by is_case_name, or unless
+    the word after it is: "Lake Erie" and "King Philip II of Spain" are name
+    phrases whose first word is an ordinary word on its own.
+    """
+    t = gloss
+    if t.endswith(".") and not t.endswith("..") \
+            and not abbrev_dot(t, len(t) - 1):
+        t = t[:-1].rstrip()
+    toks = t.split()
+    if not toks or not toks[0][:1].isupper():
+        return t
+    if is_case_name(toks[0], cap, low):
+        return t
+    if len(toks) > 1 and is_case_name(toks[1], cap, low):
+        return t
+    return t[0].lower() + t[1:]
+
+
+def fragment_row_glosses(shipped):
+    """Put every row-only gloss in the fragment register. Returns the count.
+
+    Runs at emit, where every shipped definition is in hand to be the
+    evidence. Only the row-only shape is touched: a single row and a chip
+    read their wording off a root card, which is a card's own line and keeps
+    the source's capital.
+    """
+    cap, low = case_evidence(shipped)
+    n = 0
+    for w in shipped.values():
+        org = w.get("org")
+        if not org or "parts" in org or org.get("r") or not org.get("gloss"):
+            continue
+        g = fragment_gloss(org["gloss"], cap, low)
+        if g != org["gloss"]:
+            org["gloss"] = g
+            n += 1
+    return n
+
+
 def rekey_us_primary(shipped, fmap, us_raw, ranks):
     """Move each British-keyed record onto its US spelling. Returns the pairs.
 
@@ -7390,6 +7501,15 @@ def main(argv):
     for us, brit in us_pairs:
         log("      %-18s <- %-18s fr %s -> %s"
             % (us, brit, before.get(brit), shipped[us].get("fr")))
+
+    # ---- the register of a row gloss ------------------------------------
+    n_frag = fragment_row_glosses(shipped)
+    n_cap = sum(1 for w in shipped.values()
+                if (w.get("org") or {}).get("gloss", "")[:1].isupper()
+                and not (w["org"].get("r") or "parts" in w["org"]))
+    log("  %s row glosses put in the fragment register; %s keep a capital "
+        "because the first word is a name" % (format(n_frag, ","),
+                                              format(n_cap, ",")))
 
     # ---- emit -----------------------------------------------------------
     log("[7/7] emitting extension/data")

@@ -2376,6 +2376,41 @@ through a word's first definition.
   harness pages pin it instead, on a fixture root whose gloss runs to
   the safety cap: the chip shows the clause, the card shows the line.
 
+### A row gloss is a fragment, not a sentence (2026-09-06)
+
+218 of 3,300 row glosses arrived as sentences, with a capital, a full
+stop or both, because the source wrote them in a definition field. Side
+by side bowl read "(bowl)" and girl "(A child; a young person of either
+sex.)".
+
+- At emit, a row-only gloss loses a trailing full stop that closes no
+  abbreviation and has its first letter lowered. Only the row-only shape
+  is touched: a single row and a chip read their wording off a root
+  card, which is a card's own line.
+- The test for a name is the dictionary's own definition text, which is
+  English prose in the same register. A word the definitions write in
+  lower case INSIDE a sentence at least as often as they capitalise it
+  there is an ordinary word and is lowered. Anything else is left alone,
+  so a word the definitions never use keeps its capital and the test
+  errs toward names. Definition-initial words are not counted, since
+  their case is the question being asked. Evidence: 185,476
+  definitions, 59,197 lower-case types and 9,268 capitalised ones.
+- An initialism is never lowered: a token whose letters are all capitals
+  once its stops are removed, so POW camp keeps POW.
+- A name PHRASE keeps its capital through its second word: lake and king
+  are ordinary words, Erie and Philip are not, so "Lake Erie" and "King
+  Philip II of Spain" stay as they are. The rule fires on exactly those
+  two rows and no others.
+- Outcome: 151 rows are reworded, 141 of them by lowering the first
+  letter and 10 by dropping a full stop alone. 68 keep their capital:
+  Navajos, Arabs, Algonquin language, Latin American, British, Norse,
+  Friday, Boche, POW camp, Dittrichia viscosa and the pronoun I among
+  them. No row ends in a full stop now, and no row lost a gloss.
+- The one the test gets wrong is enamored, whose Anglo-Norman row reads
+  "Enamoured, lovestruck; deep in love". The definitions spell the word
+  the American way, so the British spelling has no lower-case evidence
+  and keeps a capital it should not have. It is one row of 209.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
