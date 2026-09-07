@@ -25,8 +25,8 @@ necessary and access among them. Word cards run the other way as well:
 absolute reads "Used in 4 words", which opens absolutely, absolutism,
 absoluteness and absolutist.
 
-Every word carries a frequency tier chip (Everyday, Common, Advanced,
-Uncommon), and a definition states its register where the source marks
+Every word carries a frequency tier chip (Everyday, Common, Uncommon,
+Rare), and a definition states its register where the source marks
 one, so the fourth sense of accede reads "archaic To approach; to
 arrive, to come forward". Words whose source is neither Latin nor Greek
 still say where they came from on one quiet row: sky reads "From Old

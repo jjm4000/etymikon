@@ -72,10 +72,12 @@ tiles.
   breakdown is an English split or a classical origin chain that
   decomposes. American spellings are primary and British spellings
   resolve to them. SPEC "Product decisions".
-- **Tier chips.** Everyday 2,649, Common 8,419, Advanced 18,190,
-  Uncommon 55,068, nothing unranked. The cutoffs live in one function,
-  and the build asserts every tier holds a word and that both label
-  tables agree. SPEC "Tier chips" and "The fourth tier is Uncommon".
+- **Tier chips.** Everyday 2,649, Common 8,419, Uncommon 18,190,
+  Rare 55,068, nothing unranked. The ladder runs on one axis,
+  frequency, because a rank in a subtitle corpus is the only signal
+  behind it. The cutoffs live in one function, and the build asserts
+  every tier holds a word and that both label tables agree. SPEC
+  "Tier chips" and "One axis for the tier ladder".
 - **The sidebar shell.** Typed search, the `et` omnibox keyword, saved
   words in folders, Anki and CSV export, dark mode, the ἐτυμικόν corner
   seal, terracotta chrome matching the epsilon seal icon. The saved view

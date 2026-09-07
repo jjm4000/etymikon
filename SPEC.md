@@ -63,7 +63,7 @@ needs its full binding detail.
   BUILT ON ships as a root card, family and all (see "A proper noun a
   word is built on is a card").
 - Word tiers, from frequency rank: Everyday (rank 1 to 3,000), Common
-  (to 15,000), Advanced (to 50,000), Uncommon (beyond, and unranked).
+  (to 15,000), Uncommon (to 50,000), Rare (beyond, and unranked).
   Roots are not tiered; a root card shows how many shipped words it
   builds. The fourth tier was labelled Rare until 2026-09-07; its enum
   key is still `rare` (see "The fourth tier is Uncommon").
@@ -662,8 +662,8 @@ off the derived tier:
 - Everyday: green tint; title "Rank in the 3,000 most frequent English
   words (OpenSubtitles corpus)"
 - Common: blue tint; title "Rank 3,001 to 15,000 by frequency"
-- Advanced: amber tint; title "Rank 15,001 to 50,000 by frequency"
-- Uncommon: grey tint; title "Beyond the 50,000 most frequent words,
+- Uncommon: amber tint; title "Rank 15,001 to 50,000 by frequency"
+- Rare: grey tint; title "Beyond the 50,000 most frequent words,
   or unranked (Etymikon's classification)". Keyed `rare`, so the CSS
   variables and the modifier class read `--tier-rare-*` and
   `tier-chip--rare`.
@@ -2897,7 +2897,7 @@ non-empty. When a build splits a population into classes, a rule that
 silently stops producing one is a bug the count catches and nothing else
 does.
 
-    tiers : Everyday 2,649  Common 8,419  Advanced 18,190  Uncommon 55,068
+    tiers : Everyday 2,649  Common 8,419  Uncommon 18,190  Rare 55,068
             (unranked 0, absorbed by Uncommon)
 
 Two more checks ride with it. The last cutoff is asserted equal to RANK_CAP,
@@ -2946,6 +2946,41 @@ export column reads TIER_LABELS and needed no code change. The screenshot
 scene checks name Advanced and Common and needed nothing. The gold rows carry
 no tier. Both self-check pages import the real lookup.js for tierOf and
 TIER_LABELS, so only their expected strings moved.
+
+### One axis for the tier ladder (owner decision 2026-09-07)
+
+The ladder is Everyday, Common, Uncommon, Rare. It read Everyday, Common,
+Advanced, Uncommon for part of the same day, which is superseded here and in
+the section above.
+
+Why it moved again. The four labels have to read as a sequence, and that one
+did not: Advanced is a difficulty word between two frequency words, and in
+ordinary English "uncommon" sounds milder than "advanced", so the fourth rung
+read as less extreme than the third. The deeper fault is that Advanced claimed
+difficulty from a frequency count, which is the same overclaim the fourth tier
+had just been renamed to avoid. One signal stands behind all four labels, a
+rank in a subtitle corpus, so all four now name frequency and nothing else.
+
+What that costs. Advanced was the one label that told a reader a word was
+worth learning, and abscond and querulous now read Uncommon. That signal was
+never in the data; it was an inference from rank wearing a difficulty word.
+
+Key and label agree again. The third tier's key moved from `advanced` to
+`uncommon` and the fourth kept the key `rare` it always had, its label
+reverting to Rare. Keys moved with labels because nothing persists them: a
+word entry carries only its rank and the tier is derived at lookup, so no card
+changed and no data was rebuilt, and the extension has no users, so no saved
+record or exported deck holds a key. After launch the same rename would need a
+migration. That window is the reason it was done now.
+
+One defect this surfaced. `tierOf` read `TIER_CUTOFFS.advanced` after the
+table was renamed, so every word between rank 15,001 and 50,000 resolved to
+the bottom tier while every card still looked correct. The Node suite and both
+self-check pages caught it, and the CSV export row in the failure output named
+the cause.
+
+Unlike the earlier rename, this one moved the screenshot scene check, which
+pins the chip's text, and shots 1, 7 and 8 with it.
 
 ### Two coverage ratios are gated (2026-09-07)
 

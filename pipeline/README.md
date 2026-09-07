@@ -314,7 +314,7 @@ card titled favorite reporting the rank of favourite understates the word the
 reader selected. 36 of the 53 pairs take the American rank, and 13 of the
 original 39 change tier as a result: favorite and neighbor become Everyday,
 cozy and traveler and somber and omelet become Common, and seven rare cards
-become Advanced. The re-measure also moves 7 words inside the rank cap, which
+become Uncommon. The re-measure also moves 7 words inside the rank cap, which
 is why the ranked count reads 29,257 rather than 29,250.
 
 ### Splits
