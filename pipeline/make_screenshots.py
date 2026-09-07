@@ -33,8 +33,10 @@ This script then:
   3. captures each scene in its own tab, with the viewport size set BEFORE
      navigation (content.js hides the popup on resize, so a late resize would
      empty the shot),
-  4. composites the side-panel shots beside a narrower page shot, with the 1px
-     separator Chrome draws between a page and its side panel,
+  4. mounts the side-panel shots alone, centred on a flat warm backdrop (the
+     panel is those shots' whole subject; an article beside it only shrank
+     it), keeping the page-beside-panel composite path for any future shot
+     that needs it,
   5. asserts, per shot, both what the DOM says (the popup is up, the SPEC's
      own label wording rendered, the settings view mounted) and what the pixels
      say (exact size, RGB, no alpha, the corner seal actually visible where it
@@ -75,14 +77,45 @@ PAGE_W, PANEL_W = 919, 360
 SEPARATOR = (218, 220, 224)
 SEPARATOR_DARK = (60, 64, 67)
 
+# A "solo" shot mounts the panel alone: captured 680 wide and canvas-height
+# minus the margins tall, centred on a flat warm backdrop.
+#
+# 680 is the narrowest width at which all three panel views reach their settled
+# layout. The search view's four `beautiful` definitions each fit one line from
+# 600 up; the saved list's longest definition (memory) stops wrapping into a
+# two-line block at 680; the settings view is 456px tall at every width. Past
+# 680 nothing improves until 760, which only trims the saved list further while
+# adding trailing space to every line. Widening does not enlarge the type, and
+# capturing narrower at a device scale above 1 would: at any scale past about
+# 1.09 the settings view's CSS height drops under SEAL_ROOM and the seal goes
+# out, so the mount stays 1:1.
+#
+# The backdrop is a warm grey, the same step below white that lets the white
+# panel read as a card, held at r-g = 6 and g-b = 6. That is the hue family of
+# the icon cream (#FFF7F0) and the promo ground (251, 247, 244), and it is
+# deliberately under half the chroma assert_seal looks for, so the ground can
+# never be counted as seal ink. The border is rgba(0, 0, 0, 0.12) flattened
+# onto the backdrop and the halo is a 3px band of fainter warm grey standing in
+# for a shadow; both are pasted as solid rectangles, so the whole mount is
+# plain PIL with no alpha.
+SOLO_PANEL_W = 680
+SOLO_MARGIN = 24
+SOLO_PANEL_H = SHOT_H - 2 * SOLO_MARGIN
+SOLO_BACKDROP = (238, 232, 226)
+SOLO_BORDER = (209, 204, 199)
+SOLO_HALO = (229, 223, 217)
+# 1px border plus a 3px halo around it.
+SOLO_RING = 4
+
 
 # --------------------------------------------------------------------------
 # The scenes.
 #
-# Every shot is either a whole-viewport page capture ("page") or a page capture
-# docked beside a side-panel capture ("composite"). `page` and `panel` are query
-# strings for the staging pages; `checks` are JS expressions that must all
-# evaluate true after the page signals ready, before anything is captured.
+# Every shot is a whole-viewport page capture ("page"), a side-panel capture
+# mounted alone on the warm backdrop ("solo"), or a page capture docked beside
+# a side-panel capture ("composite", currently unused). `page` and `panel` are
+# query strings for the staging pages; `checks` are JS expressions that must
+# all evaluate true after the page signals ready, before anything is captured.
 # --------------------------------------------------------------------------
 
 # Shorthands for the checks, which all run against the content script's own
@@ -310,9 +343,8 @@ SHOTS = [
     {
         "n": 4,
         "name": "4-sidebar-search.png",
-        "kind": "composite",
-        "panel_w": 560,
-        "page": {"scene": "plain", "scroll": 0},
+        "kind": "solo",
+        # Solo mount: the panel is the subject, so no article shares the frame.
         # The sidebar answering a typed word. The search view renders through
         # content.js, so its nodes live in the embedded panel's shadow root and
         # only its own query hook sees them; the seal is the panel's own DOM.
@@ -328,9 +360,8 @@ SHOTS = [
     {
         "n": 5,
         "name": "5-saved-words.png",
-        "kind": "composite",
-        "panel_w": 560,
-        "page": {"scene": "plain", "scroll": 430},
+        "kind": "solo",
+        # Solo mount: the panel is the subject, so no article shares the frame.
         # A library with three folders, two of them collapsed. Collapsing is
         # also what keeps the rendered rows down to what the seal's room rule
         # tolerates, and it is what a reader with three folders actually does.
@@ -350,9 +381,13 @@ SHOTS = [
     {
         "n": 6,
         "name": "6-settings.png",
-        "kind": "composite",
-        "panel_w": 560,
-        "page": {"scene": "plain", "scroll": 200},
+        "kind": "solo",
+        # Solo mount at 1:1, like the other two. This is the tallest of the
+        # three views, and it still ends 456px down, which leaves 296px of
+        # clear space in the 752px mount against the 230 the product's own room
+        # rule wants. So the seal stays, and there is no need for the trick of
+        # capturing a taller viewport and rasterizing it down to fit.
+        #
         # The Anki fields, rendered from the worker's own token lists: nothing
         # in this view names a field, so the shot proves the schema, not a
         # hand-written form.
@@ -433,8 +468,9 @@ def run_checks(tab, checks, shot_name):
             raise AssertionError(f"{shot_name}: check failed -- {label}")
 
 
-def capture(chrome, port, page, params, width, checks=(), dark=False):
-    tab = Tab(chrome, width, SHOT_H, dark)
+def capture(chrome, port, page, params, width, checks=(), dark=False,
+            height=SHOT_H):
+    tab = Tab(chrome, width, height, dark)
     try:
         tab.navigate(stage_url(port, page, params))
         tab.wait_ready()
@@ -442,8 +478,8 @@ def capture(chrome, port, page, params, width, checks=(), dark=False):
         image = tab.screenshot()
     finally:
         tab.close()
-    if image.size != (width, SHOT_H):
-        raise AssertionError(f"{page}: captured {image.size}, wanted {(width, SHOT_H)}")
+    if image.size != (width, height):
+        raise AssertionError(f"{page}: captured {image.size}, wanted {(width, height)}")
     return image
 
 
@@ -457,6 +493,21 @@ def compose(page_image, panel_image, dark=False):
     return out
 
 
+def compose_solo(panel_image):
+    """Centre the panel on the warm backdrop, framed as a card: a 1px border
+    under a 3px halo, both pasted as solid rectangles so the whole mount stays
+    plain PIL."""
+    out = Image.new("RGB", (SHOT_W, SHOT_H), SOLO_BACKDROP)
+    x = (SHOT_W - panel_image.width) // 2
+    y = (SHOT_H - panel_image.height) // 2
+    for inset, color in ((SOLO_RING, SOLO_HALO), (1, SOLO_BORDER)):
+        ring = Image.new("RGB", (panel_image.width + 2 * inset,
+                                 panel_image.height + 2 * inset), color)
+        out.paste(ring, (x - inset, y - inset))
+    out.paste(panel_image, (x, y))
+    return out
+
+
 def assert_image(image, name):
     if image.size != (SHOT_W, SHOT_H):
         raise AssertionError(f"{name}: {image.size}, wanted {(SHOT_W, SHOT_H)}")
@@ -466,19 +517,29 @@ def assert_image(image, name):
         raise AssertionError(f"{name}: carries a transparency key")
 
 
-def assert_seal(image, name):
+def assert_seal(image, name, corner=(SHOT_W, SHOT_H)):
     """The ἐτυμικόν seal sits in the panel's lower-right corner when the view
-    leaves room for it. It is stamped in the icon's terracotta, and the panel
-    around it is grey text on a near-neutral ground, so a warm cast in that box
-    is proof it rendered. The predicate holds in both schemes: the light tint
-    lands near (236, 204, 191) and the dark one near (96, 63, 54), and both are
-    unmistakably red-over-green-over-blue."""
-    box = image.crop((SHOT_W - 300, SHOT_H - 140, SHOT_W - 4, SHOT_H - 4))
+    leaves room for it. `corner` is that corner on the canvas: the composite
+    dock puts it at the canvas edge, a solo mount moves it in by the margins.
+    The box offsets come from the seal's own anchors (right: 16px, bottom:
+    16px) and its stamp (about 204 by 91 at a -2 degree tilt), which do not
+    move with the panel, so a 296 by 136 box inset 4px from the corner holds
+    the whole stamp and nothing outside the panel.
+
+    The seal is stamped in the icon's terracotta and the panel around it is
+    grey text on white, so a warm cast in that box is proof it rendered. The
+    predicate holds in both schemes: the light tint lands near (236, 204, 191)
+    and the dark one near (96, 63, 54). Both clear r > g + 20 and r > b + 30 by
+    at least 12, while the solo backdrop (238, 232, 226), its halo and its
+    border all fail those two clauses by at least 14, so the warm ground the
+    mount sits on can never be counted as ink."""
+    right, bottom = corner
+    box = image.crop((right - 300, bottom - 140, right - 4, bottom - 4))
     pixels = box.tobytes()
     clay = 0
     for i in range(0, len(pixels), 3):
         r, g, b = pixels[i], pixels[i + 1], pixels[i + 2]
-        if r > g + 12 and g > b + 5 and r > b + 25 and r < 250:
+        if r > g + 20 and g > b + 5 and r > b + 30 and r < 250:
             clay += 1
     if clay < 400:
         raise AssertionError(f"{name}: seal not visible ({clay} terracotta pixels)")
@@ -486,21 +547,30 @@ def assert_seal(image, name):
 
 def build(shot, chrome, port, work_dir):
     dark = shot.get("dark", False)
-    panel_w = shot.get("panel_w", PANEL_W)
-    page_width = SHOT_W if shot["kind"] == "page" else SHOT_W - panel_w - 1
-    page_checks = shot["checks"] if shot["kind"] == "page" else ()
-    page_image = capture(chrome, port, "shots-page.html", shot["page"],
-                         page_width, page_checks, dark)
-    if shot["kind"] == "page":
-        image = page_image
-    else:
+    seal_corner = (SHOT_W, SHOT_H)
+    if shot["kind"] == "solo":
         panel_image = capture(chrome, port, "shots-panel.html", shot["panel"],
-                              panel_w, shot["checks"], dark)
-        image = compose(page_image, panel_image, dark)
+                              SOLO_PANEL_W, shot["checks"], dark,
+                              height=SOLO_PANEL_H)
+        image = compose_solo(panel_image)
+        seal_corner = ((SHOT_W + panel_image.width) // 2,
+                       (SHOT_H - panel_image.height) // 2 + panel_image.height)
+    else:
+        panel_w = shot.get("panel_w", PANEL_W)
+        page_width = SHOT_W if shot["kind"] == "page" else SHOT_W - panel_w - 1
+        page_checks = shot["checks"] if shot["kind"] == "page" else ()
+        page_image = capture(chrome, port, "shots-page.html", shot["page"],
+                             page_width, page_checks, dark)
+        if shot["kind"] == "page":
+            image = page_image
+        else:
+            panel_image = capture(chrome, port, "shots-panel.html", shot["panel"],
+                                  panel_w, shot["checks"], dark)
+            image = compose(page_image, panel_image, dark)
 
     assert_image(image, shot["name"])
     if shot.get("pixels") == "seal":
-        assert_seal(image, shot["name"])
+        assert_seal(image, shot["name"], seal_corner)
 
     out = work_dir / shot["name"]
     image.save(out, "PNG", optimize=True)

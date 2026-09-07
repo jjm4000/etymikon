@@ -1433,21 +1433,37 @@ side panel. Both load the REAL extension code against the REAL
 product's own rendering and only the message transport is local. Each staging
 page documents its query parameters in the comment at the top of the file.
 
-A composite shot captures the page narrower and docks a panel capture beside
-it, with the 1px separator Chrome draws between them: 919 + 1 + 360 = 1280.
-Nothing lands in `screenshots/` until every shot has passed every check, so a
-failed run leaves the committed set exactly as it was.
+There are three shot kinds. A `page` shot is the whole viewport, popup and all.
+A `solo` shot captures the side panel alone, 680 by 752, and mounts it centred
+on a flat warm backdrop, framed as a card by a 1px border under a 3px halo:
+the panel is the whole subject of those shots, and an article beside it only
+shrank it. A `composite` shot captures the page narrower and docks a panel
+capture beside it, with the 1px separator Chrome draws between them:
+919 + 1 + 360 = 1280. Nothing lands in `screenshots/` until every shot has
+passed every check, so a failed run leaves the committed set exactly as it was.
+
+The solo width came from trial captures rather than from Okpyeon, whose own
+solo mount is 640 on a cool grey. 680 is the narrowest width at which all three
+panel views reach their settled layout: the search view's four `beautiful`
+definitions each hold one line, the saved list's longest definition stops
+wrapping into a two-line block, and the settings view is 456px tall at every
+width. The mount stays 1:1. Widening does not enlarge the type, and capturing
+narrower at a device scale above 1 would, but past about 1.09 the settings
+view's CSS height drops under the panel's own `SEAL_ROOM` and the corner seal
+goes out. At 680 by 752 the clear space under the content is 365px for search,
+345px for saved and 296px for settings, against the 230 the room rule wants,
+so all three keep the seal.
 
 Adding a scene. A scene is one entry in the `SHOTS` list:
 
     {
       "n": 9,
       "name": "9-something.png",
-      "kind": "page",              # or "composite" for page plus side panel
-      "page": {"scene": "origin", "w": 420},
-      "panel": {"view": "saved"},  # composite only
+      "kind": "page",              # or "solo", or "composite"
+      "page": {"scene": "origin", "w": 420},   # page and composite
+      "panel": {"view": "saved"},  # solo and composite
       "dark": True,                # optional, drives prefers-color-scheme
-      "panel_w": 360,              # optional, overrides the 919/360 split
+      "panel_w": 360,              # composite only, overrides 919/360
       "pixels": "seal",            # optional, adds the terracotta pixel test
       "checks": [POPUP_UP, head_is("territory"), IN_FRAME],
     }
@@ -1472,7 +1488,10 @@ What is asserted, per shot:
 - The image itself: exactly 1280x800, mode RGB, no transparency key.
 - `"pixels": "seal"` adds a count of terracotta pixels in the panel's
   lower-right corner box, which is how a shot whose point is the corner seal
-  proves the seal rendered. The predicate holds in both schemes.
+  proves the seal rendered. The box follows the panel's corner rather than the
+  canvas corner, so it holds for a solo mount as well as a composite dock. The
+  predicate holds in both schemes, and it rejects the solo backdrop, its halo
+  and its border by a wider margin than it accepts the seal's own ink.
 
 ## Other tooling in this directory
 

@@ -17,7 +17,6 @@
   Query parameters:
     scene=NAME  which scene to drive (see the switch at the bottom)
     place=F     fraction of the viewport the selected word is scrolled to
-    scroll=N    absolute scroll offset, for the scene that selects nothing
     w=N         popup width handed to the product's own resizePanel
     bottom=N    gap to leave under the popup when sizing it to its content
 
@@ -314,10 +313,6 @@ async function openUsedIn() {
   await sleep(500);
 }
 
-if (scene === "plain") {
-  window.scrollTo(0, Number(params.get("scroll") || 0));
-  await sleep(60);
-}
 if (scene === "breakdown") await show("s-subterranean");
 if (scene === "origin") await show("s-territory");
 if (scene === "root") {
