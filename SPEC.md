@@ -2512,6 +2512,37 @@ its first clause is 84 characters and the source wrote no earlier one.
 
 No curation entry was added in this round. Every change is a rule.
 
+### A modifier opens at "<" (2026-09-06)
+
+A parsing defect, found while reading the inert chips. `clean_part` swept
+inline modifiers with a single `<[^>]*>` pass, which closes on the INNER
+tag of a modifier that holds markup of its own and then reads the note's
+prose as part of the form. worldwide's `world` chip shipped as 90
+characters of the OED entry for it, Honolulu's `hono` as "honowhanga" out
+of a cognate note, pedestrian's as "pedesterpedestri-". 434 args across the
+three extracts were affected.
+
+- One depth counter reads every modifier, nesting and all; an unclosed
+  `<` correctly eats the rest, since markup is what follows it.
+- An arg that is nothing but modifiers states its form in `alt`, which is
+  how a bound stem is written. Reading it keeps me = m + -e and κλέπτης =
+  κλεπ- + -της on the card at all. Where the arg names a term of its own
+  that term is the form: `alt` is a display Wiktionary substitutes and the
+  chip has to name a page. Three rows now show the lemma the source links
+  rather than the form it displays (curtain and cortina read -īnus for
+  -īna, keds -ēs), which is the cost of having one field do both jobs.
+- A prefix naming where a term lives is stripped whether it is a language
+  code, one of the dotted Latin-period abbreviations the origin tables
+  already carry, or the `w:` interwiki: chemical shipped `NL.:chēmicus`
+  and alevism `w:Alevi`.
+- The `a//b` alternation takes the first form, which is clean_term's rule
+  on the same args for the source-language lookups. The two callers had
+  drifted and kiwifruit rendered `Kiwi//kiwi`.
+
+Outcome: 30 words read a different breakdown, every one of them a
+correction; 5 words gain a card and none loses one; 6 origin rows change,
+phase reading φάσις = φαίνω + -σις where it read a single row before.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

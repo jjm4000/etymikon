@@ -697,28 +697,70 @@ def language_gate(counts):
     return top
 
 RE_PART_MOD = re.compile(r"<[^>]*>")
-RE_PART_BRACKET = re.compile(r"[<>]")
 RE_PART_SECT = re.compile(r"#.*$")
-RE_PART_LANG = re.compile(r"^[A-Za-z-]{2,15}:")
+# The modifier that gives a part its display form. Wiktionary writes a bound
+# stem as an alt with no term at all: krittēs is <alt:κρῐ-> of κρī́νω.
+RE_PART_ALT = re.compile(r"<alt:([^<>]*)>")
+# A prefix naming where the term lives: a language code (`la:`), one of the
+# dotted Latin-period abbreviations the origin tables already carry (`NL.:`,
+# `ML.:`, `LL.:`, `VL.:`), or the `w:` interwiki that points the term at
+# Wikipedia. All three are addresses; none of them is part of the form.
+RE_PART_LANG = re.compile(r"^[A-Za-z][A-Za-z-]{0,13}\.?:")
+
+
+def strip_mods(p: str) -> str:
+    """A template arg with every `<...>` modifier removed, nesting counted.
+
+    A single non-greedy `<[^>]*>` sweep cannot do this. A modifier holding
+    markup of its own closes on the INNER tag's `>` and the sweep then reads
+    the note's prose as part of the form: Honolulu's hono chip came through
+    as "honowhanga" out of a cognate note, pedestrian's as
+    "pedesterpedestri-", and worldwide's world chip as 90 characters of the
+    OED entry for it (2026-09-06, 434 args across the three extracts). One
+    depth counter reads all of them, and an unclosed `<` correctly eats the
+    rest, since markup is what follows it.
+    """
+    out = []
+    depth = 0
+    for ch in p:
+        if ch == "<":
+            depth += 1
+        elif ch == ">":
+            if depth:
+                depth -= 1
+        elif not depth:
+            out.append(ch)
+    return "".join(out)
 
 
 def clean_part(raw) -> str:
     """One positional arg of a decomposition template, as a display form.
 
-    Three kinds of decoration ride along on these args and all three are
+    Four kinds of decoration ride along on these args and all four are
     real: inline modifiers (`terra<t:land>`), a section suffix
-    (`to-#Etymology_2`), and a language prefix (`la:terra`). Modifiers are
-    stripped first, because the language prefix regex would otherwise fire
-    on the colon inside one.
+    (`to-#Etymology_2`), a prefix naming where the term lives (`la:terra`,
+    `NL.:chēmicus`, `w:Alevi`), and the `a//b` alternation that offers two
+    spellings of one term (`Kiwi//kiwi`).
+
+    An arg that is nothing but modifiers states its form in `alt`: that is
+    how a bound stem is written, and reading it is what keeps me = m + -e
+    and κλέπτης = κλεπ- + -της on the card at all. Where the arg names a
+    term of its own, that term is the form: `alt` is a display Wiktionary
+    substitutes and the chip has to name a page.
+
+    The `//` rule is clean_term's, which reads the same convention on the
+    same args for the source-language lookups; the two callers had drifted
+    and Kiwi//kiwi rendered as written on kiwifruit.
     """
     p = (raw or "").strip()
-    p = RE_PART_MOD.sub("", p)
-    # Nested markup defeats the balanced strip above and leaves a bracket
-    # behind ("milk<...<...>>" came through as "milk>"), so anything from the
-    # first surviving bracket on is dropped. Markup, never source wording.
-    p = RE_PART_BRACKET.split(p, 1)[0].strip()
-    p = RE_PART_SECT.sub("", p)
+    bare = strip_mods(p).strip()
+    if not bare:
+        m = RE_PART_ALT.search(p)
+        bare = m.group(1).strip() if m else ""
+    p = RE_PART_SECT.sub("", bare)
     p = RE_PART_LANG.sub("", p)
+    if "//" in p:
+        p = p.split("//", 1)[0]
     p = p.strip()
     if p in ("", "-", "*"):
         return ""
