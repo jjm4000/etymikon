@@ -3048,6 +3048,39 @@ row names a lemma the page carries only in a cognate template; no word with a
 classified origin ships with neither morphs nor org. A round note should say
 which of the two counts it means.
 
+### Measured after the build-discipline round (2026-09-07)
+
+Two --offline builds byte-identical, the misses file included. 120 spot
+checks in the build pass 0 failed (114 before, 6 added), of which
+`--verify` runs 114 (108 before). Gold 304 of 304, unchanged. Node 181,
+index harness 268, embed harness 209, 8 screenshots regenerated with
+their scene checks passing.
+
+Data: unchanged in every file. words.json, roots.json and forms.json are
+byte-identical to the build before this round. 84,326 words, 8,068 roots,
+110,719 forms rows, 14,733 origin rows. Nothing in this round touches a
+data path, which is the point: every change is a report line or a check.
+The one image that changes is shot 8, whose used-in rows carry the tier
+chip.
+
+New report lines. Tiers: Everyday 2,649, Common 8,419, Advanced 18,190,
+Uncommon 55,068, unranked 0. Origin rows by source: 2,291 template, 4,153
+etymon, 207 prose, 483 page. Referenced root keys dropped for want of a
+gloss: 0, so that hole is empty.
+
+New gates: every tier holds at least one word; the last cutoff equals
+RANK_CAP; lookup.js labels all four tiers; content.js TIER_LABEL agrees
+with lookup.js TIER_LABELS; morphs coverage of capped words inside 25 to
+45% at 33.7%; breakdown coverage of the top 10,000 ranks inside 30 to 55%
+at 38.3%.
+
+Curation firing: 60 entries over nine tables, 55 fired, 4 dead and 1
+superseded. Five entries are reported redundant, the superseded one and
+four that fire. All four dead entries are on report-only tables, so the
+build is green with the abort armed on the other five.
+
+No curation entry was added, removed or amended.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals
