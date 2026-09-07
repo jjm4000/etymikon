@@ -52,6 +52,14 @@ zones for eyeball review.
 | `--verify`         | re-run the spot-checks against the already-emitted JSON only      |
 | `--offline`        | build from the cached sources only, no network at all             |
 | `--force-download` | delete and re-fetch the cached sources (e.g. for a data refresh)  |
+| `--curation-report-only` | report every dead curated entry instead of stopping at the first aborting table |
+
+A dead curated entry stops the build on five of the nine tables. On a corpus
+refresh that is the wrong shape of failure, because several entries can die
+at once and each is a finding to read rather than one to clear.
+`--curation-report-only` reports all of them and exits on the ordinary check
+count. Unrecognised flags are ignored and a bare `--help` runs a full build,
+downloads included, so do not use one to probe the script.
 
 `--offline` skips the remote size check and uses whatever is in `cache/`,
 failing loudly when a source file is missing. Use it when a run has to be
@@ -1015,6 +1023,44 @@ Latin word on a chip.
 
 The build adds its own aliases at run time from the inflection step and never
 writes back to this file.
+
+### Every entry must fire (2026-09-07)
+
+Every entry is pinned against extract data that moves, so a rule change can
+retire one without a word of warning. The build records which entries fired
+and prints a CURATION FIRING block. What firing means differs per table,
+because a lookup is not a firing, and each definition is written beside its
+own table in `curation.py`.
+
+| table | fired means | dead entry |
+| ----- | ----------- | ---------- |
+| `BLOCKED_SPLITS` | a harvested split was actually suppressed | aborts |
+| `FORCED_SPLITS` | it overrode a different harvested split | aborts |
+| `ROOT_GLOSSES` | it replaced a harvested gloss | aborts |
+| `BASE_ROUTES` | the gate opened on at least one word | aborts |
+| `LEMMA_STEPS` | it stepped ahead of the automatic step | aborts |
+| `ROOT_ALIASES` | it redirected a resolution landing elsewhere | reported |
+| `ROOT_SKIPS` | a key that met the root threshold was refused | reported |
+| `ROOT_STOPS` | recursion stopped at a lemma it would have split | reported |
+| `SOURCE_SPLITS` | always, by construction | reported |
+
+The abort is not uniform. It belongs on the five tables whose dead entry
+changes what a reader sees. A dead `ROOT_SKIPS` or `ROOT_ALIASES` entry
+usually means the key stopped appearing at all, which changes nothing that
+ships, so aborting there fails the build for a non-problem and trains a
+maintainer to delete entries to get green.
+
+A dead entry is a bug and a redundant one is a judgment call, and the two are
+never collapsed. `FORCED_SPLITS` and `ROOT_GLOSSES` define firing as
+differing from the harvest, so an entry the harvest now matches exactly does
+not fire. It is reported as redundant rather than dead: it was consulted, it
+was applied, and the card carries exactly what it states.
+
+`ROOT_ALIASES` is read through one recording accessor rather than fourteen
+instrumented call sites. `SOURCE_SPLITS` keeps its own older rule, which
+raises `SystemExit` inside the harvest when an entry names no node. That
+model is better than a sweep because it fails at the point of use and names
+the exact key and the exact refusal.
 
 ## The dictionary cap
 

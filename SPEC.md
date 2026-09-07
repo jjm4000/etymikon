@@ -2935,6 +2935,86 @@ that no harvest improvement reaches it while a counting bug does.
   bought. The floor sits under the earliest measurement recorded, so reaching
   it means a source stopped answering rather than drifting.
 
+### Every curated entry must fire (2026-09-07)
+
+Each of the 60 entries in curation.py is a human decision pinned against
+extract data that moves, and a rule change can retire one without a word of
+warning. The build now records which entries fired and reports the sweep in a
+CURATION FIRING block. What "fired" means differs per table and is written
+beside each table in curation.py, because a lookup is not a firing.
+
+| table | fired means | dead entry |
+| ----- | ----------- | ---------- |
+| `BLOCKED_SPLITS` | a harvested split was actually suppressed | aborts |
+| `FORCED_SPLITS` | it overrode a different harvested split | aborts |
+| `ROOT_GLOSSES` | it replaced a harvested gloss | aborts |
+| `BASE_ROUTES` | the gate opened on at least one word | aborts |
+| `LEMMA_STEPS` | it stepped ahead of the automatic step | aborts |
+| `ROOT_ALIASES` | it redirected a resolution landing elsewhere | reported |
+| `ROOT_SKIPS` | a key that met the root threshold was refused | reported |
+| `ROOT_STOPS` | recursion stopped at a lemma it would have split | reported |
+| `SOURCE_SPLITS` | always, by construction | reported |
+
+The abort is deliberately not uniform. It belongs on the five tables whose
+dead entry changes what a reader sees. A dead ROOT_SKIPS or ROOT_ALIASES
+entry usually means the key stopped appearing at all, which changes nothing
+that ships, and aborting there fails the build for a non-problem and trains a
+maintainer to delete entries to get green.
+
+Two severities, never collapsed. A dead entry never fired and is a bug, with
+two causes named in the failure message: the target vanished from the
+extract, or the rule stopped selecting it. A redundant entry is one the
+general rule would now decide the same way unaided, and it is a judgment call
+for the owner. FORCED_SPLITS and ROOT_GLOSSES define firing as differing from
+the harvest, so an entry the harvest now matches exactly does not fire. That
+is redundant, not dead: the entry was consulted, it was applied, and the card
+carries exactly what it states.
+
+ROOT_ALIASES is read through one recording accessor rather than fourteen
+instrumented call sites. Only the hand table is subject to the rule; the emit
+concatenates it with the aliases the build adds at run time to list alt
+forms, and that consultation is not a redirect.
+
+SOURCE_SPLITS already had this rule, at build.py's harvest, raising
+SystemExit when an entry names no node. That model is kept and is better than
+a sweep, because it fails at the point of use and names the exact key and the
+exact refusal.
+
+`python pipeline/build.py --offline --curation-report-only` reports every
+dead entry in all nine tables instead of stopping at the first aborting one.
+A corpus refresh wants the whole list at once.
+
+What the first sweep found. The five aborting tables are clean, so the build
+is green with the abort armed. Four entries are dead, all on report-only
+tables, and none of them was cleared.
+
+- `ROOT_ALIASES["terr-"]`. The combining form is a morph in zero shipped
+  words, so nothing resolves through it.
+- `ROOT_ALIASES["terrenum"]`. terrain settles on la:terra directly now, so
+  the inflection page is never the lemma a chain stops on.
+- `ROOT_ALIASES["memorandum"]`. Same shape. memorandum's row reads
+  `{"f": "memor", "r": "la:memor"}` without the alias.
+- `ROOT_SKIPS["en:fucking"]`. fucking is a shipped word, so its chip takes
+  the word-card branch of resolve_part and never becomes a root candidate.
+  The skip is superseded by the rule that a hyphen-free affix page which is
+  also a shipped word links to the word card.
+
+A dead alias still contributes its key to the `alt` list of the card it names,
+because the alt loop reads the whole hand table rather than the fired set. So
+la:terra ships alt `terr-`, `terrenum`, `terrenus`, `terrestris` and la:memor
+ships alt `memorandum`, `memoro`, `memoror`, `rememoror` while three of those
+seven redirect nothing. That is a spelling the card absorbs rather than a
+wrong card, so it is recorded and not changed.
+
+Five entries are redundant. `ROOT_GLOSSES["la:-us"]`, since the homograph
+rule now picks the adjective-forming page unaided and harvests the exact
+string the entry states. `LEMMA_STEPS["la:deponens"]`, `["la:strictus"]` and
+`["la:visus"]`, since the participle step of the source graph now reaches the
+same lemma; the deponens entry already carries a note saying the owner kept
+it for that reason, and the same reading applies to the other two.
+`SOURCE_SPLITS["la:mentalis"]`, since the page's own template split now
+resolves to the same two parts.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

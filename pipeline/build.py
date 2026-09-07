@@ -48,6 +48,74 @@ import unicodedata
 # the only supported way to run it.
 import curation
 
+# ------------------------------------------------------- curation firing
+# Every entry in curation.py is a human decision pinned against extract data
+# that moves. A rule change can retire an override with no warning, and the
+# reader then gets back exactly the bad card the entry was written to fix,
+# while the entry documents a decision the build no longer makes.
+#
+# FIRED records the entries that did the thing they exist to do. What
+# "fired" means differs per table and is written beside each table in
+# curation.py; the recording site here matches that definition and nothing
+# looser, because a lookup count is not a firing count.
+#
+# REDUNDANT records the other half: an entry that still fires but that the
+# general rule would now decide the same way unaided. A dead entry is a bug.
+# A redundant one is a judgment call for the owner. The two are never
+# collapsed into one severity.
+FIRED = collections.defaultdict(set)
+REDUNDANT = collections.defaultdict(dict)
+SUPERSEDED = collections.defaultdict(set)
+
+
+def fired(table, key):
+    """Record that one curated entry did the thing it exists to do."""
+    FIRED[table].add(key)
+    return key
+
+
+def redundant(table, key, why):
+    """Record that the general rule would now decide this entry's case."""
+    REDUNDANT[table][key] = why
+
+
+def superseded(table, key, why):
+    """Record an entry consulted at its own site and found to be a no-op.
+
+    On two tables firing is defined as DIFFERING from the harvest, so an
+    entry the harvest now matches exactly does not fire. That is not the
+    same failure as a dead entry. The two named causes of death are the
+    target vanishing from the extract and the rule ceasing to select the
+    entry, and neither happened: the entry was consulted, it was applied,
+    and the card carries exactly the value it states. What happened is the
+    other half of the rule, an entry the general rule would now decide the
+    same way unaided. So this is reported as redundant, a judgment call for
+    the owner, and it does not abort. Collapsing the two into one severity
+    is what the rule forbids.
+    """
+    REDUNDANT[table][key] = why
+    SUPERSEDED[table].add(key)
+
+
+def root_alias(*keys):
+    """ROOT_ALIASES lookup that records which entry answered.
+
+    The fourteen call sites all tried lang:key, then the surface form, then
+    the bare key, in that order. The accessor keeps the order and records the
+    key that hit, so the firing sweep sees a redirect rather than a lookup.
+    Only the hand table is subject to the rule: the aliases the build adds at
+    run time go through origin.alias and never through here.
+    """
+    for k in keys:
+        if not k:
+            continue
+        v = curation.ROOT_ALIASES.get(k)
+        if v is not None:
+            FIRED["ROOT_ALIASES"].add(k)
+            return v
+    return None
+
+
 # orjson decodes the 1.5 M-line English extract about three times faster than
 # the stdlib. It is not a hard requirement: the fallback is exact.
 try:
@@ -3695,11 +3763,14 @@ class Graph:
             if self.is_node(key) or key in self.split:
                 curated = curation.LEMMA_STEPS.get(self.lang + ":" + key)
                 if curated:
+                    # Fired: the walk stopped here and the entry moved it on.
+                    fired("LEMMA_STEPS", self.lang + ":" + key)
                     key = curated.split(":", 1)[1]
                     continue
                 return key, first
             nxt = curation.LEMMA_STEPS.get(self.lang + ":" + key)
             if nxt:
+                fired("LEMMA_STEPS", self.lang + ":" + key)
                 key = nxt.split(":", 1)[1]
                 continue
             nxt = self.step.get(key)
@@ -3971,7 +4042,16 @@ def build_graph(g, part_steps):
     for src, dst in curation.LEMMA_STEPS.items():
         sl, sk = src.split(":", 1)
         if sl == lang:
-            g.step[sk] = dst.split(":", 1)[1]
+            dk = dst.split(":", 1)[1]
+            # This write is unconditional and says nothing about whether sk
+            # names a page, which is why a dead entry here was completely
+            # silent. The firing sweep catches that. Here we only note the
+            # other half: the automatic step already going to the same lemma
+            # makes the entry redundant.
+            if g.step.get(sk) == dk:
+                redundant("LEMMA_STEPS", src,
+                          "the form-of or participle step already reaches " + dst)
+            g.step[sk] = dk
     g.stats["steps"] = len(g.step)
     g.stats["alt_pages"] = len(g.alt)
 
@@ -4006,6 +4086,20 @@ def build_graph(g, part_steps):
         res = resolve_parts(sk, parts)
         if isinstance(res, str):
             raise SystemExit("SOURCE_SPLITS %s: %s" % (src_key, res))
+        # SOURCE_SPLITS cannot fail a firing sweep: the write below is
+        # unconditional for every entry whose node exists, and the node
+        # existing is already a SystemExit above. Only the redundancy half
+        # applies, and it is the page's own template split producing the
+        # same parts.
+        fired("SOURCE_SPLITS", src_key)
+        own = g.cands[sk][0].parts if g.cands.get(sk) else None
+        if own:
+            theirs = resolve_parts(sk, own)
+            if not isinstance(theirs, str) and \
+                    [pk for _, pk in theirs] == [pk for _, pk in res]:
+                redundant("SOURCE_SPLITS", src_key,
+                          "the page's own template split now resolves to the "
+                          "same parts")
         g.split[sk] = res
         g.split_src[sk] = "template"
         g.esplit[sk] = [res] * len(g.cands[sk])
@@ -5670,12 +5764,13 @@ class Origin:
         for form, pk in parts:
             if pk == key:
                 return ()
-            if (curation.ROOT_ALIASES.get(lang + ":" + pk)
-                    or curation.ROOT_ALIASES.get(form)
-                    or curation.ROOT_ALIASES.get(pk)):
+            if root_alias(lang + ":" + pk, form, pk):
                 continue
             rkey = lang + ":" + pk
-            if rkey in curation.ROOT_SKIPS or self.is_affix(lang, pk, form):
+            if rkey in curation.ROOT_SKIPS:
+                fired("ROOT_SKIPS", rkey)
+                continue
+            if self.is_affix(lang, pk, form):
                 continue
             out.append(rkey)
         return out
@@ -5701,8 +5796,7 @@ class Origin:
                 for r in reached:
                     seen[r] += 1
                 continue
-            aliased = (curation.ROOT_ALIASES.get(lang + ":" + att["key"])
-                       or curation.ROOT_ALIASES.get(att["key"]))
+            aliased = root_alias(lang + ":" + att["key"], att["key"])
             if not self.is_affix(lang, att["key"]) and not aliased:
                 reached.add(lang + ":" + att["key"])
             for r in reached:
@@ -5781,9 +5875,7 @@ class Origin:
         for form, pk in parts:
             if pk in seen:
                 return None
-            a = (curation.ROOT_ALIASES.get(lang + ":" + pk)
-                 or curation.ROOT_ALIASES.get(form)
-                 or curation.ROOT_ALIASES.get(pk))
+            a = root_alias(lang + ":" + pk, form, pk)
             if a:
                 pieces.append((form, a, None, ""))
                 continue
@@ -5800,13 +5892,15 @@ class Origin:
         expanded = []
         for form, rkey, pk, gl in pieces:
             if rkey in curation.ROOT_SKIPS:
+                fired("ROOT_SKIPS", rkey)
                 out.append((form, None, ""))
                 continue
             sub = None
-            if (pk is not None
-                    and rkey not in self.anchors
-                    and rkey not in curation.ROOT_STOPS):
-                sub = self.flatten(lang, pk, depth - 1, seen | {pk})
+            if pk is not None and rkey not in self.anchors:
+                if rkey in curation.ROOT_STOPS:
+                    fired("ROOT_STOPS", rkey)
+                else:
+                    sub = self.flatten(lang, pk, depth - 1, seen | {pk})
             if sub:
                 out.extend(sub)
                 expanded.append(rkey)
@@ -5903,8 +5997,7 @@ class Origin:
                     "parts": [org_part(f, r, gl) for f, r, gl in flat]}
         if att.get("first") and att["first"] != key:
             self.alias[att["first"]] = lang + ":" + key
-        a = (curation.ROOT_ALIASES.get(lang + ":" + key)
-             or curation.ROOT_ALIASES.get(key))
+        a = root_alias(lang + ":" + key, key)
         if a:
             # A curated alias is a decision about where the family belongs,
             # so it wins over anything the extract would decompose.
@@ -6028,7 +6121,7 @@ def resolve_part(part, word, affixes, shipped, chain_roots=(), pages=None):
     reaches. It gates BASE_ROUTES and nothing else.
     """
     p = part.lower()
-    a = curation.ROOT_ALIASES.get(part) or curation.ROOT_ALIASES.get(p)
+    a = root_alias(part, p)
     if a:
         return "r", a
     if p in affixes and ("-" in p or p not in shipped):
@@ -6040,6 +6133,9 @@ def resolve_part(part, word, affixes, shipped, chain_roots=(), pages=None):
     # root it names. See BASE_ROUTES for why the gate carries the safety.
     routed = curation.BASE_ROUTES.get(p)
     if routed and routed in chain_roots:
+        # Fired when the gate opened on at least one word. Per-word coverage
+        # is noise: one routed word is the whole outcome the entry buys.
+        fired("BASE_ROUTES", p)
         return "r", routed
     if pages is None:
         return None, None
@@ -6389,6 +6485,8 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
                                     pages)
             if field == "r" and curation.BASE_ROUTES.get(m["f"].lower()) == k:
                 c["routed"] += 1
+            if field == "r" and k in curation.ROOT_SKIPS:
+                fired("ROOT_SKIPS", k)
             if field == "r" and k not in curation.ROOT_SKIPS:
                 m["r"] = k
                 if k in credited:
@@ -6416,6 +6514,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
                     credited.add(p["r"])
         elif org and org.get("r"):
             if org["r"] in curation.ROOT_SKIPS:
+                fired("ROOT_SKIPS", org["r"])
                 del w["org"]
                 c["orgskip"] += 1
             else:
@@ -6459,6 +6558,15 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
         # from nobody's sense.
         hand = curation.ROOT_GLOSSES.get(key)
         if hand:
+            # Fired only when it REPLACED the harvest. A hand gloss the
+            # harvest now matches exactly is superseded, not dead: the card
+            # still carries the words the entry states, and the sense
+            # ordering the entry was written against improved under it.
+            if hand != gloss:
+                fired("ROOT_GLOSSES", key)
+            else:
+                superseded("ROOT_GLOSSES", key,
+                           "the harvested gloss now reads exactly this")
             gloss, lb = hand, ()
         if not gloss:
             c["noglossroot"] += 1
@@ -6476,6 +6584,15 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
     # card they were folded into. Flattening produces no aliases of its own:
     # an intermediate lemma is decomposed rather than folded away.
     alt = collections.defaultdict(set)
+    # Redundancy for ROOT_ALIASES: the build's own run-time hop already
+    # lands the same source on the same card. This loop consults the whole
+    # hand table to list alt forms, which is not a redirect, so it records
+    # no firing.
+    for src, dst in curation.ROOT_ALIASES.items():
+        bare = src.split(":", 1)[1] if ":" in src else src
+        if origin.alias.get(bare) == dst or origin.alias.get(src) == dst:
+            redundant("ROOT_ALIASES", src,
+                      "the run-time alias hop already reaches " + dst)
     for src, dst in list(curation.ROOT_ALIASES.items()) + list(origin.alias.items()):
         # A language-qualified alias key names a page, not a surface form.
         src = src.split(":", 1)[1] if ":" in src else src
@@ -6515,7 +6632,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs,
         # src names one lemma card, so it takes the settled key rather than
         # a decomposition.
         s = origin.settle(a["src"][0], a["src"][1])
-        s = curation.ROOT_ALIASES.get(s) or (a["src"][0] + ":" + s if s else None)
+        s = root_alias(s) or (a["src"][0] + ":" + s if s else None)
         if s and s in roots and s != key:
             r["src"] = s
             c["src"] += 1
@@ -7679,6 +7796,89 @@ def write_report(path=None):
         fh.write("\n".join(REPORT) + "\n")
 
 
+# ------------------------------------------------------- curation firing sweep
+
+# The nine curated tables, with what firing means for each and whether a dead
+# entry stops the build. The definitions differ per table and each is written
+# beside its own table in curation.py as well; this is the copy the check
+# reads.
+#
+# The abort is deliberately NOT uniform. It belongs on the five tables whose
+# dead entry changes what a reader sees. A dead ROOT_SKIPS or ROOT_ALIASES
+# entry usually changes nothing that ships, because the key stopped appearing
+# at all, so aborting there fails the build for a non-problem and trains a
+# maintainer to delete entries to get green.
+CURATION_TABLES = (
+    ("BLOCKED_SPLITS", True, "a harvested split was actually suppressed"),
+    ("FORCED_SPLITS", True, "it overrode a different harvested split"),
+    ("ROOT_GLOSSES", True, "it replaced a harvested gloss"),
+    ("BASE_ROUTES", True, "the gate opened on at least one word"),
+    ("LEMMA_STEPS", True, "it stepped ahead of the automatic step"),
+    ("ROOT_ALIASES", False, "it redirected a resolution landing elsewhere"),
+    ("ROOT_SKIPS", False, "a key that met the root threshold was refused"),
+    ("ROOT_STOPS", False, "recursion stopped at a lemma it would have split"),
+    ("SOURCE_SPLITS", False, "always, by construction (the write is uncond.)"),
+)
+
+
+def curation_sweep():
+    """Report which curated entries fired. Returns the dead ones that abort.
+
+    A dead entry, one that never fired during the build, is a bug: either the
+    target vanished from the extract, or the rule stopped selecting it. The
+    reader then gets back exactly the card the entry was written to fix.
+
+    A redundant entry, one the general rule would now decide the same way
+    unaided, is a judgment call and never aborts. Redundancy is a signal
+    that a rule improved. Most redundant entries still fire; on the two
+    tables that define firing as differing from the harvest they do not, and
+    superseded() explains why that is redundancy and not death.
+    """
+    log("=========== CURATION FIRING ================")
+    log("  %-15s %7s %6s %5s %7s  %s"
+        % ("table", "entries", "fired", "dead", "redund.", "fired means"))
+    blocking = []
+    notes = []
+    for name, abort, means in CURATION_TABLES:
+        keys = sorted(getattr(curation, name))
+        hit = FIRED.get(name, set())
+        sup = SUPERSEDED.get(name, set())
+        dead = [k for k in keys if k not in hit and k not in sup]
+        red = REDUNDANT.get(name, {})
+        log("  %-15s %7d %6d %5d %7d  %s"
+            % (name, len(keys), len(keys) - len(dead) - len(sup), len(dead),
+               len(red), means))
+        for k in dead:
+            notes.append("  DEAD      %s[%s]%s"
+                         % (name, k, "" if abort else "  (reported only)"))
+        for k, why in sorted(red.items()):
+            notes.append("  REDUNDANT %s[%s]: %s" % (name, k, why))
+        if abort:
+            blocking.extend("%s[%s]" % (name, k) for k in dead)
+    if notes:
+        for line in notes:
+            log(line)
+    else:
+        log("  every entry in all nine tables fired, none redundant")
+    return blocking
+
+
+CURATION_DEAD_MESSAGE = (
+    "%d dead curation entr%s: %s\n"
+    "A dead entry never fired during this build. Two causes, and the fix "
+    "differs:\n"
+    "  1. the target vanished from the extract, so the entry now documents a "
+    "decision the build no longer makes;\n"
+    "  2. the rule stopped selecting it, so the reader is getting back "
+    "exactly the card the entry was written to fix.\n"
+    "Open pipeline/curation.py at the entry and read the reason line it "
+    "carries. Deleting the entry to get a green build is the wrong repair "
+    "unless cause 1 is what happened.\n"
+    "Run with --curation-report-only to see every dead entry in all nine "
+    "tables at once instead of stopping here."
+)
+
+
 # ---------------------------------------------------------------- gold set
 
 def load_gold():
@@ -7901,6 +8101,11 @@ def main(argv):
         raise SystemExit(1 if failed else 0)
     force = "--force-download" in argv
     offline = "--offline" in argv
+    # A dead curated entry stops the build on five of the nine tables. This
+    # flag reports every dead entry in all nine and exits on the ordinary
+    # check count instead, which is what a corpus refresh wants: the whole
+    # list at once, each entry a finding to read rather than one to clear.
+    curation_report_only = "--curation-report-only" in argv
     if force and offline:
         raise SystemExit("--force-download and --offline contradict each other")
     t0 = time.time()
@@ -8026,8 +8231,24 @@ def main(argv):
         parts = accepted_split(wl, rec)
         if wl in curation.FORCED_SPLITS:
             n_forced += 1
+            # A lookup count is not a firing count. The entry fires when it
+            # overrode a DIFFERENT harvested split; one that now restates the
+            # harvest is dead.
+            if list(curation.FORCED_SPLITS[wl]) != list(raw or ()):
+                fired("FORCED_SPLITS", wl)
+            else:
+                superseded("FORCED_SPLITS", wl,
+                           "the harvest now produces the same split")
         elif raw and not parts:
             if wl in curation.BLOCKED_SPLITS:
+                # Fired: a harvested split was actually suppressed. An entry
+                # for a word that no longer harvests a split never reaches
+                # here, and its reason line is then wrong.
+                fired("BLOCKED_SPLITS", wl)
+                if len(raw) < 2 or raw[-1] in INFLECTIONAL:
+                    redundant("BLOCKED_SPLITS", wl,
+                              "the general rules drop this split anyway (%s)"
+                              % (" + ".join(raw)))
                 n_blocked += 1
             else:
                 n_infl += 1
@@ -8421,12 +8642,20 @@ def main(argv):
     # flatten() the emit used, so the check asks the build what it should
     # have written.
     splits = set(origin.card_parts)
+    dead_curation = curation_sweep()
     failed = verify(words_obj, roots_obj, forms_obj, origin.anchors, splits,
                     harvest=harvest, carry=origin.carry)
     failed += gold_report(shipped, roots)
     log("============================================")
     log("done in %.1fs; %d failed check(s)" % (time.time() - t0, failed))
     write_report()
+    # After the report is written, so the run that stops here still leaves
+    # the numbers behind for the person reading the failure.
+    if dead_curation and not curation_report_only:
+        raise SystemExit(CURATION_DEAD_MESSAGE
+                         % (len(dead_curation),
+                            "y" if len(dead_curation) == 1 else "ies",
+                            ", ".join(dead_curation)))
     raise SystemExit(1 if failed else 0)
 
 

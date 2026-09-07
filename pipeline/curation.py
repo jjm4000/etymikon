@@ -8,7 +8,7 @@ only, loaded because sys.path[0] is pipeline/ whenever build.py runs as a
 script.
 
 Wiktionary is right about etymology and wrong about what a reader wants to
-see. These eight tables are where that gap is recorded, one entry at a
+see. These nine tables are where that gap is recorded, one entry at a
 time, each with the reason it exists. They are reviewed in PR diffs.
 
     BLOCKED_SPLITS   harvested split is true but semantically dead
@@ -29,6 +29,31 @@ compassion belongs on the English prefix card, not on la:con-.
 
 Nothing here is generated. The build adds its own automatic aliases from
 the inflection step at run time and never writes back to this file.
+
+EVERY ENTRY MUST FIRE (rule of 2026-09-07). Each of these is a decision
+pinned against extract data that moves, so a rule change can retire one
+without a word of warning. The build records which entries fired and reports
+the sweep. What "fired" means differs per table and is written beside each
+table below, because a lookup is not a firing.
+
+- A DEAD entry, one that never fired during the build, is a bug. Two causes:
+  the target vanished from the extract, or the rule stopped selecting it. It
+  stops the build on the five tables whose dead entry changes what a reader
+  sees (BLOCKED_SPLITS, FORCED_SPLITS, ROOT_GLOSSES, BASE_ROUTES,
+  LEMMA_STEPS) and is reported on the other four, where the key usually
+  stopped appearing at all and aborting would train a maintainer to delete
+  entries to get green.
+- A REDUNDANT entry, one that the general rule would now decide the same way
+  unaided, is reported and never aborts. It is a judgment call for the owner,
+  and a signal that a rule improved. Two tables define firing as DIFFERING
+  from the harvest (FORCED_SPLITS, ROOT_GLOSSES), so an entry the harvest now
+  matches exactly does not fire. It is redundant, not dead: neither named
+  cause of death happened, the entry was consulted and applied, and the card
+  carries exactly what it states.
+
+`python pipeline/build.py --offline --curation-report-only` reports every
+dead entry in all nine tables instead of stopping at the first table that
+aborts.
 """
 
 from __future__ import annotations
@@ -37,6 +62,12 @@ from __future__ import annotations
 # Words whose harvested split is etymologically correct and useless to a
 # reader building vocabulary. The word keeps its card and loses its
 # breakdown row. Keys are lowercase word keys.
+#
+# FIRED: a harvested split was actually suppressed. An entry for a word that
+# no longer harvests a split is dead, and its reason line is now wrong.
+# ABORTS on a dead entry: the reader gets the bad breakdown back.
+# REDUNDANT: the general rules would drop the split anyway (fewer than two
+# parts, or a final part that is inflectional).
 
 BLOCKED_SPLITS = frozenset({
     # under- + stand: the modern sense has no relation to standing under.
@@ -66,6 +97,14 @@ BLOCKED_SPLITS = frozenset({
 # Hand splits that override whatever the extract carries. Values are the
 # display forms in split order, hyphens included exactly as they should
 # render on the chips.
+#
+# FIRED: it overrode a DIFFERENT harvested split.
+# ABORTS on a dead entry: the hand split is the reading the product is built
+# around, and losing it silently changes the card. Dead here means the word
+# stopped being harvested at all.
+# REDUNDANT: the harvest now produces the same split, so the entry is a
+# no-op. That is not a dead entry and does not abort: it was consulted, it
+# was applied, and the card carries exactly what it states.
 
 FORCED_SPLITS = {
     # Wiktionary analyses this as the Latin adjective subterraneus plus -an,
@@ -79,6 +118,15 @@ FORCED_SPLITS = {
 # resolution rule, to morpheme parts and to origin-chain lemmas alike.
 # The build adds more of these automatically from the root-unification hop;
 # this table is for the cases the hop cannot reach.
+#
+# FIRED: it redirected a resolution that would have landed elsewhere. Only
+# this hand table is subject to the rule; the emit concatenates it with the
+# aliases the build adds at run time to list alt forms, and that consultation
+# is not a redirect.
+# REPORTED, never aborts: a dead entry here usually means the key stopped
+# appearing at all, which changes nothing that ships.
+# REDUNDANT: the run-time alias hop already lands the same source on the
+# same card.
 
 ROOT_ALIASES = {
     # The English noun terra exists, so an unaliased part would resolve to
@@ -135,6 +183,12 @@ ROOT_ALIASES = {
 # Keys that must never become root cards even when enough words reference
 # them. Chain walking already stops at Latin and Greek, so this list only
 # has to catch nodes that are the wrong kind of thing.
+#
+# FIRED: a key that met the root threshold was refused. Six consultation
+# sites record it: the reach count, both flatten arms, the morph chip and
+# the org row.
+# REPORTED, never aborts: a dead entry here usually means the key stopped
+# appearing at all, which changes nothing that ships.
 
 ROOT_SKIPS = frozenset({
     # Wiktionary records an infix entry for the expletive in
@@ -161,6 +215,16 @@ ROOT_SKIPS = frozenset({
 # the entry with the most senses, which is right almost everywhere and wrong
 # on these. Each gloss is written from the senses actually on the page, not
 # invented. Keys are root keys, values ship verbatim.
+#
+# FIRED: it REPLACED a harvested gloss.
+# ABORTS on a dead entry: the card is the only thing the product says about
+# the root. Dead here means the key stopped being referenced, so the gloss
+# ships nowhere and the entry documents a decision the build no longer makes.
+# REDUNDANT: the key still ships and the harvested gloss now reads exactly
+# what the entry says, so the sense ordering the entry was written against
+# improved under it. That is a judgment call for the owner, not an abort.
+# la:-us reached this state on 2026-09-07, after the homograph rule started
+# reading a pos or form an English page states.
 
 ROOT_GLOSSES = {
     # Harvested: "Appended in general, often informally, stylistically, or
@@ -228,6 +292,11 @@ ROOT_GLOSSES = {
 # claim out of claimant, flex out of flexible, scribe out of scribble.
 #
 # Keys are lowercase English morph forms, values are root keys.
+#
+# FIRED: the gate opened on at least one word. Per-word coverage is noise,
+# because one routed word is the whole outcome the entry buys.
+# ABORTS on a dead entry: a dead route means the chip went back to the wrong
+# homograph or back to being inert.
 
 BASE_ROUTES = {
     # relax: the English card leads "A salmon". laxō is "to extend, expand".
@@ -273,6 +342,9 @@ BASE_ROUTES = {
 # referenced to qualify, whose split still teaches less than it costs.
 # Empty is the healthy state, and it is empty; add a key only with the
 # family that exposed it.
+#
+# FIRED: recursion stopped at a lemma it would otherwise have split.
+# REPORTED, never aborts. An empty table sweeps clean by construction.
 
 ROOT_STOPS = frozenset({
     # la:laxō and la:ēligō sat here while ORG_ANCHOR_MIN was 3: each has
@@ -291,6 +363,14 @@ ROOT_STOPS = frozenset({
 # form-of link. Applied in Origin.settle ahead of the automatic step, so an
 # entry here wins over what the extract says about the page. Keys and values
 # are language-qualified page keys, macrons stripped.
+#
+# FIRED: it stepped ahead of the automatic step, meaning a walk really moved
+# through the key. The build writes the step into the graph unconditionally
+# and never checks that the key names anything, so a dead entry here was
+# completely silent before 2026-09-07.
+# ABORTS on a dead entry: a dead step leaves the chain stopped on a
+# participle or a grammatical term, which is the card the reader sees.
+# REDUNDANT: the form-of or participle step already reaches the same lemma.
 
 LEMMA_STEPS = {
     # dēpōnēns is a Latin lemma page ("deponent", a grammatical term) rather
@@ -336,6 +416,12 @@ LEMMA_STEPS = {
 # lookup rules as a template part. An entry overrides whatever the page's
 # templates and prose say, so each one carries the reason the page's own
 # account is not the one to show.
+#
+# FIRED: always, by construction. The build writes the edge unconditionally
+# for every entry whose node exists, and it already raises SystemExit at the
+# point of use when the node does not exist or a part names no page, so this
+# table cannot fail a firing sweep.
+# REDUNDANT: the page's own template split now resolves to the same parts.
 
 SOURCE_SPLITS = {
     # The Latin page records cūriōsus as a back-formation from incūriōsus
