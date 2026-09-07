@@ -46,15 +46,16 @@ tiles.
   1,178 carry their own breakdown, 3,190 are anchors that recursion stops
   at, and 4,160 hold a one-word family. SPEC "Root card".
 - **Proper nouns get cards.** A word built on a name reaches the name:
-  tantalize opens Tantalus, the Phrygian king. Some name cards reach
-  the wrong entry of a shared spelling and darwinism opens a
-  municipality in Argentina, which is the homograph gap in the
-  unscheduled list below. 1,141 English name cards ship, and 197 Latin
-  and Greek cards are labelled names rather than roots. SPEC "A proper
-  noun a word is built on is a card".
+  tantalize opens Tantalus, the Phrygian king, and darwinism opens
+  Charles Darwin. A name page states its referent in sense 1 and its
+  homographs after it, so the card takes sense 1 and trims it to the
+  budget rather than walking past it to a shorter later sense. 1,141
+  English name cards ship, and 197 Latin and Greek cards are labelled
+  names rather than roots. SPEC "A proper noun a word is built on is a
+  card".
 - **Register labels.** A definition states its register where the page
   marks one. 27,291 of the 185,487 shipped definitions carry a marker,
-  spread over 17,567 words, and 136 root cards carry one. SPEC "Sense
+  spread over 17,567 words, and 125 root cards carry one. SPEC "Sense
   register labels".
 - **Bidirectional families.** Word cards carry "Used in N words", the
   reverse of the morpheme graph, so the list of what English builds on a
@@ -141,18 +142,21 @@ had gain a working chip. Against that:
   None are tail words: a word ships beyond rank 50,000 only by carrying a
   breakdown, so the whole set is inside the cap. The fix is more origin
   coverage rather than a new surface.
-- **The homograph gap on chips.** A chip opens the right page at a minor
-  sense, because a proper-noun page with many senses gives the card
-  budget a small town or a surname before the famous referent. Darwin
-  reads "A municipality of Río Negro province, Argentina." Measured at 9
-  of 30 hand-checked chips in SPEC "Measured after the register round".
 - **Pages that lead with section headings.** cat's noun senses read
   "Terms relating to animals" and the like, which is Wiktionary's page
   structure rather than a definition. The sense picker takes the first
   senses it finds and cannot yet tell a heading from a gloss.
-- **Root gloss polish.** 192 of the 8,068 root glosses run past 100
-  characters and 91 run past 120. The fix is more curation or a smarter
-  clause picker.
+- **Root gloss polish.** 216 of the 8,068 root glosses run past 100
+  characters and 104 run past 120, up from 192 and 91 before the name
+  trim, which lets a name card keep the whole of sense 1 when no cut of
+  it reads as a gloss. The fix is more curation or a clause picker that
+  reaches the other kinds of card.
+- **A category is all some name pages say.** 380 name cards read "A
+  surname" or a near relative and nothing else, because that is the
+  whole of the page's sense 1 and no trim can help. Sense 1 also opens
+  with a bare category on four cards that state more after it (cyril,
+  handel, sonia, yoruba) and the trim does not fire there, because it
+  fires only where the ladder walks past sense 1.
 - **Hover mode.** Okpyeon deferred it too. A hover surface changes the
   performance profile of every page, so it wants its own spike.
 - **Pronunciation.** IPA text ships in the extracts and would cost only
