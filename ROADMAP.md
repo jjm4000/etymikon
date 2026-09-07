@@ -38,7 +38,10 @@ tiles.
   Of the decomposed rows, 2,291 were answered by a template, 4,153 by an
   etymon field, 207 by prose, and 483 by parts the English page supplied.
   A gold set of 305 hand-verified rows scores every build and the score
-  may not drop. SPEC "Origin subsystem, source graphs".
+  may not drop. Of the 1,752 words that named a classical origin and
+  showed nothing under the old machinery, 553 now decompose, 1,016 show
+  a single row, and 183 still show nothing. SPEC "Origin subsystem,
+  source graphs".
 - **Root cards.** 8,068 of them, 3,060 English, 3,542 Latin, 1,466 Greek.
   1,178 carry their own breakdown, 3,190 are anchors that recursion stops
   at, and 4,160 hold a one-word family. SPEC "Root card".
