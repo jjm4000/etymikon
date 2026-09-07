@@ -1814,7 +1814,7 @@ def best_gloss(e) -> str:
     return best_gloss_row(e)[0]
 
 
-def best_gloss_row(e):
+def best_gloss_row(e, rows=None):
     """(gloss, register labels) for one entry: best_gloss and its sense's marks.
 
     The labels travel with the line the card takes, so an obsolete or
@@ -1824,8 +1824,10 @@ def best_gloss_row(e):
     On a name page the ladder is not allowed to walk past sense 1, which is
     the page's referent; sense 1 is trimmed to the budget instead. See the
     name-gloss note above.
+
+    `rows` is gloss_rows(e), passed in by a caller that already has it.
     """
-    rows = gloss_rows(e)
+    rows = gloss_rows(e) if rows is None else rows
     i, g = ladder_row(rows)
     if i > 0 and (e.get("pos") or "") == "name":
         head = name_gloss(rows[0][0], e.get("word") or "")
@@ -1844,6 +1846,26 @@ def ladder_row(rows):
         if head and len(head) <= ROOT_GLOSS_MAX:
             return i, head
     return -1, ""
+
+
+def sense_candidates(rows):
+    """(index, card line) for every sense that could carry the card.
+
+    The ladder above takes the first sense inside the budget and, failing
+    that, the first clause of a sense inside the cap. Both rungs at once
+    here, so a sense the source wrote long still offers its first clause
+    beside a short later sense. Only Origin.choose_senses reads this, and
+    only where the evidence, not the order, decides between them.
+    """
+    out = []
+    for i, (g, _) in enumerate(rows):
+        if len(g) <= ROOT_GLOSS_CARD:
+            out.append((i, g))
+            continue
+        head = first_clause(g)
+        if head and len(head) <= ROOT_GLOSS_MAX:
+            out.append((i, head))
+    return out
 
 
 def gloss_lines(e):
@@ -2337,6 +2359,7 @@ def harvest_english(path, cand, origin):
             dw = def_words(defs[0][0])
             ev = origin.evidence_of(terms, mentions, dw)
             origin.merge_evidence(ev, origin.ranks.get(wl))
+            origin.note_senses(terms, defs[0][0], origin.ranks.get(wl))
             # The row gloss votes on the word itself as well as its
             # first definition: an inherited word usually glosses its
             # own ancestor (good reads Old English gōd "good", love
@@ -3951,6 +3974,8 @@ class Graph:
         self.esense = {}         # key -> [{part key: stated gloss}], one per entry
         self.psense = {}         # key -> the chosen entry's {part key: stated gloss}
         self.part_hints = {}     # key -> Counter of gloss words pages give it as a part
+        self.part_texts = {}     # key -> those glosses as written, for the sense rule
+        self.entry = {}          # key -> the index of the entry the node settled on
         self.form = {}
         self.pos = {}
         self.rom = {}
@@ -4047,14 +4072,20 @@ class Entry:
     2026-09-05): the split, the label and the gloss come from that one
     entry. `forms` holds the distinguishing forms (canonical, infinitive,
     supine) a mention can name, "fundāre" against "fundere".
+
+    `rows` is every sense of the entry as (card line, register labels), in
+    source order. The entry keeps the whole list because the sense the card
+    shows is decided twice: once here, by the budget ladder, and again after
+    the English pages have attached, where the evidence can name a sense the
+    ladder walked past (see Origin.choose_senses).
     """
     __slots__ = ("weight", "gloss", "lb", "form", "pos", "rom", "words",
-                 "forms", "parts", "src", "prose", "pglosses", "order", "lines")
+                 "forms", "parts", "src", "prose", "pglosses", "order", "rows")
 
     def __init__(self, weight, gloss, form, pos, rom, words, forms, parts, src,
-                 prose, pglosses, order, lines=(), lb=()):
+                 prose, pglosses, order, rows=(), lb=()):
         self.weight = weight
-        self.lines = lines
+        self.rows = rows
         self.gloss = gloss
         self.lb = lb
         self.form = form
@@ -4067,6 +4098,18 @@ class Entry:
         self.prose = prose
         self.pglosses = pglosses
         self.order = order
+
+
+def entry_lines(c):
+    """The lines of one entry that fit a card, for the part-sense rule.
+
+    card_lines over the entry's own rows: every line inside the budget, and
+    the entry's card gloss when none is.
+    """
+    lines = [g for g, _ in c.rows if len(g) <= ROOT_GLOSS_CARD]
+    if lines:
+        return lines
+    return [c.gloss] if c.gloss else []
 
 
 RE_INLINE_GLOSS = re.compile(r"<t:([^<>]*)>")
@@ -4178,7 +4221,8 @@ def parse_classical(path, lang):
                         g.alt[k] = tk
                 continue
             ns = len(senses)
-            gl, glb = best_gloss_row(e)
+            rows = gloss_rows(e)
+            gl, glb = best_gloss_row(e, rows)
             head = ((e.get("head_templates") or [{}])[0].get("name") or "")
             weight = ns if pos != "name" else -1000 + ns
             if gl:
@@ -4206,7 +4250,7 @@ def parse_classical(path, lang):
                     src, (e.get("etymology_templates") or [], text)
                     if " + " in prose or (parts and len(parts) >= 2) else None,
                     entry_part_glosses(e, lang) if parts else [], order,
-                    card_lines(e), glb))
+                    rows, glb))
             # A participle page with a gloss of its own is a lemma page to
             # the parser; its step comes from the etymon's ":from" text or
             # from the prose ("Present active participle of dēpōnō").
@@ -4412,7 +4456,7 @@ def build_graph(g, part_steps):
             stated = {}
             for term, (_, pk) in zip(chain, res):
                 if term.gloss:
-                    add_hint(g.part_hints, pk, term.gloss)
+                    add_hint(g, pk, term.gloss)
                     stated[pk] = term.gloss
             return res, "", stated
         return None, why, {}
@@ -4440,7 +4484,7 @@ def build_graph(g, part_steps):
                     res = r
                     for (p, gl), (_, pk) in zip(c.pglosses, r):
                         if gl:
-                            add_hint(g.part_hints, pk, gl)
+                            add_hint(g, pk, gl)
                             stated[pk] = gl
             if res is None and c.prose:
                 r, w2, st = prose_split(k, c.prose[0], c.prose[1])
@@ -4483,13 +4527,19 @@ def build_graph(g, part_steps):
     return g
 
 
-def add_hint(table, key, gloss):
-    """Record one source page's gloss of `key` as a part: one vote, a set
-    of content words."""
+def add_hint(g, key, gloss):
+    """Record one source page's gloss of `key` as a part.
+
+    Two shapes of the same fact, because two rules read it. The entry rule
+    counts content words, so it keeps a set of them. The sense rule scores
+    a stated gloss against a candidate sense line, so it keeps the gloss as
+    the page wrote it.
+    """
     words = {w for w in RE_GLOSS_WORD.findall((gloss or "").lower())
              if w not in GLOSS_STOP}
     if words:
-        table.setdefault(key, []).append(words)
+        g.part_hints.setdefault(key, []).append(words)
+        g.part_texts.setdefault(key, []).append(gloss)
 
 
 def def_words(d):
@@ -5023,6 +5073,7 @@ class Origin:
         # swapping a source in silence (2026-09-07).
         self.answered = {}       # word key -> template | etymon | prose | page
         self.ev = {}             # fam:key -> merged homograph evidence
+        self.sev = {}            # fam:key -> [(stated text, weight)] for the sense rule
         self.ctx = None          # the attaching page's own evidence, during attach
         self.ranks = {}          # word -> rank, for the weight of its vote
 
@@ -5127,6 +5178,35 @@ class Origin:
         for k, r in ev.items():
             if k != "skip":
                 self.ev.setdefault(k, []).append((r, w))
+
+    def note_senses(self, terms, deftext, rank=None):
+        """Record what one English page says about the SENSE of each key.
+
+        The homograph evidence above is collected only for a node with two
+        or more entries, because that is the only question it answers. The
+        sense rule asks a question every node has: which of one entry's
+        senses does English use. So this runs on every key a page names.
+
+        Two statements per page. The gloss it writes beside the term is
+        about the term and counts as one vote whoever wrote it. The page's
+        own first definition is about the English word, so it counts what
+        the word's rank is worth, exactly as rule c does.
+        """
+        w = self.vote_weight(rank)
+        seen = set()
+        for code, term, alt, gloss, pos in terms:
+            fam = ROOT_LANGS.get(code)
+            if not fam:
+                continue
+            key, _ = self.g[fam].lookup(term, alt_ok=True)
+            if key is None:
+                continue
+            k = fam + ":" + key
+            if gloss:
+                self.sev.setdefault(k, []).append((gloss, 1.0))
+            if deftext and k not in seen:
+                seen.add(k)
+                self.sev.setdefault(k, []).append((deftext, w))
 
     def choose(self, fam, key, votes):
         """(entry index, rule) for a node, by the rules in the class note.
@@ -5241,6 +5321,7 @@ class Origin:
                 if i == 0:
                     continue
                 self.stats["homograph_changed"] += 1
+                g.entry[key] = i
                 c = cands[i]
                 g.gloss[key] = c.gloss
                 g.lb[key] = c.lb
@@ -5269,6 +5350,94 @@ class Origin:
                     g.psense.pop(key, None)
             refuse_cycles(g)
             g.stats["decomposed"] = len(g.split)
+
+    # -- the sense an ordinary card shows -----------------------------------
+    #
+    # The budget ladder takes the FIRST sense that fits an 80-character card,
+    # so a page whose sense 1 runs long ships a later one: la:aestimo shipped
+    # "to estimate the moral value of something" where sense 1 is "to
+    # determine the value of something", and la:agger shipped the rubble
+    # where sense 1 is the earthwork.
+    #
+    # The name rule of 2026-09-07 answers this by preferring sense 1, and
+    # that rule is WRONG here. On a name page sense 1 is the referent and the
+    # rest are unrelated homographs. On an ordinary page sense 1 is the most
+    # basic meaning, which is often not the meaning English took: la:-us
+    # reads "used to derive adjectives from other parts of speech" and not
+    # the nominative ending of sense 1, and that is the sense conscious and
+    # magnanimous use.
+    #
+    # So the rule here is evidence, the same shape as the entry rule above.
+    # Three things say which sense English means, and each is one vote:
+    #   the gloss a source page gives the term where it is a part of another
+    #   lemma, the gloss an English page writes beside the term, and the
+    #   first definition of the English word, weighted by its rank.
+    # A vote that fits two candidate senses equally says nothing and is not
+    # counted, which is the `distinct` test the entry rule uses.
+    #
+    # Two limits, both measured rather than reasoned, and both recorded in
+    # SPEC "The sense an ordinary card shows".
+    #
+    # It fires only where the ladder walked past sense 1. The evidence is
+    # usually a translation of the LEMMA rather than of one sense, so it
+    # agrees with the primary sense far more often than it separates a
+    # secondary one. Let it re-rank every card and it moves 945 of the 4,806
+    # ordinary cards with about a third of the moves wrong. Let it arbitrate
+    # only where the budget has already displaced sense 1 and it moves 67.
+    #
+    # Two statements have to agree. The entry rule takes a unique maximum
+    # with no floor, and it can: two entries of a page are two different
+    # words. Two senses of one entry are close, and one statement telling
+    # them apart is not reliable. On one statement the rule moves 67 cards,
+    # 48 better and 14 worse; on two it moves 47, 39 better and 6 worse. The
+    # net gain is the same and the reader sees a third of the damage.
+
+    SENSE_VOTES_MIN = 2
+
+    def choose_senses(self):
+        """Re-pick the card's sense where the budget walked past sense 1."""
+        for fam, g in self.g.items():
+            for key, cands in g.cands.items():
+                if key not in g.gloss:
+                    continue
+                c = cands[g.entry.get(key, 0)]
+                if c.pos == "name":
+                    continue
+                li, _ = ladder_row(c.rows)
+                if li <= 0:
+                    continue
+                self.stats["sense_walked"] += 1
+                cand = sense_candidates(c.rows)
+                if len(cand) < 2:
+                    continue
+                votes = [(t, 1.0) for t in (g.part_texts.get(key) or ())]
+                votes += self.sev.get(fam + ":" + key) or ()
+                if not votes:
+                    continue
+                scores = [0.0] * len(cand)
+                counts = [0] * len(cand)
+                for text, w in votes:
+                    per = [sense_score(text, c.rows[i][0])[0] for i, _ in cand]
+                    top = max(per)
+                    if top <= 0 or per.count(top) > 1:
+                        continue
+                    for j, x in enumerate(per):
+                        if x == top:
+                            scores[j] += w
+                            counts[j] += 1
+                best = max(scores)
+                if best <= 0:
+                    continue
+                hit = [j for j, s in enumerate(scores) if s == best]
+                if len(hit) != 1 or counts[hit[0]] < self.SENSE_VOTES_MIN:
+                    continue
+                i, line = cand[hit[0]]
+                if line == g.gloss.get(key):
+                    continue
+                self.stats["sense_changed"] += 1
+                self.stats["sense_to_first" if i == 0 else "sense_to_other"] += 1
+                g.gloss[key] = line
+                g.lb[key] = c.rows[i][1]
 
     # -- lookups shared with the affix `src` path --------------------------
 
@@ -6074,7 +6243,7 @@ class Origin:
                 # A name entry never wins on evidence: its gloss is the name
                 # (the homograph rule of finding 2, 2026-09-05).
                 continue
-            for line in c.lines:
+            for line in entry_lines(c):
                 s = sense_score(stated, line)
                 if s[0] > top[0] or (s[0] == top[0] and best and s[1] > top[1]):
                     top, best = s, line
@@ -8501,6 +8670,11 @@ def main(argv):
         % (format(st["homograph_a"], ","), format(st["homograph_s"], ","),
            format(st["homograph_b"], ","), format(st["homograph_c"], ","),
            format(st["homograph_d"], ","), format(st["homograph_changed"], ",")))
+    origin.choose_senses()
+    log("  ordinary nodes whose budget walked past sense 1: %s; the evidence "
+        "moved %s of them, %s to sense 1 and %s to another sense"
+        % (format(st["sense_walked"], ","), format(st["sense_changed"], ","),
+           format(st["sense_to_first"], ","), format(st["sense_to_other"], ",")))
 
     # ---- curate and cap -----------------------------------------------
     log("[6/7] curating, capping and resolving roots")

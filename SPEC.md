@@ -348,6 +348,13 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   160 cap, and the ladder above answers when nothing does, so no card can
   lose its gloss to this rule. A name card already showing sense 1 keeps
   every word it shows. See "Sense one is what a name page is about".
+  On an ordinary la or grc card the ladder is checked once more, after the
+  English pages have attached (2026-09-07). Where it walked past sense 1,
+  every sense of the entry becomes a candidate, whole inside the card and as
+  its first clause inside the cap, and the sense two or more English or
+  source statements name wins. Order does not decide here: sense 1 of an
+  ordinary page is the most basic meaning, not the meaning English took. See
+  "The sense an ordinary card shows".
 - `lb` (2026-09-06): the register markers of the sense the card's
   gloss came from, in the same vocabulary and order a definition's
   are, absent when the sense carried none and on every hand gloss.
@@ -3273,12 +3280,108 @@ inside a parenthesis or a quoted run. Applying `cut_tidy` as well would move
 Nothing ships differently. A build calls `first_clause` 31,604 times and 138
 of those calls now read a different clause, but all 138 are name-page senses,
 where the name trim of 2026-09-07 already takes sense 1 and cuts it on
-`clause_bounds`. The two output sets are byte-identical to the build before
+`clause_bounds`. All three output files are byte-identical to the build before
 the change. The fix is correctness where the build was wrong, not a change of
 what a reader sees, and it is cheap to keep because there is now one scan to
 maintain instead of two.
 
+Three counts inside the build report do move, and none of them reaches an
+output. 31 of the 138 clauses grew past the 160-character cap, so a page whose
+only sense is one of them is no longer a glossed page: glossed proper nouns
+138,144 to 138,125 over 137,643 to 137,626 card keys, Latin nodes 46,012 to
+46,010, French glossed pages 90,816 to 90,810. Every one of those pages was
+already unreached, which is why the outputs do not move.
+
 No curation entry was added, removed or amended.
+
+### The sense an ordinary card shows (2026-09-07)
+
+The budget ladder takes the first sense at or under 80 characters, so a page
+whose sense 1 runs long ships a later one. Measured over the 4,806 ordinary
+Latin and Greek cards, meaning every la or grc card whose entry is not a
+name page: 325 do not show, verbatim, sense 1 of the page's first entry.
+That number decomposes, and only one part of it is a problem.
+
+- 162 sit on a different ENTRY of the page. That is the homograph rule of
+  2026-09-05 doing its job, and la:-us is the clearest case: it shows "used
+  to derive adjectives from other parts of speech" and not the nominative
+  ending, which is right, because that is the sense conscious and
+  magnanimous use. A curated override said so until it was retired as
+  redundant on 2026-09-05, and it stays retired.
+- 69 show sense 1 cut to its first clause. Still sense 1.
+- 94 show a later sense of the entry the node settled on, because sense 1
+  did not fit the card. la:aestimo showed "to estimate the moral value of
+  something", la:agger the rubble rather than the earthwork, la:adumbro the
+  representation rather than the shadow. These are the problem.
+
+The name rule of this morning cannot be reused here, and that is the trap. On
+a name page sense 1 is the referent and the senses after it are unrelated
+homographs, so preferring sense 1 is right. On an ordinary page sense 1 is
+the most basic meaning, which is frequently not the meaning English took.
+Forcing sense 1 on the 94 moves 93 of them and turns la:catta into "The
+meaning of this term is uncertain", grc:κένταυρος into "Centaur, a member of
+a savage race dwelling between Mt", la:sacramentum into a sum of money
+deposited in a lawsuit and la:planta into "any vegetable production that
+serves to propagate the species".
+
+The rule is evidence, the shape the entry rule already uses. Where the ladder
+walked past sense 1, every sense of the entry becomes a candidate: whole when
+it fits the 80-character card, its first clause when that fits the 160
+character cap. Three things vote on which candidate English means, and each
+statement is one vote.
+
+- The gloss a source page gives the term where it is a part of another lemma
+  ("agger" glossed "rampart, bulwark" inside a compound).
+- The gloss an English page writes beside the term, its `t=`, `gloss=` or
+  quoted prose.
+- The first definition of the English word, weighted by its rank exactly as
+  the entry rule's rule c is.
+
+A vote that fits two candidates equally says nothing and is not counted,
+which is the `distinct` test of the entry rule. The candidate with the unique
+highest total wins.
+
+Two limits, both measured rather than reasoned.
+
+- It fires only where the ladder walked past sense 1. The evidence is usually
+  a translation of the LEMMA rather than of one sense, so it agrees with the
+  primary sense far more often than it separates a secondary one. Let it
+  re-rank every ordinary card and it moves 945 of the 4,806 with about a
+  third of the moves wrong, which is not shippable.
+- Two statements have to agree. The entry rule takes a unique maximum with no
+  floor and can afford to: two entries of a page are two different words. Two
+  senses of one entry are close, and one statement telling them apart is not
+  reliable. On one statement the rule moves 67 cards, 48 better, 5 neither
+  and 14 worse; on two it moves 47, 39 better, 2 neither and 6 worse. The net
+  gain is the same to within one card and the reader sees a third of the
+  damage.
+
+Outcome on the shipped data. 47 of the 4,806 ordinary cards change, 39
+better, 2 neither, 6 worse; 4,759 are untouched and no card lost its gloss.
+la:agger now reads the earthwork, la:experior "to attempt, to try" for "to
+do, fare", la:turris the tower for "rook", la:familia "a family, kin" for
+"the slaves of a household", la:consul the consul for "a proconsul",
+grc:χολέρα the disease for "vomit, nausea". The six that get worse are
+la:-ium, which reads the chemical-element sense over a family led by office,
+college and engine; la:planta, which reads "sole of the foot" over a family
+led by plant; la:forestis, la:genero, la:genius and la:quam, each of which
+takes a fuller sense 1 where the short later sense read better. All six are
+reported to the owner rather than curated.
+
+Two of the three cards the round was opened on are not reached. la:aestimo
+and la:adumbro have plenty of evidence, but only one statement in the corpus
+distinguishes their senses, so the two-vote floor holds them. Dropping the
+floor fixes both and costs 8 more wrong cards, which is the trade the
+measurement refuses. They are curation candidates and are reported as such.
+
+la:atlas is not reached either, and cannot be. It is a name card, so the name
+rule owns it and this rule skips it by construction. It reads "a mountain in
+the Atlas Mountain Range in the former Kingdom of Mauretania" where English
+atlas descends from the Titan, sense 2 of that page. The evidence there is
+empty: no source page glosses Ātlās as a part and no English page writes a
+gloss beside it, so a rule of this shape has nothing to read. It stays where
+the previous round left it, as the one place a hand gloss would beat the
+rule, and it stays a report rather than an entry.
 
 ## Naming (Jesse decision 2026-08-25)
 

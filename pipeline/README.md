@@ -904,6 +904,14 @@ family split across two homographs (legacy on lēgō "to bequeath" beside
 college on legō "to gather") follows the majority. `ROOT_GLOSSES` still
 overrides the gloss.
 
+**Sense evidence.** The same three statements are kept a second time, in
+`Origin.sev` and `Graph.part_texts`, as the wording rather than as word
+sets, and for every key a page names rather than only the multi-entry ones.
+`Origin.choose_senses` reads them right after `choose_homographs` to pick
+which SENSE of the settled entry the card shows. The two questions are
+separate: the entry rule asks which word the page means, the sense rule asks
+which meaning of that word English took.
+
 **Part senses.** One card serves every parent and follows one entry, so a
 chip used to show whatever gloss won the part's own card whatever sense the
 parent's split meant: la:in- read "un-, non-, not" on incident, intend,
@@ -1134,6 +1142,18 @@ Sense 1 goes whole when no cut fits and it is inside the safety cap, and the
 walk above answers when nothing does, so no card loses its gloss to this. A
 name card already reading sense 1 keeps every word of it. SPEC "Sense one is
 what a name page is about".
+
+An ordinary Latin or Greek card reads the walk once more after the English
+pages have attached. Where the walk left sense 1 behind, every sense of the
+entry becomes a candidate, whole when it fits the card and as its first
+clause when that fits the cap, and the sense the evidence names wins: the
+gloss a source page gives the term as a part, the gloss an English page
+writes beside it, and the first definition of the English word, weighted by
+its rank. Two statements have to agree, and a statement that fits two senses
+equally is not counted. Order decides nothing here, because sense 1 of an
+ordinary page is the most basic meaning rather than the meaning English took.
+47 cards move, 39 for the better. SPEC "The sense an ordinary card shows".
+
 
 A trailing parenthetical clarifier and a leading usage label are dropped
 before any of this, so `terra` reads "dry land" instead of "dry land (as
