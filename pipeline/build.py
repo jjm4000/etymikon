@@ -8118,7 +8118,21 @@ def misses_outcome(words):
 
 # ---------------------------------------------------------------- main
 
+KNOWN_FLAGS = ("--verify", "--force-download", "--offline",
+               "--curation-report-only")
+
+
 def main(argv):
+    # An unrecognised flag stops the build before it can act. Without this a
+    # typo, or a `--help` this script never had, falls through every `in argv`
+    # test and runs an ordinary downloading build, which deletes a cached
+    # extract the moment kaikki republishes at a different size (agent
+    # incident 2026-09-07, half a gigabyte re-fetched to restore it).
+    unknown = [a for a in argv if a not in KNOWN_FLAGS]
+    if unknown:
+        raise SystemExit(
+            "unknown argument %s. This script takes %s and nothing else."
+            % (", ".join(unknown), ", ".join(KNOWN_FLAGS)))
     if "--verify" in argv:
         failed = verify_only()
         # A re-verify must not overwrite the report of the build it checks.
