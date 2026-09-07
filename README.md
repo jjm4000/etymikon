@@ -14,7 +14,7 @@ cēdō), and the cēdō card still lists access, concede and precede below
 it. Word cards link upward too: "Used in N words" lists what
 English builds on the word, so the whole family can be walked in either
 direction with a breadcrumb trail. Every word carries a frequency tier
-chip (Everyday, Common, Advanced, Rare), and inflected selections
+chip (Everyday, Common, Advanced, Uncommon), and inflected selections
 resolve to their lemma: selecting "running" finds run, "territories"
 finds territory.
 

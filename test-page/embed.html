@@ -1015,7 +1015,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it.
+      // The export says what the chip says: the fourth tier is
+      // keyed `rare` and labelled Uncommon.
       row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
@@ -2555,7 +2556,7 @@
       download.body.split("\n")[0]);
     check("it writes one row per exported item, folder name and date included",
       /^word,subterranean,/.test(download.body.split("\n")[1]) &&
-      /,sub- \+ terra \+ -an,Rare,Saved,2026-08-24$/
+      /,sub- \+ terra \+ -an,Uncommon,Saved,2026-08-24$/
         .test(download.body.split("\n")[1]),
       JSON.stringify(download.body.split("\n")[1]));
 

@@ -6698,6 +6698,77 @@ def extension_lang_names():
     return {a or b for a, b in RE_LANG_NAME_KEY.findall(m.group(1))}
 
 
+LOOKUP_JS = os.path.join(ROOT, "extension", "lookup.js")
+RE_TIER_CUTOFFS = re.compile(r"TIER_CUTOFFS = Object\.freeze\(\{(.*?)\}\)", re.S)
+RE_TIER_LABELS = re.compile(r"TIER_LABELS = Object\.freeze\(\{(.*?)\}\)", re.S)
+RE_TIER_LABEL_CONTENT = re.compile(r"var TIER_LABEL = \{(.*?)\};", re.S)
+RE_JS_NUM_PAIR = re.compile(r"([A-Za-z_]\w*)\s*:\s*(\d+)")
+RE_JS_STR_PAIR = re.compile(r"([A-Za-z_]\w*)\s*:\s*\"([^\"]*)\"")
+# The tier keys, in rank order. The KEY is the enum the data and the saved
+# store use; the LABEL is the word a reader sees, and the two are allowed to
+# differ (the fourth key stayed `rare` when its label became Uncommon on
+# 2026-09-07). Nothing here may hold a copy of either: both tables are read
+# off the extension.
+TIER_KEYS = ("everyday", "common", "advanced", "rare")
+
+
+def extension_tiers():
+    """The tier cutoffs and both label tables, read off the extension.
+
+    lookup.js is the one place the cutoffs exist and the one place the
+    labels exist for anything that can import it. content.js cannot import
+    it, so it carries a second label table documented as the fallback for a
+    response that predates the join. The build reads both and verify fails
+    when they disagree: renaming one alone renders the old word on a stale
+    response with nothing else failing.
+
+    Returns (cutoffs, labels, content_labels), any of them None when the
+    file or the table could not be read.
+    """
+    cutoffs = labels = content_labels = None
+    if os.path.exists(LOOKUP_JS):
+        with open(LOOKUP_JS, encoding="utf-8") as fh:
+            src = fh.read()
+        m = RE_TIER_CUTOFFS.search(src)
+        if m:
+            cutoffs = {k: int(v) for k, v in RE_JS_NUM_PAIR.findall(m.group(1))}
+        m = RE_TIER_LABELS.search(src)
+        if m:
+            labels = dict(RE_JS_STR_PAIR.findall(m.group(1)))
+    if os.path.exists(CONTENT_JS):
+        with open(CONTENT_JS, encoding="utf-8") as fh:
+            m = RE_TIER_LABEL_CONTENT.search(fh.read())
+        if m:
+            content_labels = dict(RE_JS_STR_PAIR.findall(m.group(1)))
+    return cutoffs, labels, content_labels
+
+
+def tier_of(fr, cutoffs):
+    """The tier key for a rank, the rule tierOf() in lookup.js runs.
+
+    An unranked word and anything past the last cutoff take the fourth
+    tier, which is why the fourth bucket holds two thirds of the shipped
+    dictionary.
+    """
+    if not isinstance(fr, int) or isinstance(fr, bool) or fr <= 0:
+        return "rare"
+    if fr <= cutoffs["everyday"]:
+        return "everyday"
+    if fr <= cutoffs["common"]:
+        return "common"
+    if fr <= cutoffs["advanced"]:
+        return "advanced"
+    return "rare"
+
+
+def tier_counts(words, cutoffs):
+    """{tier key: shipped words} plus the unranked count the last one absorbs."""
+    counts = collections.Counter(
+        tier_of(w.get("fr"), cutoffs) for w in words.values())
+    unranked = sum(1 for w in words.values() if w.get("fr") is None)
+    return counts, unranked
+
+
 def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
            harvest=None, carry=None):
     """Spot-check the emitted data. Returns the number of failed checks.
@@ -7292,6 +7363,48 @@ def verify(words_obj, roots_obj, forms_obj, anchors=None, splits=None,
             not lacking,
             "%d codes in content.js, %d needed%s"
             % (len(ext), len(need), (", lacking: " + ", ".join(lacking)) if lacking else ""))
+
+    # ---- tiers: the shape of the distribution ---------------------------
+    # A rule that splits a population into classes and silently stops
+    # producing one is a bug that only a count catches. A boundary typo in
+    # TIER_CUTOFFS empties a bucket and every named anchor still passes, so
+    # the four counts are asserted non-empty rather than printed (rule of
+    # 2026-09-07). The last cutoff is checked against the shipping cap in
+    # the same breath, because 50,000 is both, and moving one alone moves
+    # the dictionary.
+    cutoffs, labels, content_labels = extension_tiers()
+    if not cutoffs or not labels:
+        add("the extension's tier tables were read", False,
+            "lookup.js TIER_CUTOFFS/TIER_LABELS not parsed")
+    else:
+        tc, unranked = tier_counts(words, cutoffs)
+        empty = [k for k in TIER_KEYS if tc[k] == 0]
+        add("every tier holds at least one shipped word", not empty,
+            "%s (unranked %s)"
+            % ("  ".join("%s %s" % (labels.get(k, k), format(tc[k], ","))
+                         for k in TIER_KEYS), format(unranked, ",")))
+        add("the last tier cutoff is the shipping cap",
+            cutoffs.get("advanced") == RANK_CAP,
+            "TIER_CUTOFFS.advanced=%s RANK_CAP=%s"
+            % (cutoffs.get("advanced"), RANK_CAP))
+        missing_label = [k for k in TIER_KEYS if not labels.get(k)]
+        add("lookup.js labels all four tiers", not missing_label,
+            "labels %s%s" % (json.dumps(labels, ensure_ascii=False),
+                             (", missing " + ", ".join(missing_label))
+                             if missing_label else ""))
+        if content_labels is None:
+            add("content.js TIER_LABEL was read", False, "content.js not parsed")
+        else:
+            # content.js cannot import lookup.js, so it holds a second copy
+            # of the labels for a response that predates the join. Renaming
+            # one alone renders the old word on a stale response and nothing
+            # else fails, which is what this check is for.
+            drift = sorted(k for k in TIER_KEYS
+                           if labels.get(k) != content_labels.get(k))
+            add("content.js TIER_LABEL says the same words as lookup.js",
+                not drift,
+                "content.js %s%s" % (json.dumps(content_labels, ensure_ascii=False),
+                                     (", drifted: " + ", ".join(drift)) if drift else ""))
 
     # ---- never silent: every classified origin shows, or is reported -----
     if harvest is not None:
@@ -8121,6 +8234,17 @@ def main(argv):
     log("words         : %s" % format(len(shipped), ","))
     log("  ranked <=%d: %s" % (RANK_CAP, format(len(ranked), ",")))
     log("  tail (split): %s" % format(len(shipped) - len(ranked), ","))
+    # The tiers, printed under the labels the extension really shows. A
+    # boundary typo empties a bucket, and until 2026-09-07 nothing reported
+    # the four counts, so it emptied silently. verify asserts each is
+    # non-empty; this line is what makes a shift readable build over build.
+    cutoffs, labels, _ = extension_tiers()
+    if cutoffs and labels:
+        tc, unranked = tier_counts(shipped, cutoffs)
+        log("tiers         : %s (unranked %s, absorbed by %s)"
+            % ("  ".join("%s %s" % (labels.get(k, k), format(tc[k], ","))
+                         for k in TIER_KEYS),
+               format(unranked, ","), labels.get(TIER_KEYS[-1], TIER_KEYS[-1])))
     log("morphs        : %s words (%.1f%% of all, %.1f%% of ranked)"
         % (format(n_morphs, ","), 100.0 * n_morphs / max(1, len(shipped)),
            100.0 * n_rmorphs / max(1, len(ranked))))

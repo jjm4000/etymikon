@@ -1006,7 +1006,8 @@
         });
       });
       row.defs = defs;
-      // The export says "Rare", the way the chip says it.
+      // The export says what the chip says: the fourth tier is
+      // keyed `rare` and labelled Uncommon.
       row.tier = tierLabel(tier(word.fr));
       if (word.morphs) {
         row.breakdown = word.morphs.map(function (p) { return p.f; }).join(" + ");
@@ -1582,7 +1583,7 @@
       api.queryAll(".tier-chip").length === 1,
       "chips=" + api.queryAll(".tier-chip").length);
     check("the chip is the match's tier, worded as the SPEC words it",
-      api.query(".tier-chip").textContent === "Rare" &&
+      api.query(".tier-chip").textContent === "Uncommon" &&
       api.query(".tier-chip").title ===
         "Beyond the 50,000 most frequent words, or unranked " +
         "(Etymikon's classification)",

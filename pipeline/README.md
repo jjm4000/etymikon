@@ -1191,6 +1191,14 @@ reconstructed form anywhere, every root has a gloss, no output carries a
 `placeholder` key, every output carries `v: 1`, every forms.json key is absent
 from words.json and every target is present.
 
+Tier anchors (2026-09-07): every one of the four tiers holds at least one
+shipped word, so a boundary typo that empties a bucket fails instead of
+passing; the last cutoff equals the shipping cap, because 50,000 is both;
+lookup.js labels all four tiers; and content.js's `TIER_LABEL` says the same
+words as lookup.js's `TIER_LABELS`, since content.js cannot import it and
+holds a documented second copy. The build reads both tables off the extension
+source, the way it already reads `LANG_NAME`.
+
 Distribution numbers are printed next to the SPEC's expectation rather than
 asserted. They move with the corpus.
 

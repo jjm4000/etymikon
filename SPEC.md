@@ -56,8 +56,10 @@ needs its full binding detail.
   BUILT ON ships as a root card, family and all (see "A proper noun a
   word is built on is a card").
 - Word tiers, from frequency rank: Everyday (rank 1 to 3,000), Common
-  (to 15,000), Advanced (to 50,000), Rare (beyond, and unranked). Roots
-  are not tiered; a root card shows how many shipped words it builds.
+  (to 15,000), Advanced (to 50,000), Uncommon (beyond, and unranked).
+  Roots are not tiered; a root card shows how many shipped words it
+  builds. The fourth tier was labelled Rare until 2026-09-07; its enum
+  key is still `rare` (see "The fourth tier is Uncommon").
 - v1 non-goals: hover mode, pronunciation (audio and IPA), PIE
   etymology, browse-roots-by-surface (ped as pes vs pais), non-classical
   origin chains (a Hebrew or Old Norse org row is future work, pending a
@@ -138,7 +140,9 @@ All JSON, UTF-8, no BOM, compact, sort_keys, deterministic across runs.
   The worker DOES join the derived `tier` string
   ("everyday" | "common" | "advanced" | "rare") onto every word match
   and family row, because the renderer is a classic script that cannot
-  import lookup.js; the cutoffs still live in exactly one place.
+  import lookup.js; the cutoffs still live in exactly one place. The
+  enum key and the visible label are separate: the fourth key is
+  `rare` and its label is "Uncommon" (2026-09-07).
 - `org`: optional origin, present when the word has no `morphs` but
   its etymology chain reaches Latin or Greek. Two shapes (Jesse
   decision 2026-08-25, the FROM LATIN row):
@@ -634,8 +638,10 @@ off the derived tier:
   words (OpenSubtitles corpus)"
 - Common: blue tint; title "Rank 3,001 to 15,000 by frequency"
 - Advanced: amber tint; title "Rank 15,001 to 50,000 by frequency"
-- Rare: grey tint; title "Beyond the 50,000 most frequent words, or
-  unranked (Etymikon's classification)"
+- Uncommon: grey tint; title "Beyond the 50,000 most frequent words,
+  or unranked (Etymikon's classification)". Keyed `rare`, so the CSS
+  variables and the modifier class read `--tier-rare-*` and
+  `tier-chip--rare`.
 
 Word cards and family rows render exactly one. Root cards render no
 tier chip; the family count line is the root's weight signal.
@@ -2848,6 +2854,65 @@ the markers do render (jap noun 1 reads "ethnic slur, derogatory"). The
 owner's count of 27 is not what this extract holds.
 
 No curation entry was added in this round. Every change is a rule.
+
+### Tier counts are reported and asserted (2026-09-07)
+
+Nothing reported the four tier counts, so a boundary typo in TIER_CUTOFFS
+emptied a bucket and every named anchor still passed. The build now prints
+them under the labels the extension really shows, and verify asserts each is
+non-empty. When a build splits a population into classes, a rule that
+silently stops producing one is a bug the count catches and nothing else
+does.
+
+    tiers : Everyday 2,649  Common 8,419  Advanced 18,190  Uncommon 55,068
+            (unranked 0, absorbed by Uncommon)
+
+Two more checks ride with it. The last cutoff is asserted equal to RANK_CAP,
+because 50,000 is both the tier boundary and the shipping cap and moving one
+alone moves the dictionary. And content.js's TIER_LABEL is asserted to say
+the same words as lookup.js's TIER_LABELS, because content.js cannot import
+lookup.js and holds a documented second copy.
+
+The build reads both tables off the extension source rather than holding a
+copy, the way it already reads content.js's LANG_NAME. lookup.js stays the
+one place the cutoffs and the labels exist.
+
+### The fourth tier is Uncommon (owner decision 2026-09-07)
+
+The fourth tier's label changed from "Rare" to "Uncommon". Only the label
+changed. The enum key is still `rare`, and so are the CSS variables
+`--tier-rare-*` and the modifier class `tier-chip--rare`.
+
+Why. The bucket holds 55,068 of the 84,326 shipped words and it is bimodal.
+It carries abscond at 58,398, metallurgy at 52,663 and querulous at 174,469
+next to modelicious at 400,054, sobber at 530,934 and chossy at 875,585. The
+chip is the only judgment the product volunteers about a word, and on
+epistemology at 134,469 "Rare" told a vocabulary reader to skip. The cutoff
+supports "less frequent than rank 50,000 in a subtitle corpus" and nothing
+more. Over a bucket that wide the only honest single word is the one
+claiming least.
+
+What it costs. The label is also the tier column of the Anki and CSV
+exports, through TIER_LABELS in saved.js, so cards exported before this
+change say "Rare" and cards exported after say "Uncommon". The owner ruled on
+2026-09-07 that this carries no downstream cost: the extension has never been
+submitted and has no users, so there are no old decks to mismatch. A future
+contributor changing the label again should re-check that ruling rather than
+inherit it.
+
+What moved with it. Both label copies moved in the same change, and the build
+now fails when they disagree. The four tier counts ship in the same change,
+so before and after can be compared. No cutoff moved, and the shipped word
+count is unchanged at 84,326: the change touches no pipeline data path.
+
+Surfaces checked. TIER_CUTOFFS needed nothing, since it holds no fourth key.
+TIER_LABELS in lookup.js and TIER_LABEL in content.js each moved one string.
+TIER_ORDER holds keys and needed nothing. TIER_TITLE holds keys and its text
+already said what the cutoff supports, so only its comment moved. The saved.js
+export column reads TIER_LABELS and needed no code change. The screenshot
+scene checks name Advanced and Common and needed nothing. The gold rows carry
+no tier. Both self-check pages import the real lookup.js for tierOf and
+TIER_LABELS, so only their expected strings moved.
 
 ## Naming (Jesse decision 2026-08-25)
 

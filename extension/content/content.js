@@ -125,15 +125,27 @@
   // derives one and joins it onto every word match and family row, so the
   // cutoffs live in exactly one place and this file never sees a rank. Roots
   // carry no tier, so a root card renders no chip by construction.
+  // TIER_ORDER and the keys below are the enum the worker joins on; the
+  // labels are the words a reader sees, and the two are allowed to differ.
+  // The fourth key stayed `rare` when its label became Uncommon on
+  // 2026-09-07.
   var TIER_ORDER = ["everyday", "common", "advanced", "rare"];
+  // The documented fallback for a response that predates the join. It is a
+  // second copy of lookup.js's TIER_LABELS, which this file cannot import,
+  // and the build fails when the two disagree: renaming one alone renders
+  // the old word on a stale response with nothing else failing.
   var TIER_LABEL = {
     everyday: "Everyday",
     common: "Common",
     advanced: "Advanced",
-    rare: "Rare"
+    rare: "Uncommon"
   };
-  // The Rare title names Etymikon as the classifier on purpose: the boundary
-  // is our own cutoff over one corpus, and the tooltip should say so.
+  // The fourth tier's title names Etymikon as the classifier on purpose: the
+  // boundary is our own cutoff over one corpus, and the tooltip should say
+  // so. That is also why the label is Uncommon rather than Rare. The cutoff
+  // supports "less frequent than rank 50,000 in a subtitle corpus" and
+  // nothing more, and the bucket holds abscond and metallurgy beside
+  // modelicious and chossy.
   var TIER_TITLE = {
     everyday: "Rank in the 3,000 most frequent English words " +
       "(OpenSubtitles corpus)",
@@ -270,8 +282,9 @@
     /* Tier-chip tints. Quiet enough to sit beside a headword without
        competing with it. The two frequent zones carry more saturation and a
        stronger edge than advanced and rare, since those are the ones a reader
-       scans for. Rare is deliberately the flattest: it is information, not a
-       warning. */
+       scans for. The fourth tier (key rare, labelled Uncommon) is
+       deliberately the flattest: it is information, not a warning. The CSS
+       variable and class names carry the key, not the label. */
     "  --tier-everyday-bg: #e2f1e9; --tier-everyday-fg: #1f6b4d;",
     "  --tier-everyday-edge: rgba(31, 107, 77, 0.26);",
     "  --tier-common-bg: #e5ecfb; --tier-common-fg: #2a4ea6;",
