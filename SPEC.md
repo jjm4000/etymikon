@@ -2299,6 +2299,43 @@ no origin, and 10 are withheld by the section rule above.
 
 No curation entry was added in this round. Every change is a rule.
 
+### A proper-noun chip says what it names (2026-09-06)
+
+7,172 morph chips render inert, meaning they look like a chip and open
+nothing. 1,525 of them name a proper noun, and on korean an empty box
+labelled Korea sat beside a filled, glossed, clickable -an, which reads
+as broken rather than as out of scope.
+
+The scope decision does not change. A proper noun gets no card, no
+family, no search presence and no clickable chip. What it gets is a
+gloss.
+
+- Pass 1 harvests one line per proper-noun page, from the entry with
+  the most senses, through best_gloss and the same 80-character card
+  budget and 160-character safety cap every other gloss runs through.
+  A page that is only a form-of entry states no sense and is skipped.
+- The table is keyed by the page TITLE, not by the folded key.
+  Wiktionary titles are case sensitive and a chip has to name the page
+  it is glossed from: spangle splits as spang + -le and the only page
+  the extract carries is the surname Spang, ghastly as gast + -ly and
+  Gast is a surname too. Folding the key first glossed 326 chips off a
+  page their own word never names, every one of them lower case.
+- The gloss travels in `g` on the chip, the field a decomposed org part
+  already uses for a stated sense, and lookup.js reads it wherever a
+  chip has no card and no word to read one from.
+- Outcome: 1,084 chips over 958 distinct forms gain a gloss. No chip
+  gained a target, no chip lost one, and no row changed. korean reads
+  Korea "A geographic region in East Asia" beside -an.
+- The twenty highest, read against the extracts: 13 right, 6 degraded,
+  1 wrong. The degraded ones are the card budget walking past a long
+  headline sense, which the single-row note above already records for
+  root cards: Lapland takes "A region in northern Finland" where sense
+  1 runs to 124 characters, and Samson, Tirana, Norland and Enceladus
+  are the same shape. Caspar reads "one of the Magi" where casparian
+  means the botanist Caspary, whom the page never mentions. The wrong
+  one is Mahdi, which reads "A male given name from Arabic" because
+  both senses above it run past the cap with no clause to stop at.
+
 ## Naming (Jesse decision 2026-08-25)
 
 The Korean-era internal names are renamed wholesale: globals

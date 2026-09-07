@@ -245,10 +245,10 @@ export function firstDef(entry) {
  * definition. The link field passes through so the renderer knows which card
  * the chip opens.
  *
- * A morph whose target did not ship comes back as `{f}` alone and renders
- * inert, which is also what a morph with no link field at all gets. `r` is
- * checked first: the data never carries both, and a bundle that does gets the
- * root card rather than two link fields on one chip.
+ * A morph whose target did not ship comes back as `{f}` and whatever gloss it
+ * states itself, and renders inert; a morph with no link field at all gets the
+ * same. `r` is checked first: the data never carries both, and a bundle that
+ * does gets the root card rather than two link fields on one chip.
  *
  * A part carrying `g` states its own gloss and that gloss wins over the
  * root's (SPEC "Origin subsystem", 2026-09-06). One card serves every parent
@@ -275,7 +275,14 @@ function morphRow(morph, roots, wordTable) {
     row.w = wordKey;
     const gloss = firstDef(wordTable[wordKey]);
     if (gloss !== "") row.gloss = gloss;
+    return row;
   }
+  // Nowhere to go, so the chip states its own gloss when the data gave it
+  // one. Proper nouns are the case that has one: the scope decision keeps
+  // Korea out of the dictionary, and the build still harvests the sense of
+  // the page it skipped so the chip is not a blank box (SPEC 2026-09-06).
+  const own = str(morph.g);
+  if (own !== "") row.gloss = own;
   return row;
 }
 

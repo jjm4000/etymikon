@@ -228,6 +228,18 @@
       senses: [{ pos: "noun", defs: ["A small round fruit."] }],
       fr: 9400
     },
+    // The other inert case: Korea is a proper noun, which the scope decision
+    // keeps out of the dictionary, so the chip opens nothing. It still says
+    // what it names, from the `g` the build harvested off the page it skipped.
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      fr: 4210,
+      morphs: [
+        { f: "Korea", g: "A geographic region in East Asia, consisting of " +
+          "two countries, commonly known as South Korea and North Korea" },
+        { f: "-an", r: "en:-an" }
+      ]
+    },
     // The US-primary re-key case. "favorite" is the shipped key and
     // "favourite" maps to it, but the Wiktionary content lives on the British
     // page: the US page there is only a pointer, so the card carries `wik` and
@@ -644,14 +656,18 @@
   }
 
   // The worker joins each morph's gloss: the root gloss for an r chip, the
-  // word's first def for a w chip. A morph with neither comes back bare.
+  // word's first def for a w chip. A morph with neither states its own gloss
+  // in `g` or comes back bare.
   function joinMorphs(morphs) {
     return (morphs || []).map(function (part) {
       var out = { f: part.f };
       if (part.r) {
         out.r = part.r;
         var root = ROOTS[part.r];
-        if (root && root.gloss) out.gloss = root.gloss;
+        // A part that states its own sense wins over the root card's, which
+        // one card cannot follow for every parent at once.
+        var stated = part.g || (root && root.gloss);
+        if (stated) out.gloss = stated;
         // The root's romanization rides on the chip, exactly like the worker.
         if (root && root.rom) out.rom = root.rom;
         return out;
@@ -661,7 +677,9 @@
         var word = WORDS[part.w];
         var first = word && word.senses && word.senses[0];
         if (first && first.defs && first.defs[0]) out.gloss = first.defs[0];
+        return out;
       }
+      if (part.g) out.gloss = part.g;
       return out;
     });
   }
@@ -1574,6 +1592,34 @@
           chip.getAttribute("role") === "button" &&
           chip.getAttribute("tabindex") === "0";
       }));
+
+    // --- the inert chip that still says something -------------------------
+    // Korea is a proper noun, which the scope decision keeps out of the
+    // dictionary: no card, no family, no search row, and a chip that opens
+    // nothing. What it does carry is the sense the build read off the page it
+    // skipped, so it is not a blank box beside a glossed neighbour.
+    show("korean");
+    var properChip = api.queryAll(".morph")[0];
+    check("a proper-noun chip stays inert and offers nothing to click",
+      properChip.classList.contains("inert") &&
+      !properChip.classList.contains("nav") &&
+      !properChip.hasAttribute("tabindex") && !properChip.hasAttribute("role"),
+      properChip.className + " tabindex=" + properChip.getAttribute("tabindex"));
+    check("the inert proper-noun chip carries its own gloss",
+      properChip.querySelector(".morph-gloss") !== null &&
+      properChip.querySelector(".morph-gloss").textContent
+        .indexOf("A geographic region in East Asia") === 0,
+      texts(api.queryAll(".morph-gloss")).join(" | "));
+    var depthBeforeProper = api.viewDepth();
+    properChip.click();
+    await elapse(40);
+    check("clicking the proper-noun chip navigates nowhere",
+      api.viewDepth() === depthBeforeProper, "depth=" + api.viewDepth());
+    show("cranberry");
+    check("an inert chip with no gloss of its own still renders bare",
+      api.queryAll(".morph")[0].classList.contains("inert") &&
+      api.queryAll(".morph")[0].querySelector(".morph-gloss") === null,
+      api.queryAll(".morph")[0].textContent);
 
     // --- a long chip gloss is bounded and clamped ------------------------
     // The one place a root gloss could dominate the card it explains: real

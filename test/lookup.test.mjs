@@ -88,6 +88,14 @@ const words = {
       fr: 903,
     },
     big: { senses: [{ pos: "adj", defs: ["Of great size."] }], fr: 1200 },
+    // A chip with no link at all and a gloss of its own: Korea is a proper
+    // noun, out of the dictionary by scope, so nothing resolves it and the
+    // build hands the chip the sense of the page it skipped.
+    korean: {
+      senses: [{ pos: "adj", defs: ["Of or relating to Korea."] }],
+      morphs: [{ f: "Korea", g: "A region in East Asia." }, { f: "-an", r: "en:-an" }],
+      fr: 4210,
+    },
     box: { senses: [{ pos: "noun", defs: ["A container with a flat base."] }], fr: 2500 },
     dialogue: {
       senses: [{ pos: "noun", defs: ["A conversation between two people."] }],
@@ -607,6 +615,18 @@ test("a w chip naming an unshipped word loses its key, so the chip is inert", ()
   const match = one("beautiful");
   assert.deepEqual(match.morphs[0], { f: "beauty" });
   assert.deepEqual(match.morphs[1], { f: "-ful", gloss: "full of", r: "en:-ful" });
+});
+
+test("a chip with no link states its own gloss and stays inert", () => {
+  const match = one("korean");
+  assert.deepEqual(match.morphs[0], { f: "Korea", gloss: "A region in East Asia." });
+  assert.equal("r" in match.morphs[0], false);
+  assert.equal("w" in match.morphs[0], false);
+});
+
+test("a proper-noun chip names no word, so it opens no used-in list", () => {
+  assert.equal(usedInIndex.Korea, undefined);
+  assert.equal(usedInIndex.korea, undefined);
 });
 
 test("a word with no split carries no morphs key", () => {
@@ -1169,7 +1189,7 @@ test("an unusable wik is dropped rather than passed on", () => {
 // --- roots and families ---------------------------------------------------
 
 test("the family index is derived at runtime and credits every referenced key", () => {
-  assert.deepEqual(familyIndex["en:-an"], ["suburban", "subterranean"]);
+  assert.deepEqual(familyIndex["en:-an"], ["korean", "suburban", "subterranean"]);
   // The index credits every referenced key. roots.json decides which of them
   // has a card, and buildRoot is where an unshipped key stops.
   assert.deepEqual(familyIndex["en:way"], ["subway"]);
@@ -1540,7 +1560,7 @@ test("the prebuilt omnibox index answers exactly like a fresh one", () => {
   assert.equal(index.ranks.length, index.keys.length, "ranks run parallel to the keys");
   assert.deepEqual(
     index.roots.slice(0, 4).map((r) => r.key),
-    ["la:terra", "en:sub-", "en:-an", "en:-ful"],
+    ["la:terra", "en:-an", "en:sub-", "en:-ful"],
     "roots are pre-ranked by family size, then by key"
   );
 });

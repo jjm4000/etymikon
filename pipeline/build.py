@@ -1451,6 +1451,9 @@ def survey_english(path, ranks):
     classical origin chain does. They are provisional: emit keeps the ones
     whose org row decomposes and drops the rest, and the set is what tells
     emit which words that rule may touch.
+
+    The proper-noun table comes back too. Those pages are candidates for
+    nothing; the table exists so a chip naming one can say what it names.
     """
     cand = set()
     chain_only = set()      # candidates nominated by a chain and nothing else
@@ -1459,6 +1462,7 @@ def survey_english(path, ranks):
     us_raw = {}
     mixed_raw = {}
     affixes = {}
+    names = {}              # proper-noun page title -> (sense count, gloss)
     tnames = collections.Counter()
     lcodes = collections.Counter()
     stats = collections.Counter()
@@ -1527,10 +1531,31 @@ def survey_english(path, ranks):
                         seen.append(t)
                         stats["mixed"] += 1
 
+            # A proper noun is outside the dictionary by scope: no card, no
+            # family, no search row, and a chip naming one stays unclickable
+            # (SPEC "Product decisions"). It is still a morpheme a reader
+            # meets, so the page's first sense is harvested for the chip's
+            # gloss and for nothing else. The entry with the most senses
+            # wins, the way an affix page's does; a page that only points at
+            # another page states no sense of its own.
+            #
+            # The table is keyed by the page TITLE, not by the folded key.
+            # Wiktionary titles are case sensitive and a chip has to name
+            # the page it is glossed from: spangle splits as spang + -le and
+            # Spang is a surname, ghastly as gast + -ly and Gast is one too.
+            # A chip written in lower case names neither.
+            if pos == "name":
+                if not pure_form_of(e):
+                    ns = len(e.get("senses") or [])
+                    g = best_gloss(e)
+                    cur = names.get(w)
+                    if g and (cur is None or ns > cur[0]):
+                        names[w] = (ns, g)
+                continue
             # A word already nominated by a split, or by its rank, is
             # settled. A chain-only nomination is provisional, so a later
             # entry may still upgrade it to a split.
-            if pos == "name" or (wl in cand and wl not in chain_only):
+            if wl in cand and wl not in chain_only:
                 continue
             r = ranks.get(wl)
             if r is None:
@@ -1566,7 +1591,7 @@ def survey_english(path, ranks):
     cand |= set(curation.FORCED_SPLITS)
     chain_only -= set(curation.FORCED_SPLITS)
     return (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes,
-            tnames, lcodes, stats)
+            names, tnames, lcodes, stats)
 
 
 # ------------------------------------------------------- English pass 2
@@ -5730,7 +5755,7 @@ def rekey_us_primary(shipped, fmap, us_raw, ranks):
     return pairs
 
 
-def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
+def link_and_prune(shipped, org_rows, harvest, origin, affixes, names, graphs):
     """Resolve every chip, build the root set, link what ships.
 
     Re-runnable, and it has to be. Dropping a word changes who credits what,
@@ -5744,6 +5769,11 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
     to carry a card (an English affix page with no usable sense) or is in
     ROOT_SKIPS, and a reference to it renders inert.
 
+    An inert chip that names a proper noun carries that page's gloss in `g`
+    (2026-09-06). The scope decision keeps proper nouns out of the
+    dictionary, so the chip still opens nothing; what changes is that it
+    stops being a blank box beside a glossed neighbour.
+
     Returns (roots, counters).
     """
     c = collections.Counter()
@@ -5751,6 +5781,7 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
         for m in w.get("morphs") or ():
             m.pop("r", None)
             m.pop("w", None)
+            m.pop("g", None)
         org = org_rows.get(wl)
         if org is None:
             w.pop("org", None)
@@ -5809,6 +5840,14 @@ def link_and_prune(shipped, org_rows, harvest, origin, affixes, graphs):
             elif field == "w":
                 m["w"] = k
                 c["wchip"] += 1
+            else:
+                # Nowhere to go, so the chip says what it is instead. Only a
+                # proper noun has an answer here: every other inert form is
+                # a morpheme with no page of its own.
+                n = names.get(m["f"])
+                if n:
+                    m["g"] = n[1]
+                    c["namegloss"] += 1
         # An org row credits its roots exactly as morph chips do, once per
         # word, whether it is a single lemma or a decomposed one. A row-only
         # row names no root and credits nothing.
@@ -6895,10 +6934,26 @@ def gold_actual(word, words, roots=None):
     w = words.get(word)
     if not w:
         return {"kind": "none"}
+
+    def chip_gloss(m):
+        """What lookup.js joins onto one morph chip: its own gloss, else the
+        root card's, else the first definition of the word it names."""
+        if m.get("g"):
+            return m["g"]
+        if m.get("r"):
+            return (roots.get(m["r"]) or {}).get("gloss", "")
+        target = words.get(m.get("w") or "") or {}
+        for s in target.get("senses") or ():
+            for d in s.get("defs") or ():
+                if d:
+                    return d
+        return ""
+
     if w.get("morphs"):
         return {"kind": "morphs", "parts": [m["f"] for m in w["morphs"]],
                 "inert": [m["f"] for m in w["morphs"]
-                          if not m.get("r") and not m.get("w")]}
+                          if not m.get("r") and not m.get("w")],
+                "glosses": [chip_gloss(m) for m in w["morphs"]]}
     org = w.get("org")
     if not org:
         return {"kind": "none"}
@@ -6923,6 +6978,9 @@ def gold_match(row, actual):
     if kind == "none":
         return True
     if kind == "morphs":
+        if "glosses" in row and \
+                list(row["glosses"]) != list(actual.get("glosses") or []):
+            return False
         return (list(row.get("parts") or []) == list(actual.get("parts") or [])
                 and sorted(row.get("inert") or []) == sorted(actual.get("inert") or []))
     if row.get("lang") != actual.get("lang") or row.get("lemma") != actual.get("lemma"):
@@ -7057,16 +7115,17 @@ def main(argv):
            min(ranks, key=ranks.get) if ranks else "-"))
 
     log("[3/7] surveying the English extract (candidacy, forms, affixes)")
-    (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, tnames,
-     lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
+    (cand, chain_only, forms_raw, alt_raw, us_raw, mixed_raw, affixes, names,
+     tnames, lcodes, s1) = survey_english(ENGLISH_FILE, ranks)
     log("  %s lines read; %s candidate words (%s of them tail splits, "
         "%s tail chains still to prove they flatten)"
         % (format(s1["lines"], ","), format(len(cand), ","),
            format(s1["tail_split"], ","), format(len(chain_only), ",")))
     log("  %s inflection pages, %s alternative-spelling pages, %s mixed pages, "
-        "%s affix entries"
+        "%s affix entries, %s glossed proper nouns"
         % (format(len(forms_raw), ","), format(len(alt_raw), ","),
-           format(len(mixed_raw), ","), format(len(affixes), ",")))
+           format(len(mixed_raw), ","), format(len(affixes), ","),
+           format(len(names), ",")))
 
     # The gates run here, before the expensive passes: an unclassified
     # template name or language code is a question about how to read the
@@ -7229,7 +7288,7 @@ def main(argv):
     while True:
         passes += 1
         roots, lp = link_and_prune(shipped, org_rows, harvest, origin,
-                                   affixes, graphs)
+                                   affixes, names, graphs)
         stale = [wl for wl in chain_only if wl in shipped
                  and not (shipped[wl].get("org") or {}).get("parts")]
         if not stale:
@@ -7244,13 +7303,14 @@ def main(argv):
     log("  %s roots ship (%s src links, %s anchor cards carrying parts); "
         "%s word chips, %s morph chips left inert, %s org parts inert, %s "
         "org rows kept whole, %s org rows dropped, %s repeated morphs "
-        "credited once, %s base chips routed to a classical root"
+        "credited once, %s base chips routed to a classical root, %s inert "
+        "chips glossed as proper nouns"
         % (format(len(roots), ","), format(lp["src"], ","),
            format(lp["rootparts"], ","),
            format(lp["wchip"], ","), format(lp["inert"], ","),
            format(lp["inertpart"], ","), format(lp["orgwhole"], ","),
            format(lp["orgdrop"], ","), format(lp["repeat"], ","),
-           format(lp["routed"], ",")))
+           format(lp["routed"], ","), format(lp["namegloss"], ",")))
 
     # ---- forms.json and the shadow-lemma pointer ------------------------
     # A word that ships AND inflects something shadows its lemma: a reader
