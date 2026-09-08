@@ -6,7 +6,7 @@ names the SPEC section holding its contract. Ordering within a block is
 not priority order. Work in flight has no heading of its own; it becomes
 a bullet in the top block on the day it merges.
 
-## 1.0.0: merged and verified, ready for the first store submission
+## 1.0.0: submitted to the Chrome Web Store 2026-09-07, in review
 
 The manifest reads 1.0.0, so `pipeline/make_zip.ps1` writes
 etymikon-1.0.0.zip and the sidebar footer reads "Etymikon 1.0.0". This is

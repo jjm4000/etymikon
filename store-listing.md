@@ -283,20 +283,34 @@ bundle before it was written down: the subterranean and territory chips,
 the accēdō split, the ephemeral romanization, the sky origin row, the
 accede register marker, the Tantalus card and its gloss.
 
-## Open before upload
+## Submission log
 
-Both earlier items are done. GitHub Pages is on for `main` at `/ (root)`
-and https://jjm4000.github.io/etymikon/privacy-policy.html returns the
-policy. That page no longer heads itself with a name the project never
-shipped.
+### 1.0.0, submitted 2026-09-07, waiting on review
 
-What is left is one thing, and it has to be done by hand.
+Uploaded from `etymikon-1.0.0.zip`, 7,317,071 bytes, 20 entries. The zip
+was verified byte-identical to `extension/` at commit c76c90b: every
+entry matches by sha256 and neither side holds a file the other lacks.
+What is in review and what is in the repo are the same code.
 
-### The clean-profile smoke pass
+Chrome queues new items and this file cannot predict how long that takes.
+Nothing further is uploaded until it clears.
 
-Four checks, done by hand, once, before submitting. It is short because
-almost everything else is already covered, and it is manual by decision
-rather than by neglect.
+Two things belong here once it does. Whether the dashboard altered any
+field pasted from this file, since the uploaded version is canonical and
+this file adopts it verbatim. And the smoke pass result for this release,
+which is not recorded yet.
+
+The privacy policy is a live dependency of the listing. GitHub Pages
+serves `main` at `/ (root)`, and
+https://jjm4000.github.io/etymikon/privacy-policy.html returns the
+policy. Every push to `main` republishes it, so a change that breaks that
+page breaks a URL the store holds.
+
+## The clean-profile smoke pass
+
+Four checks, done by hand, once, before each submission. It is short
+because almost everything else is already covered, and it is manual by
+decision rather than by neglect.
 
 What automation already proves. The package is checked structurally:
 forward-slash separators, the manifest name and version, all three data
