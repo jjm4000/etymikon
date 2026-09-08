@@ -55,7 +55,7 @@ Select any English word and the popup gives its definitions and its parts. subte
 --- EVERY ROOT HAS A CARD ---
 A root card gives the root's form, its language, its gloss, and the words built on it. The card for Latin cēdō, "to go", lists 44 words, necessary and access among them.
 
---- WORDS BORROWED WHOLE ---
+--- A LOANWORD'S OWN PARTS ---
 Some words were assembled before English took them, so the card splits the source word instead. manuscript reads FROM LATIN manūscrīptus, over manus (hand) and scrībō (to write).
 
 --- FAMILIES RUN BOTH WAYS ---
@@ -67,7 +67,7 @@ Cards save into folders you name, and a folder exports to Anki or to CSV.
 --- SIDE PANEL AND ADDRESS BAR ---
 The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra.
 
---- WORDS FROM NAMES ---
+--- NAMES THAT BECAME WORDS ---
 An eponym leads to a card for the person or place behind it, marked Proper noun. tantalize gives Tantalus, the Phrygian king left chin-deep in water he could not drink.
 
 --- WHERE A WORD CAME FROM ---
@@ -99,7 +99,7 @@ The four frequency tiers, Everyday, Common, Uncommon and Rare, are Etymikon's ow
 The dictionary data shipped in the extension is a derived database under CC BY-SA 4.0, an obligation inherited from Wiktionary. The extension's source code is GPL-3.0. Both are at https://github.com/jjm4000/etymikon
 ```
 
-3,139 characters. The limit is 16,000.
+3,148 characters. The limit is 16,000.
 
 The separators are labels, not sentences: a noun phrase naming the
 section's subject, one to five words, and the body makes the claim. The
