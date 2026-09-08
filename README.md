@@ -74,7 +74,8 @@ Etymologikon.
 ## Provenance
 
 This repository is a fork of [Okpyeon](https://github.com/jjm4000/okpyeon)
-(a hanja popup dictionary) at tag v1.1.0. The shell (popup, sidebar,
+(a hanja popup dictionary) at its tag v1.1.0, which this repository tags
+`okpyeon-v1.1.0`. The shell (popup, sidebar,
 saved words, navigation, tooling) carries over; the language core is
 new. Dictionary content is built from the English, Latin, and Ancient
 Greek editions of Wiktionary via kaikki.org extracts (CC BY-SA), with

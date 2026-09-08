@@ -7,11 +7,13 @@ source, gloss, and the English words built on it. All data ships inside
 the extension, built from Wiktionary via kaikki.org extracts. Offline, no
 network requests at runtime.
 
-This repository is a fork of Okpyeon (github.com/jjm4000/okpyeon) at tag
-v1.1.0. The Okpyeon SPEC.md this file replaces remains authoritative for
-the shell mechanisms carried over (listed in "Carried-over shell"); read
-it in the upstream repo or at tag v1.1.0 when a carried-over behavior
-needs its full binding detail.
+This repository is a fork of Okpyeon (github.com/jjm4000/okpyeon) at its
+tag v1.1.0. The Okpyeon SPEC.md this file replaces remains authoritative
+for the shell mechanisms carried over (listed in "Carried-over shell");
+read it in the upstream repo, or here at tag `okpyeon-v1.1.0`, when a
+carried-over behavior needs its full binding detail. The fork point
+carries that name here so that a plain `v1.1.0` stays free for an
+Etymikon release of its own.
 
 ## Product decisions (ratified with Jesse, 2026-08-24/25)
 
@@ -3637,7 +3639,7 @@ key is absent and the old key holds data, the old value is adopted
 under the new key and the old key removed. Wherever the carried-over
 Okpyeon spec sections name the old identifiers, read the new ones.
 
-## Carried-over shell (binding by reference to Okpyeon SPEC @ v1.1.0)
+## Carried-over shell (binding by reference to Okpyeon SPEC @ okpyeon-v1.1.0)
 
 These mechanisms carry over with only naming and content changes, and
 their Okpyeon spec sections remain binding: popup shell (shadow root,
