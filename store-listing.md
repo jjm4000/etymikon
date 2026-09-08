@@ -49,38 +49,45 @@ Select an English word on any page to see its definitions and its morpheme break
 Plain text. Paste everything between the fences.
 
 ```
---- SELECT A WORD, SEE WHAT IT IS MADE OF ---
-Highlight any English word and the popup gives its definitions and its parts. subterranean is sub- (under, beneath) plus terra (dry land) plus -an (belonging to).
+--- WORDS INTO PARTS ---
+Select any English word and the popup gives its definitions and its parts. subterranean is sub- (under, beneath) plus terra (dry land) plus -an (belonging to).
 
 --- EVERY ROOT HAS A CARD ---
-A root card gives the root's form, its language, its gloss, and the English words built on it. The card for Latin cēdō, "to go", lists 44 words, necessary and access among them.
+A root card gives the root's form, its language, its gloss, and the words built on it. The card for Latin cēdō, "to go", lists 44 words, necessary and access among them.
 
---- A BORROWED WORD SHOWS THE SOURCE WORD'S PARTS ---
+--- WORDS BORROWED WHOLE ---
 Some words were assembled before English took them, so the card splits the source word instead. manuscript reads FROM LATIN manūscrīptus, over manus (hand) and scrībō (to write).
 
---- A WORD CARD SAYS WHAT IS BUILT ON THE WORD ---
-The family runs in both directions, so a card lists the longer words English builds on the one you looked up. please is used in five words, and pleasant is one of them.
+--- FAMILIES RUN BOTH WAYS ---
+A card also lists the longer words built on the one you looked up. please is used in five words, displease among them.
 
---- KEEP WHAT YOU LOOK UP ---
+--- SAVED WORDS AND ANKI EXPORT ---
 Cards save into folders you name, and a folder exports to Anki or to CSV.
 
---- SEARCH WITHOUT A PAGE ---
-The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra and press Enter.
+--- SIDE PANEL AND ADDRESS BAR ---
+The toolbar icon opens the same cards in Chrome's side panel, and the address bar keyword et searches from anywhere. Type et terra.
 
---- A WORD BUILT ON A NAME REACHES THE NAME ---
-An eponym opens the person or place behind it, on a card marked Proper noun. tantalize opens Tantalus, the Phrygian king left chin-deep in water he could not drink.
+--- WORDS FROM NAMES ---
+An eponym leads to a card for the person or place behind it, marked Proper noun. tantalize gives Tantalus, the Phrygian king left chin-deep in water he could not drink.
 
---- NOT EVERY WORD COMES FROM LATIN OR GREEK ---
-A word from anywhere else names the language and the word it came from. sky reads "From Old Norse ský (cloud)", and ephemeral reaches Greek ἡμέρα, romanized hēmérā, glossed "day".
+--- WHERE A WORD CAME FROM ---
+A card names the source language and the source word, whatever that language is. sky reads "From Old Norse ský (cloud)", and ephemeral reaches Greek ἡμέρα, romanized hēmérā, glossed "day".
 
---- DEFINITIONS SAY WHEN A SENSE IS MARKED ---
-Where the source marks a sense as archaic, informal or one of fourteen other labels, the marker is printed in front of the definition. The fourth sense of accede reads "archaic To approach; to arrive, to come forward."
+--- SENSE MARKERS ---
+A sense the source marks as archaic or informal carries that marker in front of the definition. The fourth sense of accede reads "archaic To approach; to arrive, to come forward."
 
---- HOW COMMON THE WORD IS ---
-Every word carries one of four frequency tiers, counted over a corpus of film subtitles. subterranean reads Uncommon.
+--- EVERY WORD IS GRADED ---
+Every word carries one of four frequency tiers, counted over a corpus of film subtitles. democracy reads Common.
 
---- THE WHOLE DICTIONARY IS INSIDE THE EXTENSION ---
-87,161 words, 9,223 root cards and 114,842 inflection and spelling mappings, 25.6 MB of dictionary data. Etymikon works with no connection and makes no network requests.
+--- WHAT IS INSIDE ---
+- 87,161 English words with definitions, morpheme breakdowns and frequency tiers
+- 9,223 Latin, Greek and English root cards, each listing the words built on it
+- 114,842 inflected and variant spellings mapped to their headword
+- 1,414 proper-noun cards for the people and places behind eponyms
+- 25.6 MB of dictionary data
+
+--- PRIVATE AND OFFLINE ---
+The whole dictionary ships inside the extension. It makes no network requests and collects no data, and saved words stay on your device.
 
 --- SOURCES ---
 Definitions, morpheme breakdowns and inflected forms: English Wiktionary, through the machine-readable extracts published by kaikki.org, under CC BY-SA.
@@ -92,7 +99,16 @@ The four frequency tiers, Everyday, Common, Uncommon and Rare, are Etymikon's ow
 The dictionary data shipped in the extension is a derived database under CC BY-SA 4.0, an obligation inherited from Wiktionary. The extension's source code is GPL-3.0. Both are at https://github.com/jjm4000/etymikon
 ```
 
-3,655 characters. The limit is 16,000.
+3,139 characters. The limit is 16,000.
+
+The separators are labels, not sentences: a noun phrase naming the
+section's subject, one to five words, and the body makes the claim. The
+test is whether the body's first sentence restates the label; if it
+does, the label was doing the body's job. A label must also be true of
+everything under it, which is why none of them is written as a contrast
+with the section above: a contrast asserts what is absent, and a body
+outgrows that. The rule and its worked failures came from Okpyeon on
+2026-09-07.
 
 ## Category
 
